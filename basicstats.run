@@ -1,0 +1,43 @@
+  printf "\nTax=%d: cost=$%3.2f/MWh, final wind/solar=%2d\%, hydro=%2d\%, geothermal=%2d\%, nuclear=%2d\%, coal=%2d\%\n\n",
+    carbon_cost,
+    (Power_Cost - (0
+          # Carbon cost adder for new dispatchable projects
+          + sum {(z, t, s, o) in PROJ_DISPATCH, h in HOURS}
+              DispatchGen[z, t, s, o, h] * (carbon_cost_per_mwh[t, h])
+          # Carbon cost adder for existing baseload plants
+          + sum {(z, e, p) in EP_BASELOAD_PERIODS, h in HOURS: period[h]=p}
+              OperateEPDuringYear[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e]
+              * (ep_carbon_cost_per_mwh[z, e, h])
+          # Carbon cost adder for existing dispatchable projects
+          + sum {(z, e, h) in EP_DISPATCH_HOURS}
+              DispatchEP[z, e, h]
+              * (ep_carbon_cost_per_mwh[z, e, h])
+      )) / system_load_discounted,
+    100*(sum {(z, t, s, o, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS: period[h]=last(PERIODS)}
+       (1-forced_outage_rate[t]) * cap_factor[z, t, s, o, h] * InstallGen[z, t, s, o, v] * hours_in_sample[h])
+    / (sum {z in LOAD_ZONES, h in HOURS: period[h]=last(PERIODS)} system_load[z, h] * hours_in_sample[h]),
+    # hydro
+    (sum {z in LOAD_ZONES, h in HOURS: period[h]=last(PERIODS)} hours_in_sample[h] * (
+      # pumped hydro, de-rated to reflect occasional unavailability of the hydro plants
+      + (1 - forced_outage_rate_hydro) * (sum {(z, s) in PROJ_PUMPED_HYDRO} DispatchPumpedHydro[z, s, h])
+      - (1 - forced_outage_rate_hydro) * (1/pumped_hydro_efficiency) *
+          (sum {(z, s) in PROJ_PUMPED_HYDRO} StorePumpedHydro[z, s, h])
+      # simple hydro, dispatched using the season-hour schedules chosen above
+      # also de-rated to reflect occasional unavailability
+      + (1 - forced_outage_rate_hydro) *
+        (min_hydro_dispatch_all_sites[z, date[h]]
+           + HydroDispatchShare[period[h], z, season_of_year[h], hour_of_day[h]]
+             * (avg_hydro_dispatch_all_sites[z, date[h]] - min_hydro_dispatch_all_sites[z, date[h]]) * 24)
+    )) * 100 / (sum {z in LOAD_ZONES, h in HOURS: period[h]=last(PERIODS)} system_load[z, h] * hours_in_sample[h]),
+    # geothermal
+    (sum {(z, e, p) in EP_BASELOAD_PERIODS, h in HOURS: period[h]=p and p=last(PERIODS) and ep_fuel[z, e]="Geothermal"}
+      (OperateEPDuringYear[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e]) * hours_in_sample[h])
+    * 100 / (sum {z in LOAD_ZONES, h in HOURS: period[h]=last(PERIODS)} system_load[z, h] * hours_in_sample[h]),
+    # nuclear
+    (sum {(z, e, p) in EP_BASELOAD_PERIODS, h in HOURS: period[h]=p and p=last(PERIODS) and ep_fuel[z, e]="Nuclear"}
+      (OperateEPDuringYear[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e]) * hours_in_sample[h])
+    * 100 / (sum {z in LOAD_ZONES, h in HOURS: period[h]=last(PERIODS)} system_load[z, h] * hours_in_sample[h]),
+    # coal
+    (sum {(z, e, p) in EP_BASELOAD_PERIODS, h in HOURS: period[h]=p and p=last(PERIODS) and ep_fuel[z, e]="Coal"}
+      (OperateEPDuringYear[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e]) * hours_in_sample[h])
+    * 100 / (sum {z in LOAD_ZONES, h in HOURS: period[h]=last(PERIODS)} system_load[z, h] * hours_in_sample[h]);
