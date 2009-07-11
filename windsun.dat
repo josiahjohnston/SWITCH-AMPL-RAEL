@@ -1,0 +1,129 @@
+# the year to which costs should be discounted
+param base_year := 2007;
+
+# planning reserve margin - fractional extra load the system must be able able to serve
+# when there are no forced outages
+param planning_reserve_margin := 0.15;
+
+# annual rate (real) to use to discount future costs to current year
+param discount_rate := 0.03;
+
+# Minimum amount of electricity that solar must produce
+param min_solar_production := 0.0030;
+
+# required rates of return (real) for generators and transmission lines
+# NOTE: 9 June 2009, default generator and transmission finance rates were changed from 0.06 to 0.08 to more accurately reflect the private cost of capital
+param finance_rate default 0.08 := DistPV 0.03;
+param transmission_finance_rate := 0.08;
+
+# retirement age for transmission lines
+param transmission_max_age_years := 20;
+
+# cost per mw-km for transmission lines
+param transmission_cost_per_mw_km := 1000;
+
+# forced outage rate for transmission lines, used for probabilistic dispatch(!)
+param transmission_forced_outage_rate := 0.01;
+
+# parameters for intra-zone transmission and distribution
+# MID has a demand charge of $8.80/kW each month; this works out to $105,600/MW-year
+# TODO: find a better source than this (start with E3 2004)
+param local_td_annual_payment_per_mw := 100000;
+param local_td_max_age_years := 20;
+
+# forced outage rate for hydroelectric dams
+# this is used to de-rate the planned power production
+# TODO: get a better number for this (0.02 is made up)
+param forced_outage_rate_hydro := 0.02;
+
+# round-trip efficiency for storing power via a pumped hydro system
+# TODO: find plant-specific numbers for this (0.8 is made up)
+param pumped_hydro_efficiency := 0.8;
+
+# maximum share of each day's "discretionary" hydro flow 
+# (everything between the minimum_hydro_flow and the average_hydro_flow) 
+# that can be dispatched in a single hour
+# Higher values will produce narrower, taller hydro dispatch schedules,
+# but also more "baseload" hydro.
+# Max_hydro_dispatch_per_hour changed to 0.5 = 0.167 * 3 for three-hourly sampling
+param max_hydro_dispatch_per_hour = 0.5;
+
+# "carrying cost" for hydro and pumped hydro facilities ($/MWp/year)
+# this is calculated as 
+#   $1500/kW * 1000 kW/MW * 0.061 (capital recovery factor for a 70-year project at 6% interest)
+#   + 13/kW * 1000 kW/MW (fixed O&M per MW)
+#   + 3.3/MWh * 8760 * 0.3 h/y (variable O&M and approx. capacity factor for CA hydro projects [0.26 for all projects, 0.35 for simple hydro])
+# (this works out to about $43/MWh)
+# TODO: calculate hydro costs endogenously 
+#   (that will require some neat way of getting hydro plant and cost data into ampl, 
+#   maybe via existing_plants.tab; that will also require adding a flag to prevent 
+#   the model from trying to dispatch these plants along with the gas and coal ones) 
+param hydro_annual_payment_per_mw := 113172;
+
+# list of fuel types
+set FUELS := Gas Coal Nuclear Wind Solar Geothermal Bio;
+
+# Names of intermittent and resource-limited technologies. 
+param tech_ccgt := "CCGT";
+param tech_ct := "CTA";
+param tech_pv := "DistPV";
+#param tech_central_pv := "CentPV";
+param tech_trough := "Trough";
+param tech_wind := "Wind";
+param tech_bio := "Biomass";
+
+# All of the solar technologies. If you change what they are called in the section immediately above, change them here too.
+set SOLAR_TECHNOLOGIES := DistPV Trough;
+
+# default values for projects that don't have sites or orientations
+param site_unspecified := "na";
+param orient_unspecified := "na";
+
+# years to study
+set YEARS :=
+2006
+2007
+2008
+2009
+2010
+2011
+2012
+2013
+2014
+2015
+2016
+2017
+2018
+2019
+2020
+2021
+2022
+2023
+2024
+2025
+2026
+2027
+2028
+2029
+2030
+2031
+2032
+2033
+2034
+2035
+2036
+2037
+2038
+2039
+2040;
+
+
+# cost of carbon emissions ($/tonneCO2)
+param carbon_cost := 0;
+
+# carbon content (tonnes CO2 per million Btu)
+# gas converted from http://www.eia.doe.gov/oiaf/1605/coefficients.html
+# this page says nevada and arizona coal are around 205-208 pounds per million Btu: http://www.eia.doe.gov/cneaf/coal/quarterly/co2_article/co2.html
+param carbon_content :=
+Gas 0.0531
+Coal 0.0939;
