@@ -110,7 +110,7 @@ mysql -h $db_server -u $user -p$password -e "$select_dispatch_summary" > $result
 #echo 'select_dispatch_summary: '"$select_dispatch_summary"
 #echo ''
 #echo ''
-
+#jack edit
 
 
 
