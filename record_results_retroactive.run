@@ -16,8 +16,7 @@ for {c in CARBON_COSTS} {
   fix OperateEPDuringYear;
   fix DispatchEP;
   fix InstallTrans;
-  fix DispatchTransTo_Reserve;
-  fix DispatchTransFrom_Reserve;
+  fix DispatchTransFromXToY_Reserve;
   fix InstallLocalTD;
   fix StorePumpedHydro;
   fix DispatchPumpedHydro;
@@ -39,8 +38,7 @@ for {c in CARBON_COSTS} {
   unfix OperateEPDuringYear;
   unfix DispatchEP;
   unfix InstallTrans;
-  unfix DispatchTransTo_Reserve;
-  unfix DispatchTransFrom_Reserve;
+  unfix DispatchTransFromXToY_Reserve;
   unfix InstallLocalTD;
   unfix StorePumpedHydro;
   unfix DispatchPumpedHydro;
@@ -190,8 +188,8 @@ printf {z in LOAD_ZONES, h in HOURS, p in PERIODS: period[h]=p}
 #  (1-transmission_forced_outage_rate) *  
 #    (sum {(z, z2) in TRANS_LINES} transmission_efficiency[z, z2] * (existing_transmission[z, z2] + sum {(z, z2, v, h) in TRANS_VINTAGE_HOURS} #InstallTrans[z, z2, v])
 #    + sum {(z1, z) in TRANS_LINES} transmission_efficiency[z1, z] * (existing_transmission[z1, z] + sum {(z1, z, v, h) in TRANS_VINTAGE_HOURS} InstallTrans[z1, z, v])),
-  (sum {(z, z2) in TRANS_LINES} (transmission_efficiency[z, z2] * DispatchTransTo[z, z2, h] - DispatchTransFrom[z, z2, h]))
-  - (sum {(z1, z) in TRANS_LINES} (DispatchTransTo[z1, z, h] - transmission_efficiency[z1, z] * DispatchTransFrom[z1, z, h])),
+  (sum {(z2, z) in TRANS_LINES} (transmission_efficiency[z2, z] * DispatchTransFromXToY[z2, z, h]))
+  - (sum {(z, z1) in TRANS_LINES} (DispatchTransFromXToY[z, z1, h])),
   0, hours_in_sample[h], 0, 
   0, 0, 0
   >> (outfile);
@@ -201,8 +199,8 @@ printf {z in LOAD_ZONES, h in HOURS, p in PERIODS: period[h]=p}
 printf {z in LOAD_ZONES, h in HOURS, p in PERIODS: period[h]=p} 
   "%s,%f,%d,%s,%d,%d,%s,%s,%s,%d,%d,%d,%s,%f,%f,%d,%f,%f,%f,%f\n",
   scenario_name, carbon_cost, p, z, date[h], h, "na", "Transmission Losses", "na", 0, 0, 0, "na",
-  (sum {(z, z2) in TRANS_LINES} ((1 - transmission_efficiency[z, z2]) * DispatchTransFrom[z, z2, h]))
-  + (sum {(z1, z) in TRANS_LINES} ((1 - transmission_efficiency[z1, z]) * DispatchTransTo[z1, z, h])),
+  (sum {(z2, z) in TRANS_LINES} ((1 - transmission_efficiency[z2, z]) * DispatchTransFromXToY[z2, z, h]))
+  + (sum {(z, z1) in TRANS_LINES} ((1 - transmission_efficiency[z, z1]) * DispatchTransFromXToY[z, z1, h])),
   0, hours_in_sample[h], 0, 
   0, 0, 0
   >> (outfile);
@@ -236,19 +234,19 @@ printf "scenario_name,carbon_cost,period,load_area_receive,load_area_from,date,h
 
 
 # detailed imports
-printf {(z, z2) in TRANS_LINES, h in HOURS, p in PERIODS: period[h]=p and DispatchTransTo[z, z2, h] > 0.001} 
+printf {(z2, z) in TRANS_LINES, h in HOURS, p in PERIODS: period[h]=p and DispatchTransFromXToY[z2, z, h] > 0.001} 
   "%s,%f,%d,%s,%s,%d,%d,%f,%d\n",
   scenario_name, carbon_cost, p, z, z2, date[h], h, 
-  DispatchTransTo[z, z2, h],
+  DispatchTransFromXToY[z2, z, h],
   hours_in_sample[h]
   >> (outfile);
 
 
 # detailed exports
-printf {(z, z2) in TRANS_LINES, h in HOURS, p in PERIODS: period[h]=p and DispatchTransFrom[z, z2, h] > 0.001} 
+printf {(z, z2) in TRANS_LINES, h in HOURS, p in PERIODS: period[h]=p and DispatchTransFromXToY[z, z2, h] > 0.001} 
   "%s,%f,%d,%s,%s,%d,%d,%f,%d\n",
   scenario_name, carbon_cost, p, z, z2, date[h], h, 
-  DispatchTransFrom[z, z2, h],
+  DispatchTransFromXToY[z, z2, h],
   hours_in_sample[h]
   >> (outfile);
 
@@ -327,8 +325,8 @@ printf "scenario_name,carbon_cost,period,start,end,tid,new,trans_mw,fixed_cost\n
 # TODO: switch this to record the bidirectional capacities, instead of averaging them together
 printf {(z1, z2) in TRANS_LINES, p in PERIODS}:
   '%s,%f,%d,"%s","%s",%d,%d,%f,%f\n',
-  scenario_name, carbon_cost, p, z1, z2, tid[z1, z2], 0, (existing_transmission_from[z1, z2]+existing_transmission_to[z1, z2])/2,
-  ((existing_transmission_from[z1, z2]+existing_transmission_to[z1, z2])/2) 
+  scenario_name, carbon_cost, p, z1, z2, tid[z1, z2], 0, (existing_transmission[z1, z2]),
+  ((existing_transmission[z1, z2])) 
     * transmission_annual_payment[z1, z2, first(PERIODS)] * (1-(1/(1+discount_rate)^(years_per_period)))/discount_rate
   >> (outfile);
 
