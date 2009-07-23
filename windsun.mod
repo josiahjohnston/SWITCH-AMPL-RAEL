@@ -908,12 +908,17 @@ subject to Satisfy_Load {z in LOAD_ZONES, h in HOURS}:
 
 	########################################
 	#    TRANSMISSION
-  # transmission into and out of the zone. Each entry in transline represents two directions: From & To
+  # transmission into and out of the zone. 
+  
+  # Transmitted power coming into the zone will have losses because of the transmission line it has come in over;
+  # as a result, the incoming DispatchTransFromXToY[z2, z, h] is multiplied by the transmission efficiency of the line over which it was transmitted.
+  # On the other hand, transmitted power leaving the zone will not yet have experienced transmission losses; as a result the outgoing 
+  # DispatchTransFromXToY[z, z1, h] is not multiplied by the transmission efficiency.
 
-#                                     |--------------------- Imports --------------------|   
+#                                     |--------------------- Imports (have experienced transmission losses) --------------------|   
   + (sum {(z2, z) in TRANS_LINES} (transmission_efficiency[z2, z] * DispatchTransFromXToY[z2, z, h]))
   
-#                                   |----- Exports -------|  
+#                                   |----- Exports (have not experienced transmission losses) -------|  
   - (sum {(z, z1) in TRANS_LINES} (DispatchTransFromXToY[z, z1, h]))
 
   >= system_load[z, h];
