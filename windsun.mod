@@ -288,7 +288,7 @@ set PROJECTS =
   union PROJ_RESOURCE_LIMITED;
 
 # the set of all dispatchable projects (i.e., non-intermittent)
-set PROJ_DISPATCH = {(z, t, s, o) in PROJECTS: not new_baseload[t] and not intermittent[t]};
+set PROJ_DISPATCH = (PROJECTS diff PROJ_INTERMITTENT);
 
 # sets derived from site-specific tables, help keep projects distinct
 set SITES = setof {(z, t, s, o) in PROJECTS} (s);
@@ -471,9 +471,9 @@ param transmission_length_km {TRANS_LINES};
 # delivery efficiency on each transmission line
 param transmission_efficiency {TRANS_LINES};
 
-# the rating of existing lines in MW (can be different for the two directions)
-param existing_transmission_from {TRANS_LINES} >= 0 default 0;
-param existing_transmission_to {TRANS_LINES} >= 0 default 0;
+# the rating of existing lines in MW (can be different for the two directions, but each direction is
+# represented by an individual entry in the table)
+param existing_transmission {TRANS_LINES} >= 0 default 0;
 
 # unique ID for each transmission line, used for reporting results
 param tid {TRANS_LINES};
@@ -741,7 +741,7 @@ set EP_BASELOAD_PERIODS :=
   {(z, e, p) in EP_PERIODS: ep_baseload[z, e]};
 
 # trans_line-vintage-hour combinations for which dispatch decisions must be made
-set TRANS_VINTAGE_HOURS := 
+ set TRANS_VINTAGE_HOURS := 
   {(z1, z2) in TRANS_LINES, v in VINTAGE_YEARS, h in HOURS: v <= period[h] < transmission_end_year[v]};
 
 # local_td-vintage-hour combinations which must be reconciled
@@ -782,10 +782,8 @@ var DispatchEP {EP_DISPATCH_HOURS} >= 0;
 var InstallTrans {TRANS_LINES, VINTAGE_YEARS} >= 0;
 
 # number of MW to transmit through each transmission corridor in each hour
-var DispatchTransTo {TRANS_LINES, HOURS} >= 0;
-var DispatchTransFrom {TRANS_LINES, HOURS} >= 0;
-var DispatchTransTo_Reserve {TRANS_LINES, HOURS} >= 0;
-var DispatchTransFrom_Reserve {TRANS_LINES, HOURS} >= 0;
+var DispatchTransFromXToY {TRANS_LINES, HOURS} >= 0;
+var DispatchTransFromXToY_Reserve {TRANS_LINES, HOURS} >= 0;
 
 # amount of local transmission and distribution capacity
 # (to carry peak power from transmission network to distributed loads)
@@ -840,7 +838,6 @@ minimize Power_Cost:
   + sum {(z, e, p) in EP_PERIODS} 
       OperateEPDuringYear[z, e, p] * ep_size_mw[z, e] * ep_fixed_cost[z, e, p]
   # Calculate variable costs for existing BASELOAD plants
-  # NOTE: The number of decision variables could be reduced significantly if you indexed ep_variable_cost & ep_carbon_cost_per_mwh by p instead of h, then express the sum like this: + sum {(z, e, p) in EP_BASELOAD_PERIODS} OperateEPDuringYear[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e] * (ep_variable_cost[z, e, p] + ep_carbon_cost_per_mwh[z, e, p]) * total_hours_in_period[p]
   + sum {(z, e, p) in EP_BASELOAD_PERIODS, h in HOURS: period[h]=p}
       OperateEPDuringYear[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e] 
       * (ep_variable_cost[z, e, h] + ep_carbon_cost_per_mwh[z, e, h])
@@ -855,9 +852,9 @@ minimize Power_Cost:
 	########################################
 	#    TRANSMISSION & DISTRIBUTION
   + sum {(z1, z2) in TRANS_LINES, v in VINTAGE_YEARS} 
-      InstallTrans[z1, z2, v] * transmission_cost_per_mw[z1, z2, v]
+		InstallTrans[z1, z2, v] * transmission_cost_per_mw[z1, z2, v]
   + sum {(z1, z2) in TRANS_LINES} 
-      transmission_cost_per_mw[z1, z2, first(PERIODS)] * (existing_transmission_from[z1, z2] + existing_transmission_to[z1, z2])/2
+      transmission_cost_per_mw[z1, z2, first(PERIODS)] * (existing_transmission[z1, z2])/2
   + sum {z in LOAD_ZONES, v in VINTAGE_YEARS}
       InstallLocalTD[z, v] * local_td_cost_per_mw[v, z]
 ;
@@ -868,7 +865,7 @@ minimize Power_Cost:
 # so it is more clear where surplus power is being generated
 minimize Transmission_Usage:
   sum {(z1, z2) in TRANS_LINES, h in HOURS} 
-    (DispatchTransTo[z1, z2, h] + DispatchTransFrom[z1, z2, h]);
+    (DispatchTransFromXToY[z1, z2, h]);
 
 
 #### CONSTRAINTS ####
@@ -912,11 +909,11 @@ subject to Satisfy_Load {z in LOAD_ZONES, h in HOURS}:
 	#    TRANSMISSION
   # transmission into and out of the zone. Each entry in transline represents two directions: From & To
 
-#                                     |--------------------- Imports --------------------|        |----- Exports -------|
-  + (sum {(z, z2) in TRANS_LINES} (transmission_efficiency[z, z2] * DispatchTransTo[z, z2, h] - DispatchTransFrom[z, z2, h]))
+#                                     |--------------------- Imports --------------------|   
+  + (sum {(z2, z) in TRANS_LINES} (transmission_efficiency[z2, z] * DispatchTransFromXToY[z2, z, h]))
   
-#                                   |----- Exports -------|         |--------------------- Imports --------------------|
-  - (sum {(z1, z) in TRANS_LINES} (DispatchTransTo[z1, z, h] - transmission_efficiency[z1, z] * DispatchTransFrom[z1, z, h]))
+#                                   |----- Exports -------|  
+  - (sum {(z, z1) in TRANS_LINES} (DispatchTransFromXToY[z, z1, h]))
 
   >= system_load[z, h];
 
@@ -958,8 +955,8 @@ subject to Satisfy_Load_Reserve {z in LOAD_ZONES, h in HOURS}:
 	########################################
 	#    TRANSMISSION
   # transmission into and out of the zone
-  + (sum {(z, z2) in TRANS_LINES} (transmission_efficiency[z, z2] * DispatchTransTo_Reserve[z, z2, h] - DispatchTransFrom_Reserve[z, z2, h]))
-  - (sum {(z1, z) in TRANS_LINES} (DispatchTransTo_Reserve[z1, z, h] - transmission_efficiency[z1, z] * DispatchTransFrom_Reserve[z1, z, h]))
+  + (sum {(z2, z) in TRANS_LINES} (transmission_efficiency[z2, z] * DispatchTransFromXToY_Reserve[z2, z, h]))
+  - (sum {(z, z1) in TRANS_LINES} (DispatchTransFromXToY_Reserve[z, z1, h]))
 
   >= system_load[z, h] * (1 + planning_reserve_margin);
 
@@ -1055,24 +1052,17 @@ subject to EP_Operational
 # a quick follow-up model run minimizing transmission usage will push one of these to zero.
 # TODO: retire pre-existing transmission lines after transmission_max_age_years 
 #   (this requires figuring out when they were first built!)
-subject to Maximum_DispatchTransTo 
+subject to Maximum_DispatchTransFromXToY
   {(z1, z2) in TRANS_LINES, h in HOURS}:
-  DispatchTransTo[z1, z2, h] 
+  DispatchTransFromXToY[z1, z2, h] 
     <= (1-transmission_forced_outage_rate) * 
-          (existing_transmission_to[z1, z2] + sum {(z1, z2, v, h) in TRANS_VINTAGE_HOURS} InstallTrans[z1, z2, v]);
-subject to Maximum_DispatchTransFrom 
+          (existing_transmission[z1, z2] + sum {(z1, z2, v, h) in TRANS_VINTAGE_HOURS} InstallTrans[z1, z2, v]);
+
+subject to Maximum_DispatchTransFromXToY_Reserve
   {(z1, z2) in TRANS_LINES, h in HOURS}:
-  DispatchTransFrom[z1, z2, h] 
-    <= (1-transmission_forced_outage_rate) * 
-          (existing_transmission_from[z1, z2] + sum {(z1, z2, v, h) in TRANS_VINTAGE_HOURS} InstallTrans[z1, z2, v]);
-subject to Maximum_DispatchTrans_ReserveTo
-  {(z1, z2) in TRANS_LINES, h in HOURS}:
-  DispatchTransTo_Reserve[z1, z2, h] 
-    <= (existing_transmission_to[z1, z2] + sum {(z1, z2, v, h) in TRANS_VINTAGE_HOURS} InstallTrans[z1, z2, v]);
-subject to Maximum_DispatchTrans_ReserveFrom
-  {(z1, z2) in TRANS_LINES, h in HOURS}:
-  DispatchTransFrom_Reserve[z1, z2, h] 
-    <= (existing_transmission_from[z1, z2] + sum {(z1, z2, v, h) in TRANS_VINTAGE_HOURS} InstallTrans[z1, z2, v]);
+  DispatchTransFromXToY_Reserve[z1, z2, h] 
+    <= (existing_transmission[z1, z2] + sum {(z1, z2, v, h) in TRANS_VINTAGE_HOURS} InstallTrans[z1, z2, v]);
+
 
 # make sure there's enough intra-zone transmission and distribution capacity
 # to handle the net distributed loads
