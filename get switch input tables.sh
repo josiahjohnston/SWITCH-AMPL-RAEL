@@ -107,8 +107,8 @@ mysql -h $db_server -u $user -p$password -e "select replace(load_area, ' ', '_')
 echo ampl.tab 2 12 > existing_plants.tab
 mysql -h $db_server -u $user -p$password -e "select replace(load_area, ' ', '_') as load_zone, plant_code, peak_mw as size_mw, fuel, heat_rate, invsyear as start_year, max_age, overnight_cost, fixed_o_m, variable_o_m, forced_outage_rate, scheduled_outage_rate, baseload, cogen from wecc.existing_plants_agg order by 1, 2;" >> existing_plants.tab
 
-echo ampl.tab 2 5 > trans_lines.tab
-mysql -h $db_server -u $user -p$password -e "select replace(load_area_start, ' ', '_') as load_zone_start, replace(load_area_end, ' ', '_') as load_zone_end, tid, length_km as transmission_length_km, transmission_efficiency, existing_transmission_from, existing_transmission_to from wecc.trans_line;" >> trans_lines.tab
+echo ampl.tab 2 4 > trans_lines.tab
+mysql -h $db_server -u $user -p$password -e "select replace(load_area_start, ' ', '_') as load_zone_start, replace(load_area_end, ' ', '_') as load_zone_end, existing_transmission, tid, length_km as transmission_length_km, transmission_efficiency from wecc.directed_trans_lines;" >> trans_lines.tab
 
 # TODO: adopt better load forecasts; this assumes a simple 1.6%/year increase
 echo ampl.tab 2 1 > system_load.tab

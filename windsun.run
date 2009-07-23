@@ -60,8 +60,8 @@ table regional_generator_costs IN:
 read table regional_generator_costs;
 
 table trans_lines IN: 
-  TRANS_LINES <- [load_zone_start, load_zone_end], tid, transmission_length_km, 
-    transmission_efficiency, existing_transmission_from, existing_transmission_to;
+  TRANS_LINES <- [load_zone_start, load_zone_end], existing_transmission, tid, 
+  transmission_length_km, transmission_efficiency;
 read table trans_lines;
 
 table system_load IN: [load_zone, hour], system_load;

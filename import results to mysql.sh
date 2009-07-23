@@ -3,7 +3,7 @@
 
 ##########################
 # Constants
-DB_name="regional_test"
+DB_name="trans_test"
 export db_server='xserve-rael.erg.berkeley.edu'
 #db_server="localhost"
 current_dir=`pwd`
@@ -110,7 +110,7 @@ mysql -h $db_server -u $user -p$password -e "$select_dispatch_summary" > $result
 #echo 'select_dispatch_summary: '"$select_dispatch_summary"
 #echo ''
 #echo ''
-#jack edit
+
 
 
 
