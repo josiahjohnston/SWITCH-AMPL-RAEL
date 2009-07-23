@@ -288,7 +288,7 @@ set PROJECTS =
   union PROJ_RESOURCE_LIMITED;
 
 # the set of all dispatchable projects (i.e., non-intermittent)
-set PROJ_DISPATCH = (PROJECTS diff PROJ_INTERMITTENT);
+set PROJ_DISPATCH = {(z, t, s, o) in PROJECTS: not new_baseload[t] and not intermittent[t]};
 
 # sets derived from site-specific tables, help keep projects distinct
 set SITES = setof {(z, t, s, o) in PROJECTS} (s);
@@ -741,7 +741,7 @@ set EP_BASELOAD_PERIODS :=
   {(z, e, p) in EP_PERIODS: ep_baseload[z, e]};
 
 # trans_line-vintage-hour combinations for which dispatch decisions must be made
- set TRANS_VINTAGE_HOURS := 
+set TRANS_VINTAGE_HOURS := 
   {(z1, z2) in TRANS_LINES, v in VINTAGE_YEARS, h in HOURS: v <= period[h] < transmission_end_year[v]};
 
 # local_td-vintage-hour combinations which must be reconciled
@@ -838,6 +838,7 @@ minimize Power_Cost:
   + sum {(z, e, p) in EP_PERIODS} 
       OperateEPDuringYear[z, e, p] * ep_size_mw[z, e] * ep_fixed_cost[z, e, p]
   # Calculate variable costs for existing BASELOAD plants
+  # NOTE: The number of decision variables could be reduced significantly if you indexed ep_variable_cost & ep_carbon_cost_per_mwh by p instead of h, then express the sum like this: + sum {(z, e, p) in EP_BASELOAD_PERIODS} OperateEPDuringYear[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e] * (ep_variable_cost[z, e, p] + ep_carbon_cost_per_mwh[z, e, p]) * total_hours_in_period[p]
   + sum {(z, e, p) in EP_BASELOAD_PERIODS, h in HOURS: period[h]=p}
       OperateEPDuringYear[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e] 
       * (ep_variable_cost[z, e, h] + ep_carbon_cost_per_mwh[z, e, h])
