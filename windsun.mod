@@ -157,6 +157,9 @@ set TECHNOLOGIES;
 # list of all possible fuels
 set FUELS; 
 
+# Reference to hydro's "fuel": Water
+param fuel_hydro symbolic in FUELS;
+
 # earliest time when each technology can be built
 param min_build_year {TECHNOLOGIES} >= 0;
 
@@ -225,6 +228,16 @@ param overnight_cost_change {REGIONAL_TECHNOLOGIES};
 # annual rate of change of fixed O&M, beginning at min_build_year
 param fixed_o_m_change {REGIONAL_TECHNOLOGIES};
 
+###############################################
+#
+# RPS goals for each load area 
+# (these come from generator_rps.tab and rps_requirement.tab)
+
+# rps goals for each load area
+param rps_goal {LOAD_ZONES};
+
+# whether fuels in a load area qualify for rps 
+param fuel_qualifies_for_rps {LOAD_ZONES,FUELS};
 
 ###############################################
 # Project data
@@ -782,8 +795,8 @@ var DispatchEP {EP_DISPATCH_HOURS} >= 0;
 var InstallTrans {TRANS_LINES, VINTAGE_YEARS} >= 0;
 
 # number of MW to transmit through each transmission corridor in each hour
-var DispatchTransFromXToY {TRANS_LINES, HOURS} >= 0;
-var DispatchTransFromXToY_Reserve {TRANS_LINES, HOURS} >= 0;
+var DispatchTransFromXToY {TRANS_LINES, HOURS, FUELS} >= 0;
+var DispatchTransFromXToY_Reserve {TRANS_LINES, HOURS, FUELS} >= 0;
 
 # amount of local transmission and distribution capacity
 # (to carry peak power from transmission network to distributed loads)
@@ -822,7 +835,7 @@ minimize Power_Cost:
   # Calculate fixed costs for all new plants
     sum {(z, t, s, o, v) in PROJECT_VINTAGES} 
       InstallGen[z, t, s, o, v] * fixed_cost[z, t, s, o, v]
-  # Calculate variable costs for new plants
+  # Calculate variable costs for new plants that are dispatchable. 
   + sum {(z, t, s, o) in PROJ_DISPATCH, h in HOURS} 
       DispatchGen[z, t, s, o, h] * (variable_cost[z, t, h] + carbon_cost_per_mwh[t, h])
   # Calculate variable costs for new baseload plants
@@ -853,7 +866,7 @@ minimize Power_Cost:
 	########################################
 	#    TRANSMISSION & DISTRIBUTION
   + sum {(z1, z2) in TRANS_LINES, v in VINTAGE_YEARS} 
-		InstallTrans[z1, z2, v] * transmission_cost_per_mw[z1, z2, v]
+      InstallTrans[z1, z2, v] * transmission_cost_per_mw[z1, z2, v]
   + sum {(z1, z2) in TRANS_LINES} 
       transmission_cost_per_mw[z1, z2, first(PERIODS)] * (existing_transmission[z1, z2])/2
   + sum {z in LOAD_ZONES, v in VINTAGE_YEARS}
@@ -865,8 +878,8 @@ minimize Power_Cost:
 # around loops, or shipping of unneeded power to neighboring zones, 
 # so it is more clear where surplus power is being generated
 minimize Transmission_Usage:
-  sum {(z1, z2) in TRANS_LINES, h in HOURS} 
-    (DispatchTransFromXToY[z1, z2, h]);
+  sum {(z1, z2) in TRANS_LINES, h in HOURS, f in FUELS} 
+    (DispatchTransFromXToY[z1, z2, h, f]);
 
 
 #### CONSTRAINTS ####
@@ -911,15 +924,15 @@ subject to Satisfy_Load {z in LOAD_ZONES, h in HOURS}:
   # transmission into and out of the zone. 
   
   # Transmitted power coming into the zone will have losses because of the transmission line it has come in over;
-  # as a result, the incoming DispatchTransFromXToY[z2, z, h] is multiplied by the transmission efficiency of the line over which it was transmitted.
+  # as a result, the incoming DispatchTransFromXToY[z2, z, h, f] is multiplied by the transmission efficiency of the line over which it was transmitted.
   # On the other hand, transmitted power leaving the zone will not yet have experienced transmission losses; as a result the outgoing 
-  # DispatchTransFromXToY[z, z1, h] is not multiplied by the transmission efficiency.
+  # DispatchTransFromXToY[z, z1, h, f] is not multiplied by the transmission efficiency.
 
-# |--------------------- Imports (have experienced transmission losses) --------------------|   
-  + (sum {(z2, z) in TRANS_LINES} (transmission_efficiency[z2, z] * DispatchTransFromXToY[z2, z, h]))
+  # Imports (have experienced transmission losses)
+  + (sum {(z2, z) in TRANS_LINES, f in FUELS} (transmission_efficiency[z2, z] * DispatchTransFromXToY[z2, z, h, f]))
   
-# |----- Exports (have not experienced transmission losses) -------|  
-  - (sum {(z, z1) in TRANS_LINES} (DispatchTransFromXToY[z, z1, h]))
+  # Exports (have not experienced transmission losses)
+  - (sum {(z, z1) in TRANS_LINES, f in FUELS} (DispatchTransFromXToY[z, z1, h, f]))
 
   >= system_load[z, h];
 
@@ -960,18 +973,14 @@ subject to Satisfy_Load_Reserve {z in LOAD_ZONES, h in HOURS}:
 
 	########################################
 	#    TRANSMISSION
-  # transmission into and out of the zone
-  
   # Transmitted power coming into the zone will have losses because of the transmission line it has come in over;
   # as a result, the incoming DispatchTransFromXToY[z2, z, h] is multiplied by the transmission efficiency of the line over which it was transmitted.
   # On the other hand, transmitted power leaving the zone will not yet have experienced transmission losses; as a result the outgoing 
   # DispatchTransFromXToY[z, z1, h] is not multiplied by the transmission efficiency.
-  
-  # |--------------------- Imports (have experienced transmission losses) --------------------|   
-  + (sum {(z2, z) in TRANS_LINES} (transmission_efficiency[z2, z] * DispatchTransFromXToY_Reserve[z2, z, h]))
-  
-  # |----- Exports (have not experienced transmission losses) -------|  
-  - (sum {(z, z1) in TRANS_LINES} (DispatchTransFromXToY_Reserve[z, z1, h]))
+  # Imports (have experienced transmission losses)
+  + (sum {(z2, z) in TRANS_LINES, f in FUELS} (transmission_efficiency[z2, z] * DispatchTransFromXToY_Reserve[z2, z, h, f]))
+  # Exports (have not experienced transmission losses)
+  - (sum {(z, z1) in TRANS_LINES, f in FUELS} (DispatchTransFromXToY_Reserve[z, z1, h, f]))
 
   >= system_load[z, h] * (1 + planning_reserve_margin);
 
@@ -1069,13 +1078,13 @@ subject to EP_Operational
 #   (this requires figuring out when they were first built!)
 subject to Maximum_DispatchTransFromXToY
   {(z1, z2) in TRANS_LINES, h in HOURS}:
-  DispatchTransFromXToY[z1, z2, h] 
+  ( sum { f in FUELS } DispatchTransFromXToY[z1, z2, h, f] )
     <= (1-transmission_forced_outage_rate) * 
           (existing_transmission[z1, z2] + sum {(z1, z2, v, h) in TRANS_VINTAGE_HOURS} InstallTrans[z1, z2, v]);
 
 subject to Maximum_DispatchTransFromXToY_Reserve
   {(z1, z2) in TRANS_LINES, h in HOURS}:
-  DispatchTransFromXToY_Reserve[z1, z2, h] 
+  ( sum { f in FUELS } DispatchTransFromXToY_Reserve[z1, z2, h, f] )
     <= (existing_transmission[z1, z2] + sum {(z1, z2, v, h) in TRANS_VINTAGE_HOURS} InstallTrans[z1, z2, v]);
 
 
@@ -1095,3 +1104,118 @@ subject to min_gen_fraction_from_solar:
 	(sum {(z, t, s, o, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS: t in SOLAR_TECHNOLOGIES and v = last( VINTAGE_YEARS ) } 
       (1-forced_outage_rate[t]) * cap_factor[z, t, s, o, h] * InstallGen[z, t, s, o, v]) >=
     min_solar_production * (sum {z in LOAD_ZONES, h in HOURS} (system_load[z,h]) );
+
+#####
+# RPS constraint
+subject to Satisfy_RPS {z in LOAD_ZONES, p in PERIODS}:
+
+ (
+	#############################
+	#   Power from NEW PLANTS
+  # new dispatchable projects
+   (sum {(z, t, s, o) in PROJ_DISPATCH, h in HOURS: 
+        period[h] = p and fuel_qualifies_for_rps[z, fuel[t]] } 
+     DispatchGen[z, t, s, o, h] * hours_in_sample[h]
+   )
+  # output from new intermittent projects
+  + (sum {(z, t, s, o, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS: 
+          v = p and fuel_qualifies_for_rps[z, fuel[t]]} 
+      (1-forced_outage_rate[t]) * cap_factor[z, t, s, o, h] * InstallGen[z, t, s, o, v] * hours_in_sample[h]
+    )
+  # new baseload plants
+  + (sum {(z, t, s, o, v) in NEW_BASELOAD_PERIODS, h in HOURS: 
+          v = p and period[h] = p and fuel_qualifies_for_rps[z, fuel[t]]} 
+      (1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[z, t, s, o, v] * hours_in_sample[h]
+    )
+
+	#############################
+	#    Power from EXISTING PLANTS
+  # existing baseload plants
+  + (sum {(z, e, p) in EP_BASELOAD_PERIODS, h in HOURS: 
+          period[h]=p and fuel_qualifies_for_rps[z, ep_fuel[z,e]] } 
+      OperateEPDuringYear[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e] * hours_in_sample[h]
+    )
+  # existing dispatchable plants
+  + (sum {(z, e, h) in EP_DISPATCH_HOURS: 
+          period[h]=p and fuel_qualifies_for_rps[z, ep_fuel[z,e]] } 
+      DispatchEP[z, e, h] * hours_in_sample[h]
+    )
+
+	########################################
+	#    TRANSMISSION
+  # transmission into and out of the zone.
+
+#  Imports
+  + (sum {(z2, z) in TRANS_LINES, f in FUELS, h in HOURS: 
+          period[h]=p and fuel_qualifies_for_rps[z, f]}
+      (transmission_efficiency[z2, z] * DispatchTransFromXToY[z2, z, h, f]) * hours_in_sample[h]
+    )
+  
+#  Exports
+  - (sum {(z, z1) in TRANS_LINES, f in FUELS, h in HOURS: 
+          period[h]=p and fuel_qualifies_for_rps[z, f]}
+      DispatchTransFromXToY[z, z1, h, f] * hours_in_sample[h]
+    )
+ ) 
+  / (sum { h in HOURS: 
+           period[h] = p } 
+      system_load[z, h] * hours_in_sample[h]
+    )
+  >= rps_goal[z];
+
+#############################
+# REC accounting: Reclassifying electrons is verboten!
+subject to Conservation_of_Colored_Electrons {z in LOAD_ZONES, h in HOURS, f in FUELS}:
+
+	#############################
+	#    Power Production
+  # new dispatchable projects
+  (sum {(z, t, s, o) in PROJ_DISPATCH} DispatchGen[z, t, s, o, h])
+  # new intermittent projects
+  + (sum {(z, t, s, o, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS} 
+      (1-forced_outage_rate[t]) * cap_factor[z, t, s, o, h] * InstallGen[z, t, s, o, v])
+  # new baseload plants
+  + sum {(z, t, s, o, v) in NEW_BASELOAD_PERIODS} 
+      ((1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[z, t, s, o, v] )
+  # existing baseload plants
+  + sum {(z, e, p) in EP_BASELOAD_PERIODS: p=period[h]} 
+      (OperateEPDuringYear[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e])
+  # existing dispatchable plants
+  + sum {(z, e, h) in EP_DISPATCH_HOURS} DispatchEP[z, e, h]
+
+  #############################
+  # Imports (have experienced transmission losses)
+  + (sum {(z2, z) in TRANS_LINES} (transmission_efficiency[z2, z] * DispatchTransFromXToY[z2, z, h, f]))
+  
+     #############################
+     # Exports (have not experienced transmission losses)
+  >= (sum {(z, z1) in TRANS_LINES} (DispatchTransFromXToY[z, z1, h, f]));
+
+
+#######
+# REC accounting: Reclassifying electrons is verboten!
+# Hydro power production is done differently than all the other technologies
+# Consequently, we need to express it in a separate constraint instead of bundling it into the one above. 
+subject to Conservation_of_Blue_Electrons {z in LOAD_ZONES, h in HOURS}:
+
+  ####
+  # Hydro Production
+  # pumped hydro, de-rated to reflect occasional unavailability of the hydro plants
+  + (1 - forced_outage_rate_hydro) * (sum {(z, s) in PROJ_PUMPED_HYDRO} DispatchPumpedHydro[z, s, h])
+  - (1 - forced_outage_rate_hydro) * (1/pumped_hydro_efficiency) * 
+      (sum {(z, s) in PROJ_PUMPED_HYDRO} StorePumpedHydro[z, s, h])
+  # simple hydro, dispatched using the season-hour schedules chosen above
+  # also de-rated to reflect occasional unavailability
+  + (1 - forced_outage_rate_hydro) * 
+    (min_hydro_dispatch_all_sites[z, date[h]] 
+       + HydroDispatchShare[period[h], z, season_of_year[h], hour_of_day[h]]
+         * (avg_hydro_dispatch_all_sites[z, date[h]] - min_hydro_dispatch_all_sites[z, date[h]]) * 24)
+
+  # Imports (have experienced transmission losses)
+  + (sum {(z2, z) in TRANS_LINES} (transmission_efficiency[z2, z] * DispatchTransFromXToY[z2, z, h, fuel_hydro]))
+  
+     # Exports (have not experienced transmission losses)
+  >= (sum {(z, z1) in TRANS_LINES} (DispatchTransFromXToY[z, z1, h, fuel_hydro]));
+
+
+
