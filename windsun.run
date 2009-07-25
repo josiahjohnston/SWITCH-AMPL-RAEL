@@ -38,6 +38,14 @@ table regional_fuel_costs IN:
 	[load_zone, fuel, year], fuel_cost;
 read table regional_fuel_costs;
 
+table generator_rps IN:
+	[load_zone, fuel], fuel_qualifies_for_rps ~ qualifies;
+read table generator_rps;
+
+table rps_requirement IN:
+	[load_zone], rps_goal ~ rps;
+read table rps_requirement;
+
 table existing_plants IN: 
   EXISTING_PLANTS <- [load_zone, plant_code], 
     ep_size_mw ~ size_mw, ep_fuel ~ fuel, ep_heat_rate ~ heat_rate, 
