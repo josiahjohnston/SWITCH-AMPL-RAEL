@@ -867,6 +867,9 @@ minimize Power_Cost:
 	#    TRANSMISSION & DISTRIBUTION
   + sum {(z1, z2) in TRANS_LINES, v in VINTAGE_YEARS} 
       InstallTrans[z1, z2, v] * transmission_cost_per_mw[z1, z2, v]
+      
+  # Existing transmission in each direction in a transmission cooridor will be double counted unless
+  # the average is taken--existing_transmission[z1, z2]/2
   + sum {(z1, z2) in TRANS_LINES} 
       transmission_cost_per_mw[z1, z2, first(PERIODS)] * (existing_transmission[z1, z2])/2
   + sum {z in LOAD_ZONES, v in VINTAGE_YEARS}
