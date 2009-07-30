@@ -114,7 +114,7 @@ mysql -h $db_server -u $user -p$password -e "select replace(load_area, ' ', '_')
 
 echo '	trans_lines.tab...'
 echo ampl.tab 2 4 > trans_lines.tab
-mysql -h $db_server -u $user -p$password -e "select replace(load_area_start, ' ', '_') as load_zone_start, replace(load_area_end, ' ', '_') as load_zone_end, existing_transmission, tid, length_km as transmission_length_km, transmission_efficiency from wecc.directed_trans_lines;" >> trans_lines.tab
+mysql -h $db_server -u $user -p$password -e "select replace(load_area_start, ' ', '_') as load_zone_start, replace(load_area_end, ' ', '_') as load_zone_end, existing_transmission, tid, length_km as transmission_length_km, transmission_efficiency from wecc.directed_trans_lines where (existing_transmission > 0 or geoms_intersect = 1);" >> trans_lines.tab
 
 # TODO: adopt better load forecasts; this assumes a simple 1.6%/year increase
 echo '	system_load.tab...'
@@ -149,7 +149,7 @@ mysql -h $db_server -u $user -p$password -e "select load_area as load_zone, regi
 
 echo '	regional_fuel_costs.tab...'
 echo ampl.tab 3 1 > regional_fuel_costs.tab
-mysql -h $db_server -u $user -p$password -e "select load_area as load_zone, fuel, year, fuel_cost from wecc.regional_fuel_costs_human where scenario_id = $REGIONAL_FUEL_COST_SCENARIO_ID" >> regional_fuel_costs.tab
+mysql -h $db_server -u $user -p$password -e "select load_area as load_zone, fuel, year, fuel_price from wecc.regional_fuel_prices_human where scenario_id = $REGIONAL_FUEL_COST_SCENARIO_ID" >> regional_fuel_costs.tab
 
 echo '	regional_generator_costs.tab...'
 echo ampl.tab 2 8 > regional_generator_costs.tab
