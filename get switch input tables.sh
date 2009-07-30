@@ -145,7 +145,7 @@ mysql -h $db_server -u $user -p$password -e "select * from wecc.generator_info;"
 
 echo '	regional_plant_cost_multiplier.tab...'
 echo ampl.tab 1 1 > regional_plant_cost_multiplier.tab
-mysql -h $db_server -u $user -p$password -e "select load_area as load_zone, regional_plant_cost_multiplier from wecc.regional_plant_cost_multiplier_human where scenario_id = $REGIONAL_MULTIPLIER_SCENARIO_ID;" >> regional_plant_cost_multiplier.tab
+mysql -h $db_server -u $user -p$password -e "select load_area as load_zone, regional_economic_multiplier from wecc.regional_economic_multiplier_human where scenario_id = $REGIONAL_MULTIPLIER_SCENARIO_ID;" >> regional_plant_cost_multiplier.tab
 
 echo '	regional_fuel_costs.tab...'
 echo ampl.tab 3 1 > regional_fuel_costs.tab
