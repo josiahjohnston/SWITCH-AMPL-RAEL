@@ -3,12 +3,11 @@
 
 ##########################
 # Constants
-DB_name="rps_test2"
+read DB_name < scenario_name.txt
 export db_server='xserve-rael.erg.berkeley.edu'
 #db_server="localhost"
 current_dir=`pwd`
 results_dir="results"
-GIS_results="results/GIS"
 
 ##########################
 # Get the user name and password 
@@ -126,18 +125,12 @@ echo 'Exporting co2_cc.txt...'
 mysql -h $db_server -u $user -p$password -e "select * from $DB_name.co2_cc;" > $results_dir/co2_cc.txt
 echo 'Exporting power_cost_cc.txt...'
 mysql -h $db_server -u $user -p$password -e "select * from $DB_name.power_cost where period=2022;" > $results_dir/power_cost_cc.txt
-if [ ! -d $GIS_results ]
-then
-  mkdir $GIS_results
-fi
-echo 'Exporting load_area_centers.txt...'
-mysql -h $db_server -u $user -p$password -e "select * from wecc.load_area;" > $GIS_results/load_area_centers.txt
 echo 'Exporting gen_by_load_area.csv...'
-mysql -h $db_server -u $user -p$password --column-names=false -e "select * from $DB_name.gen_by_load_area;" > $GIS_results/gen_by_load_area.csv
+mysql -h $db_server -u $user -p$password --column-names=false -e "select * from $DB_name.gen_by_load_area;" > gen_by_load_area.csv
 echo 'Exporting trans_cap_new.txt...'
-mysql -h $db_server -u $user -p$password -e "select * from $DB_name.trans_cap where new and period=2022;" > $GIS_results/trans_cap_new.txt
+mysql -h $db_server -u $user -p$password -e "select * from $DB_name.trans_cap where new and period=2022;" > trans_cap_new.txt
 echo 'Exporting trans_cap_exist.txt...'
-mysql -h $db_server -u $user -p$password -e "select * from $DB_name.trans_cap where not new and period=2022;" > $GIS_results/trans_cap_exist.txt
+mysql -h $db_server -u $user -p$password -e "select * from $DB_name.trans_cap where not new and period=2022;" > trans_cap_exist.txt
 
 
 # delete the temporary file
