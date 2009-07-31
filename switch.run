@@ -1,7 +1,7 @@
 # this uses an option variable, to avoid changing the problem 
 # and causing ampl to forget a write b... statement
 include windsun.run;
-write bresults/sol30cost;
+write ("b" & "results/sol" & carbon_cost & "cost");
 option start_time (time());
 solve;
 printf "Time taken: %d seconds\n", time()-num($start_time);
