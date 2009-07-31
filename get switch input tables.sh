@@ -54,7 +54,7 @@ export START_HOUR=15
 # SUBSET_ID 1 draws representative loads from hours in 2004, based on the Western expansion dataset (CA, OR, WA)
 export SUBSET_ID=1
 # Change the scenario name
-export SCENARIO="wecc_toy_Peak_"$SUBSET_ID
+export SCENARIO="default_results_"$SUBSET_ID
 
 
 ###########################
