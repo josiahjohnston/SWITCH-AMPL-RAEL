@@ -188,8 +188,8 @@ printf {z in LOAD_ZONES, h in HOURS, p in PERIODS: period[h]=p}
 #  (1-transmission_forced_outage_rate) *  
 #    (sum {(z, z2) in TRANS_LINES} transmission_efficiency[z, z2] * (existing_transmission[z, z2] + sum {(z, z2, v, h) in TRANS_VINTAGE_HOURS} #InstallTrans[z, z2, v])
 #    + sum {(z1, z) in TRANS_LINES} transmission_efficiency[z1, z] * (existing_transmission[z1, z] + sum {(z1, z, v, h) in TRANS_VINTAGE_HOURS} InstallTrans[z1, z, v])),
-  (sum {(z2, z) in TRANS_LINES, f in FUELS} (transmission_efficiency[z2, z] * DispatchTransFromXToY[z2, z, h, f]))
-  - (sum {(z, z1) in TRANS_LINES, f in FUELS} (DispatchTransFromXToY[z, z1, h, f])),
+  (sum {(z2, z) in TRANS_LINES, f in FUELS, fuel_cat in RPS_FUEL_CATEGORY: fuel_cat = rps_fuel_category[f]} (transmission_efficiency[z2, z] * DispatchTransFromXToY[z2, z, h, fuel_cat]))
+  - (sum {(z, z1) in TRANS_LINES, f in FUELS, fuel_cat in RPS_FUEL_CATEGORY: fuel_cat = rps_fuel_category[f]} (DispatchTransFromXToY[z, z1, h, fuel_cat])),
   0, hours_in_sample[h], 0, 
   0, 0, 0
   >> (outfile);
@@ -199,8 +199,8 @@ printf {z in LOAD_ZONES, h in HOURS, p in PERIODS: period[h]=p}
 printf {z in LOAD_ZONES, h in HOURS, p in PERIODS: period[h]=p} 
   "%s,%f,%d,%s,%d,%d,%s,%s,%s,%d,%d,%d,%s,%f,%f,%d,%f,%f,%f,%f\n",
   scenario_name, carbon_cost, p, z, date[h], h, "na", "Transmission Losses", "na", 0, 0, 0, "na",
-  (sum {(z2, z) in TRANS_LINES, f in FUELS} ((1 - transmission_efficiency[z2, z]) * DispatchTransFromXToY[z2, z, h, f]))
-  + (sum {(z, z1) in TRANS_LINES, f in FUELS} ((1 - transmission_efficiency[z, z1]) * DispatchTransFromXToY[z, z1, h, f])),
+  (sum {(z2, z) in TRANS_LINES, f in FUELS, fuel_cat in RPS_FUEL_CATEGORY: fuel_cat = rps_fuel_category[f]} ((1 - transmission_efficiency[z2, z]) * DispatchTransFromXToY[z2, z, h, fuel_cat]))
+  + (sum {(z, z1) in TRANS_LINES, f in FUELS, fuel_cat in RPS_FUEL_CATEGORY: fuel_cat = rps_fuel_category[f]} ((1 - transmission_efficiency[z, z1]) * DispatchTransFromXToY[z, z1, h, fuel_cat])),
   0, hours_in_sample[h], 0, 
   0, 0, 0
   >> (outfile);
@@ -229,16 +229,16 @@ close (outfile);
 # store detailed transmission info in standardized, MW terms
 
 let outfile := "results/transmission_" & carbon_cost & ".csv";
-printf "scenario_name,carbon_cost,period,load_area_receive,load_area_from,date,hour,fuel,power_sent,power_received,hours_in_sample\n"
+printf "scenario_name,carbon_cost,period,load_area_receive,load_area_from,date,hour,rps_fuel_category,power_sent,power_received,hours_in_sample\n"
   > (outfile);
 
 
 # detailed imports & exports
-printf {(x, y) in TRANS_LINES, h in HOURS, p in PERIODS, f in FUELS: period[h]=p and DispatchTransFromXToY[x, y, h, f] > 0.001} 
+printf {(x, y) in TRANS_LINES, h in HOURS, p in PERIODS, f in FUELS, fuel_cat in RPS_FUEL_CATEGORY: fuel_cat = rps_fuel_category[f] and period[h]=p and DispatchTransFromXToY[x, y, h, fuel_cat] > 0.001} 
   "%s,%f,%d,%s,%s,%d,%d,%s,%f,%f,%d\n",
-  scenario_name, carbon_cost, p, y, x, date[h], h, f,
-  DispatchTransFromXToY[x, y, h, f],
-  DispatchTransFromXToY[x, y, h, f] * transmission_efficiency[x, y],
+  scenario_name, carbon_cost, p, y, x, date[h], h, fuel_cat,
+  DispatchTransFromXToY[x, y, h, fuel_cat],
+  DispatchTransFromXToY[x, y, h, fuel_cat] * transmission_efficiency[x, y],
   hours_in_sample[h]
   >> (outfile);
 

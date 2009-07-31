@@ -62,6 +62,7 @@ param hydro_annual_payment_per_mw := 113172;
 
 # list of fuel types
 set FUELS := Gas Coal Nuclear Wind Solar Geothermal Bio Water;
+set RPS_FUEL_CATEGORY := fossilish renewable;
 
 # Names of intermittent and resource-limited technologies. 
 param tech_ccgt := "CCGT";
@@ -71,7 +72,6 @@ param tech_pv := "DistPV";
 param tech_trough := "Trough";
 param tech_wind := "Wind";
 param tech_bio := "Biomass";
-
 param fuel_hydro := "Water";
 
 # All of the solar technologies. If you change what they are called in the section immediately above, change them here too.

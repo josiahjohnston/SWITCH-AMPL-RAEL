@@ -143,9 +143,9 @@ echo '	generator_info.tab...'
 echo ampl.tab 1 11 > generator_info.tab
 mysql -h $db_server -u $user -p$password -e "select * from wecc.generator_info;" >> generator_info.tab
 
-echo '	regional_plant_cost_multiplier.tab...'
-echo ampl.tab 1 1 > regional_plant_cost_multiplier.tab
-mysql -h $db_server -u $user -p$password -e "select load_area as load_zone, regional_economic_multiplier from wecc.regional_economic_multiplier_human where scenario_id = $REGIONAL_MULTIPLIER_SCENARIO_ID;" >> regional_plant_cost_multiplier.tab
+echo '	regional_economic_multiplier.tab...'
+echo ampl.tab 1 1 > regional_economic_multiplier.tab
+mysql -h $db_server -u $user -p$password -e "select load_area as load_zone, regional_economic_multiplier from wecc.regional_economic_multiplier_human where scenario_id = $REGIONAL_MULTIPLIER_SCENARIO_ID;" >> regional_economic_multiplier.tab
 
 echo '	regional_fuel_costs.tab...'
 echo ampl.tab 3 1 > regional_fuel_costs.tab
@@ -155,10 +155,14 @@ echo '	regional_generator_costs.tab...'
 echo ampl.tab 2 8 > regional_generator_costs.tab
 mysql -h $db_server -u $user -p$password -e "select load_area as load_zone, technology, price_year, overnight_cost, connect_cost_per_MW_generic, fixed_o_m, variable_o_m, overnight_cost_change, fixed_o_m_change, variable_o_m_change from wecc.regional_generator_costs_human;" >> regional_generator_costs.tab
 
-echo '	generator_rps.tab...'
-echo ampl.tab 2 1 > generator_rps.tab
-mysql -h $db_server -u $user -p$password -e "select load_area as load_zone, fuel, qualifies from wecc.generator_rps;" >> generator_rps.tab
+echo '	rps_fuel_category.tab...'
+echo ampl.tab 1 1 > rps_fuel_category.tab
+mysql -h $db_server -u $user -p$password -e "select fuel, rps_fuel_category from wecc.rps_fuel_category;" >> rps_fuel_category.tab
+
+echo '	qualifies_for_rps.tab...'
+echo ampl.tab 2 1 > qualifies_for_rps.tab
+mysql -h $db_server -u $user -p$password -e "select load_area as load_zone, rps_fuel_category, qualifies from wecc.qualifies_for_rps;" >> qualifies_for_rps.tab
 
 echo '	rps_requirement.tab...'
-echo ampl.tab 1 1 > rps_requirement.tab
-mysql -h $db_server -u $user -p$password -e "select load_area as load_zone, rps from wecc.rps_requirement;" >> rps_requirement.tab 
+echo ampl.tab 1 3 > rps_requirement.tab
+mysql -h $db_server -u $user -p$password -e "select load_area as load_zone, rps_goal, rps_compliance_year, load_zone_rps_policy from wecc.rps_requirement;" >> rps_requirement.tab 

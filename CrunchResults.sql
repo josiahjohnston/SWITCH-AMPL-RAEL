@@ -167,7 +167,7 @@ insert into gen_cap_summary (period, carbon_cost, source, capacity)
   select period, carbon_cost, source, 0 from gen_summary 
     where source <> "System Load" and (period, carbon_cost, source) not in (select period, carbon_cost, source from gen_cap_summary);
 
---------------------------------
+-- ------------------------------
 -- Insert dummy records into the transmission table - basically, put a 0 power transfer in each hour 
 -- where power could have been sent across a line, but wasn't
 -- insert into transmission (period, carbon_cost, source, capacity)

@@ -30,21 +30,26 @@ read table study_hours;
 table load_zones IN: LOAD_ZONES <- [load_zone], load_zone_x, load_zone_y;
 read table load_zones;
 
-table regional_plant_cost_multiplier IN: 
-	[load_zone], regional_plant_cost_multiplier;
-read table regional_plant_cost_multiplier;
+table regional_economic_multiplier IN: 
+	[load_zone], regional_economic_multiplier;
+read table regional_economic_multiplier;
 
 table regional_fuel_costs IN:
-	[load_zone, fuel, year], fuel_cost;
+	[load_zone, fuel, year], fuel_price;
 read table regional_fuel_costs;
 
-table generator_rps IN:
-	[load_zone, fuel], fuel_qualifies_for_rps ~ qualifies;
-read table generator_rps;
+table rps_fuel_category IN:
+	[fuel], rps_fuel_category;
+read table rps_fuel_category;
+
+table qualifies_for_rps IN:
+	LOAD_ZONES_AND_FUEL_CATEGORY <- [load_zone, rps_fuel_category], fuel_qualifies_for_rps ~ qualifies;
+read table qualifies_for_rps; 
 
 table rps_requirement IN:
-	[load_zone], rps_goal ~ rps;
+	[load_zone], rps_goal, rps_compliance_year, load_zone_rps_policy;
 read table rps_requirement;
+
 
 table existing_plants IN: 
   EXISTING_PLANTS <- [load_zone, plant_code], 

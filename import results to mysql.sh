@@ -3,7 +3,7 @@
 
 ##########################
 # Constants
-DB_name="trans_test"
+DB_name="rps_test2"
 export db_server='xserve-rael.erg.berkeley.edu'
 #db_server="localhost"
 current_dir=`pwd`

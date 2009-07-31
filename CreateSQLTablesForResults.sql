@@ -82,6 +82,8 @@ create table transmission (
   load_area_from varchar(20),
   study_date int,
   study_hour int,
-  power double,
+  rps_fuel_category varchar(20),
+  power_sent double,
+  power_received double,
   hours_in_sample smallint
 );
