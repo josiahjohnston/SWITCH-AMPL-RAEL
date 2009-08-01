@@ -115,22 +115,22 @@ mysql -h $db_server -u $user -p$password -e "$select_dispatch_summary" > $result
 
 ###################################################
 # Export simple summary views of the data
-echo 'Exporting dispatch_summary.txt...'
-mysql -h $db_server -u $user -p$password -e "select * from $DB_name.gen_hourly_summary;" > $results_dir/dispatch_summary.txt
+echo 'Exporting dispatch_summary.csv...'
+mysql -h $db_server -u $user -p$password -e "select * from $DB_name.gen_hourly_summary;" > $results_dir/dispatch_summary.csv
 echo 'Exporting gen_source_share_by_carbon_cost.csv...'
 mysql -h $db_server -u $user -p$password --column-names=false -e "select * from $DB_name.gen_source_share_by_carbon_cost ;" > $results_dir/gen_source_share_by_carbon_cost.csv
 echo 'Exporting gen_source_capacity_by_carbon_cost.csv...'
 mysql -h $db_server -u $user -p$password --column-names=false -e "select * from $DB_name.gen_source_capacity_by_carbon_cost ;" > $results_dir/gen_source_capacity_by_carbon_cost.csv
-echo 'Exporting co2_cc.txt...'
-mysql -h $db_server -u $user -p$password -e "select * from $DB_name.co2_cc;" > $results_dir/co2_cc.txt
-echo 'Exporting power_cost_cc.txt...'
-mysql -h $db_server -u $user -p$password -e "select * from $DB_name.power_cost where period=2022;" > $results_dir/power_cost_cc.txt
+echo 'Exporting co2_cc.csv...'
+mysql -h $db_server -u $user -p$password -e "select * from $DB_name.co2_cc;" > $results_dir/co2_cc.csv
+echo 'Exporting power_cost_cc.csv...'
+mysql -h $db_server -u $user -p$password -e "select * from $DB_name.power_cost where period=2022;" > $results_dir/power_cost_cc.csv
 echo 'Exporting gen_by_load_area.csv...'
-mysql -h $db_server -u $user -p$password --column-names=false -e "select * from $DB_name.gen_by_load_area;" > gen_by_load_area.csv
-echo 'Exporting trans_cap_new.txt...'
-mysql -h $db_server -u $user -p$password -e "select * from $DB_name.trans_cap where new and period=2022;" > trans_cap_new.txt
-echo 'Exporting trans_cap_exist.txt...'
-mysql -h $db_server -u $user -p$password -e "select * from $DB_name.trans_cap where not new and period=2022;" > trans_cap_exist.txt
+mysql -h $db_server -u $user -p$password --column-names=false -e "select * from $DB_name.gen_by_load_area;" > $results_dir/gen_by_load_area.csv
+echo 'Exporting trans_cap_new.csv...'
+mysql -h $db_server -u $user -p$password -e "select * from $DB_name.trans_cap where new and period=2022;" > $results_dir/trans_cap_new.tcsv
+echo 'Exporting trans_cap_exist.csv...'
+mysql -h $db_server -u $user -p$password -e "select * from $DB_name.trans_cap where not new and period=2022;" > $results_dir/trans_cap_exist.csv
 
 
 # delete the temporary file
