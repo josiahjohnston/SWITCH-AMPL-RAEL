@@ -1,9 +1,107 @@
-# this uses an option variable, to avoid changing the problem 
-# and causing ampl to forget a write b... statement
 include windsun.run;
-write ("b" & "results/sol" & carbon_cost & "cost");
-option start_time (time());
-solve;
-printf "Time taken: %d seconds\n", time()-num($start_time);
-include basicstats.run;
-include record_results_retroactive.run
+
+param cost_solution_file symbolic;
+param cost_problem_file symbolic;
+param trans_problem_file symbolic;
+param trans_solution_file symbolic;
+param solution_exists;
+
+for {c in CARBON_COSTS} {
+  let carbon_cost := c;
+  let curtime := time();
+
+  ###############################
+  # Cost optimization
+
+  let cost_problem_file := "results/sol" & carbon_cost & "cost";
+  let cost_solution_file := cost_problem_file & ".sol";
+
+  # Determine if this solution already exists. 
+  shell("if [ -f " & cost_solution_file & " ]; then echo 1 > sol_exists.txt; else echo 0 > sol_exists.txt; fi");
+  read solution_exists < "sol_exists.txt";
+  close "sol_exists.txt";
+  shell("rm sol_exists.txt");
+
+  if ( solution_exists )
+  then {
+    printf "\nLoading Cost solution from disk for a carbon cost of %d.\n", carbon_cost;
+    solution (cost_solution_file);
+  } else {
+    printf "\nCost solution not found for a carbon cost of %d; solving optimization problem.\n", carbon_cost;
+    write ("b" & cost_problem_file);
+    solve;
+    printf "%d seconds to optimize for cost.", time() - curtime;
+  }
+
+
+
+
+  ###############################
+  # Transmission optimization
+
+  let trans_problem_file := "results/sol" & carbon_cost & "trans";
+  let trans_solution_file := cost_problem_file & ".sol";
+
+  # Determine if this solution already exists. 
+  shell("if [ -f " & trans_solution_file & " ]; then echo 1 > sol_exists.txt; else echo 0 > sol_exists.txt; fi");
+  read solution_exists < "sol_exists.txt";
+  close "sol_exists.txt";
+  shell("rm sol_exists.txt");
+
+  if ( solution_exists )
+  then {
+    printf "\nLoading Transmission solution from disk for a carbon cost of %d.\n", carbon_cost;
+    solution (trans_solution_file);
+  } else {
+
+    printf "\nTransmission solution not found for a carbon cost of %d; solving optimization problem.\n", carbon_cost;
+    
+    fix InstallGen;
+    fix BuildGenOrNot;
+    fix DispatchGen;
+#   fix DispatchSystemLoad;
+    fix OperateEPDuringYear;
+    fix DispatchEP;
+    fix InstallTrans;
+    fix DispatchTransFromXToY_Reserve;
+    fix InstallLocalTD;
+    fix StorePumpedHydro;
+    fix DispatchPumpedHydro;
+    fix StorePumpedHydro_Reserve;
+    fix DispatchPumpedHydro_Reserve;
+    fix HydroDispatchShare;
+    fix HydroDispatchShare_Reserve;
+    objective Transmission_Usage;
+    option presolve_eps 1e-10;
+
+    write ("b" & trans_problem_file);
+    solve;
+
+    unfix InstallGen;
+    unfix BuildGenOrNot;
+    unfix DispatchGen;
+#   unfix DispatchSystemLoad;
+    unfix OperateEPDuringYear;
+    unfix DispatchEP;
+    unfix InstallTrans;
+    unfix DispatchTransFromXToY_Reserve;
+    unfix InstallLocalTD;
+    unfix StorePumpedHydro;
+    unfix DispatchPumpedHydro;
+    unfix StorePumpedHydro_Reserve;
+    unfix DispatchPumpedHydro_Reserve;
+    unfix HydroDispatchShare;
+    unfix HydroDispatchShare_Reserve;
+
+    printf "\n%d seconds to optimize for transmission.\n", time() - curtime;
+  }
+
+
+
+  # show some info about this run
+  include basicstats.run;
+
+  # export the results to csv files and the like
+  include record_results.run;
+
+}
