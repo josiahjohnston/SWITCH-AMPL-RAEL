@@ -10,10 +10,6 @@ set @second_period := (select min(period) from gen_cap where period != @first_pe
 set @period_length := (@second_period - @first_period);
 set @last_period := (select max(period) from gen_cap);
 
-set @target_carbon_cost := 30;
--- The shares in the gen_source_share_by_carbon_cost table are calculated in part on the target_carbon_cost scenario.
-
-
 
 -- total generation each hour
 drop table if exists gen_hourly_summary;
@@ -37,6 +33,34 @@ alter table gen_hourly_summary add index (source, study_hour);
 -- instead, now I just reverse the sign of the pumping, to make a quasi-load
 update gen_hourly_summary set power=-power where source="Hydro Pumping";
 
+
+-- total generation each hour
+drop table if exists gen_hourly_summary_la;
+create table gen_hourly_summary_la
+  select carbon_cost, period, load_area, study_date, study_hour, hours_in_sample, mod(floor(study_hour/100000),100) as month, 
+    elt(mod(floor(study_hour/100000),100), "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sept", "Oct", "Nov", "Dec") as month_name, 
+    6*floor(mod(study_hour, 100000)/6000) as quarter_of_day,
+    mod(floor(study_hour/1000),100) as hour_of_day, 
+    case when site in ("Transmission Losses", "Load", "Fixed Load") then "Fixed Load"
+         when site = "Dispatched Load" then site
+         when fuel like "Hydro%" then fuel
+         when new then concat("New ", technology)
+         else concat("Existing ", fuel, if(cogen, " Cogen", ""))
+    end as source,
+    sum(power) as power
+    from dispatch
+    where site <> "Transmission"
+    group by 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11;
+alter table gen_hourly_summary_la 
+	add index (carbon_cost), 
+	add index (source, study_hour), 
+	add index (study_hour), 
+	add index (load_area);
+-- I used to add any hours with pumping to the load, and set the hydro to zero
+-- instead, now I just reverse the sign of the pumping, to make a quasi-load
+update gen_hourly_summary_la set power=-power where source="Hydro Pumping";
+
+
 -- total generation each period
 -- this pools the dispatchable and fixed loads, and the regular and pumped hydro
 drop table if exists gen_summary;
@@ -51,6 +75,21 @@ create table gen_summary
     from dispatch
     where site <> "Transmission"
     group by 1, 2, 3;
+
+-- total generation each period by load area
+-- this pools the dispatchable and fixed loads, and the regular and pumped hydro
+drop table if exists gen_summary_la;
+create table gen_summary_la
+  select concat(period, "-", period+@period_length-1) as period, carbon_cost, load_area, 
+    case when site in ("Transmission Losses", "Load", "Fixed Load", "Dispatched Load") then "System Load"
+         when fuel like "Hydro%" then "Hydro"
+         when new then concat("New ", technology)
+         else concat("Existing ", fuel, if(cogen, " Cogen", ""))
+    end as source,
+    sum(power*hours_in_sample)/(8760*@period_length) as avg_power
+    from dispatch
+    where site <> "Transmission"
+    group by 1, 2, 3, 4;
 
 -- cross-tab table showing total generation in the final period, by load zone and source
 -- (used to make maps)
@@ -83,19 +122,19 @@ create table gen_by_load_area
 
 -- cross-tab of percentage of power coming from each source during the final period, by carbon_tax
 -- note: these are indexed relative to the $0 system load; results may exceed this for higher carbon costs due to transmission losses (small) and surplus power
-set @system_load := 
-  (select sum(power*hours_in_sample) from dispatch where period=@last_period and site in ("Transmission Losses", "Load", "Fixed Load", "Dispatched Load") and carbon_cost=@target_carbon_cost);
+create temporary table system_load_by_carbon_cost
+	select carbon_cost, sum(power*hours_in_sample) as system_load from dispatch where period=@last_period and site in ("Transmission Losses", "Load", "Fixed Load", "Dispatched Load");
 drop table if exists grouptots;
 create table grouptots
-  select carbon_cost,
+  select dispatch.carbon_cost,
   case when site in ("Transmission Losses", "Load", "Fixed Load", "Dispatched Load") then "System Load"
        when fuel like "Hydro%" then "Hydro"
        when new then concat("New ", technology)
        else concat("Existing ", fuel, if(cogen, " Cogen", ""))
   end as source,
-  sum(power*hours_in_sample)/@system_load as share
-  from dispatch
-  where site <> "Transmission" and period=@last_period
+  sum(power*hours_in_sample) / system_load as share
+  from dispatch, system_load_by_carbon_cost
+  where site <> "Transmission" and period=@last_period and system_load_by_carbon_cost.carbon_cost = dispatch.carbon_cost
   group by 1, 2;
 -- add dummy records for any load_area - source combinations that are missing
 insert into grouptots 
