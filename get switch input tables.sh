@@ -19,6 +19,13 @@ stty $stty_orig       # Restore screen settings
 ###########################
 # These next variables select which data is used
 
+# Default parameter values below yield a Toy version of the model
+# 1 hour per day
+# 1 day per month  
+# 1 month per year
+# 2 study periods (the ampl code expects at least two study periods to calculate the parameter years_per_period)
+
+
 export REGIONAL_MULTIPLIER_SCENARIO_ID=1
 export REGIONAL_FUEL_COST_SCENARIO_ID=1
 export REGIONAL_GEN_RESTRICT_SCENARIO_ID=1
@@ -33,6 +40,7 @@ export TECHSAMPLE=1
 export SCALEUP=1
 # Periods (each represents 8 years)
 export PERIODS="2014,2022"
+export PERIOD_DOWNSCALING="2"
 
 # Set NO_PEAKS to 1                       if you want to INCLUDE the peak days
 # Set NO_PEAKS to "hours_in_sample > 100" if you want to EXCLUDE the peak days
@@ -63,28 +71,11 @@ export SCENARIO="default_results_"$SUBSET_ID
 
 cd  $write_to_path
 
-# Toy version of the model (Ultra-micro)
-# 1 hour per day
-# 1 day per month  
-# 1 month per year
-# 2 study periods (the ampl code expects at least two study periods to calculate the parameter years_per_period)
-
 # Don't change the next two line unless you are very confident. Normally, you'd change the var
 export DATESAMPLE="period in ($PERIODS) and mod(month_of_year, $NUM_MONTHS_BETWEEN_SAMPLES) = $START_MONTH and subset_id=$SUBSET_ID and $NO_PEAKS"
 export TIMESAMPLE=$DATESAMPLE" and mod(hour_of_day, $NUM_HOURS_BETWEEN_SAMPLES) = $START_HOUR"
-# The hours in the sample have extra weights because each hour represents 24 hours day (from NUM_HOURS_BETWEEN_SAMPLES), each month represents 12 months (from NUM_MONTHS_BETWEEN_SAMPLES), and each investment period is 8 years (from PERIODS)
-# In a non-peak sample, you also need to subtract the hours used for peak load (don't double-count)
-# PEAK: Each timepoint from a peak-load sample represents this many hours:
-#	1 hour sampled represents: [ 24 hours / day ] * [ 1 day / month ] * [12 months / year] * [8 years / period] = 2034
-# NON-PEAK: Each timepoint from a non-peak-load sample represents this many hours (assuming peak load is considered, each month has about 29 days):
-#	1 hour sampled represents: [ 24 hours / day ] * [ 29 days / month ] * [12 months / year] * [8 years / period] = 58986
-# NON-PEAK: If peak loads are not included, then each timepoint from a non-peak-load sample represents this many hours (assuming each month has about 30 days):
-#	1 hour sampled represents: [ 24 hours / day ] * [ 30 days / month ] * [12 months / year] * [8 years / period] = 61020
-export HOURS_IN_SAMPLE="if( hours_in_sample < 100, 2034, 58986 )"
-# Period is 2x as long
-# 1 month is sampled per year, so scale by 12x
-# 1 hours is sampled per day, so scale by 24x
-#export HOURS_IN_SAMPLE="hours_in_sample*2*12*24"
+# The hours in the sample need to be scaled up if subsampling options above were enabled
+export HOURS_IN_SAMPLE="hours_in_sample * $PERIOD_DOWNSCALING * $NUM_MONTHS_BETWEEN_SAMPLES * $NUM_HOURS_BETWEEN_SAMPLES"
 
 
 # note: the CAISO load aggregation/calculation areas are called 
