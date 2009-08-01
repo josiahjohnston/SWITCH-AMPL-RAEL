@@ -64,7 +64,7 @@ create table dispatch (
   fuel varchar(20),
   power double,
   co2_tons double,
-  hours_in_sample smallint,
+  hours_in_sample int,
   heat_rate double, 
   fuel_cost_tot double,
   carbon_cost_tot double,
@@ -85,5 +85,5 @@ create table transmission (
   rps_fuel_category varchar(20),
   power_sent double,
   power_received double,
-  hours_in_sample smallint
+  hours_in_sample int
 );
