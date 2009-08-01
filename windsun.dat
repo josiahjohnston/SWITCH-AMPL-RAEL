@@ -10,6 +10,7 @@ param discount_rate := 0.03;
 
 # Minimum amount of electricity that solar must produce
 param min_solar_production := 0.0030;
+param enable_min_solar_production := 0;
 
 # required rates of return (real) for generators and transmission lines
 # NOTE: 9 June 2009, default generator and transmission finance rates were changed from 0.06 to 0.08 to more accurately reflect the private cost of capital
@@ -63,6 +64,8 @@ param hydro_annual_payment_per_mw := 113172;
 # list of fuel types
 set FUELS := Gas Coal Nuclear Wind Solar Geothermal Bio Water;
 set RPS_FUEL_CATEGORY := fossilish renewable;
+
+param enable_rps := 1;
 
 # Names of intermittent and resource-limited technologies. 
 param tech_ccgt := "CCGT";
@@ -120,12 +123,15 @@ set YEARS :=
 2040;
 
 
-# cost of carbon emissions ($/tonneCO2)
-param carbon_cost := 0;
-
 # carbon content (tonnes CO2 per million Btu)
 # gas converted from http://www.eia.doe.gov/oiaf/1605/coefficients.html
 # this page says nevada and arizona coal are around 205-208 pounds per million Btu: http://www.eia.doe.gov/cneaf/coal/quarterly/co2_article/co2.html
 param carbon_content :=
 Gas 0.0531
 Coal 0.0939;
+
+# cost of carbon emissions ($/tonneCO2)
+param carbon_cost;
+# Set this to more than one value if you want to run the carbon curve scripty thing
+# Leave the following line at the end of the file, or you'll get syntax errors.
+let CARBON_COSTS := {0, 50};

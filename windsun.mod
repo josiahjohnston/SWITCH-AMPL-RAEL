@@ -147,6 +147,9 @@ param regional_economic_multiplier {LOAD_ZONES} >= 0;
 # Minimum amount of electricity that solar must produce
 param min_solar_production >= 0, <= 1;
 
+# Minimum amount of electricity that solar must produce
+param enable_min_solar_production;
+
 ###############################################
 #
 # Technology specifications for generators
@@ -235,11 +238,12 @@ param fixed_o_m_change {REGIONAL_TECHNOLOGIES};
 
 set RPS_FUEL_CATEGORY dimen 1;
 set LOAD_ZONES_AND_FUEL_CATEGORY dimen 2;
+set LOAD_ZONES_WITH_RPS dimen 1;
 
-param enable_rps = 1;
+param enable_rps;
 
 # rps goals for each load area
-param rps_goal {LOAD_ZONES};
+param rps_goal {LOAD_ZONES_WITH_RPS};
 
 # whether fuels in a load area qualify for rps 
 param fuel_qualifies_for_rps {LOAD_ZONES_AND_FUEL_CATEGORY};
@@ -248,11 +252,11 @@ param fuel_qualifies_for_rps {LOAD_ZONES_AND_FUEL_CATEGORY};
 param rps_fuel_category {FUELS} symbolic in RPS_FUEL_CATEGORY;
 
 # determines which load_zones have rps_requirements 
-param load_zone_rps_policy {LOAD_ZONES};
+param load_zone_rps_policy {LOAD_ZONES_WITH_RPS};
 
 # What year each zone needs to meet its RPS goal
-param rps_compliance_year {LOAD_ZONES};
-param period_rps_takes_effect {z in LOAD_ZONES} = 
+param rps_compliance_year {LOAD_ZONES_WITH_RPS};
+param period_rps_takes_effect {z in LOAD_ZONES_WITH_RPS} = 
 	years_per_period * round( ( rps_compliance_year[z] - start_year) / years_per_period ) + start_year;
 
 ###############################################
@@ -531,6 +535,9 @@ param transmission_finance_rate >= 0;
 # cost of carbon emissions ($/ton), e.g., from a carbon tax
 # can also be set negative to drive renewables out of the system
 param carbon_cost;
+
+# set and parameters used to make carbon cost curves
+set CARBON_COSTS;
 
 # annual fuel price forecast
 # old: param fuel_price {YEARS, FUELS} default 0, >= 0;
@@ -1111,16 +1118,15 @@ subject to Maximum_LocalTD
 
 
 # make the system generate a certain amount of power from a certain resource
-# doesn't work yet...
-subject to min_gen_fraction_from_solar:
-	(sum {(z, t, s, o, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS: t in SOLAR_TECHNOLOGIES and v = last( VINTAGE_YEARS ) } 
+subject to Min_Gen_Fraction_From_Solar { if enable_min_solar_production}:
+	(sum {(z, t, s, o, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS: t in SOLAR_TECHNOLOGIES and v = last( VINTAGE_YEARS )} 
       (1-forced_outage_rate[t]) * cap_factor[z, t, s, o, h] * InstallGen[z, t, s, o, v]) >=
     min_solar_production * (sum {z in LOAD_ZONES, h in HOURS} (system_load[z,h]) );
 
 #################################################
 # RPS constraint
-subject to Satisfy_RPS {z in LOAD_ZONES, p in PERIODS: 
-	load_zone_rps_policy[z] = 1 and p >= period_rps_takes_effect[z] and enable_rps}:
+subject to Satisfy_RPS {z in LOAD_ZONES_WITH_RPS, p in PERIODS: 
+	p >= period_rps_takes_effect[z] and enable_rps}:
 
  (
 	#############################

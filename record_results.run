@@ -289,4 +289,4 @@ printf {p in PERIODS, z in LOAD_ZONES}:
 
 close (outfile);
 
-printf "time taken to store results: %d seconds\n", time()-curtime;
+printf "%d seconds to store results.\n", time()-curtime;

@@ -47,7 +47,7 @@ table qualifies_for_rps IN:
 read table qualifies_for_rps; 
 
 table rps_requirement IN:
-	[load_zone], rps_goal, rps_compliance_year, load_zone_rps_policy;
+	LOAD_ZONES_WITH_RPS <- [load_zone], rps_goal, rps_compliance_year, load_zone_rps_policy;
 read table rps_requirement;
 
 
@@ -96,13 +96,6 @@ table hydro IN:
   PROJ_HYDRO_DATES <- [load_zone, site, date], 
   avg_hydro_flow ~ avg_flow, min_hydro_flow ~ min_flow, max_hydro_flow ~ max_flow;
 read table hydro;
-
-#solve;
-
-# display Power_Cost / system_load_discounted;
-
-# set and parameters used to make carbon cost curves
-set CARBON_COSTS;
 
 # parameter used to track execution times
 param curtime;
