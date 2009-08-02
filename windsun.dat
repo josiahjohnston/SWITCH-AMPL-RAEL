@@ -65,7 +65,7 @@ param hydro_annual_payment_per_mw := 113172;
 set FUELS := Gas Coal Nuclear Wind Solar Geothermal Bio Water;
 set RPS_FUEL_CATEGORY := fossilish renewable;
 
-param enable_rps := 1;
+param enable_rps;
 
 # Names of intermittent and resource-limited technologies. 
 param tech_ccgt := "CCGT";

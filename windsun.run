@@ -103,8 +103,11 @@ param curtime;
 # parameters used for reporting total generation and transmission
 
 # name of the scenario
-param scenario_name symbolic;
-read scenario_name <scenario_name.txt;
+param scenario_id symbolic;
+read scenario_id <scenario_id.txt;
+
+# Whether or not to consider Renewable Portfolio Standards
+read enable_rps < enable_rps.txt;
 
 # years and hours to report
 set STUDY_YEARS ordered = PERIODS;

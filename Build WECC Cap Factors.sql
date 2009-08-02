@@ -259,7 +259,7 @@ update study_hours_all set
 
 CREATE TABLE IF NOT EXISTS scenarios (
   scenario_id INT NOT NULL AUTO_INCREMENT,
-  scenario_name VARCHAR(64),
+  scenario_name VARCHAR(128),
   training_set_id INT NOT NULL,
   exclude_peaks BOOLEAN NOT NULL default 0, 
   exclude_periods VARCHAR(256) NOT NULL default '' COMMENT 'If you want to exclude the periods starting at 2010 and 2018, you would set this to "2010,2018".',
@@ -271,13 +271,14 @@ CREATE TABLE IF NOT EXISTS scenarios (
   start_month INT NOT NULL DEFAULT 3 COMMENT 'The value of START_MONTH should be between 0 and one less than the value of NUM_HOURS_BETWEEN_SAMPLES. 0 means sampling starts in Jan, 1 means Feb, 2 -> March, 3 -> April', 
   hours_between_samples INT NOT NULL DEFAULT 24, 
   start_hour INT NOT NULL DEFAULT 11 COMMENT 'The value of START_HOUR should be between 0 and one less than the value of NUM_HOURS_BETWEEN_SAMPLES. 0 means sampling starts at 12am, 1 means 1am, ... 15 means 3pm, etc', 
+  enable_rps BOOLEAN NOT NULL DEFAULT 0 COMMENT 'This controls whether Renewable Portfolio Standards are considered in the optimization.', 
   notes TEXT,
   num_timepoints INT, 
   _datesample TEXT,
   _timesample TEXT,
   _hours_in_sample TEXT,
   PRIMARY KEY (scenario_id), 
-  UNIQUE INDEX unique_params(`training_set_id`, `exclude_peaks`, `exclude_periods`, `period_reduced_by`, `regional_cost_multiplier_scenario_id`, `regional_fuel_cost_scenario_id`, `regional_gen_price_scenario_id`, `months_between_samples`, `start_month`, `hours_between_samples`, `start_hour`), 
+  UNIQUE INDEX unique_params(`training_set_id`, `exclude_peaks`, `exclude_periods`, `period_reduced_by`, `regional_cost_multiplier_scenario_id`, `regional_fuel_cost_scenario_id`, `regional_gen_price_scenario_id`, `months_between_samples`, `start_month`, `hours_between_samples`, `start_hour`, `enable_rps`), 
   CONSTRAINT training_set_id FOREIGN KEY training_set_id (training_set_id)
     REFERENCES training_sets (training_set_id), 
   CONSTRAINT regional_cost_multiplier_scenario_id FOREIGN KEY regional_cost_multiplier_scenario_id (regional_cost_multiplier_scenario_id)
@@ -312,7 +313,7 @@ BEGIN
     UPDATE wecc.scenarios
       SET 
         _datesample = concat(
-            concat( 'FIND_IN_SET( period, "', exclude_periods, '") and '), 
+            concat( 'FIND_IN_SET( period, "', exclude_periods, '")=0 and '), 
             'MOD(month_of_year, ', months_between_samples, ') = ', start_month, ' and ',
             'training_set_id = ', training_set_id, 
             if( exclude_peaks, ' and hours_in_sample > 100', '')
