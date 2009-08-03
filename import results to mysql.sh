@@ -14,7 +14,7 @@ results_dir="results"
 # Get the user name and password 
 # Note that passing the password to mysql via a command line parameter is considered insecure
 #	http://dev.mysql.com/doc/refman/5.0/en/password-security.html
-if [ $# > 1 ]
+if [ $# -ge 2 ]
 then 
 	user=$1
 	password=$2
@@ -30,7 +30,7 @@ fi
 
 ###################################################
 # Clear out the prior instance of this run if requested
-if [ $# > 2 ]
+if [ $# -ge 3 ]
 then 
 	if [ $3 = "--FlushPriorResults" ]
 	then
@@ -43,7 +43,7 @@ fi
 echo 'Importing results files...'
 for file_base_name in gen_cap trans_cap local_td_cap power transmission
 do
- for file_name in `ls results/${file_base_name}_*csv`
+ for file_name in `ls results/${file_base_name}_*csv | grep "[[:digit:]]"`
  do
   file_path="$current_dir/$file_name"
   # Import the file in question into the DB
