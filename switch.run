@@ -40,7 +40,7 @@ for {c in CARBON_COSTS} {
   # Transmission optimization
 
   let trans_problem_file := "results/sol" & carbon_cost & "trans";
-  let trans_solution_file := cost_problem_file & ".sol";
+  let trans_solution_file := trans_problem_file & ".sol";
 
   # Determine if this solution already exists. 
   shell("if [ -f " & trans_solution_file & " ]; then echo 1 > sol_exists.txt; else echo 0 > sol_exists.txt; fi");
