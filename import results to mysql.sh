@@ -14,7 +14,7 @@ results_dir="results"
 # Get the user name and password 
 # Note that passing the password to mysql via a command line parameter is considered insecure
 #	http://dev.mysql.com/doc/refman/5.0/en/password-security.html
-if [ $# = 2 ]
+if [ $# > 1 ]
 then 
 	user=$1
 	password=$2
@@ -26,6 +26,16 @@ else
 	stty -echo            # To keep the password vaguely secure, don't let it show to the screen
 	read password
 	stty $stty_orig       # Restore screen settings
+fi
+
+###################################################
+# Clear out the prior instance of this run if requested
+if [ $# > 2 ]
+then 
+	if [ $3 = "--FlushPriorResults" ]
+	then
+		mysql -h $db_server -u $user -p$password -e "use $DB_name; select clear_scenario_results(${SCENARIO_ID});"
+	fi
 fi
 
 ###################################################
