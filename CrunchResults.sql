@@ -191,6 +191,32 @@ insert into gen_cap_summary (scenario_id, carbon_cost, period, source, capacity)
   select @scenario_id, carbon_cost, period, source, 0 from gen_summary 
     where source <> "System Load" and scenario_id = @scenario_id and (carbon_cost, period, source) not in (select carbon_cost, period, source from gen_cap_summary where scenario_id = @scenario_id);
 
+-- capacity each period by load area
+insert into gen_cap_summary_la
+  select @scenario_id as scenario_id, carbon_cost, concat(period, "-", period+@period_length-1) as period, load_area, 
+    case when site in ("Transmission Losses", "Load", "Fixed Load", "Dispatched Load") then "System Load"
+         when fuel like "Hydro%" then "Hydro"
+         when new then concat("New ", technology)
+         else concat("Existing ", fuel, if(cogen, " Cogen", ""))
+    end as source,
+      sum(capacity) as capacity
+    from gen_cap
+    where site <> "Transmission" and scenario_id = @scenario_id
+    group by 2, 3, 4, 5
+  union 
+  select @scenario_id as scenario_id, carbon_cost, concat(period, "-", period+@period_length-1) as period, load_area, "Peak Load" as source, max(power) as capacity 
+    from gen_hourly_summary_la where source="Fixed Load" and scenario_id = @scenario_id
+    group by 2, 3, 4, 5
+  union 
+  select @scenario_id as scenario_id, carbon_cost, concat(period, "-", period+@period_length-1) as period, load_area, "Reserve Margin" as source, 1.15 * max(power) as capacity 
+    from gen_hourly_summary_la where source="Fixed Load" and scenario_id = @scenario_id
+    group by 2, 3, 4, 5;
+-- if a technology is not developed, it doesn't show up in the generator list,
+-- but it's convenient to have it in the list anyway
+insert into gen_cap_summary (scenario_id, carbon_cost, period, source, capacity)
+  select @scenario_id, carbon_cost, period, source, 0 from gen_summary 
+    where source <> "System Load" and scenario_id = @scenario_id and (carbon_cost, period, source) not in (select carbon_cost, period, source from gen_cap_summary where scenario_id = @scenario_id);
+
 -- ------------------------------
 -- Insert dummy records into the transmission table - basically, put a 0 power transfer in each hour 
 -- where power could have been sent across a line, but wasn't
