@@ -179,9 +179,9 @@ printf "scenario_id,carbon_cost,period,load_area_receive,load_area_from,date,hou
 
 
 # detailed imports & exports
-printf {(x, y) in TRANS_LINES, h in HOURS, p in PERIODS, f in FUELS, fuel_cat in RPS_FUEL_CATEGORY: fuel_cat = rps_fuel_category[f] and period[h]=p and DispatchTransFromXToY[x, y, h, fuel_cat] > 0.001} 
+printf {(x, y) in TRANS_LINES, h in HOURS, fuel_cat in RPS_FUEL_CATEGORY: DispatchTransFromXToY[x, y, h, fuel_cat] > 0.001} 
   "%s,%f,%d,%s,%s,%d,%d,%s,%f,%f,%d\n",
-  scenario_id, carbon_cost, p, y, x, date[h], h, fuel_cat,
+  scenario_id, carbon_cost, period[h], y, x, date[h], h, fuel_cat,
   DispatchTransFromXToY[x, y, h, fuel_cat],
   DispatchTransFromXToY[x, y, h, fuel_cat] * transmission_efficiency[x, y],
   hours_in_sample[h]
