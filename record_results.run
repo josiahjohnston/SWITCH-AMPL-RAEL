@@ -61,21 +61,47 @@ printf {(z, t, s, o, v) in NEW_BASELOAD_PERIODS, h in HOURS: period[h]=v}
     * variable_o_m[z, t]
   >> (outfile);
 
+# Existing Intermittent plants
+# 
+printf {(z, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS, p in PERIODS: period[h]=p} 
+  "%s,%f,%d,%s,%d,%d,%s,%s,%s,%d,%d,%d,%s,%f,%f,%d,%f,%f,%f,%f\n",
+  scenario_id, carbon_cost, p, z, date[h], h, ep_technology[z,e], e, "na", 0, ep_baseload[z, e], ep_cogen[z, e], ep_fuel[z, e],
+  # Power
+  OperateEPDuringPeriod[z, e, p] * ep_size_mw[z, e] * eip_cap_factor[z, e, h] * (1-ep_forced_outage_rate[z, e]), 
+  # Co2 (tons)
+  OperateEPDuringPeriod[z, e, p] * ep_size_mw[z, e] * eip_cap_factor[z, e, h] * (1-ep_forced_outage_rate[z, e])
+    * ep_heat_rate[z, e]/1000 * carbon_content[ep_fuel[z, e]],
+  # hours_in_sample
+  hours_in_sample[h],
+  # heat_rate
+  ep_heat_rate[z, e], 
+  # fuel_cost_tot
+  OperateEPDuringPeriod[z, e, p] * ep_size_mw[z, e] * eip_cap_factor[z, e, h] * (1-ep_forced_outage_rate[z, e])
+    * ep_heat_rate[z, e]/1000 * fuel_cost_hourly[z,ep_fuel[z, e], h],
+  # carbon_cost_tot
+  OperateEPDuringPeriod[z, e, p] * ep_size_mw[z, e] * eip_cap_factor[z, e, h] * (1-ep_forced_outage_rate[z, e])
+    * ep_heat_rate[z, e]/1000 * carbon_content[ep_fuel[z, e]] * carbon_cost,
+  # variable_o_m_tot
+  OperateEPDuringPeriod[z, e, p] * ep_size_mw[z, e] * eip_cap_factor[z, e, h] * (1-ep_forced_outage_rate[z, e])
+    * ep_variable_o_m[z, e]
+  >> (outfile);
+
+
 # existing baseload plants
 # (takes 178 seconds, 6 MB)
 printf {(z, e, p) in EP_BASELOAD_PERIODS, h in HOURS: period[h]=p} 
   "%s,%f,%d,%s,%d,%d,%s,%s,%s,%d,%d,%d,%s,%f,%f,%d,%f,%f,%f,%f\n",
-  scenario_id, carbon_cost, p, z, date[h], h, "na", e, "na", 0, ep_baseload[z, e], ep_cogen[z, e], ep_fuel[z, e],
-  OperateEPDuringYear[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e],
-  OperateEPDuringYear[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e] 
+  scenario_id, carbon_cost, p, z, date[h], h, ep_technology[z,e], e, "na", 0, ep_baseload[z, e], ep_cogen[z, e], ep_fuel[z, e],
+  OperateEPDuringPeriod[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e],
+  OperateEPDuringPeriod[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e] 
     * ep_heat_rate[z, e]/1000 * carbon_content[ep_fuel[z, e]],
   hours_in_sample[h],
   ep_heat_rate[z, e], 
-  OperateEPDuringYear[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e] 
+  OperateEPDuringPeriod[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e] 
     * ep_heat_rate[z, e]/1000 * fuel_cost_hourly[z,ep_fuel[z, e], h],
-  OperateEPDuringYear[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e] 
+  OperateEPDuringPeriod[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e] 
     * ep_heat_rate[z, e]/1000 * carbon_content[ep_fuel[z, e]] * carbon_cost,
-  OperateEPDuringYear[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e]
+  OperateEPDuringPeriod[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e]
     * ep_variable_o_m[z, e]
   >> (outfile);
 
@@ -83,7 +109,7 @@ printf {(z, e, p) in EP_BASELOAD_PERIODS, h in HOURS: period[h]=p}
 # (takes 109 seconds, 4 MB)
 printf {(z, e, h) in EP_DISPATCH_HOURS, p in PERIODS: p=period[h]} 
   "%s,%f,%d,%s,%d,%d,%s,%s,%s,%d,%d,%d,%s,%f,%f,%d,%f,%f,%f,%f\n",
-  scenario_id, carbon_cost, p, z, date[h], h, "na", e, "na", 0, ep_baseload[z, e], ep_cogen[z, e], ep_fuel[z, e],
+  scenario_id, carbon_cost, p, z, date[h], h, ep_technology[z,e], e, "na", 0, ep_baseload[z, e], ep_cogen[z, e], ep_fuel[z, e],
   DispatchEP[z, e, h],
   DispatchEP[z, e, h] * ep_heat_rate[z, e] * carbon_content[ep_fuel[z, e]] / 1000,
   hours_in_sample[h],
@@ -213,9 +239,9 @@ printf {(z, t, s, o) in PROJECTS, p in PERIODS: (max {(z, t, s, o, v) in PROJECT
 printf {(z, e, p) in EP_PERIODS}
   "%s,%f,%d,%s,%s,%s,%s,%d,%d,%d,%s,%f,%f\n",
   scenario_id, carbon_cost, p, z, "na", e, "na", 0, ep_baseload[z, e], ep_cogen[z, e], ep_fuel[z, e],
-  OperateEPDuringYear[z, e, p] * ep_size_mw[z, e] 
+  OperateEPDuringPeriod[z, e, p] * ep_size_mw[z, e] 
     * if ep_baseload[z, e] then (1-ep_scheduled_outage_rate[z, e]) else 1,
-  OperateEPDuringYear[z, e, p] * ep_size_mw[z, e] * ep_fixed_cost[z, e, p] * (1+discount_rate)^(p-base_year)
+  OperateEPDuringPeriod[z, e, p] * ep_size_mw[z, e] * ep_fixed_cost[z, e, p] * (1+discount_rate)^(p-base_year)
   + ep_size_mw[z, e] * ep_capital_cost_annual_payment[z, e] * (1-(1/(1+discount_rate)^(years_per_period)))/discount_rate
   >> (outfile);
 
