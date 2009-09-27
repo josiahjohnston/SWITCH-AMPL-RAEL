@@ -18,7 +18,10 @@ insert into gen_hourly_summary
          when site = "Dispatched Load" then site
          when fuel like "Hydro%" then fuel
          when new then concat("New ", technology)
-         else concat("Existing ", fuel, if(cogen, " Cogen", ""))
+         else concat("Existing ", 
+           if( fuel in ("Wind", "Solar"), technology, fuel ),
+           if( cogen, " Cogen", "")
+         )
     end as source,
     sum(power) as power
     from dispatch
@@ -39,7 +42,10 @@ insert into gen_hourly_summary_la
          when site = "Dispatched Load" then site
          when fuel like "Hydro%" then fuel
          when new then concat("New ", technology)
-         else concat("Existing ", fuel, if(cogen, " Cogen", ""))
+         else concat("Existing ", 
+           if( fuel in ("Wind", "Solar"), technology, fuel ),
+           if( cogen, " Cogen", "")
+         )
     end as source,
     sum(power) as power
     from dispatch
@@ -57,7 +63,10 @@ insert into gen_summary
     case when site in ("Transmission Losses", "Load", "Fixed Load", "Dispatched Load") then "System Load"
          when fuel like "Hydro%" then "Hydro"
          when new then concat("New ", technology)
-         else concat("Existing ", fuel, if(cogen, " Cogen", ""))
+         else concat("Existing ", 
+           if( fuel in ("Wind", "Solar"), technology, fuel ),
+           if( cogen, " Cogen", "")
+         )
     end as source,
     sum(power*hours_in_sample)/(8760*@period_length) as avg_power
     from dispatch
@@ -71,7 +80,10 @@ insert into gen_summary_la
     case when site in ("Transmission Losses", "Load", "Fixed Load", "Dispatched Load") then "System Load"
          when fuel like "Hydro%" then "Hydro"
          when new then concat("New ", technology)
-         else concat("Existing ", fuel, if(cogen, " Cogen", ""))
+         else concat("Existing ", 
+           if( fuel in ("Wind", "Solar"), technology, fuel ),
+           if( cogen, " Cogen", "")
+         )
     end as source,
     sum(power*hours_in_sample)/(8760*@period_length) as avg_power
     from dispatch
@@ -88,7 +100,10 @@ create table grouptots
   case when site in ("Transmission Losses", "Load", "Fixed Load", "Dispatched Load") then "System Load"
        when fuel like "Hydro%" then "Hydro"
        when new then concat("New ", technology)
-       else concat("Existing ", fuel, if(cogen, " Cogen", ""))
+         else concat("Existing ", 
+           if( fuel in ("Wind", "Solar"), technology, fuel ),
+           if( cogen, " Cogen", "")
+         )
   end as source,
   sum(power*hours_in_sample)/(8760*@period_length) as avg_power
   from dispatch
@@ -118,7 +133,10 @@ create table grouptots
   case when site in ("Transmission Losses", "Load", "Fixed Load", "Dispatched Load") then "System Load"
        when fuel like "Hydro%" then "Hydro"
        when new then concat("New ", technology)
-       else concat("Existing ", fuel, if(cogen, " Cogen", ""))
+         else concat("Existing ", 
+           if( fuel in ("Wind", "Solar"), technology, fuel ),
+           if( cogen, " Cogen", "")
+         )
   end as source,
   sum(power*hours_in_sample) / system_load as share
   from dispatch, system_load_by_carbon_cost
@@ -143,7 +161,10 @@ create table grouptots
   case when site in ("Transmission Losses", "Load", "Fixed Load", "Dispatched Load") then "System Load"
        when fuel like "Hydro%" then "Hydro"
        when new then concat("New ", technology)
-       else concat("Existing ", fuel, if(cogen, " Cogen", ""))
+         else concat("Existing ", 
+           if( fuel in ("Wind", "Solar"), technology, fuel ),
+           if( cogen, " Cogen", "")
+         )
   end as source,
   sum(capacity) as capacity
   from gen_cap
@@ -171,7 +192,10 @@ insert into gen_cap_summary
     case when site in ("Transmission Losses", "Load", "Fixed Load", "Dispatched Load") then "System Load"
          when fuel like "Hydro%" then "Hydro"
          when new then concat("New ", technology)
-         else concat("Existing ", fuel, if(cogen, " Cogen", ""))
+         else concat("Existing ", 
+           if( fuel in ("Wind", "Solar"), technology, fuel ),
+           if( cogen, " Cogen", "")
+         )
     end as source,
       sum(capacity) as capacity
     from gen_cap
@@ -197,7 +221,10 @@ insert into gen_cap_summary_la
     case when site in ("Transmission Losses", "Load", "Fixed Load", "Dispatched Load") then "System Load"
          when fuel like "Hydro%" then "Hydro"
          when new then concat("New ", technology)
-         else concat("Existing ", fuel, if(cogen, " Cogen", ""))
+         else concat("Existing ", 
+           if( fuel in ("Wind", "Solar"), technology, fuel ),
+           if( cogen, " Cogen", "")
+         )
     end as source,
       sum(capacity) as capacity
     from gen_cap
