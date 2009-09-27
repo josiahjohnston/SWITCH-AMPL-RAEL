@@ -8,7 +8,7 @@ printf "\nTax=%d: cost=$%3.2f/MWh ",
 			DispatchGen[z, t, s, o, h] * (carbon_cost_per_mwh[t, h])
 		# Carbon cost adder for existing baseload plants
 		+ sum {(z, e, p) in EP_BASELOAD_PERIODS, h in HOURS: period[h]=p}
-			OperateEPDuringYear[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e]
+			OperateEPDuringPeriod[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e]
 			* (ep_carbon_cost_per_mwh[z, e, h])
 		# Carbon cost adder for existing dispatchable projects
 		+ sum {(z, e, h) in EP_DISPATCH_HOURS}
@@ -32,13 +32,17 @@ printf { f in FUELS } "%s=%2d\%, ",
 	sum {(z, e, h) in EP_DISPATCH_HOURS: period[h]=last(PERIODS) and ep_fuel[z,e] = f} 
 	   DispatchEP[z, e, h] * hours_in_sample[h]
 	+
+	# Existing Intermittent plants
+	sum {(z, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: period[h]=last(PERIODS) and ep_fuel[z,e] = f} 
+	   OperateEPDuringPeriod[z, e, period[h]] * ep_size_mw[z, e] * eip_cap_factor[z, e, h] * (1-ep_forced_outage_rate[z, e]) * hours_in_sample[h]
+	+
 	# New baseload plants
 	sum {(z, t, s, o, v) in NEW_BASELOAD_PERIODS, h in HOURS: period[h]=v and v=last(PERIODS) and fuel[t] = f} 
 	   (1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[z, t, s, o, v] * hours_in_sample[h]
 	+ 
 	# existing baseload plants
 	sum {(z, e, p) in EP_BASELOAD_PERIODS, h in HOURS: period[h]=p and p=last(PERIODS) and ep_fuel[z,e] = f} 
-	   OperateEPDuringYear[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e] * hours_in_sample[h]
+	   OperateEPDuringPeriod[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e] * hours_in_sample[h]
 	+
 	# Hydro
 	( if( f = "Water" )
