@@ -442,6 +442,9 @@ check {z in setof {(z, e) in EXISTING_PLANTS} (z)}: z in LOAD_ZONES;
 param ep_size_mw {EXISTING_PLANTS} >= 0;
 
 # type of fuel used by the plant
+param ep_technology {EXISTING_PLANTS} symbolic in TECHNOLOGIES;
+
+# type of fuel used by the plant
 param ep_fuel {EXISTING_PLANTS} symbolic in FUELS;
 
 # heat rate (in Btu/kWh)
@@ -475,6 +478,20 @@ param ep_baseload {EXISTING_PLANTS} binary;
 
 # is the generator part of a cogen facility (used for reporting)?
 param ep_cogen {EXISTING_PLANTS} binary;
+
+# is the generator intermittent (i.e. is its power production non-dispatchable)?
+param ep_intermittent {EXISTING_PLANTS} binary;
+
+###############################################
+# Existing intermittent generators (existing wind, csp and pv)
+
+# hours in which each existing intermittent renewable adds power to the grid
+set EP_INTERMITTENT_HOURS dimen 3;  # load zone, plant code, hour
+
+# capacity factor for existing intermittent renewables
+# generally between 0 and 1, but for some solar plants the capacity factor may be more than 1
+# due to capacity factor definition, so the limit here is 1.4
+param eip_cap_factor {EP_INTERMITTENT_HOURS} >= 0 <=1.4;
 
 ###############################################
 # Transmission lines
@@ -768,11 +785,18 @@ set NEW_BASELOAD_PERIODS :=
 set EP_PERIODS :=
   {(z, e) in EXISTING_PLANTS, p in PERIODS: ep_vintage[z, e] <= p < ep_end_year[z, e]};
 
-# plant-hour combinations when existing non-baseload plants can be dispatched
+# plant-hour combinations when existing non-baseload, non-intermittent plants can be dispatched
 set EP_DISPATCH_HOURS :=
-  {(z, e) in EXISTING_PLANTS, h in HOURS: not ep_baseload[z, e] and ep_vintage[z, e] <= period[h] < ep_end_year[z, e]};
+  {(z, e) in EXISTING_PLANTS, h in HOURS: not ep_baseload[z, e] and not ep_intermittent[z,e] and ep_vintage[z, e] <= period[h] < ep_end_year[z, e]};
+
+# plant-hour combinations when existing intermittent plants can produce power or be mothballed (e.g. They have not been retired yet)
+set EP_INTERMITTENT_OPERATIONAL_HOURS :=
+  {(z, e, h) in EP_INTERMITTENT_HOURS: 
+  	# Retire plants after their max age. e.g. Filter out periods that occur before the plant "is built" and periods that occur after the plant is retired. 
+  	ep_vintage[z, e] <= period[h] < ep_end_year[z, e]};
 
 # plant-period combinations when existing baseload plants can run
+# should this be as above limiting periods to times at which the plant hasn't retired yet?
 set EP_BASELOAD_PERIODS :=
   {(z, e, p) in EP_PERIODS: ep_baseload[z, e]};
 
@@ -808,8 +832,8 @@ var DispatchGen {PROJ_DISPATCH, HOURS} >= 0;
 # share of existing plants to operate during each study period.
 # this should be a binary variable, but it's interesting to see 
 # how the continuous form works out
-#var OperateEPDuringYear {EP_PERIODS} >= 0, <= 1;
-var OperateEPDuringYear {EP_PERIODS} binary;
+#var OperateEPDuringPeriod {EP_PERIODS} >= 0, <= 1;
+var OperateEPDuringPeriod {EP_PERIODS} binary;
 
 # number of MW to generate from each existing dispatchable plant, in each hour
 var DispatchEP {EP_DISPATCH_HOURS} >= 0;
@@ -869,19 +893,25 @@ minimize Power_Cost:
 	#############################
 	#    EXISTING PLANTS
   # Calculate capital costs for all existing plants. This number is not affected by any of the decision variables because it is a sunk cost.
-  + sum {(z, e) in EXISTING_PLANTS} ep_size_mw[z, e] * ep_capital_cost[z, e]
+  + sum {(z, e) in EXISTING_PLANTS}
+      ep_size_mw[z, e] * ep_capital_cost[z, e]
   # Calculate fixed costs for all existing plants
   + sum {(z, e, p) in EP_PERIODS} 
-      OperateEPDuringYear[z, e, p] * ep_size_mw[z, e] * ep_fixed_cost[z, e, p]
+      OperateEPDuringPeriod[z, e, p] * ep_size_mw[z, e] * ep_fixed_cost[z, e, p]
   # Calculate variable costs for existing BASELOAD plants
-  # NOTE: The number of decision variables could be reduced significantly if you indexed ep_variable_cost & ep_carbon_cost_per_mwh by p instead of h, then express the sum like this: + sum {(z, e, p) in EP_BASELOAD_PERIODS} OperateEPDuringYear[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e] * (ep_variable_cost[z, e, p] + ep_carbon_cost_per_mwh[z, e, p]) * total_hours_in_period[p]
+  # NOTE: The number of decision variables could be reduced significantly if you indexed ep_variable_cost & ep_carbon_cost_per_mwh by p instead of h, then express the sum like this: + sum {(z, e, p) in EP_BASELOAD_PERIODS} OperateEPDuringPeriod[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e] * (ep_variable_cost[z, e, p] + ep_carbon_cost_per_mwh[z, e, p]) * total_hours_in_period[p]
   + sum {(z, e, p) in EP_BASELOAD_PERIODS, h in HOURS: period[h]=p}
-      OperateEPDuringYear[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e] 
+      OperateEPDuringPeriod[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e] 
       * (ep_variable_cost[z, e, h] + ep_carbon_cost_per_mwh[z, e, h])
   # Calculate variable costs for existing NON-BASELOAD plants
   + sum {(z, e, h) in EP_DISPATCH_HOURS}
       DispatchEP[z, e, h]
       * (ep_variable_cost[z, e, h] + ep_carbon_cost_per_mwh[z, e, h])
+  # Calculate variable costs for existing INTERMITTENT plants
+  + sum {(z, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS}
+      OperateEPDuringPeriod[z, e, period[h]] * ep_size_mw[z, e] * eip_cap_factor[z, e, h] * 
+      (1-ep_forced_outage_rate[z, e]) * ep_variable_cost[z, e, h]
+
   # Hydro
   + sum {(z, s) in PROJ_HYDRO} 
       hydro_cost_per_mw[z] * (max {(z, s, d) in PROJ_HYDRO_DATES} max_hydro_flow[z, s, d])
@@ -926,9 +956,12 @@ subject to Satisfy_Load {z in LOAD_ZONES, h in HOURS}:
 	#    EXISTING PLANTS
   # existing baseload plants
   + sum {(z, e, p) in EP_BASELOAD_PERIODS: p=period[h]} 
-      (OperateEPDuringYear[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e])
+      (OperateEPDuringPeriod[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e])
   # existing dispatchable plants
   + sum {(z, e, h) in EP_DISPATCH_HOURS} DispatchEP[z, e, h]
+  # existing intermittent plants
+  + sum {(z, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS} 
+      OperateEPDuringPeriod[z, e, period[h]] * ep_size_mw[z, e] * eip_cap_factor[z, e, h] * (1-ep_forced_outage_rate[z, e])
 
   # pumped hydro, de-rated to reflect occasional unavailability of the hydro plants
   + (1 - forced_outage_rate_hydro) * (sum {(z, s) in PROJ_PUMPED_HYDRO} DispatchPumpedHydro[z, s, h])
@@ -969,6 +1002,7 @@ subject to Satisfy_Load_Reserve {z in LOAD_ZONES, h in HOURS}:
   # new dispatchable capacity (no need to decide how to dispatch it; we just need to know it's available)
   (sum {(z, t, s, o, v, h) in PROJ_DISPATCH_VINTAGE_HOURS} InstallGen[z, t, s, o, v])
 
+  # Is it appropriate to put intermittent plants into the load reserve? Do any utility regulators currently allow this?
   # output from new intermittent projects
   + (sum {(z, t, s, o, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS} 
       cap_factor[z, t, s, o, h] * InstallGen[z, t, s, o, v])
@@ -981,9 +1015,12 @@ subject to Satisfy_Load_Reserve {z in LOAD_ZONES, h in HOURS}:
 	#    EXISTING PLANTS
   # existing baseload plants
   + sum {(z, e, p) in EP_BASELOAD_PERIODS: p=period[h]} 
-      (OperateEPDuringYear[z, e, p] * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e])
+      (OperateEPDuringPeriod[z, e, p] * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e])
   # existing dispatchable capacity
-  + sum {(z, e, h) in EP_DISPATCH_HOURS} OperateEPDuringYear[z, e, period[h]] * ep_size_mw[z, e]
+  + sum {(z, e, h) in EP_DISPATCH_HOURS} OperateEPDuringPeriod[z, e, period[h]] * ep_size_mw[z, e]
+  # existing intermittent plants
+  + sum {(z, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS} 
+      OperateEPDuringPeriod[z, e, period[h]] * ep_size_mw[z, e] * eip_cap_factor[z, e, h]
 
   # pumped hydro
   + (sum {(z, s) in PROJ_PUMPED_HYDRO} DispatchPumpedHydro_Reserve[z, s, h])
@@ -1085,7 +1122,7 @@ subject to BuildGenOrNot_Constraint
 # existing dispatchable plants can only be used if they are operational this year
 subject to EP_Operational
   {(z, e, h) in EP_DISPATCH_HOURS}: DispatchEP[z, e, h] <= 
-      OperateEPDuringYear[z, e, period[h]] * (1-ep_forced_outage_rate[z, e]) * ep_size_mw[z, e];
+      OperateEPDuringPeriod[z, e, period[h]] * (1-ep_forced_outage_rate[z, e]) * ep_size_mw[z, e];
 
 # system can only use as much transmission as is expected to be available
 # note: transmission up and down the line both enter positively,
@@ -1114,13 +1151,22 @@ subject to Maximum_LocalTD
   system_load[z,h]
     - (sum {(z, t, s, o, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS: t=tech_pv}
         (1-forced_outage_rate[t]) * cap_factor[z, t, s, o, h] * InstallGen[z, t, s, o, v])
+    - (sum {(z, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: ep_technology[z,e]=tech_pv}
+    	OperateEPDuringPeriod[z, e, period[h]] * 
+        (1-ep_forced_outage_rate[z,e]) * eip_cap_factor[z, e, h] * ep_size_mw[z, e] )
   <= sum {(z, v, h) in LOCAL_TD_HOURS} InstallLocalTD[z, v];
 
 
 # make the system generate a certain amount of power from a certain resource
 subject to Min_Gen_Fraction_From_Solar { if enable_min_solar_production}:
-	(sum {(z, t, s, o, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS: t in SOLAR_TECHNOLOGIES and v = last( VINTAGE_YEARS )} 
-      (1-forced_outage_rate[t]) * cap_factor[z, t, s, o, h] * InstallGen[z, t, s, o, v]) >=
+    # New plants
+	(sum {(z, t, s, o, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS: t in SOLAR_TECHNOLOGIES             and v = last( VINTAGE_YEARS )} 
+        (1-forced_outage_rate[t]) * cap_factor[z, t, s, o, h] * InstallGen[z, t, s, o, v]) 
+    # Existing plants
+    - (sum {(z, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: ep_technology[z,e] in SOLAR_TECHNOLOGIES and period[h] = last( VINTAGE_YEARS )}
+    	OperateEPDuringPeriod[z, e, period[h]] * 
+        (1-ep_forced_outage_rate[z,e]) * eip_cap_factor[z, e, h]   * ep_size_mw[z, e] )
+      >=
     min_solar_production * (sum {z in LOAD_ZONES, h in HOURS} (system_load[z,h]) );
 
 #################################################
@@ -1152,12 +1198,17 @@ subject to Satisfy_RPS {z in LOAD_ZONES_WITH_RPS, p in PERIODS:
   # existing baseload plants
   + (sum {(z, e, p) in EP_BASELOAD_PERIODS, h in HOURS: 
           period[h]=p and fuel_qualifies_for_rps[z, rps_fuel_category[ep_fuel[z,e]]]} 
-      OperateEPDuringYear[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e] * hours_in_sample[h]
+      OperateEPDuringPeriod[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e] * hours_in_sample[h]
     )
   # existing dispatchable plants
   + (sum {(z, e, h) in EP_DISPATCH_HOURS: 
           period[h]=p and fuel_qualifies_for_rps[z, rps_fuel_category[ep_fuel[z,e]]]} 
       DispatchEP[z, e, h] * hours_in_sample[h]
+    )
+  # existing intermittent plants
+  + (sum {(z, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: 
+          period[h]=p and fuel_qualifies_for_rps[z, rps_fuel_category[ep_fuel[z,e]]]} 
+      OperateEPDuringPeriod[z, e, p] * ep_size_mw[z, e] * eip_cap_factor[z, e, h] * (1-ep_forced_outage_rate[z, e]) * hours_in_sample[h]
     )
 
 	########################################
@@ -1189,22 +1240,35 @@ subject to Conservation_of_Colored_Electrons {z in LOAD_ZONES, h in HOURS, ft in
 	#############################
 	#    Power Production
   # new dispatchable projects
-  (sum {(z, t, s, o) in PROJ_DISPATCH: rps_fuel_category[fuel[t]] = ft} DispatchGen[z, t, s, o, h])
+    (sum {(z, t, s, o) in PROJ_DISPATCH: rps_fuel_category[fuel[t]] = ft} 
+      DispatchGen[z, t, s, o, h]
+    )
   # new intermittent projects
   + (sum {(z, t, s, o, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS: rps_fuel_category[fuel[t]] = ft} 
-      (1-forced_outage_rate[t]) * cap_factor[z, t, s, o, h] * InstallGen[z, t, s, o, v])
+      (1-forced_outage_rate[t]) * cap_factor[z, t, s, o, h] * InstallGen[z, t, s, o, v]
+    )
   # new baseload plants
-  + sum {(z, t, s, o, v) in NEW_BASELOAD_PERIODS: rps_fuel_category[fuel[t]] = ft} 
-      ((1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[z, t, s, o, v] )
+  + (sum {(z, t, s, o, v) in NEW_BASELOAD_PERIODS: rps_fuel_category[fuel[t]] = ft} 
+      (1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[z, t, s, o, v] 
+    )
   # existing baseload plants
-  + sum {(z, e, p) in EP_BASELOAD_PERIODS: p=period[h] and rps_fuel_category[ep_fuel[z,e]] = ft} 
-      (OperateEPDuringYear[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e])
+  + (sum {(z, e, p) in EP_BASELOAD_PERIODS: p=period[h] and rps_fuel_category[ep_fuel[z,e]] = ft} 
+      OperateEPDuringPeriod[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e]
+    )
   # existing dispatchable plants
-  + sum {(z, e, h) in EP_DISPATCH_HOURS: rps_fuel_category[ep_fuel[z,e]] = ft} DispatchEP[z, e, h]
+  + (sum {(z, e, h) in EP_DISPATCH_HOURS: rps_fuel_category[ep_fuel[z,e]] = ft} 
+      DispatchEP[z, e, h]
+    )
+  # existing intermittent plants
+  + (sum {(z, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: rps_fuel_category[ep_fuel[z,e]] = ft} 
+      OperateEPDuringPeriod[z, e, period[h]] * ep_size_mw[z, e] * eip_cap_factor[z, e, h] * (1-ep_forced_outage_rate[z, e])
+    )
 
   #############################
   # Imports (have experienced transmission losses)
-  + (sum {(z2, z) in TRANS_LINES} (transmission_efficiency[z2, z] * DispatchTransFromXToY[z2, z, h, ft]))
+  + (sum {(z2, z) in TRANS_LINES} 
+      transmission_efficiency[z2, z] * DispatchTransFromXToY[z2, z, h, ft]
+    )
   
      #############################
      # Exports (have not experienced transmission losses)
