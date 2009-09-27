@@ -27,7 +27,7 @@ for {c in CARBON_COSTS} {
     printf "\nLoading Cost solution from disk for a carbon cost of %d.\n", carbon_cost;
     solution (cost_solution_file);
   } else {
-    printf "\nCost solution not found for a carbon cost of %d; solving optimization problem.\n", carbon_cost;
+    printf "\nCost solution not found on disk for a carbon cost of %d; solving optimization problem.\n", carbon_cost;
     write ("b" & cost_problem_file);
     solve;
     printf "%d seconds to optimize for cost.", time() - curtime;
@@ -38,6 +38,7 @@ for {c in CARBON_COSTS} {
 
   ###############################
   # Transmission optimization
+  # All decision variables except DispatchTransFromXToY are fixed for the transmission usage objective function
 
   let trans_problem_file := "results/sol" & carbon_cost & "trans";
   let trans_solution_file := trans_problem_file & ".sol";
@@ -54,13 +55,12 @@ for {c in CARBON_COSTS} {
     solution (trans_solution_file);
   } else {
 
-    printf "\nTransmission solution not found for a carbon cost of %d; solving optimization problem.\n", carbon_cost;
+    printf "\nTransmission solution not found on disk for a carbon cost of %d; solving optimization problem.\n", carbon_cost;
     
     fix InstallGen;
     fix BuildGenOrNot;
     fix DispatchGen;
-#   fix DispatchSystemLoad;
-    fix OperateEPDuringYear;
+    fix OperateEPDuringPeriod;
     fix DispatchEP;
     fix InstallTrans;
     fix DispatchTransFromXToY_Reserve;
@@ -80,8 +80,7 @@ for {c in CARBON_COSTS} {
     unfix InstallGen;
     unfix BuildGenOrNot;
     unfix DispatchGen;
-#   unfix DispatchSystemLoad;
-    unfix OperateEPDuringYear;
+    unfix OperateEPDuringPeriod;
     unfix DispatchEP;
     unfix InstallTrans;
     unfix DispatchTransFromXToY_Reserve;
