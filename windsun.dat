@@ -126,9 +126,17 @@ set YEARS :=
 # carbon content (tonnes CO2 per million Btu)
 # gas converted from http://www.eia.doe.gov/oiaf/1605/coefficients.html
 # this page says nevada and arizona coal are around 205-208 pounds per million Btu: http://www.eia.doe.gov/cneaf/coal/quarterly/co2_article/co2.html
+# Nuclear, Geothermal, Biomass, Water, Wind and Solar have non-zero LCA emissions. To model those emissions, we'd need to divide carbon content into capital, fixed, 
+#   and variable emissions. Currently, this only lists variable emissions. 
 param carbon_content :=
 Gas 0.0531
-Coal 0.0939;
+Coal 0.0939
+Nuclear 0
+Geothermal 0
+Wind 0
+Solar 0
+Bio 0
+Water 0;
 
 # cost of carbon emissions ($/tonneCO2)
 param carbon_cost;
