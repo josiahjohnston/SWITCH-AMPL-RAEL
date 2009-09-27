@@ -53,12 +53,16 @@ read table rps_requirement;
 
 table existing_plants IN: 
   EXISTING_PLANTS <- [load_zone, plant_code], 
-    ep_size_mw ~ size_mw, ep_fuel ~ fuel, ep_heat_rate ~ heat_rate, 
+    ep_size_mw ~ size_mw, ep_technology ~ technology, ep_fuel ~ fuel, ep_heat_rate ~ heat_rate, 
     ep_vintage ~ start_year, ep_max_age_years ~ max_age, 
     ep_overnight_cost ~ overnight_cost, ep_fixed_o_m ~ fixed_o_m, ep_variable_o_m ~ variable_o_m,
     ep_forced_outage_rate ~ forced_outage_rate, ep_scheduled_outage_rate ~ scheduled_outage_rate, 
-    ep_baseload ~ baseload, ep_cogen ~ cogen;
+    ep_baseload ~ baseload, ep_cogen ~ cogen, ep_intermittent ~ intermittent;
 read table existing_plants;
+
+table existing_intermittent_plant_cap_factor IN: 
+  EP_INTERMITTENT_HOURS <- [load_zone, plant_code, hour], eip_cap_factor ~ cap_factor;
+read table existing_intermittent_plant_cap_factor;
 
 table generator_info IN:  
 	TECHNOLOGIES <- [technology], min_build_year, fuel, heat_rate, construction_time_years,
