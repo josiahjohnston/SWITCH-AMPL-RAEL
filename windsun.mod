@@ -77,11 +77,11 @@
 #
 
 set YEARS ordered; # all possible years
-set HOURS ordered;
+set TIMEPOINTS ordered;
 
-# each hour is assigned to a study period exogenously,
+# Each timepoint is assigned to a study period exogenously,
 # so that we don't have to do any arithmetic to figure out
-# which hour is in each period. This allows for arbitrary
+# which timepoint is in each period. This allows for arbitrary
 # numbering of the hours, so they need not be spaced integral
 # number of hours apart through the whole year. This is important
 # if we want to sample, e.g., 12*24 hours per year or per 3 years.
@@ -92,32 +92,32 @@ set HOURS ordered;
 # But it wouldn't gain us very much, since the sampling must be
 # done carefully for each study period anyway.
 
-# chronological information on each study hour (sample)
+# chronological information on each timepoint (e.g. study hour, sample)
 # this is used to identify which hours fall in each study period
 # and how many real hours are represented by each sample (which may be fractional).
 # Hour_of_day and month_of_year are just used for reporting (if that)
-param period {HOURS};
-param date {HOURS};
-param hours_in_sample {HOURS};
-param hour_of_day {HOURS};
-param month_of_year {HOURS};
-param season_of_year {h in HOURS} = floor((month_of_year[h]-1)/3)+1;
+param period {TIMEPOINTS};
+param date {TIMEPOINTS};
+param hours_in_sample {TIMEPOINTS};
+param hour_of_day {TIMEPOINTS};
+param month_of_year {TIMEPOINTS};
+param season_of_year {h in TIMEPOINTS} = floor((month_of_year[h]-1)/3)+1;
 
 # note: periods must be evenly spaced and count by years, 
 # but they can have decimals (e.g., 2006.5 for July 1, 2006)
 # and be any distance apart.
 # VINTAGE_YEARS are a synonym for PERIODS, but refer more explicitly
 # the date when a power plant starts running.
-set PERIODS ordered = setof {h in HOURS} (period[h]);
+set PERIODS ordered = setof {h in TIMEPOINTS} (period[h]);
 set VINTAGE_YEARS ordered = PERIODS;
 
 # specific dates are used to collect hours that are part of the same
 # day, for the purpose of hydro dispatch, etc.
-set DATES ordered = setof {h in HOURS} (date[h]);
+set DATES ordered = setof {h in TIMEPOINTS} (date[h]);
 
-set HOURS_OF_DAY ordered = setof {h in HOURS} (hour_of_day[h]);
-set MONTHS_OF_YEAR ordered = setof {h in HOURS} (month_of_year[h]);
-set SEASONS_OF_YEAR ordered = setof {h in HOURS} (season_of_year[h]);
+set HOURS_OF_DAY ordered = setof {h in TIMEPOINTS} (hour_of_day[h]);
+set MONTHS_OF_YEAR ordered = setof {h in TIMEPOINTS} (month_of_year[h]);
+set SEASONS_OF_YEAR ordered = setof {h in TIMEPOINTS} (season_of_year[h]);
 
 # the date (year and fraction) when the optimization starts
 param start_year = first(PERIODS);
@@ -139,16 +139,25 @@ param end_year = last(PERIODS)+years_per_period;
 set LOAD_ZONES ordered;
 
 # system load (MW)
-param system_load {LOAD_ZONES, HOURS} >= 0;
+param system_load {LOAD_ZONES, TIMEPOINTS} >= 0;
 
 # Regional cost multipliers
 param regional_economic_multiplier {LOAD_ZONES} >= 0;
+
+
+
+###############################################
+# Solar run parameters
 
 # Minimum amount of electricity that solar must produce
 param min_solar_production >= 0, <= 1;
 
 # Minimum amount of electricity that solar must produce
 param enable_min_solar_production;
+
+# Solar-based technologies
+set SOLAR_TECHNOLOGIES;
+
 
 ###############################################
 #
@@ -163,11 +172,11 @@ set FUELS;
 # Reference to hydro's "fuel": Water
 param fuel_hydro symbolic in FUELS;
 
-# earliest time when each technology can be built
-param min_build_year {TECHNOLOGIES} >= 0;
-
 # fuel used by this type of plant
 param fuel {TECHNOLOGIES} symbolic in FUELS;
+
+# earliest time when each technology can be built
+param min_build_year {TECHNOLOGIES} >= 0;
 
 # heat rate (in Btu/kWh)
 param heat_rate {TECHNOLOGIES} >= 0;
@@ -231,6 +240,7 @@ param overnight_cost_change {REGIONAL_TECHNOLOGIES};
 # annual rate of change of fixed O&M, beginning at min_build_year
 param fixed_o_m_change {REGIONAL_TECHNOLOGIES};
 
+
 ##################################################################
 #
 # RPS goals for each load area 
@@ -248,7 +258,7 @@ param rps_goal {LOAD_ZONES_WITH_RPS};
 # whether fuels in a load area qualify for rps 
 param fuel_qualifies_for_rps {LOAD_ZONES_AND_FUEL_CATEGORY};
 
-# determines if fuel falls in solar_wind_geo or gas_coal_nuclear_hydro
+# determines if fuel falls in solar/wind/geo or gas/coal/nuclear/hydro
 param rps_fuel_category {FUELS} symbolic in RPS_FUEL_CATEGORY;
 
 # determines which load_zones have rps_requirements 
@@ -278,39 +288,33 @@ param tech_bio symbolic in TECHNOLOGIES;
 param tech_ccgt symbolic in TECHNOLOGIES;
 param tech_ct symbolic in TECHNOLOGIES;
 
-# Solar-based technologies
-set SOLAR_TECHNOLOGIES;
-
 # maximum capacity factors (%) for each project, each hour. 
 # generally based on renewable resources available
-set PROJ_INTERMITTENT_HOURS dimen 5;  # LOAD_ZONES, TECHNOLOGIES, SITES, ORIENTATIONS, HOURS
-param cap_factor {PROJ_INTERMITTENT_HOURS} >= 0;
+set PROJ_INTERMITTENT_HOURS dimen 5;  # LOAD_ZONES, TECHNOLOGIES, SITES, ORIENTATIONS, TIMEPOINTS
 set PROJ_INTERMITTENT = setof {(z, t, s, o, h) in PROJ_INTERMITTENT_HOURS} (z, t, s, o);
+
+param cap_factor {PROJ_INTERMITTENT_HOURS} >= 0;
+
 # make sure all hours are represented
-check {(z, t, s, o) in PROJ_INTERMITTENT, h in HOURS}: cap_factor[z, t, s, o, h] >= 0;
+check {(z, t, s, o) in PROJ_INTERMITTENT, h in TIMEPOINTS}: cap_factor[z, t, s, o, h] >= 0;
 # cap factors for solar can be greater than 1 becasue sometimes the sun shines more than 1000W/m^2
 # which is how PV cap factors are defined.
 # The below checks make sure that for other plants the cap factors
 # are <= 1 but for solar they are <= 1.4
 # (roughly the irradiation coming in from space, though the cap factor shouldn't ever approach this number)
-check {(z, t, s, o) in PROJ_INTERMITTENT, h in HOURS: not( t in SOLAR_TECHNOLOGIES )}: cap_factor[z, t, s, o, h] <= 1;
-check {(z, t, s, o) in PROJ_INTERMITTENT, h in HOURS: t in SOLAR_TECHNOLOGIES }: cap_factor[z, t, s, o, h] <= 1.4;
+check {(z, t, s, o) in PROJ_INTERMITTENT, h in TIMEPOINTS: not( t in SOLAR_TECHNOLOGIES )}: cap_factor[z, t, s, o, h] <= 1;
+check {(z, t, s, o) in PROJ_INTERMITTENT, h in TIMEPOINTS: t in SOLAR_TECHNOLOGIES }: cap_factor[z, t, s, o, h] <= 1.4;
 check {(z, t, s, o) in PROJ_INTERMITTENT}: intermittent[t];
 
 # maximum capacity (MW) that can be installed in each project
 set PROJ_RESOURCE_LIMITED dimen 4;  # LOAD_ZONES, TECHNOLOGIES, SITES, ORIENTATIONS
-param max_capacity {PROJ_RESOURCE_LIMITED} >= 0;
 check {(z, t, s, o) in PROJ_RESOURCE_LIMITED}: resource_limited[t];
+param max_capacity {PROJ_RESOURCE_LIMITED} >= 0;
 
 # all other types of project (dispatchable and installable anywhere)
 set PROJ_ANYWHERE =
 	setof {(z,t) in REGIONAL_TECHNOLOGIES: not intermittent[t] and not resource_limited[t]} (z, t, site_unspecified, orient_unspecified);
-#	cross
-#	{ site_unspecified, orient_unspecified };
-#set PROJ_ANYWHERE 
-#  = LOAD_ZONES cross 
-#    setof {t in TECHNOLOGIES: not intermittent[t] and not resource_limited[t]} 
-#      (t, site_unspecified, orient_unspecified);
+
 
 # hydro is resource limited but not intermittent
 # solar troughs are intermittent but not resource limited - not true anymore!!!!
@@ -441,14 +445,16 @@ check {z in setof {(z, e) in EXISTING_PLANTS} (z)}: z in LOAD_ZONES;
 # the size of the plant in MW
 param ep_size_mw {EXISTING_PLANTS} >= 0;
 
-# type of fuel used by the plant
-param ep_technology {EXISTING_PLANTS} symbolic in TECHNOLOGIES;
+# type of technology used by the plant
+# This variable needs to have the check symbolic in TECHNOLOGIES, but we don't know all of the generators technologies for all of the existing plants. 
+set TECHNOLOGIES_AND_UNKNOWN = TECHNOLOGIES union { "unknown" };
+param ep_technology {EXISTING_PLANTS} symbolic in TECHNOLOGIES_AND_UNKNOWN;
 
 # type of fuel used by the plant
 param ep_fuel {EXISTING_PLANTS} symbolic in FUELS;
 
 # heat rate (in Btu/kWh)
-param ep_heat_rate{EXISTING_PLANTS} >= 0;
+param ep_heat_rate {EXISTING_PLANTS} >= 0;
 
 # year when the plant was built (used to calculate annual capital cost and retirement date)
 param ep_vintage {EXISTING_PLANTS} >= 0;
@@ -573,7 +579,7 @@ param carbon_content {FUELS} default 0, >= 0;
 # This could be updated to use fuel costs that vary by month,
 # or for an hourly model, it could interpolate between annual forecasts 
 # (see versions of this model from before 11/27/07 for code to do that).
-param fuel_cost_hourly {z in LOAD_ZONES, f in FUELS, h in HOURS} := fuel_price[z, f, floor(period[h])];
+param fuel_cost_hourly {z in LOAD_ZONES, f in FUELS, h in TIMEPOINTS} := fuel_price[z, f, floor(period[h])];
 
 # planning reserve margin - fractional extra load the system must be able able to serve
 # when there are no forced outages
@@ -646,12 +652,12 @@ param fixed_cost {(z, t, s, o) in PROJECTS, v in VINTAGE_YEARS} =
 # note: in a full hourly model, this should discount each hour based on its exact date,
 # but for now, since the hours are non-chronological samples within each study period,
 # they are all discounted by the same factor
-param variable_cost {(z,t) in REGIONAL_TECHNOLOGIES, h in HOURS} =
+param variable_cost {(z,t) in REGIONAL_TECHNOLOGIES, h in TIMEPOINTS} =
   hours_in_sample[h] * (
     variable_o_m[z,t] + heat_rate[t]/1000 * fuel_cost_hourly[z, fuel[t], h]
   ) * 1/(1+discount_rate)^(period[h]-base_year);
 
-param carbon_cost_per_mwh {t in TECHNOLOGIES, h in HOURS} = 
+param carbon_cost_per_mwh {t in TECHNOLOGIES, h in TIMEPOINTS} = 
   hours_in_sample[h] * (
     heat_rate[t]/1000 * carbon_content[fuel[t]] * carbon_cost
   ) * 1/(1+discount_rate)^(period[h]-base_year);
@@ -685,13 +691,13 @@ param ep_fixed_cost {(z, e) in EXISTING_PLANTS, p in PERIODS} =
 # all variable costs ($/MWh) for generating a MWh of electricity in some
 # future hour, from each existing project, discounted to the reference year
 # note: we divide heat_rate by 1000 to go from Btu/kWh to MBtu/MWh
-param ep_variable_cost {(z, e) in EXISTING_PLANTS, h in HOURS} =
+param ep_variable_cost {(z, e) in EXISTING_PLANTS, h in TIMEPOINTS} =
   hours_in_sample[h] * (
     ep_variable_o_m[z, e] * regional_economic_multiplier[z]
     + ep_heat_rate[z, e]/1000 * fuel_cost_hourly[z, ep_fuel[z, e], h]
   ) * 1/(1+discount_rate)^(period[h]-base_year);
 
-param ep_carbon_cost_per_mwh {(z, e) in EXISTING_PLANTS, h in HOURS} = 
+param ep_carbon_cost_per_mwh {(z, e) in EXISTING_PLANTS, h in TIMEPOINTS} = 
   hours_in_sample[h] * (
     ep_heat_rate[z, e]/1000 * carbon_content[ep_fuel[z, e]] * carbon_cost
   ) * 1/(1+discount_rate)^(period[h]-base_year);
@@ -752,7 +758,7 @@ param hydro_total_capacity =
 ######
 # "discounted" system load, for use in calculating levelized cost of power.
 param system_load_discounted = 
-  sum {z in LOAD_ZONES, h in HOURS} 
+  sum {z in LOAD_ZONES, h in TIMEPOINTS} 
     (hours_in_sample[h] * system_load[z,h] 
      / (1+discount_rate)^(period[h]-base_year));
 
@@ -768,11 +774,11 @@ set PROJ_MIN_BUILD_VINTAGES = setof {(z, t, s, o, v) in PROJECT_VINTAGES: min_bu
 # technology-site-vintage-hour combinations for dispatchable projects
 # (i.e., all the project-vintage combinations that are still active in a given hour of the study)
 set PROJ_DISPATCH_VINTAGE_HOURS := 
-  {(z, t, s, o) in PROJ_DISPATCH, v in VINTAGE_YEARS, h in HOURS: not new_baseload[t] and v >= min_build_year[t] + construction_time_years[t] and v <= period[h] < project_end_year[t, v]};
+  {(z, t, s, o) in PROJ_DISPATCH, v in VINTAGE_YEARS, h in TIMEPOINTS: not new_baseload[t] and v >= min_build_year[t] + construction_time_years[t] and v <= period[h] < project_end_year[t, v]};
 
 # technology-site-vintage-hour combinations for intermittent (non-dispatchable) projects
 set PROJ_INTERMITTENT_VINTAGE_HOURS := 
-  {(z, t, s, o) in PROJ_INTERMITTENT, v in VINTAGE_YEARS, h in HOURS: v >= min_build_year[t] + construction_time_years[t] and v <= period[h] < project_end_year[t, v]};
+  {(z, t, s, o) in PROJ_INTERMITTENT, v in VINTAGE_YEARS, h in TIMEPOINTS: v >= min_build_year[t] + construction_time_years[t] and v <= period[h] < project_end_year[t, v]};
 
 # plant-period combinations when new baseload plants can run
 set NEW_BASELOAD_PERIODS :=
@@ -787,7 +793,7 @@ set EP_PERIODS :=
 
 # plant-hour combinations when existing non-baseload, non-intermittent plants can be dispatched
 set EP_DISPATCH_HOURS :=
-  {(z, e) in EXISTING_PLANTS, h in HOURS: not ep_baseload[z, e] and not ep_intermittent[z,e] and ep_vintage[z, e] <= period[h] < ep_end_year[z, e]};
+  {(z, e) in EXISTING_PLANTS, h in TIMEPOINTS: not ep_baseload[z, e] and not ep_intermittent[z,e] and ep_vintage[z, e] <= period[h] < ep_end_year[z, e]};
 
 # plant-hour combinations when existing intermittent plants can produce power or be mothballed (e.g. They have not been retired yet)
 set EP_INTERMITTENT_OPERATIONAL_HOURS :=
@@ -802,11 +808,11 @@ set EP_BASELOAD_PERIODS :=
 
 # trans_line-vintage-hour combinations for which dispatch decisions must be made
 set TRANS_VINTAGE_HOURS := 
-  {(z1, z2) in TRANS_LINES, v in VINTAGE_YEARS, h in HOURS: v <= period[h] < transmission_end_year[v]};
+  {(z1, z2) in TRANS_LINES, v in VINTAGE_YEARS, h in TIMEPOINTS: v <= period[h] < transmission_end_year[v]};
 
 # local_td-vintage-hour combinations which must be reconciled
 set LOCAL_TD_HOURS := 
-  {z in LOAD_ZONES, v in VINTAGE_YEARS, h in HOURS: v <= period[h] < local_td_end_year[v]};
+  {z in LOAD_ZONES, v in VINTAGE_YEARS, h in TIMEPOINTS: v <= period[h] < local_td_end_year[v]};
 
 
 #### VARIABLES ####
@@ -820,7 +826,7 @@ var InstallGen {PROJECT_VINTAGES} >= 0;
 var BuildGenOrNot {PROJ_MIN_BUILD_VINTAGES} binary;
 
 # number of MW to generate from each project, in each hour
-var DispatchGen {PROJ_DISPATCH, HOURS} >= 0;
+var DispatchGen {PROJ_DISPATCH, TIMEPOINTS} >= 0;
 
 # number of MW generated by intermittent renewables
 # this is not a decision variable, but is useful for reporting
@@ -842,8 +848,8 @@ var DispatchEP {EP_DISPATCH_HOURS} >= 0;
 var InstallTrans {TRANS_LINES, VINTAGE_YEARS} >= 0;
 
 # number of MW to transmit through each transmission corridor in each hour
-var DispatchTransFromXToY {TRANS_LINES, HOURS, RPS_FUEL_CATEGORY} >= 0;
-var DispatchTransFromXToY_Reserve {TRANS_LINES, HOURS, RPS_FUEL_CATEGORY} >= 0;
+var DispatchTransFromXToY {TRANS_LINES, TIMEPOINTS, RPS_FUEL_CATEGORY} >= 0;
+var DispatchTransFromXToY_Reserve {TRANS_LINES, TIMEPOINTS, RPS_FUEL_CATEGORY} >= 0;
 
 # amount of local transmission and distribution capacity
 # (to carry peak power from transmission network to distributed loads)
@@ -853,10 +859,10 @@ var InstallLocalTD {LOAD_ZONES, VINTAGE_YEARS} >= 0;
 # note: the amount "stored" is the number of MW that can be generated using
 # the water that is stored, 
 # so it takes 1/pumped_hydro_efficiency MWh to store 1 MWh
-var StorePumpedHydro {PROJ_PUMPED_HYDRO, HOURS} >= 0;
-var DispatchPumpedHydro {PROJ_PUMPED_HYDRO, HOURS} >= 0;
-var StorePumpedHydro_Reserve {PROJ_PUMPED_HYDRO, HOURS} >= 0;
-var DispatchPumpedHydro_Reserve {PROJ_PUMPED_HYDRO, HOURS} >= 0;
+var StorePumpedHydro {PROJ_PUMPED_HYDRO, TIMEPOINTS} >= 0;
+var DispatchPumpedHydro {PROJ_PUMPED_HYDRO, TIMEPOINTS} >= 0;
+var StorePumpedHydro_Reserve {PROJ_PUMPED_HYDRO, TIMEPOINTS} >= 0;
+var DispatchPumpedHydro_Reserve {PROJ_PUMPED_HYDRO, TIMEPOINTS} >= 0;
 
 # simple hydro is dispatched on an aggregated basis, using a schedule that shows the
 # amount of discretionary hydro to dispatch during each study period, in each zone,
@@ -883,10 +889,10 @@ minimize Power_Cost:
     sum {(z, t, s, o, v) in PROJECT_VINTAGES} 
       InstallGen[z, t, s, o, v] * fixed_cost[z, t, s, o, v]
   # Calculate variable costs for new plants that are dispatchable. 
-  + sum {(z, t, s, o) in PROJ_DISPATCH, h in HOURS} 
+  + sum {(z, t, s, o) in PROJ_DISPATCH, h in TIMEPOINTS} 
       DispatchGen[z, t, s, o, h] * (variable_cost[z, t, h] + carbon_cost_per_mwh[t, h])
   # Calculate variable costs for new baseload plants
-  + sum {(z, t, s, o, v) in NEW_BASELOAD_PERIODS, h in HOURS: period[h]=v}
+  + sum {(z, t, s, o, v) in NEW_BASELOAD_PERIODS, h in TIMEPOINTS: period[h]=v}
       (1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[z, t, s, o, v] 
       * (variable_cost[z, t, h] + carbon_cost_per_mwh[t, h])
 
@@ -900,7 +906,7 @@ minimize Power_Cost:
       OperateEPDuringPeriod[z, e, p] * ep_size_mw[z, e] * ep_fixed_cost[z, e, p]
   # Calculate variable costs for existing BASELOAD plants
   # NOTE: The number of decision variables could be reduced significantly if you indexed ep_variable_cost & ep_carbon_cost_per_mwh by p instead of h, then express the sum like this: + sum {(z, e, p) in EP_BASELOAD_PERIODS} OperateEPDuringPeriod[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e] * (ep_variable_cost[z, e, p] + ep_carbon_cost_per_mwh[z, e, p]) * total_hours_in_period[p]
-  + sum {(z, e, p) in EP_BASELOAD_PERIODS, h in HOURS: period[h]=p}
+  + sum {(z, e, p) in EP_BASELOAD_PERIODS, h in TIMEPOINTS: period[h]=p}
       OperateEPDuringPeriod[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e] 
       * (ep_variable_cost[z, e, h] + ep_carbon_cost_per_mwh[z, e, h])
   # Calculate variable costs for existing NON-BASELOAD plants
@@ -931,7 +937,7 @@ minimize Power_Cost:
 # around loops, or shipping of unneeded power to neighboring zones, 
 # so it is more clear where surplus power is being generated
 minimize Transmission_Usage:
-  sum {(z1, z2) in TRANS_LINES, h in HOURS, fuel_cat in RPS_FUEL_CATEGORY} 
+  sum {(z1, z2) in TRANS_LINES, h in TIMEPOINTS, fuel_cat in RPS_FUEL_CATEGORY} 
     (DispatchTransFromXToY[z1, z2, h, fuel_cat]);
 
 
@@ -939,7 +945,7 @@ minimize Transmission_Usage:
 
 # system needs to meet the load in each load zone in each hour
 # note: power is deemed to flow from z1 to z2 if positive, reverse if negative
-subject to Satisfy_Load {z in LOAD_ZONES, h in HOURS}:
+subject to Satisfy_Load {z in LOAD_ZONES, h in TIMEPOINTS}:
 
 	#############################
 	#    NEW PLANTS
@@ -995,7 +1001,7 @@ subject to Satisfy_Load {z in LOAD_ZONES, h in HOURS}:
 ################################################################################
 # same on a reserve basis
 # note: these are not prorated by forced outage rate, because that is incorporated in the reserve margin
-subject to Satisfy_Load_Reserve {z in LOAD_ZONES, h in HOURS}:
+subject to Satisfy_Load_Reserve {z in LOAD_ZONES, h in TIMEPOINTS}:
 
 	#############################
 	#    NEW PLANTS
@@ -1046,17 +1052,17 @@ subject to Satisfy_Load_Reserve {z in LOAD_ZONES, h in HOURS}:
 # net flow of power (i.e., water) must also match the historical average
 # TODO: find better historical averages that reflect net balance of generated and stored power,
 #  because the values currently used are equal to sum(Dispatch - 1/efficiency * Storage)
-subject to Maximum_DispatchPumpedHydro {(z, s) in PROJ_PUMPED_HYDRO, h in HOURS}:
+subject to Maximum_DispatchPumpedHydro {(z, s) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS}:
   DispatchPumpedHydro[z, s, h] <= max_hydro_flow[z, s, date[h]];
-subject to Maximum_StorePumpedHydro {(z, s) in PROJ_PUMPED_HYDRO, h in HOURS: min_hydro_flow[z, s, date[h]] < 0}:
+subject to Maximum_StorePumpedHydro {(z, s) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS: min_hydro_flow[z, s, date[h]] < 0}:
   StorePumpedHydro[z, s, h] <= -min_hydro_flow[z, s, date[h]];
 subject to Average_PumpedHydroFlow {(z, s) in PROJ_PUMPED_HYDRO, d in DATES}:
-  sum {h in HOURS: date[h]=d} (DispatchPumpedHydro[z, s, h] - StorePumpedHydro[z, s, h]) <= 
-  sum {h in HOURS: date[h]=d} avg_hydro_flow[z, s, d];
+  sum {h in TIMEPOINTS: date[h]=d} (DispatchPumpedHydro[z, s, h] - StorePumpedHydro[z, s, h]) <= 
+  sum {h in TIMEPOINTS: date[h]=d} avg_hydro_flow[z, s, d];
 # extra rules to apply when non-pumped sites are also dispatched hourly
-subject to Minimum_DispatchNonPumpedHydro {(z, s) in PROJ_PUMPED_HYDRO, h in HOURS: min_hydro_flow[z, s, date[h]] >= 0}:
+subject to Minimum_DispatchNonPumpedHydro {(z, s) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS: min_hydro_flow[z, s, date[h]] >= 0}:
   DispatchPumpedHydro[z, s, h] >= min_hydro_flow[z, s, date[h]];
-subject to Maximum_StoreNonPumpedHydro {(z, s) in PROJ_PUMPED_HYDRO, h in HOURS: min_hydro_flow[z, s, date[h]] >= 0}:
+subject to Maximum_StoreNonPumpedHydro {(z, s) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS: min_hydro_flow[z, s, date[h]] >= 0}:
   StorePumpedHydro[z, s, h] = 0;
 
 # discretionary hydro dispatch for all hours of the day must sum to 1
@@ -1071,16 +1077,16 @@ subject to MaximumHourly_DispatchHydroShare
     0 <= HydroDispatchShare[p, z, s, h] <= max_hydro_dispatch_per_hour;
 
 # same for reserve margin operation
-subject to Maximum_DispatchPumpedHydro_Reserve {(z, s) in PROJ_PUMPED_HYDRO, h in HOURS}:
+subject to Maximum_DispatchPumpedHydro_Reserve {(z, s) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS}:
   DispatchPumpedHydro_Reserve[z, s, h] <= max_hydro_flow[z, s, date[h]];
-subject to Maximum_StorePumpedHydro_Reserve {(z, s) in PROJ_PUMPED_HYDRO, h in HOURS: min_hydro_flow[z, s, date[h]] < 0}:
+subject to Maximum_StorePumpedHydro_Reserve {(z, s) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS: min_hydro_flow[z, s, date[h]] < 0}:
   StorePumpedHydro_Reserve[z, s, h] <= -min_hydro_flow[z, s, date[h]];
 subject to Average_PumpedHydroFlow_Reserve {(z, s) in PROJ_PUMPED_HYDRO, d in DATES}:
-  sum {h in HOURS: date[h]=d} (DispatchPumpedHydro_Reserve[z, s, h] - StorePumpedHydro_Reserve[z, s, h]) <= 
-  sum {h in HOURS: date[h]=d} avg_hydro_flow[z, s, d];
-subject to Minimum_DispatchNonPumpedHydro_Reserve {(z, s) in PROJ_PUMPED_HYDRO, h in HOURS: min_hydro_flow[z, s, date[h]] >= 0}:
+  sum {h in TIMEPOINTS: date[h]=d} (DispatchPumpedHydro_Reserve[z, s, h] - StorePumpedHydro_Reserve[z, s, h]) <= 
+  sum {h in TIMEPOINTS: date[h]=d} avg_hydro_flow[z, s, d];
+subject to Minimum_DispatchNonPumpedHydro_Reserve {(z, s) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS: min_hydro_flow[z, s, date[h]] >= 0}:
   DispatchPumpedHydro_Reserve[z, s, h] >= min_hydro_flow[z, s, date[h]];
-subject to Maximum_StoreNonPumpedHydro_Reserve {(z, s) in PROJ_PUMPED_HYDRO, h in HOURS: min_hydro_flow[z, s, date[h]] >= 0}:
+subject to Maximum_StoreNonPumpedHydro_Reserve {(z, s) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS: min_hydro_flow[z, s, date[h]] >= 0}:
   StorePumpedHydro_Reserve[z, s, h] = 0;
 subject to Maximum_DispatchHydroShare_Reserve
   {p in PERIODS, z in LOAD_ZONES, s in SEASONS_OF_YEAR}: sum {h in HOURS_OF_DAY} HydroDispatchShare_Reserve[p, z, s, h] <= 1;
@@ -1093,7 +1099,7 @@ subject to MaximumHourly_DispatchHydroShare_Reserve
 # i.e., we only dispatch up to 1-forced_outage_rate, so the system will work on an expected-value basis
 # (this is the base portfolio, more backup generators will be added later to get a lower year-round risk level)
 subject to Maximum_DispatchGen 
-  {(z, t, s, o) in PROJ_DISPATCH, h in HOURS}:
+  {(z, t, s, o) in PROJ_DISPATCH, h in TIMEPOINTS}:
   DispatchGen[z, t, s, o, h] <= (1-forced_outage_rate[t]) * 
     sum {(z, t, s, o, v, h) in PROJ_DISPATCH_VINTAGE_HOURS} InstallGen[z, t, s, o, v];
 
@@ -1133,13 +1139,13 @@ subject to EP_Operational
 # TODO: retire pre-existing transmission lines after transmission_max_age_years 
 #   (this requires figuring out when they were first built!)
 subject to Maximum_DispatchTransFromXToY
-  {(z1, z2) in TRANS_LINES, h in HOURS}:
+  {(z1, z2) in TRANS_LINES, h in TIMEPOINTS}:
   ( sum { f in FUELS } DispatchTransFromXToY[z1, z2, h, rps_fuel_category[f]] )
     <= (1-transmission_forced_outage_rate) * 
           (existing_transmission[z1, z2] + sum {(z1, z2, v, h) in TRANS_VINTAGE_HOURS} InstallTrans[z1, z2, v]);
 
 subject to Maximum_DispatchTransFromXToY_Reserve
-  {(z1, z2) in TRANS_LINES, h in HOURS}:
+  {(z1, z2) in TRANS_LINES, h in TIMEPOINTS}:
   ( sum { f in FUELS } DispatchTransFromXToY_Reserve[z1, z2, h, rps_fuel_category[f]] )
     <= (existing_transmission[z1, z2] + sum {(z1, z2, v, h) in TRANS_VINTAGE_HOURS} InstallTrans[z1, z2, v]);
 
@@ -1147,7 +1153,7 @@ subject to Maximum_DispatchTransFromXToY_Reserve
 # make sure there's enough intra-zone transmission and distribution capacity
 # to handle the net distributed loads
 subject to Maximum_LocalTD 
-  {z in LOAD_ZONES, h in HOURS}:
+  {z in LOAD_ZONES, h in TIMEPOINTS}:
   system_load[z,h]
     - (sum {(z, t, s, o, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS: t=tech_pv}
         (1-forced_outage_rate[t]) * cap_factor[z, t, s, o, h] * InstallGen[z, t, s, o, v])
@@ -1167,7 +1173,7 @@ subject to Min_Gen_Fraction_From_Solar { if enable_min_solar_production}:
     	OperateEPDuringPeriod[z, e, period[h]] * 
         (1-ep_forced_outage_rate[z,e]) * eip_cap_factor[z, e, h]   * ep_size_mw[z, e] )
       >=
-    min_solar_production * (sum {z in LOAD_ZONES, h in HOURS} (system_load[z,h]) );
+    min_solar_production * (sum {z in LOAD_ZONES, h in TIMEPOINTS} (system_load[z,h]) );
 
 #################################################
 # RPS constraint
@@ -1178,7 +1184,7 @@ subject to Satisfy_RPS {z in LOAD_ZONES_WITH_RPS, p in PERIODS:
 	#############################
 	#   Power from NEW PLANTS
   # new dispatchable projects
-   (sum {(z, t, s, o) in PROJ_DISPATCH, h in HOURS: 
+   (sum {(z, t, s, o) in PROJ_DISPATCH, h in TIMEPOINTS: 
         period[h] = p and fuel_qualifies_for_rps[z, rps_fuel_category[fuel[t]]]} 
      DispatchGen[z, t, s, o, h] * hours_in_sample[h]
    )
@@ -1188,7 +1194,7 @@ subject to Satisfy_RPS {z in LOAD_ZONES_WITH_RPS, p in PERIODS:
       (1-forced_outage_rate[t]) * cap_factor[z, t, s, o, h] * InstallGen[z, t, s, o, v] * hours_in_sample[h]
     )
   # new baseload plants
-  + (sum {(z, t, s, o, v) in NEW_BASELOAD_PERIODS, h in HOURS: 
+  + (sum {(z, t, s, o, v) in NEW_BASELOAD_PERIODS, h in TIMEPOINTS: 
           v = p and period[h] = p and fuel_qualifies_for_rps[z, rps_fuel_category[fuel[t]]]} 
       (1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[z, t, s, o, v] * hours_in_sample[h]
     )
@@ -1196,7 +1202,7 @@ subject to Satisfy_RPS {z in LOAD_ZONES_WITH_RPS, p in PERIODS:
 	#############################
 	#    Power from EXISTING PLANTS
   # existing baseload plants
-  + (sum {(z, e, p) in EP_BASELOAD_PERIODS, h in HOURS: 
+  + (sum {(z, e, p) in EP_BASELOAD_PERIODS, h in TIMEPOINTS: 
           period[h]=p and fuel_qualifies_for_rps[z, rps_fuel_category[ep_fuel[z,e]]]} 
       OperateEPDuringPeriod[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e] * hours_in_sample[h]
     )
@@ -1216,18 +1222,18 @@ subject to Satisfy_RPS {z in LOAD_ZONES_WITH_RPS, p in PERIODS:
   # transmission into and out of the zone.
 
 #  Imports
-  + (sum {(z2, z) in TRANS_LINES, f in FUELS, h in HOURS: 
+  + (sum {(z2, z) in TRANS_LINES, f in FUELS, h in TIMEPOINTS: 
           period[h]=p and fuel_qualifies_for_rps[z, rps_fuel_category[f]]}
       (transmission_efficiency[z2, z] * DispatchTransFromXToY[z2, z, h, rps_fuel_category[f]]) * hours_in_sample[h]
     )
   
 #  Exports
-  - (sum {(z, z1) in TRANS_LINES, f in FUELS, h in HOURS: 
+  - (sum {(z, z1) in TRANS_LINES, f in FUELS, h in TIMEPOINTS: 
           period[h]=p and fuel_qualifies_for_rps[z, rps_fuel_category[f]]}
       DispatchTransFromXToY[z, z1, h, rps_fuel_category[f]] * hours_in_sample[h]
     )
  ) 
-  / (sum { h in HOURS: 
+  / (sum { h in TIMEPOINTS: 
            period[h] = p  and load_zone_rps_policy[z] = 1} 
       system_load[z, h] * hours_in_sample[h]
     )
@@ -1235,7 +1241,7 @@ subject to Satisfy_RPS {z in LOAD_ZONES_WITH_RPS, p in PERIODS:
 
 #############################
 # REC accounting: Reclassifying electrons is verboten!
-subject to Conservation_of_Colored_Electrons {z in LOAD_ZONES, h in HOURS, ft in RPS_FUEL_CATEGORY: enable_rps}:
+subject to Conservation_of_Colored_Electrons {z in LOAD_ZONES, h in TIMEPOINTS, ft in RPS_FUEL_CATEGORY: enable_rps}:
 
 	#############################
 	#    Power Production
@@ -1279,7 +1285,7 @@ subject to Conservation_of_Colored_Electrons {z in LOAD_ZONES, h in HOURS, ft in
 # REC accounting: Reclassifying electrons is verboten!
 # Hydro power production is done differently than all the other technologies
 # Consequently, we need to express it in a separate constraint instead of bundling it into the one above. 
-subject to Conservation_of_Blue_Electrons {z in LOAD_ZONES, h in HOURS: enable_rps}:
+subject to Conservation_of_Blue_Electrons {z in LOAD_ZONES, h in TIMEPOINTS: enable_rps}:
 
   ####
   # Hydro Production

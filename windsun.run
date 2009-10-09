@@ -24,7 +24,7 @@ model windsun.mod;
 
 data windsun.dat;
 
-table study_hours IN: HOURS <- [hour], period, date, hours_in_sample, month_of_year, hour_of_day;
+table study_hours IN: TIMEPOINTS <- [hour], period, date, hours_in_sample, month_of_year, hour_of_day;
 read table study_hours;
 
 table load_zones IN: LOAD_ZONES <- [load_zone], load_zone_x, load_zone_y;
@@ -115,19 +115,19 @@ read enable_rps < enable_rps.txt;
 
 # years and hours to report
 set STUDY_YEARS ordered = PERIODS;
-param last_hour_of_year {y in STUDY_YEARS} = max {h in HOURS: period[h]= y} h;
-param first_hour_of_year {y in STUDY_YEARS} = min {h in HOURS: period[h] = y} h;
+param last_hour_of_year {y in STUDY_YEARS} = max {h in TIMEPOINTS: period[h]= y} h;
+param first_hour_of_year {y in STUDY_YEARS} = min {h in TIMEPOINTS: period[h] = y} h;
 param samples_in_year {y in STUDY_YEARS} = 
-  card({h in HOURS: period[h]=y});
+  card({h in TIMEPOINTS: period[h]=y});
 set ZONAL_REPORTING_YEARS ordered = {last(STUDY_YEARS)};
-set ZONAL_REPORTING_HOURS ordered = {h in HOURS: period[h] in ZONAL_REPORTING_YEARS};
+set ZONAL_REPORTING_HOURS ordered = {h in TIMEPOINTS: period[h] in ZONAL_REPORTING_YEARS};
 
 # parameters to report transmission and generation from various sources, in each load zone
 set TECHNOLOGIES_INTERMITTENT = setof {t in TECHNOLOGIES: intermittent[t]} (t);
 set TECHNOLOGIES_DISPATCH = setof {(z, t, s, o) in PROJ_DISPATCH} (t);
 param total_gen {LOAD_ZONES, TECHNOLOGIES, STUDY_YEARS} default 0;
 param surplus_gen {LOAD_ZONES, TECHNOLOGIES_INTERMITTENT, STUDY_YEARS} default 0;
-param intermittent_surplus_fraction {LOAD_ZONES, HOURS} default 0;
+param intermittent_surplus_fraction {LOAD_ZONES, TIMEPOINTS} default 0;
 param total_gen_installed {t in TECHNOLOGIES, y in STUDY_YEARS};
 param total_trans {TRANS_LINES, STUDY_YEARS} default 0;
 param avg_gen_by_zone {LOAD_ZONES, TECHNOLOGIES} default 0, >= 0;

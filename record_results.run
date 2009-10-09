@@ -14,7 +14,7 @@ printf "scenario_id,carbon_cost,period,load_area,date,hour,technology,site,orien
 
 # new dispatchable projects
 # (21 seconds, 1.5 MB)
-printf {(z, t, s, o) in PROJ_DISPATCH, h in HOURS} 
+printf {(z, t, s, o) in PROJ_DISPATCH, h in TIMEPOINTS} 
   "%s,%f,%d,%s,%d,%d,%s,%s,%s,%d,%d,%d,%s,%f,%f,%d,%f,%f,%f,%f\n",
   scenario_id, carbon_cost, period[h], z, date[h], h, t, s, o, 1, 0, 0, fuel[t], 
   DispatchGen[z, t, s, o, h], 
@@ -30,7 +30,7 @@ printf {(z, t, s, o) in PROJ_DISPATCH, h in HOURS}
 # new intermittent projects (all renewables, so no carbon emissions)
 # (takes 114 seconds, 3 MB)
 # note: we only report the total for each zone; totals for each site can be derived directly from the decision variables
-printf {(z, t) in setof {(z1, t1, s1, o1) in PROJ_INTERMITTENT} (z1, t1), h in HOURS, p in PERIODS: period[h]=p}
+printf {(z, t) in setof {(z1, t1, s1, o1) in PROJ_INTERMITTENT} (z1, t1), h in TIMEPOINTS, p in PERIODS: period[h]=p}
   "%s,%f,%d,%s,%d,%d,%s,%s,%s,%d,%d,%d,%s,%f,%f,%d,%f,%f,%f,%f\n",
   scenario_id, carbon_cost, p, z, date[h], h, t, "na", "na", 1, 0, 0, fuel[t], 
   (sum {(z, t, s, o, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS} 
@@ -45,7 +45,7 @@ printf {(z, t) in setof {(z1, t1, s1, o1) in PROJ_INTERMITTENT} (z1, t1), h in H
 
 # new baseload plants
 # 
-printf {(z, t, s, o, v) in NEW_BASELOAD_PERIODS, h in HOURS: period[h]=v} 
+printf {(z, t, s, o, v) in NEW_BASELOAD_PERIODS, h in TIMEPOINTS: period[h]=v} 
   "%s,%f,%d,%s,%d,%d,%s,%s,%s,%d,%d,%d,%s,%f,%f,%d,%f,%f,%f,%f\n",
   scenario_id, carbon_cost, v, z, date[h], h, t, s, o, 1, new_baseload[t], 0, fuel[t],
   (1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[z, t, s, o, v],
@@ -89,7 +89,7 @@ printf {(z, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS, p in PERIODS: period[h]=
 
 # existing baseload plants
 # (takes 178 seconds, 6 MB)
-printf {(z, e, p) in EP_BASELOAD_PERIODS, h in HOURS: period[h]=p} 
+printf {(z, e, p) in EP_BASELOAD_PERIODS, h in TIMEPOINTS: period[h]=p} 
   "%s,%f,%d,%s,%d,%d,%s,%s,%s,%d,%d,%d,%s,%f,%f,%d,%f,%f,%f,%f\n",
   scenario_id, carbon_cost, p, z, date[h], h, ep_technology[z,e], e, "na", 0, ep_baseload[z, e], ep_cogen[z, e], ep_fuel[z, e],
   OperateEPDuringPeriod[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e],
@@ -123,7 +123,7 @@ printf {(z, e, h) in EP_DISPATCH_HOURS, p in PERIODS: p=period[h]}
   >> (outfile);
 
 # hydro pumping (6 sec)
-printf {(z, s) in PROJ_PUMPED_HYDRO, h in HOURS, p in PERIODS: period[h]=p} 
+printf {(z, s) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS, p in PERIODS: period[h]=p} 
   "%s,%f,%d,%s,%d,%d,%s,%s,%s,%d,%d,%d,%s,%f,%f,%d,%f,%f,%f,%f\n",
   scenario_id, carbon_cost, p, z, date[h], h, "na", s, "na", 0, 0, 0, "Hydro Pumping",
   -1 * (1 - forced_outage_rate_hydro) * (1/pumped_hydro_efficiency) * StorePumpedHydro[z, s, h],
@@ -133,14 +133,14 @@ printf {(z, s) in PROJ_PUMPED_HYDRO, h in HOURS, p in PERIODS: period[h]=p}
 
 # hydro dispatch
 # (61 s, 6 MB)
-printf {(z, s) in PROJ_PUMPED_HYDRO, h in HOURS, p in PERIODS: period[h]=p} 
+printf {(z, s) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS, p in PERIODS: period[h]=p} 
   "%s,%f,%d,%s,%d,%d,%s,%s,%s,%d,%d,%d,%s,%f,%f,%d,%f,%f,%f,%f\n",
   scenario_id, carbon_cost, p, z, date[h], h, "na", s, "na", 0, 0, 0, "Hydro",
   (1 - forced_outage_rate_hydro) * DispatchPumpedHydro[z, s, h],
   0, hours_in_sample[h], 0, 
   0, 0, 0
   >> (outfile);
-printf {z in LOAD_ZONES, h in HOURS, p in PERIODS: period[h]=p} 
+printf {z in LOAD_ZONES, h in TIMEPOINTS, p in PERIODS: period[h]=p} 
   "%s,%f,%d,%s,%d,%d,%s,%s,%s,%d,%d,%d,%s,%f,%f,%d,%f,%f,%f,%f\n",
   scenario_id, carbon_cost, p, z, date[h], h, "na", "simple_hydro", "na", 0, 0, 0, "Hydro",
   (1 - forced_outage_rate_hydro) * 
@@ -153,7 +153,7 @@ printf {z in LOAD_ZONES, h in HOURS, p in PERIODS: period[h]=p}
 
 # total imports and exports
 # (38 seconds, 2 MB)
-printf {z in LOAD_ZONES, h in HOURS, p in PERIODS: period[h]=p} 
+printf {z in LOAD_ZONES, h in TIMEPOINTS, p in PERIODS: period[h]=p} 
   "%s,%f,%d,%s,%d,%d,%s,%s,%s,%d,%d,%d,%s,%f,%f,%d,%f,%f,%f,%f\n",
   scenario_id, carbon_cost, p, z, date[h], h, "na", "Transmission", "na", 0, 0, 0, "na",
 #  (1-transmission_forced_outage_rate) *  
@@ -167,7 +167,7 @@ printf {z in LOAD_ZONES, h in HOURS, p in PERIODS: period[h]=p}
 
 # transmission losses 
 # (assigned to originating zone, so that generation+transmission = load+losses in each zone)
-printf {z in LOAD_ZONES, h in HOURS, p in PERIODS: period[h]=p} 
+printf {z in LOAD_ZONES, h in TIMEPOINTS, p in PERIODS: period[h]=p} 
   "%s,%f,%d,%s,%d,%d,%s,%s,%s,%d,%d,%d,%s,%f,%f,%d,%f,%f,%f,%f\n",
   scenario_id, carbon_cost, p, z, date[h], h, "na", "Transmission Losses", "na", 0, 0, 0, "na",
   (sum {(z2, z) in TRANS_LINES, f in FUELS, fuel_cat in RPS_FUEL_CATEGORY: fuel_cat = rps_fuel_category[f]} ((1 - transmission_efficiency[z2, z]) * DispatchTransFromXToY[z2, z, h, fuel_cat]))
@@ -177,14 +177,14 @@ printf {z in LOAD_ZONES, h in HOURS, p in PERIODS: period[h]=p}
   >> (outfile);
 
 # system load
-printf {z in LOAD_ZONES, h in HOURS, p in PERIODS: period[h]=p} 
+printf {z in LOAD_ZONES, h in TIMEPOINTS, p in PERIODS: period[h]=p} 
   "%s,%f,%d,%s,%d,%d,%s,%s,%s,%d,%d,%d,%s,%f,%f,%d,%f,%f,%f,%f\n",
   scenario_id, carbon_cost, p, z, date[h], h, "na", "Fixed Load", "na", 0, 0, 0, "na",
   system_load[z, h],
   0, hours_in_sample[h], 0, 
   0, 0, 0
   >> (outfile);
-# printf {z in LOAD_ZONES, h in HOURS, p in PERIODS: period[h]=p} 
+# printf {z in LOAD_ZONES, h in TIMEPOINTS, p in PERIODS: period[h]=p} 
 #   "%s,%f,%d,%s,%d,%d,%s,%s,%s,%d,%d,%d,%s,%f,%f,%d,%f,%f,%f,%f\n",
 #   scenario_id, carbon_cost, p, z, date[h], h, "na", "Dispatched Load", "na", 0, 0, 0, "na",
 #   DispatchSystemLoad[z, h],
@@ -205,7 +205,7 @@ printf "scenario_id,carbon_cost,period,load_area_receive,load_area_from,date,hou
 
 
 # detailed imports & exports
-printf {(x, y) in TRANS_LINES, h in HOURS, fuel_cat in RPS_FUEL_CATEGORY: DispatchTransFromXToY[x, y, h, fuel_cat] > 0.001} 
+printf {(x, y) in TRANS_LINES, h in TIMEPOINTS, fuel_cat in RPS_FUEL_CATEGORY: DispatchTransFromXToY[x, y, h, fuel_cat] > 0.001} 
   "%s,%f,%d,%s,%s,%d,%d,%s,%f,%f,%d\n",
   scenario_id, carbon_cost, period[h], y, x, date[h], h, fuel_cat,
   DispatchTransFromXToY[x, y, h, fuel_cat],
@@ -251,7 +251,7 @@ printf {(z, e, p) in EP_PERIODS}
 printf {(z, s) in PROJ_HYDRO, p in PERIODS}
   "%s,%f,%d,%s,%s,%s,%s,%d,%d,%d,%s,%f,%f\n",
   scenario_id, carbon_cost, p, z, "na", s, "na", 0, 0, 0, "Hydro",
-  max {d in DATES, h in HOURS: date[h] = d and period[h] = p} max_hydro_flow[z, s, d],
+  max {d in DATES, h in TIMEPOINTS: date[h] = d and period[h] = p} max_hydro_flow[z, s, d],
   0
   >> (outfile);
 

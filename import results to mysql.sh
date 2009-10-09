@@ -30,6 +30,7 @@ fi
 
 ###################################################
 # Clear out the prior instance of this run if requested
+# You can do this manually with this SQL command: select clear_scenario_results(SCENARIO_ID);
 if [ $# -ge 3 ]
 then 
 	if [ $3 = "--FlushPriorResults" ]

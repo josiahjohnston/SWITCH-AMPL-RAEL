@@ -4,10 +4,10 @@ printf "\nTax=%d: cost=$%3.2f/MWh ",
   # Power Cost
   (Power_Cost - (0
 		# Carbon cost adder for new dispatchable projects
-		+ sum {(z, t, s, o) in PROJ_DISPATCH, h in HOURS}
+		+ sum {(z, t, s, o) in PROJ_DISPATCH, h in TIMEPOINTS}
 			DispatchGen[z, t, s, o, h] * (carbon_cost_per_mwh[t, h])
 		# Carbon cost adder for existing baseload plants
-		+ sum {(z, e, p) in EP_BASELOAD_PERIODS, h in HOURS: period[h]=p}
+		+ sum {(z, e, p) in EP_BASELOAD_PERIODS, h in TIMEPOINTS: period[h]=p}
 			OperateEPDuringPeriod[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e]
 			* (ep_carbon_cost_per_mwh[z, e, h])
 		# Carbon cost adder for existing dispatchable projects
@@ -25,7 +25,7 @@ printf { f in FUELS } "%s=%2d\%, ",
 	   (1-forced_outage_rate[t]) * cap_factor[z, t, s, o, h] * InstallGen[z, t, s, o, v] * hours_in_sample[h]
 	+
 	# New dispatchable projects
-	sum {(z, t, s, o) in PROJ_DISPATCH, h in HOURS: period[h]=last(PERIODS) and fuel[t] = f} 
+	sum {(z, t, s, o) in PROJ_DISPATCH, h in TIMEPOINTS: period[h]=last(PERIODS) and fuel[t] = f} 
 	   DispatchGen[z, t, s, o, h] * hours_in_sample[h]
 	+
 	# Existing dispatchable plants
@@ -37,17 +37,17 @@ printf { f in FUELS } "%s=%2d\%, ",
 	   OperateEPDuringPeriod[z, e, period[h]] * ep_size_mw[z, e] * eip_cap_factor[z, e, h] * (1-ep_forced_outage_rate[z, e]) * hours_in_sample[h]
 	+
 	# New baseload plants
-	sum {(z, t, s, o, v) in NEW_BASELOAD_PERIODS, h in HOURS: period[h]=v and v=last(PERIODS) and fuel[t] = f} 
+	sum {(z, t, s, o, v) in NEW_BASELOAD_PERIODS, h in TIMEPOINTS: period[h]=v and v=last(PERIODS) and fuel[t] = f} 
 	   (1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[z, t, s, o, v] * hours_in_sample[h]
 	+ 
 	# existing baseload plants
-	sum {(z, e, p) in EP_BASELOAD_PERIODS, h in HOURS: period[h]=p and p=last(PERIODS) and ep_fuel[z,e] = f} 
+	sum {(z, e, p) in EP_BASELOAD_PERIODS, h in TIMEPOINTS: period[h]=p and p=last(PERIODS) and ep_fuel[z,e] = f} 
 	   OperateEPDuringPeriod[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e] * hours_in_sample[h]
 	+
 	# Hydro
 	( if( f = "Water" )
 	  then (
-		 sum {z in LOAD_ZONES, h in HOURS: period[h]=last(PERIODS)} (
+		 sum {z in LOAD_ZONES, h in TIMEPOINTS: period[h]=last(PERIODS)} (
 		   # pumped hydro, de-rated to reflect occasional unavailability of the hydro plants
 		   (sum {(z, s) in PROJ_PUMPED_HYDRO} DispatchPumpedHydro[z, s, h]) * (1 - forced_outage_rate_hydro) * hours_in_sample[h]
 		   - 
@@ -65,6 +65,6 @@ printf { f in FUELS } "%s=%2d\%, ",
 	  else 0
 	)
   )
-  / (sum {z in LOAD_ZONES, h in HOURS: period[h]=last(PERIODS)} system_load[z, h] * hours_in_sample[h])
+  / (sum {z in LOAD_ZONES, h in TIMEPOINTS: period[h]=last(PERIODS)} system_load[z, h] * hours_in_sample[h])
 ;
 printf "\n";

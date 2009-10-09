@@ -69,7 +69,7 @@ mysql -h $db_server -u $user -p$password -e "select replace(load_area, ' ', '_')
 
 echo '	existing_plants.tab...'
 echo ampl.tab 2 14 > existing_plants.tab
-mysql -h $db_server -u $user -p$password -e "select replace(load_area, ' ', '_') as load_zone, plant_code, peak_mw as size_mw, 'na' as technology, fuel, heat_rate, invsyear as start_year, max_age, overnight_cost, fixed_o_m, variable_o_m, forced_outage_rate, scheduled_outage_rate, baseload, cogen, 0 as intermittent from wecc.existing_plants_agg order by 1, 2;" >> existing_plants.tab
+mysql -h $db_server -u $user -p$password -e "select replace(load_area, ' ', '_') as load_zone, plant_code, peak_mw as size_mw, 'unknown' as technology, fuel, heat_rate, invsyear as start_year, max_age, overnight_cost, fixed_o_m, variable_o_m, forced_outage_rate, scheduled_outage_rate, baseload, cogen, 0 as intermittent from wecc.existing_plants_agg order by 1, 2;" >> existing_plants.tab
 
 echo '	trans_lines.tab...'
 echo ampl.tab 2 4 > trans_lines.tab
@@ -125,5 +125,5 @@ echo ampl.tab 1 3 > rps_requirement.tab
 mysql -h $db_server -u $user -p$password -e "select load_area as load_zone, rps_goal, rps_compliance_year, load_zone_rps_policy from wecc.rps_requirement;" >> rps_requirement.tab 
 
 echo '	existing_intermittent_plant_cap_factor.tab...'
-echo ampl.tab 3 1> existing_intermittent_plant_cap_factor.tab
+echo ampl.tab 3 1 > existing_intermittent_plant_cap_factor.tab
 echo "load_zone	plant_code	hour	cap_factor" >> existing_intermittent_plant_cap_factor.tab
