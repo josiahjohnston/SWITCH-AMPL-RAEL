@@ -1,52 +1,17 @@
--- This compiles input data for the SWITCH model from various databases, creating tables in the WECC database such that are easy to export. 
--- builds off of old code by Mathias, Josiah and Ian, but compliled in final form by Jimmy
-
--- Edit data in the other databases first, and then let this script get them in the form we want.
-
--- This script is intended to be used in conjunction with 'get WECC cap factors.sh' maybe?
-
--- run at terminal by pasting: mysql -h xserve-rael.erg.berkeley.edu -u jimmy -p < /Volumes/1TB_RAID/Models/Switch/ampl/Dual_WECC/Build\ WECC\ Cap\ Factors.sql
--- and entering the password (or changing the username and entering your password)
-
--- takes a long time (~2h), so run sparingly or get a coffee or something.
-
--- note: some load areas used to have spaces (i.e. UT S), which ampl apparently detests
--- the spaces were replaced by underscores in all tables I could find, but I could have missed something.
--- Make sure that if you import any table into mysql that it has the correct load area (with underscores, not spaces).
--- If you need to change them, this command does it nicely:
--- update tbl_name set load_area = replace(load_area, ' ', '_');
+-- GENERATOR COSTS---------------
 
 
-CREATE DATABASE IF NOT EXISTS WECC;
-use WECC;
+create database if not exists switch_inputs_wecc_v2;
+use switch_inputs_wecc_v2;
 
--- Reference Tables-----------------------------------------
--- gets important site tables from other databases... update the tables in the other database rather than in WECC
--- then use this script to make all the right tables for ampl
-drop table if exists csp_sites_3tier_wecc;
-CREATE TABLE csp_sites_3tier_wecc
-SELECT * FROM 3tier.csp_sites_3tier_wecc;
 
-drop table if exists wind_farms_wecc;
-CREATE TABLE wind_farms_wecc
-SELECT * FROM 3tier.wind_farms_wecc;
-
--- pv import script was run only for points that have a population of >= 10000
-drop table if exists pv_grid_points_wecc;
-CREATE TABLE pv_grid_points_wecc
-SELECT * FROM suny.pv_grid_points
-WHERE load_area is not null
-AND population >=10000;
-
--- Hours-------------------------------------------------
+-- HOURS-------------------------
 -- creates hours table from the CSP data because 3tier knows how to deal correctly in UTC, right now only for 2004-2005
 -- omits the last day because we're using UTC and so records for the first day (Jan 1 2004) won't be complete.
 drop table if exists hours;
 create table hours 
-  SELECT * from 
-		(select distinct(addtime(3tier.csp_power_output.datetime_local, TIME(concat(-csp_sites_3tier_wecc.timezone_difference_from_gmt, ":", '00', ":", '00')))) as datetime_utc
-		FROM 3tier.csp_power_output, csp_sites_3tier_wecc
-		WHERE 3tier.csp_power_output.siteid = csp_sites_3tier_wecc.id) as foo
+	select distinct(datetime_utc)
+		FROM 3tier.csp_power_output
 		where datetime_utc between "2004-01-02 00:00" and "2005-12-31 23:59"
 	order by datetime_utc;
 alter table hours add column hournum int;
@@ -54,33 +19,44 @@ set @curhour = 0;
 update hours set hournum = (@curhour := @curhour+1);
 alter table hours add index (datetime_utc);
 
-
--- System Loads--------------------------------------
--- takes the ferc 714 filings and apportions to them to load areas in the proper timezones, then references them back to utc, then hours.
--- when dealing with reported loads, always make sure that daylight savings time has been dealt with correctly.
+-- SYSTEM LOAD
+-- patched together from the old wecc loads... should be improved in the future
 drop table if exists system_load;
-create table system_load
-select moo.load_area, hournum as hour, moo.power as power
-from hours,
-	(select baz.load_area, baz.datetime_utc, sum(baz.power) as power
-		from(
-			select lse, bar.load_area, bar.datetime_utc, power*load_allocations_wecc.share_load_area as power
-			from loads_wecc.load_allocations_wecc,
-				(select lse, load_area, timestampadd(hour, tz_law - tz_flw, datetime_utc) as datetime_utc, power from loads_wecc.ferc_714_loads_WECC,
-				(SELECT load_allocations_wecc.abbreviation as abbrev_law, load_allocations_wecc.load_area, load_allocations_wecc.timezone as tz_law, ferc_lse_wecc.abbreviation as abbrev_flw, ferc_lse_wecc.timezone as tz_flw
-				FROM loads_wecc.load_allocations_wecc, loads_wecc.ferc_lse_wecc
-				WHERE load_allocations_wecc.abbreviation = ferc_lse_wecc.abbreviation) as foo
-			where abbrev_law = ferc_714_loads_WECC.lse) as bar
-		where load_allocations_wecc.load_area = bar.load_area
-		and load_allocations_wecc.abbreviation = bar.lse
-		and wecc_geo_extent = 1) as baz
-	group by baz.load_area, baz.datetime_utc) as moo
-where moo.datetime_utc = hours.datetime_utc;
+create table system_load as
+select 	v2_load_area as load_area, 
+		hour,
+		sum( power * population_fraction) as power
+from 	loads_wecc.v1_wecc_load_areas_to_v2_wecc_load_areas,
+		wecc.system_load
+where	v1_load_area = wecc.system_load.load_area
+group by v2_load_area, hour;
 alter table system_load add index hour(hour);
+alter table system_load add index load_area(load_area);
+
+insert into system_load
+select 'CAN_BC',
+		hour,
+		power
+from 	wecc.system_load
+where	load_area like 'BCTC';
+
+insert into system_load
+select 'CAN_ALB',
+		hour,
+		power
+from 	wecc.system_load
+where	load_area like 'AESO';
+
+insert into system_load
+select 'MEX_BAJA',
+		hour,
+		power
+from 	wecc.system_load
+where	load_area like 'CFE';
 
 
 
--- Study Hours------------------------------------------
+-- Study Hours----------------------
 -- Randomly select study dates and hours for the SWITCH model. 
 -- Sub-sampling of specific months and hours are the responsibility of the shell script that exports data from the DB
 -- Add rows to the tperiods table (defined in the middle of the section) if you want more than 4 investment periods
@@ -375,335 +351,272 @@ select max(scenario_id) into @scenario_id from scenarios;
 SELECT set_scenarios_sql_columns( @scenario_id );
 
 
--- Load Areas---------------------------------------------
--- Copy the relevant load areas into this database. It's not strictly necessary, and it's a little bad form, but the old build cap factors had it.
--- doesn't get the x_utm and y_utm columns of the old table... make sure these aren't needed anywhere (shouldn't be)... puts in dummy values... hopefully we can just delete these.
-drop table if exists load_area;
-CREATE TABLE load_area
-SELECT distinct(load_area) FROM wecc.system_load order by load_area;
-ALTER TABLE load_area add column area_id int not null primary key auto_increment first;
-ALTER TABLE load_area add column x_utm double;
-ALTER TABLE load_area add column y_utm double;
-UPDATE load_area set x_utm = 10000*area_id, y_utm = 20000*area_id;
 
 
--- Existing and New Plants----------------------------------------
--- aggregated in 'build existing plants table for WECC.sql'
 
-drop table if exists existing_plants_agg;
-create table existing_plants_agg
-	select * from grid.existing_plants_agg
-	where load_area not like ''
-	and load_area is not null
-	order by load_area;
 
--- Generator Costs
--- update the generator_costs table in grid if you want to change these values.
--- change the clause below if you want to include or not include various technologies
--- CCGTs can burn gas or oil
-drop table if exists generator_costs;
-create table generator_costs
-	select * from grid.generator_costs
-	where technology in ('CTA', 'Wind', 'DistPV', 'CentPV', 'Trough', 'Coal_ST', 'Nuclear', 'Biomass_ST', 'Geothermal')
-			or technology like 'CCGT' and fuel like 'Gas';
-			
--- run regionalize.sql... should be put here eventually			
+
+
+
+-- RENEWABLE SITES--------------
+-- imported from postgresql, this table has all distributed pv, trough, wind, geothermal and biomass sites
+drop table if exists proposed_renewable_sites;
+create table proposed_renewable_sites
+select 	generator_type,
+		load_area,
+		site_id,
+		renewable_id,
+		capacity_mw,
+		connect_cost_per_mw
+from generator_info.proposed_renewable_sites
+order by 1,2,3;
+
+CREATE INDEX site_id ON proposed_renewable_sites (site_id);
+CREATE INDEX generator_type_renewable_id ON proposed_renewable_sites (generator_type, renewable_id);
+
+
+
+-- CAP FACTOR-----------------
+drop table if exists cap_factor_proposed_renewable_sites;
+create table cap_factor_proposed_renewable_sites
+SELECT      generator_type,
+            load_area,
+            generator_info.proposed_renewable_sites.site_id,
+            hournum as hour,
+            e_net_mw/100 as cap_factor
+    from    generator_info.proposed_renewable_sites, 
+            3tier.csp_power_output,
+            hours
+    where   generator_type in ('CSP_Trough')
+    and     generator_info.proposed_renewable_sites.renewable_id = 3tier.csp_power_output.siteid
+    and     hours.datetime_utc = 3tier.csp_power_output.datetime_utc;
+    
+insert into cap_factor_proposed_renewable_sites
+SELECT      generator_type,
+            generator_info.proposed_renewable_sites.load_area,
+            concat(generator_info.proposed_renewable_sites.site_id, '_', orientation),
+            hournum as hour,
+            cap_factor
+    from    generator_info.proposed_renewable_sites, 
+            suny.grid_hourlies,
+            hours
+    where   generator_type in ('Distributed_PV')
+    and     concat(generator_info.proposed_renewable_sites.renewable_id, '_', orientation) = concat(suny.grid_hourlies.grid_id, '_', orientation)
+    and     hours.datetime_utc = suny.grid_hourlies.datetime_utc;
+ 
+insert into cap_factor_proposed_renewable_sites
+SELECT      generator_type,
+            load_area,
+            generator_info.proposed_renewable_sites.site_id,
+            hournum as hour,
+            cap_factor
+    from    generator_info.proposed_renewable_sites, 
+            3tier.wind_farm_power_output,
+            hours
+    where   generator_type in ('Wind', 'Offshore Wind')
+    and     generator_info.proposed_renewable_sites.renewable_id = 3tier.wind_farm_power_output.wind_farm_id
+    and     hours.datetime_utc = 3tier.wind_farm_power_output.datetime_utc;
+    
+alter table cap_factor_proposed_renewable_sites add index hour (hour);
+
+
+-- TRANS LINES----------
+-- made in postgresql
+drop table if exists transmission_lines;
+create table transmission_lines(
+  load_area_start varchar(11),
+  load_area_end varchar(11),
+  transfer_capacity_mw double,
+  distance_km double,
+  load_areas_border_each_other char(1)
+);
+
+load data local infile
+	'/Volumes/1TB_RAID-2/Models/Switch\ Input\ Data/Transmission/wecc_trans_lines.csv'
+	into table transmission_lines
+	fields terminated by	','
+	optionally enclosed by '"'
+	ignore 1 lines;
 	
--- Hydro----------------------------------------------
--- Set the hydro monthly limits by table
+-- LOAD AREA INFO	
+-- made in postgresql
+drop table if exists load_area_info;
+create table load_area_info(
+  load_area varchar(11),
+  primary_nerc_subregion varchar(20),
+  primary_state varchar(20),
+  economic_multiplier double,
+  rps_compliance_year integer,
+  rps_compliance_percentage double,
+  INDEX load_area (load_area)
+);
 
--- don't know quite what to do with the year here.. we only have 2007 but Matthias seemed to have three years.
--- do we need to get each year's max, min and avg flow, i.e. do we need to import 2004-2006 EIA data?
--- also need Canadian Plant Data
+load data local infile
+	'/Volumes/1TB_RAID-2/Models/GIS/wecc_load_area_info.csv'
+	into table load_area_info
+	fields terminated by	','
+	optionally enclosed by '"'
+	ignore 1 lines;
 
-drop table if exists plantcap;
-create table plantcap
-  select g.plntcode, g.plntname, g.load_area,
-    sum(summcap) as summcap, sum(wintcap) as wintcap,
-    sum(if(primemover="PS", summcap, 0)) as summcap_ps, 
-    sum(if(primemover="PS", wintcap, 0)) as wintcap_ps, 
-    count(*) as numgen 
-  from grid.eia860gen07_US g join grid.eia860plant07_US p using (plntcode)
-  where primemover in ("HY", "PS")
-  and p.load_area not like ''
-  and g.load_area not like ''
-  group by 1, 2, 3;
-  
--- for now, we assume:
--- maximum flow is equal to the plant capacity (summer or winter, ignoring discrepancy from nameplate)
--- minimum flow is negative of the pumped storage capacity, if applicable, or 0.1 * average flow for simple hydro
--- TODO: find better estimates of minimum flow, e.g., by looking through remarks in the USGS datasheets, or looking
---   at the lowest daily average flow in each month.
--- daily average is equal to net historical production of power
--- note: the fancy date math below just figures out how many days there are in each month
--- TODO: find a better estimate of pumping capacity, rather than just the negative of the PS generating capacity
--- TODO: estimate net daily energy balance in the reservoir, not via netgen. i.e., avg_flow should be based on the
---   total flow of water (and its potential energy), not the net power generation, which includes losses from 
---   inefficiency on both the generation and storage sides 
---   (we ignore this for now, which is OK if net flow and net gen are both much closer to zero than max flow)
---   This can be done by fitting a linear model of water flow and efficiency to the eia energy consumption and net_gen
---   data and the USGS monthly water flow data, for pumped storage facilities. This model may be improved by looking up
---   the head height for each dam, to link water flows directly to power.
+alter table load_area_info add column scenario_id INT NOT NULL first;
+alter table load_area_info add index scenario_id (scenario_id);
+alter table load_area_info add column area_id int NOT NULL AUTO_INCREMENT primary key first;
 
-drop table if exists hydro_gen;
-create table hydro_gen(
-  plntcode int,
-  primemover char(2),
+select if( max(scenario_id) + 1 is null, 1, max(scenario_id) + 1 ) into @this_scenario_id
+    from load_area_info;
+
+update load_area_info set scenario_id = @this_scenario_id;
+
+
+
+-----------------------------------------------------------------------
+--        REGION-SPECIFIC GENERATOR COSTS & AVAILIBILITY
+-----------------------------------------------------------------------
+
+DROP TABLE if exists regional_generator_costs;
+CREATE TABLE regional_generator_costs(
+  scenario_id INT NOT NULL,
+  area_id INT NOT NULL,
+  technology varchar(30),
+  price_year year(4),
+  overnight_cost double,
+  connect_cost_per_MW_generic double,
+  fixed_o_m double,
+  variable_o_m double,
+  overnight_cost_change double,
+  fixed_o_m_change double,
+  variable_o_m_change double
+);
+
+set @cost_mult_scenario_id = 1;
+
+-- Find the next scenario id. 
+select if( max(scenario_id) + 1 is null, 1, max(scenario_id) + 1 ) into @reg_generator_scenario_id
+    from regional_generator_costs;
+
+-- The middle four lines in the select statment are prices that are affected by regional price differences
+-- The rest of these variables aren't affected by region, but they're brought along here to make it easier in AMPL
+
+insert into regional_generator_costs
+    (scenario_id, area_id, technology, price_year, overnight_cost, connect_cost_per_MW_generic, 
+     fixed_o_m, variable_o_m, overnight_cost_change, fixed_o_m_change, variable_o_m_change)
+
+    select 	@reg_generator_scenario_id as scenario_id, 
+    		area_id,
+    		technology,
+    		price_year,  
+   			overnight_cost * economic_multiplier as overnight_cost,
+    		connect_cost_per_MW_generic * economic_multiplier as connect_cost_per_MW_generic,
+    		fixed_o_m * economic_multiplier as fixed_o_m,
+    		variable_o_m * economic_multiplier as variable_o_m,
+   			overnight_cost_change,
+   			fixed_o_m_change,
+   			variable_o_m_change
+    from 	generator_info.generator_costs,
+			load_area_info
+	where load_area_info.scenario_id  = @cost_mult_scenario_id
+;
+
+-- regional generator restrictions
+-- currently, the only restrictions are that Coal_ST and Nuclear can't be built in CA
+delete from regional_generator_costs
+ 	where 	(technology in ('Nuclear', 'Coal_ST') and
+			area_id in (select area_id from load_area_info where primary_nerc_subregion like 'CA'));
+
+
+-- Make a view that is more user-friendly
+drop view if exists regional_generator_costs_view;
+CREATE VIEW regional_generator_costs_view as
+  SELECT load_area, regional_generator_costs.* 
+    FROM regional_generator_costs, load_area_info
+    WHERE	load_area_info.area_id = regional_generator_costs.area_id;
+    
+-----------------------------------------------------------------------
+--        NON-REGIONAL GENERATOR INFO
+-----------------------------------------------------------------------
+
+
+DROP TABLE IF EXISTS generator_info;
+CREATE TABLE generator_info (
+  select technology, min_build_year, fuel, heat_rate, construction_time_years,
+  		max_age_years, forced_outage_rate, scheduled_outage_rate, intermittent,
+  		resource_limited, baseload, min_build_capacity
+  from generator_info.generator_costs );
+
+
+
+-- FUEL PRICES-------------
+-- run 'v2 wecc fuel price import no elasticity.sql' first
+
+drop table if exists regional_fuel_prices;
+CREATE TABLE regional_fuel_prices (
+  scenario_id INT NOT NULL,
+  area_id INT NOT NULL,
+  fuel VARCHAR(30),
   year year,
-  month tinyint,
-  netgen double);
+  fuel_price FLOAT NOT NULL COMMENT 'Regional fuel prices for various types of fuel in $2007 per MMBtu',
+  INDEX scenario_id(scenario_id),
+  INDEX area_id(area_id),
+  CONSTRAINT area_id FOREIGN KEY area_id (area_id)
+    REFERENCES load_area (area_id)
+);
 
-insert into hydro_gen select plntcode, primemover, year, 1, netgen_jan from grid.eia906_04_to_07_us where primemover in ("PS", "HY") and year < 2007;
-insert into hydro_gen select plntcode, primemover, year, 2, netgen_feb from grid.eia906_04_to_07_us where primemover in ("PS", "HY") and year < 2007;
-insert into hydro_gen select plntcode, primemover, year, 3, netgen_mar from grid.eia906_04_to_07_us where primemover in ("PS", "HY") and year < 2007;
-insert into hydro_gen select plntcode, primemover, year, 4, netgen_apr from grid.eia906_04_to_07_us where primemover in ("PS", "HY") and year < 2007;
-insert into hydro_gen select plntcode, primemover, year, 5, netgen_may from grid.eia906_04_to_07_us where primemover in ("PS", "HY") and year < 2007;
-insert into hydro_gen select plntcode, primemover, year, 6, netgen_jun from grid.eia906_04_to_07_us where primemover in ("PS", "HY") and year < 2007;
-insert into hydro_gen select plntcode, primemover, year, 7, netgen_jul from grid.eia906_04_to_07_us where primemover in ("PS", "HY") and year < 2007;
-insert into hydro_gen select plntcode, primemover, year, 8, netgen_aug from grid.eia906_04_to_07_us where primemover in ("PS", "HY") and year < 2007;
-insert into hydro_gen select plntcode, primemover, year, 9, netgen_sep from grid.eia906_04_to_07_us where primemover in ("PS", "HY") and year < 2007;
-insert into hydro_gen select plntcode, primemover, year, 10, netgen_oct from grid.eia906_04_to_07_us where primemover in ("PS", "HY") and year < 2007;
-insert into hydro_gen select plntcode, primemover, year, 11, netgen_nov from grid.eia906_04_to_07_us where primemover in ("PS", "HY") and year < 2007;
-insert into hydro_gen select plntcode, primemover, year, 12, netgen_dec from grid.eia906_04_to_07_us where primemover in ("PS", "HY") and year < 2007;
-
-alter table hydro_gen add index pm (plntcode, primemover), add index ym (year, month);
-
-
-drop table if exists hydro_monthly_limits;
-create table hydro_monthly_limits
-  select load_area,
-    concat(replace(left(p.plntname, 6), " ", "_"), "_", p.plntcode) as site,
-    year, month,
-    sum(if(g.month between 4 and 9, -p.summcap_ps, -p.wintcap_ps)) as min_flow,
-    sum(if(g.month between 4 and 9, p.summcap, p.wintcap)) as max_flow,
-    sum(netgen / 
-      (24 * datediff(
-        date_add(concat(year, "-", month, "-01"), interval 1 month), concat(year, "-", month, "-01")
-      ))) as avg_flow
-    from hydro_gen g join plantcap p using (plntcode)
-    where g.primemover in ("HY", "PS")
-    group by 1, 2, 3, 4;
--- you can add this to the where clause
--- and p.summcap >= 50 and p.wintcap >= 50
-update hydro_monthly_limits set min_flow = 0 where min_flow = -0;
-alter table hydro_monthly_limits add index ym (year, month);
-
--- some of the plants come in with average production or pumping 
--- that is beyond their rated capacities; we just scale these back.
-update hydro_monthly_limits set avg_flow=max_flow where avg_flow > max_flow;
-update hydro_monthly_limits set avg_flow=min_flow where avg_flow < min_flow;
-
--- calculate the minimum flow for simple hydro plants.
--- we assume that they must release at least 10% of the monthly average flow 
--- in every hour, to maintain instream flows below the dam.
--- TODO: find a better estimate of minimum allowed flow
-update hydro_monthly_limits set min_flow = 0.1 * avg_flow where min_flow <= 0.1 * avg_flow;
-
--- force small plants to run in baseload mode
--- (in theory, this could make some plants run as baseload in summer and dispatchable
--- in the winter, but that doesn't actually happen)
--- TODO: revise the plant size cutoff to match the California RPS distinction between large and small hydro?
-update hydro_monthly_limits set max_flow=avg_flow, min_flow=avg_flow where max_flow < 50;
-
-
--- drop the sites that have too few months of data (i.e., started running after 2004)
--- should check how many plants this is
-drop temporary table if exists toofew;
-create temporary table toofew
-select site, count(*) as n from hydro_monthly_limits group by 1 having n < 36;
-alter table toofew add index (site);
-delete l.* from hydro_monthly_limits l join toofew f using (site);
-
--- a few sites come out with max_flow less than or equal to zero and ampl doesn't like this, so we set max_flow to a really small number here.
-update hydro_monthly_limits
-set max_flow = 0.001
-where max_flow <=0;
-
--- Canadian Hydro
--- import filtered and edited hydro data for Alberta and BC Hydro from TEPPC
-insert into hydro_monthly_limits
-select load_area, site, 2004, month, min_flow, max_flow, avg_flow from grid.hydro_monthly_limits_can;
-insert into hydro_monthly_limits
-select load_area, site, 2005, month, min_flow, max_flow, avg_flow from grid.hydro_monthly_limits_can;
-insert into hydro_monthly_limits
-select load_area, site, 2006, month, min_flow, max_flow, avg_flow from grid.hydro_monthly_limits_can;
-
--- some names from the Canadian data come out with spaces, so we remove them with this command
-update hydro_monthly_limits set site = replace(site, ' ', '_');
-
-Update hydro_monthly_limits 
-set min_flow = max_flow
-where min_flow>max_flow;
-
--- and replace original max values if desired
--- should be changed - too manual for this stage of the code
-
-Update grid.hydro_monthly_limits
-set max_flow = 31.05
-where site like 'Oldma_100010'; 
-
-Update grid.hydro_monthly_limits 
-set max_flow = 31.05
-where site like 'Oldma_100012'; 
-
-Update grid.hydro_monthly_limits
-set max_flow = 23.8
-where site like 'Taylo_100019' ;
-
-Update grid.hydro_monthly_limits
-set max_flow = 100
-where site like 'GMS U_100026' ;
-
-Update grid.hydro_monthly_limits
-set max_flow = 30
-where site like 'Soo R_100094' ;
-
-
-Update wecc.hydro_monthly_limits 
-set site = 'S_Slo1_100096'
-where site like 'S_Slo_100096' and max_flow = 15.7;
-
-Update wecc.hydro_monthly_limits 
-set site = 'S_Slo2_100096'
-where site like 'S_Slo_100096' and max_flow = 21.6;
-
-
-
--- TransLines---------------------------------------------
-
--- mostly compiled in previous scripts that make wecc_trans_lines from windsun.wecc_link_info.  This data is a few years old, so this could be updated.
-
--- the rest of the links should be checked to make sure nothing important is missing.
--- creates trans_lines table to export to ampl
--- this one lets the model build any lines it feels like between any areas.
--- Could easily be restricted to only adjacent load areas if it messes up in ampl.
-drop table if exists trans_line;
-create table trans_line
-SELECT load_area_start, load_area_end, tid, distkm as length_km, geoms_intersect as geoms_intersect, efficiency as transmission_efficiency, existing_mw_from as existing_transmission_from, existing_mw_to as existing_transmission_to
-FROM grid.wecc_trans_lines
-order by load_area_start, load_area_end;
+select if( max(scenario_id) + 1 is null, 1, max(scenario_id) + 1 ) into @this_scenario_id
+    from regional_fuel_prices;
   
+insert into regional_fuel_prices
+	select
+		@this_scenario_id as scenario_id,
+        area_id,
+        if(fuel like 'NaturalGas', 'Gas', fuel),
+        year,
+        fuel_price
+    from fuel_prices.regional_fuel_prices, load_area_info
+    where load_area_info.load_area = fuel_prices.regional_fuel_prices.load_area
+    and fuel not like 'DistillateFuelOil'
+    and fuel not like 'ResidualFuelOil';
 
--- Connect Cost ----------------------------------------
--- should be done better - ideally there would be a connect cost for each site, especially offshore wind, but right now it's all the same :-(
--- fix later - geothermal comes in with a connection cost per MW, but this is just the length*233301, so here I (Jimmy) just make it look like the others by dividing by that factor again
--- should just input the total connect cost, which includes the length
-drop table if exists connect_cost_all;
-create table connect_cost_all
-  select 'Trough' as technology, load_area, concat(csp_sites_3tier_wecc.load_area, '_', csp_sites_3tier_wecc.siteid, '_tr') as site, 'na' as orientation, connect_dist_km as connect_length_km, 233301 as connect_cost_per_MW 
-  	from csp_sites_3tier_wecc
-  union all 
-  select 'Wind' as technology, load_area, concat(wind_farms_wecc.load_area, '_', wind_farms_wecc.wind_farm_id) as site, 'na' as orientation, connect_dist_km as connect_length_km, 233301 as connect_cost_per_MW 
-  	from wind_farms_wecc
-  union all
-  select 'Geothermal' as technology, load_area, geosite as site, 'na' as orientation, connect_cost_per_MW/233301 as connect_dist_km, 233301 as connect_cost_per_MW
-  	from grid.geothermal_sites;
+  
+drop view if exists regional_fuel_prices_view;
+CREATE VIEW regional_fuel_prices_view as
+SELECT regional_fuel_prices.scenario_id, load_area_info.area_id, load_area, fuel, year, fuel_price 
+    FROM regional_fuel_prices, load_area_info
+    WHERE regional_fuel_prices.area_id = load_area_info.area_id;
 
+-- RPS----------------------
+drop table if exists rps_fuel_category;
+create table rps_fuel_category(
+	fuel varchar(30),
+	rps_fuel_category varchar(10)
+);
 
+insert into rps_fuel_category (fuel, rps_fuel_category) values
+	('Gas', 'fossilish'),
+	('Wind', 'renewable'),
+	('Solar', 'renewable'),
+	('Biomass', 'renewable'),
+	('Coal', 'fossilish'),
+	('Uranium', 'fossilish'),
+	('Geothermal', 'renewable'),
+	('Water', 'fossilish');
 
+drop table if exists fuel_qualifies_for_rps;
+create table fuel_qualifies_for_rps(
+	area_id INT NOT NULL,
+	load_area varchar(11),
+	fuel varchar(30),
+	rps_fuel_category varchar(10),
+	qualifies boolean,
+	INDEX area_id (area_id),
+  	CONSTRAINT area_id FOREIGN KEY area_id (area_id)
+   		REFERENCES load_area (area_id)
+);
 
-
--- Max Capacity----------------------------------------
--- Creates the max_capacity_all table for intermittent resources.
-
--- The csp site max capacity should be updated at some point with the correct data
--- (we don't have this in hand right now) 
-
--- for DistPV, we assume the maximum in all orientations is 0.0015 MWp/person
--- (based on the arbitrary assumption of 2000 square foot house per 4 people,
--- with 2 stories, so 1000 square feet total, or 10 square meters per person.
--- then, assume commercial space doubles this, but shading cuts it back in half
--- so we have for a 15% efficient cell, 10 m2/person * 150 Wp/m2 = 1500 Wp/person)
--- then, this gets apportioned between 12 compass points, so 1500 Wp/person * 1/12 = 125Wp/person = 0.000125MW/person.
--- should do this by finding the average roof area per person in the US.
--- LA might have an unreasonably large population at 18million without some suburbs... maybe we should do something about that.
-
-drop table if exists max_capacity_all;
-create table max_capacity_all
-  select 'Trough' as technology, load_area, concat(csp_sites_3tier_wecc.load_area, '_', csp_sites_3tier_wecc.siteid, '_tr') as site, 'na' as orientation, max_capacity 
-    from csp_sites_3tier_wecc
-  union all 
-  select 'Wind' as technology, load_area, concat(wind_farms_wecc.load_area, '_', wind_farms_wecc.wind_farm_id) as site, 'na' as orientation, max_mw as max_capacity
-    from wind_farms_wecc
-  union all 
-  select 'DistPV' as technology, load_area, concat(pv_grid_points_wecc.load_area, '_', pv_grid_points_wecc.grid_id) as site, suny.surface_azimuth_angle.angle as orientation, 0.000125*population as max_capacity
-    from pv_grid_points_wecc,
-		suny.surface_azimuth_angle
-  union all
-  select 'Biomass_ST' as technology, load_area, concat(load_area, '_', 'Bio') as site, 'na' as orientation, bio as max_capacity
-  	from biomass.biomass_potential
-  		where bio > 10
-  union all
-  select 'Geothermal' as technology, load_area, geosite as site, 'na' as orientation, capacity_mw as max_capacity
-  	from grid.geothermal_sites;
-  		
-
-
--- Cap Factor Tables------------------------------------------------
-
--- CSP
--- sets the cap_factor to 1 when the e_net_mw gets larger than 100MW (the max value is 103MW)
--- because the assumed max_capacity is 100MW for this table, though the csp_sites_3tier_wecc table scales some of these up
--- could relieve constraint in ampl code to allow for cap factors greater than 1 or less than zero (it's unclear whether the trough technology is parasitic on the grid when it isn't producing power)
-drop table if exists cap_factor_csp;
-create table cap_factor_csp
-select 		csp_sites_3tier_wecc.load_area,		
-			hours.hournum as hour,
-  			concat(csp_sites_3tier_wecc.load_area, '_', csp_sites_3tier_wecc.siteid, '_tr') as site,
-  			if(if(3tier.csp_power_output.e_net_mw > 100, 1, 3tier.csp_power_output.e_net_mw/100) < 0, 0, if(3tier.csp_power_output.e_net_mw > 100, 1, 3tier.csp_power_output.e_net_mw/100)) as cap_factor,
-  			3tier.csp_power_output.siteid as siteid
-  	from 	hours,
-  			3tier.csp_power_output,
-			csp_sites_3tier_wecc
-  	where hours.datetime_utc = timestampadd(hour, -csp_sites_3tier_wecc.timezone_difference_from_gmt, 3tier.csp_power_output.datetime_local)
-	and csp_sites_3tier_wecc.id = 3tier.csp_power_output.siteid;
-alter table cap_factor_csp add index siteid (siteid), add index hour (hour), add index load_area (load_area);
-
--- Wind
-drop table if exists cap_factor_wind;
-create table cap_factor_wind
-select 		wind_farms_wecc.load_area,
-  			concat(wind_farms_wecc.load_area, '_', wind_farms_wecc.wind_farm_id) as site, 
-  			hours.hournum as hour, 
-    		if(if(3tier.wind_farm_power_output.corrected_score_lite_power_output_mw/wind_farms_wecc.max_mw > 1, 1, 3tier.wind_farm_power_output.corrected_score_lite_power_output_mw/wind_farms_wecc.max_mw) < 0, 0, if(3tier.wind_farm_power_output.corrected_score_lite_power_output_mw/wind_farms_wecc.max_mw > 1, 1, 3tier.wind_farm_power_output.corrected_score_lite_power_output_mw/wind_farms_wecc.max_mw)) as cap_factor,
-    		wind_farms_wecc.wind_farm_id as siteid
-   from 	3tier.wind_farm_power_output,
-   			wind_farms_wecc,
-   			hours
-   where 	wind_farms_wecc.wind_farm_id = 3tier.wind_farm_power_output.siteid
-   and		hours.datetime_utc = TIMESTAMPADD(HOUR, -wind_farms_wecc.timezone_diff_from_gmt, 3tier.wind_farm_power_output.datetime_local)
-   order by wind_farms_wecc.load_area, 
-   			wind_farms_wecc.wind_farm_id;
-alter table cap_factor_wind add index siteid (siteid), add index hour (hour), add index load_area (load_area);
-
--- PV
--- right now limits the cap_factor arbitrarily to 1 to make ampl happy,
--- but this should be changed in the future as a solar panel can make more power than its rated output on a good day.
-drop table if exists cap_factor_pv;
-create table cap_factor_pv
-select 	pv_grid_points_wecc.load_area,
-		concat(pv_grid_points_wecc.load_area, '_', pv_grid_points_wecc.grid_id) as site,
-		suny.grid_hourlies.orientation as orientation,
-		hours.hournum as hour,
-		if(suny.grid_hourlies.cap_factor > 1, 1, if(suny.grid_hourlies.cap_factor < 0, 0, suny.grid_hourlies.cap_factor)) as cap_factor,
-		pv_grid_points_wecc.grid_id as siteid
-from	hours,
-		pv_grid_points_wecc,
-		suny.grid_hourlies
-where	pv_grid_points_wecc.grid_id = suny.grid_hourlies.grid_id
-and		hours.datetime_utc = suny.grid_hourlies.datetime_utc
-order by pv_grid_points_wecc.load_area,
-		pv_grid_points_wecc.grid_id;
-alter table cap_factor_pv add index siteid (siteid), add index hour (hour), add index load_area (load_area);
-
--- creating a cap_factor_all table for this many sites takes a really long time (~0.5-1h), a lot of disk space, and is somewhat unnecessary... could make it in the ampl tab.
--- combine all intermittent renewable technologies into one big table, for easier handling
-drop table if exists cap_factor_all;
-create table cap_factor_all
-  select 'Trough' as technology, load_area, site, "na" as orientation, hour, cap_factor from cap_factor_csp
-  union all 
-  select 'Wind' as technology, load_area, site, "na" as orientation, hour, cap_factor from cap_factor_wind
-  union all
-  select 'DistPV' as technology, load_area, site, orientation, hour, cap_factor from cap_factor_pv;
-alter table cap_factor_all add index hour (hour);
+insert into fuel_qualifies_for_rps
+	select 	area_id,
+			load_area,
+			fuel,
+			rps_fuel_category,
+			if(rps_fuel_category like 'renewable', 1, 0)
+		from rps_fuel_category, load_area_info;
 
