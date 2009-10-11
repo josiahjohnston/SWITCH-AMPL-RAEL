@@ -2,7 +2,7 @@
 
 
 create database if not exists switch_inputs_wecc_v2;
-use switch_inputs_wecc_v2;
+ use switch_inputs_wecc_v2;
 
 
 -- HOURS-------------------------
@@ -34,27 +34,16 @@ alter table system_load add index hour(hour);
 alter table system_load add index load_area(load_area);
 
 insert into system_load
-select 'CAN_BC',
+select  ( CASE load_area
+          WHEN 'BCTC' THEN 'CAN_BC'
+          WHEN 'AESO' THEN 'CAN_ALB'
+          WHEN 'CFE'  THEN 'MEX_BAJA'
+          END
+        ),
 		hour,
 		power
 from 	wecc.system_load
-where	load_area like 'BCTC';
-
-insert into system_load
-select 'CAN_ALB',
-		hour,
-		power
-from 	wecc.system_load
-where	load_area like 'AESO';
-
-insert into system_load
-select 'MEX_BAJA',
-		hour,
-		power
-from 	wecc.system_load
-where	load_area like 'CFE';
-
-
+where	load_area IN ( 'CAN_BC', 'CAN_ALB', 'MEX_BAJA' );
 
 -- Study Hours----------------------
 -- Randomly select study dates and hours for the SWITCH model. 
@@ -180,7 +169,7 @@ update tdates, tmaxday_in_month set tdates.ord = 2
 -- and alternate between using data from the first or second year of measurements
 alter table tdates add column rank int;
 set @lastrank = 0, @lastmonth = 0;
--- to switch from random ordering to choosing days with median loads, change 'ord'      in the order by clause to 'max_load'
+-- to switch from random ordering to choosing days with median loads, change 'ord' in the order by clause to 'max_load'
 -- to switch from choosing days with median loads to random ordering, change 'max_load' in the order by clause to 'ord'
 update tdates set rank = (@lastrank := if(@lastmonth=(@lastmonth:=month_of_year), @lastrank+1, 1)) order by month_of_year, max_load desc;
 alter table tdates add index mr (month_of_year, rank), add index (date_utc);
@@ -193,8 +182,13 @@ alter table tdates add index mr (month_of_year, rank), add index (date_utc);
 -- We also report how many hours are represented by each sample, for weighting in the optimization
 -- The formula for the number of hours represented by each sample is based on one less than the days in 
 -- the month, to avoid overlapping with the days of peak load.
-INSERT INTO study_dates_all ( training_set_id, period, date_utc, month_of_year, hours_in_sample )
-  select @training_set_id, periodnum * @years_per_period + @base_year as period, date_utc, d.month_of_year, 
+INSERT INTO study_dates_all ( training_set_id, period, study_date, date_utc, month_of_year, hours_in_sample )
+  select @training_set_id, periodnum * @years_per_period + @base_year as period, 
+    -- create unique ids for each date of the simulation
+    -- NOTE: the following code assumes that no historical date is used more than once in the same investment period
+    -- it also assumes that study periods and historical years are uniquely identified by their last two digits
+    (periodnum * @years_per_period + @base_year mod 100) * 1000000 + mod(year(date_utc), 100) * 10000 + month(date_utc)*100 + day(date_utc) as study_date, 
+    date_utc, d.month_of_year, 
     (days_in_month-1)*@years_per_period as hours_in_sample
     from tperiods p join tmonths m 
       join tdates d 
@@ -204,33 +198,28 @@ INSERT INTO study_dates_all ( training_set_id, period, date_utc, month_of_year, 
       order by period, month_of_year, date_utc;
 
 -- Add the dates with peak loads. The peak load have a rank of 1.
-INSERT INTO study_dates_all ( training_set_id, period, date_utc, month_of_year, hours_in_sample )
-  select @training_set_id, periodnum * @years_per_period + @base_year as period, date_utc, d.month_of_year, 
+INSERT INTO study_dates_all ( training_set_id, period, study_date, date_utc, month_of_year, hours_in_sample )
+  select @training_set_id, periodnum * @years_per_period + @base_year as period, 
+    -- create unique ids for each date of the simulation
+    -- NOTE: the following code assumes that no historical date is used more than once in the same investment period
+    -- it also assumes that study periods and historical years are uniquely identified by their last two digits
+    (periodnum * @years_per_period + @base_year mod 100) * 1000000 + mod(year(date_utc), 100) * 10000 + month(date_utc)*100 + day(date_utc) as study_date, 
+    date_utc, d.month_of_year, 
     @years_per_period as hours_in_sample
     from tperiods p join tdates d 
     where rank = 1 
       order by period, month_of_year, date_utc;
 
--- create unique ids for each date of the simulation
--- NOTE: the following code assumes that no historical date is used more than once in the same investment period
--- it also assumes that study periods and historical years are uniquely identified by their last two digits
-update study_dates_all set 
-  study_date = (period mod 100) * 1000000 + mod(year(date_utc), 100) * 10000 + month(date_utc)*100 + day(date_utc)
-  where training_set_id = @training_set_id;
-
 -- create the final list of study hours
-INSERT INTO study_hours_all ( training_set_id, period, study_date, date_utc, month_of_year, hours_in_sample, hour_of_day, hournum, datetime_utc )
+INSERT INTO study_hours_all ( training_set_id, period, study_date, study_hour, date_utc, month_of_year, hours_in_sample, hour_of_day, hournum, datetime_utc )
   select @training_set_id, period, study_date, 
+    -- create unique ids for each hour of the simulation
+    ((period mod 100) * 10000 + month_of_year * 100 + hour_of_day) * 1000 + (year(date_utc) mod 10) * 100 + day(date_utc)  as study_hour,
     date_utc, month_of_year, hours_in_sample,
     hour(datetime_utc) as hour_of_day, hournum, datetime_utc
     from study_dates_all d join hours h on d.date_utc = date(h.datetime_utc)
       where training_set_id = @training_set_id
       order by period, month_of_year, datetime_utc;
-
--- create unique ids for each hour of the simulation
-update study_hours_all set 
-  study_hour = ((period mod 100) * 10000 + month_of_year * 100 + hour_of_day) * 1000 + (year(date_utc) mod 10) * 100 + day(date_utc) 
-  where training_set_id = @training_set_id;
 
 
 CREATE TABLE IF NOT EXISTS scenarios (
