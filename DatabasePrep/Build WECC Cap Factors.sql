@@ -369,8 +369,23 @@ CREATE INDEX generator_type_renewable_id ON proposed_renewable_sites (generator_
 drop table if exists cap_factor_proposed_renewable_sites;
 create table cap_factor_proposed_renewable_sites
 SELECT      generator_type,
+            generator_info.proposed_renewable_sites.load_area,
+            generator_info.proposed_renewable_sites.site_id as site,
+			cast(orientation as char(2)) as configuration,
+            hournum as hour,
+            cap_factor
+    from    generator_info.proposed_renewable_sites, 
+            suny.grid_hourlies,
+            hours
+    where   generator_type = 'Distributed_PV'
+	and		generator_info.proposed_renewable_sites.renewable_id = suny.grid_hourlies.grid_id
+    and     hours.datetime_utc = suny.grid_hourlies.datetime_utc;
+ 
+insert into cap_factor_proposed_renewable_sites
+SELECT      generator_type,
             load_area,
-            generator_info.proposed_renewable_sites.site_id,
+            generator_info.proposed_renewable_sites.site_id as site,
+            'na' as configuration,
             hournum as hour,
             e_net_mw/100 as cap_factor
     from    generator_info.proposed_renewable_sites, 
@@ -379,24 +394,12 @@ SELECT      generator_type,
     where   generator_type in ('CSP_Trough')
     and     generator_info.proposed_renewable_sites.renewable_id = 3tier.csp_power_output.siteid
     and     hours.datetime_utc = 3tier.csp_power_output.datetime_utc;
-    
-insert into cap_factor_proposed_renewable_sites
-SELECT      generator_type,
-            generator_info.proposed_renewable_sites.load_area,
-            concat(generator_info.proposed_renewable_sites.site_id, '_', orientation),
-            hournum as hour,
-            cap_factor
-    from    generator_info.proposed_renewable_sites, 
-            suny.grid_hourlies,
-            hours
-    where   generator_type in ('Distributed_PV')
-    and     concat(generator_info.proposed_renewable_sites.renewable_id, '_', orientation) = concat(suny.grid_hourlies.grid_id, '_', orientation)
-    and     hours.datetime_utc = suny.grid_hourlies.datetime_utc;
- 
+
 insert into cap_factor_proposed_renewable_sites
 SELECT      generator_type,
             load_area,
-            generator_info.proposed_renewable_sites.site_id,
+            generator_info.proposed_renewable_sites.site_id as site,
+            'na' as configuration,           
             hournum as hour,
             cap_factor
     from    generator_info.proposed_renewable_sites, 
@@ -409,15 +412,32 @@ SELECT      generator_type,
 alter table cap_factor_proposed_renewable_sites add index hour (hour);
 
 
+-- EXISTING PLANTS---------
+-- made in 'build proposed plants table.sql'
+drop table if exists existing_plants;
+create table existing_plants
+select * from generator_info.existing_plants_agg;
+
+
+-- HYDRO-------------------
+-- made in 'build proposed plants table.sql'
+drop table if exists hydro_monthly_limits;
+create table hydro_monthly_limits
+select * from generator_info.hydro_monthly_limits;
+
+alter table hydro_monthly_limits add index (year,month);
+
+
 -- TRANS LINES----------
 -- made in postgresql
 drop table if exists transmission_lines;
 create table transmission_lines(
-  load_area_start varchar(11),
-  load_area_end varchar(11),
-  transfer_capacity_mw double,
-  distance_km double,
-  load_areas_border_each_other char(1)
+	transmission_line_id int,
+	load_area_start varchar(11),
+	load_area_end varchar(11),
+	existing_transfer_capacity_mw double,
+	transmission_length_km double,
+	load_areas_border_each_other char(1)
 );
 
 load data local infile
@@ -485,7 +505,7 @@ select if( max(scenario_id) + 1 is null, 1, max(scenario_id) + 1 ) into @reg_gen
 
 -- The middle four lines in the select statment are prices that are affected by regional price differences
 -- The rest of these variables aren't affected by region, but they're brought along here to make it easier in AMPL
-
+-- technologies that Switch can't build yet but might in the future are eliminated in the last line
 insert into regional_generator_costs
     (scenario_id, area_id, technology, price_year, overnight_cost, connect_cost_per_MW_generic, 
      fixed_o_m, variable_o_m, overnight_cost_change, fixed_o_m_change, variable_o_m_change)
@@ -503,8 +523,10 @@ insert into regional_generator_costs
    			variable_o_m_change
     from 	generator_info.generator_costs,
 			load_area_info
-	where load_area_info.scenario_id  = @cost_mult_scenario_id
+	where 	load_area_info.scenario_id  = @cost_mult_scenario_id
+	and		technology not in ('Central_Station_PV', 'CSP_Trough_No_Storage', 'Coal_IGCC', 'Coal_IGCC_With_CSS')
 ;
+
 
 -- regional generator restrictions
 -- currently, the only restrictions are that Coal_ST and Nuclear can't be built in CA
@@ -547,7 +569,7 @@ CREATE TABLE regional_fuel_prices (
   INDEX scenario_id(scenario_id),
   INDEX area_id(area_id),
   CONSTRAINT area_id FOREIGN KEY area_id (area_id)
-    REFERENCES load_area (area_id)
+    REFERENCES load_area_info (area_id)
 );
 
 select if( max(scenario_id) + 1 is null, 1, max(scenario_id) + 1 ) into @this_scenario_id
@@ -589,22 +611,21 @@ insert into rps_fuel_category (fuel, rps_fuel_category) values
 	('Geothermal', 'renewable'),
 	('Water', 'fossilish');
 
+
 drop table if exists fuel_qualifies_for_rps;
 create table fuel_qualifies_for_rps(
 	area_id INT NOT NULL,
 	load_area varchar(11),
-	fuel varchar(30),
 	rps_fuel_category varchar(10),
 	qualifies boolean,
 	INDEX area_id (area_id),
   	CONSTRAINT area_id FOREIGN KEY area_id (area_id)
-   		REFERENCES load_area (area_id)
+   		REFERENCES load_area_info (area_id)
 );
 
 insert into fuel_qualifies_for_rps
 	select 	area_id,
 			load_area,
-			fuel,
 			rps_fuel_category,
 			if(rps_fuel_category like 'renewable', 1, 0)
 		from rps_fuel_category, load_area_info;
