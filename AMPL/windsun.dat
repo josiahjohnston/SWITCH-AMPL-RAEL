@@ -20,7 +20,7 @@ param transmission_finance_rate := 0.08;
 # retirement age for transmission lines
 param transmission_max_age_years := 20;
 
-# cost per mw-km for transmission lines
+# $ cost per mw-km for transmission lines
 param transmission_cost_per_mw_km := 1000;
 
 # forced outage rate for transmission lines, used for probabilistic dispatch(!)
@@ -61,28 +61,23 @@ param max_hydro_dispatch_per_hour = 0.5;
 #   the model from trying to dispatch these plants along with the gas and coal ones) 
 param hydro_annual_payment_per_mw := 113172;
 
-# list of fuel types
-set FUELS := Gas Coal Nuclear Wind Solar Geothermal Bio Water;
-set RPS_FUEL_CATEGORY := fossilish renewable;
-
-param enable_rps;
-
 # Names of intermittent and resource-limited technologies. 
 param tech_ccgt := "CCGT";
-param tech_ct := "CTA";
-param tech_pv := "DistPV";
-#param tech_central_pv := "CentPV";
-param tech_trough := "Trough";
+param tech_combustion_turbine := "Combustion_Turbine";
+param tech_distributed_pv := "Distributed_PV";
+#param tech_central_station_pv := "Central_Station_PV";
+param tech_csp_trough := "CSP_Trough";
 param tech_wind := "Wind";
-param tech_bio := "Biomass";
+param tech_offshore_wind := "Offshore_Wind";
+param tech_biomass := "Biomass";
 param fuel_hydro := "Water";
 
 # All of the solar technologies. If you change what they are called in the section immediately above, change them here too.
-set SOLAR_TECHNOLOGIES := DistPV Trough;
+set SOLAR_TECHNOLOGIES := Distributed_PV CSP_Trough;
 
 # default values for projects that don't have sites or orientations
 param site_unspecified := "na";
-param orient_unspecified := "na";
+param configuration_unspecified := "na";
 
 # years to study
 set YEARS :=
@@ -122,21 +117,6 @@ set YEARS :=
 2039
 2040;
 
-
-# carbon content (tonnes CO2 per million Btu)
-# gas converted from http://www.eia.doe.gov/oiaf/1605/coefficients.html
-# this page says nevada and arizona coal are around 205-208 pounds per million Btu: http://www.eia.doe.gov/cneaf/coal/quarterly/co2_article/co2.html
-# Nuclear, Geothermal, Biomass, Water, Wind and Solar have non-zero LCA emissions. To model those emissions, we'd need to divide carbon content into capital, fixed, 
-#   and variable emissions. Currently, this only lists variable emissions. 
-param carbon_content :=
-Gas 0.0531
-Coal 0.0939
-Nuclear 0
-Geothermal 0
-Wind 0
-Solar 0
-Bio 0
-Water 0;
 
 # cost of carbon emissions ($/tonneCO2)
 param carbon_cost;

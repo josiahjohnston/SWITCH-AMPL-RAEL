@@ -47,7 +47,7 @@ printf { f in FUELS } "%s=%2d\%, ",
 	# Hydro
 	( if( f = "Water" )
 	  then (
-		 sum {z in LOAD_ZONES, h in TIMEPOINTS: period[h]=last(PERIODS)} (
+		 sum {z in LOAD_AREAS, h in TIMEPOINTS: period[h]=last(PERIODS)} (
 		   # pumped hydro, de-rated to reflect occasional unavailability of the hydro plants
 		   (sum {(z, s) in PROJ_PUMPED_HYDRO} DispatchPumpedHydro[z, s, h]) * (1 - forced_outage_rate_hydro) * hours_in_sample[h]
 		   - 
@@ -65,6 +65,6 @@ printf { f in FUELS } "%s=%2d\%, ",
 	  else 0
 	)
   )
-  / (sum {z in LOAD_ZONES, h in TIMEPOINTS: period[h]=last(PERIODS)} system_load[z, h] * hours_in_sample[h])
+  / (sum {z in LOAD_AREAS, h in TIMEPOINTS: period[h]=last(PERIODS)} system_load[z, h] * hours_in_sample[h])
 ;
 printf "\n";

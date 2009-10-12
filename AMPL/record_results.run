@@ -140,7 +140,7 @@ printf {(z, s) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS, p in PERIODS: period[h]=p}
   0, hours_in_sample[h], 0, 
   0, 0, 0
   >> (outfile);
-printf {z in LOAD_ZONES, h in TIMEPOINTS, p in PERIODS: period[h]=p} 
+printf {z in LOAD_AREAS, h in TIMEPOINTS, p in PERIODS: period[h]=p} 
   "%s,%f,%d,%s,%d,%d,%s,%s,%s,%d,%d,%d,%s,%f,%f,%d,%f,%f,%f,%f\n",
   scenario_id, carbon_cost, p, z, date[h], h, "na", "simple_hydro", "na", 0, 0, 0, "Hydro",
   (1 - forced_outage_rate_hydro) * 
@@ -153,12 +153,12 @@ printf {z in LOAD_ZONES, h in TIMEPOINTS, p in PERIODS: period[h]=p}
 
 # total imports and exports
 # (38 seconds, 2 MB)
-printf {z in LOAD_ZONES, h in TIMEPOINTS, p in PERIODS: period[h]=p} 
+printf {z in LOAD_AREAS, h in TIMEPOINTS, p in PERIODS: period[h]=p} 
   "%s,%f,%d,%s,%d,%d,%s,%s,%s,%d,%d,%d,%s,%f,%f,%d,%f,%f,%f,%f\n",
   scenario_id, carbon_cost, p, z, date[h], h, "na", "Transmission", "na", 0, 0, 0, "na",
 #  (1-transmission_forced_outage_rate) *  
-#    (sum {(z, z2) in TRANS_LINES} transmission_efficiency[z, z2] * (existing_transmission[z, z2] + sum {(z, z2, v, h) in TRANS_VINTAGE_HOURS} #InstallTrans[z, z2, v])
-#    + sum {(z1, z) in TRANS_LINES} transmission_efficiency[z1, z] * (existing_transmission[z1, z] + sum {(z1, z, v, h) in TRANS_VINTAGE_HOURS} InstallTrans[z1, z, v])),
+#    (sum {(z, z2) in TRANS_LINES} transmission_efficiency[z, z2] * (existing_transfer_capacity_mw[z, z2] + sum {(z, z2, v, h) in TRANS_VINTAGE_HOURS} #InstallTrans[z, z2, v])
+#    + sum {(z1, z) in TRANS_LINES} transmission_efficiency[z1, z] * (existing_transfer_capacity_mw[z1, z] + sum {(z1, z, v, h) in TRANS_VINTAGE_HOURS} InstallTrans[z1, z, v])),
   (sum {(z2, z) in TRANS_LINES, f in FUELS, fuel_cat in RPS_FUEL_CATEGORY: fuel_cat = rps_fuel_category[f]} (transmission_efficiency[z2, z] * DispatchTransFromXToY[z2, z, h, fuel_cat]))
   - (sum {(z, z1) in TRANS_LINES, f in FUELS, fuel_cat in RPS_FUEL_CATEGORY: fuel_cat = rps_fuel_category[f]} (DispatchTransFromXToY[z, z1, h, fuel_cat])),
   0, hours_in_sample[h], 0, 
@@ -167,7 +167,7 @@ printf {z in LOAD_ZONES, h in TIMEPOINTS, p in PERIODS: period[h]=p}
 
 # transmission losses 
 # (assigned to originating zone, so that generation+transmission = load+losses in each zone)
-printf {z in LOAD_ZONES, h in TIMEPOINTS, p in PERIODS: period[h]=p} 
+printf {z in LOAD_AREAS, h in TIMEPOINTS, p in PERIODS: period[h]=p} 
   "%s,%f,%d,%s,%d,%d,%s,%s,%s,%d,%d,%d,%s,%f,%f,%d,%f,%f,%f,%f\n",
   scenario_id, carbon_cost, p, z, date[h], h, "na", "Transmission Losses", "na", 0, 0, 0, "na",
   (sum {(z2, z) in TRANS_LINES, f in FUELS, fuel_cat in RPS_FUEL_CATEGORY: fuel_cat = rps_fuel_category[f]} ((1 - transmission_efficiency[z2, z]) * DispatchTransFromXToY[z2, z, h, fuel_cat]))
@@ -177,14 +177,14 @@ printf {z in LOAD_ZONES, h in TIMEPOINTS, p in PERIODS: period[h]=p}
   >> (outfile);
 
 # system load
-printf {z in LOAD_ZONES, h in TIMEPOINTS, p in PERIODS: period[h]=p} 
+printf {z in LOAD_AREAS, h in TIMEPOINTS, p in PERIODS: period[h]=p} 
   "%s,%f,%d,%s,%d,%d,%s,%s,%s,%d,%d,%d,%s,%f,%f,%d,%f,%f,%f,%f\n",
   scenario_id, carbon_cost, p, z, date[h], h, "na", "Fixed Load", "na", 0, 0, 0, "na",
   system_load[z, h],
   0, hours_in_sample[h], 0, 
   0, 0, 0
   >> (outfile);
-# printf {z in LOAD_ZONES, h in TIMEPOINTS, p in PERIODS: period[h]=p} 
+# printf {z in LOAD_AREAS, h in TIMEPOINTS, p in PERIODS: period[h]=p} 
 #   "%s,%f,%d,%s,%d,%d,%s,%s,%s,%d,%d,%d,%s,%f,%f,%d,%f,%f,%f,%f\n",
 #   scenario_id, carbon_cost, p, z, date[h], h, "na", "Dispatched Load", "na", 0, 0, 0, "na",
 #   DispatchSystemLoad[z, h],
@@ -260,22 +260,22 @@ close (outfile);
 ########################
 # store all trans capacity between zones
 let outfile := "results/trans_cap_" & carbon_cost & ".csv";
-printf "scenario_id,carbon_cost,period,start,end,tid,new,trans_mw,fixed_cost\n" > (outfile);
+printf "scenario_id,carbon_cost,period,start,end,transmission_line_id,new,trans_mw,fixed_cost\n" > (outfile);
 
 # existing lines 
 # TODO: update this if the main model is changed to retire existing lines when they reach transmission_max_age_years
 # TODO: switch this to record the bidirectional capacities, instead of averaging them together
 printf {(z1, z2) in TRANS_LINES, p in PERIODS}:
   '%s,%f,%d,"%s","%s",%d,%d,%f,%f\n',
-  scenario_id, carbon_cost, p, z1, z2, tid[z1, z2], 0, (existing_transmission[z1, z2]),
-  ((existing_transmission[z1, z2])) 
+  scenario_id, carbon_cost, p, z1, z2, transmission_line_id[z1, z2], 0, (existing_transfer_capacity_mw[z1, z2]),
+  ((existing_transfer_capacity_mw[z1, z2])) 
     * transmission_annual_payment[z1, z2, first(PERIODS)] * (1-(1/(1+discount_rate)^(years_per_period)))/discount_rate
   >> (outfile);
 
 # new lines
 printf {(z1, z2) in TRANS_LINES, p in PERIODS}:
   '%s,%f,%d,"%s","%s",%d,%d,%f,%f\n',
-  scenario_id, carbon_cost, p, z1, z2, tid[z1, z2], 1, sum {v in VINTAGE_YEARS: v <= p < transmission_end_year[v]} InstallTrans[z1, z2, v],
+  scenario_id, carbon_cost, p, z1, z2, transmission_line_id[z1, z2], 1, sum {v in VINTAGE_YEARS: v <= p < transmission_end_year[v]} InstallTrans[z1, z2, v],
   (sum {v in VINTAGE_YEARS: v <= p < transmission_end_year[v]} InstallTrans[z1, z2, v] * transmission_annual_payment[z1, z2, v])
      * (1-(1/(1+discount_rate)^(years_per_period)))/discount_rate
   >> (outfile);
@@ -288,7 +288,7 @@ close (outfile);
 let outfile := "results/local_td_cap_" & carbon_cost & ".csv";
 printf "scenario_id,carbon_cost,period,load_area,local_td_mw,fixed_cost\n" > (outfile);
 
-printf {p in PERIODS, z in LOAD_ZONES}:
+printf {p in PERIODS, z in LOAD_AREAS}:
   '%s,%f,%d,%s,%f,%f\n',
   scenario_id, carbon_cost, p, z, 
   sum {v in VINTAGE_YEARS: v <= p < transmission_end_year[v]} InstallLocalTD[z, v],

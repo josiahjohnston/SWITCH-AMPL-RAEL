@@ -595,21 +595,26 @@ SELECT regional_fuel_prices.scenario_id, load_area_info.area_id, load_area, fuel
     WHERE regional_fuel_prices.area_id = load_area_info.area_id;
 
 -- RPS----------------------
-drop table if exists rps_fuel_category;
-create table rps_fuel_category(
+drop table if exists fuel_info;
+create table fuel_info(
 	fuel varchar(30),
-	rps_fuel_category varchar(10)
+	rps_fuel_category varchar(10), 
+	carbon_content float COMMENT 'carbon content (tonnes CO2 per million Btu)'
 );
 
-insert into rps_fuel_category (fuel, rps_fuel_category) values
-	('Gas', 'fossilish'),
-	('Wind', 'renewable'),
-	('Solar', 'renewable'),
-	('Biomass', 'renewable'),
-	('Coal', 'fossilish'),
-	('Uranium', 'fossilish'),
-	('Geothermal', 'renewable'),
-	('Water', 'fossilish');
+-- gas converted from http://www.eia.doe.gov/oiaf/1605/coefficients.html
+-- this page says nevada and arizona coal are around 205-208 pounds per million Btu: http://www.eia.doe.gov/cneaf/coal/quarterly/co2_article/co2.html
+-- Nuclear, Geothermal, Biomass, Water, Wind and Solar have non-zero LCA emissions. To model those emissions, we'd need to divide carbon content into capital, fixed, 
+--   and variable emissions. Currently, this only lists variable emissions. 
+insert into fuel_info (fuel, rps_fuel_category, carbon_content) values
+	('Gas', 'fossilish', 0.0531),
+	('Wind', 'renewable', 0.0939),
+	('Solar', 'renewable', 0),
+	('Biomass', 'renewable', 0),
+	('Coal', 'fossilish', 0),
+	('Uranium', 'fossilish', 0),
+	('Geothermal', 'renewable', 0),
+	('Water', 'fossilish', 0);
 
 
 drop table if exists fuel_qualifies_for_rps;
@@ -628,5 +633,5 @@ insert into fuel_qualifies_for_rps
 			load_area,
 			rps_fuel_category,
 			if(rps_fuel_category like 'renewable', 1, 0)
-		from rps_fuel_category, load_area_info;
+		from fuel_info, load_area_info;
 

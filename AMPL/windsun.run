@@ -27,32 +27,19 @@ data windsun.dat;
 table study_hours IN: TIMEPOINTS <- [hour], period, date, hours_in_sample, month_of_year, hour_of_day;
 read table study_hours;
 
-table load_zones IN: LOAD_ZONES <- [load_zone], load_zone_x, load_zone_y;
-read table load_zones;
+table load_areas IN: LOAD_AREAS <- [load_area], economic_multiplier, rps_compliance_year, rps_compliance_percentage;
+read table load_areas;
 
-table regional_economic_multiplier IN: 
-	[load_zone], regional_economic_multiplier;
-read table regional_economic_multiplier;
+table transmission_lines IN: 
+  TRANSMISSION_LINES <- [load_area_start, load_area_end], existing_transfer_capacity_mw, transmission_line_id, 
+  transmission_length_km, transmission_efficiency;
+read table transmission_lines;
 
-table regional_fuel_costs IN:
-	[load_zone, fuel, year], fuel_price;
-read table regional_fuel_costs;
-
-table rps_fuel_category IN:
-	[fuel], rps_fuel_category;
-read table rps_fuel_category;
-
-table qualifies_for_rps IN:
-	LOAD_ZONES_AND_FUEL_CATEGORY <- [load_zone, rps_fuel_category], fuel_qualifies_for_rps ~ qualifies;
-read table qualifies_for_rps; 
-
-table rps_requirement IN:
-	LOAD_ZONES_WITH_RPS <- [load_zone], rps_goal, rps_compliance_year, load_zone_rps_policy;
-read table rps_requirement;
-
+table system_load IN: [load_area, hour], system_load;
+read table system_load;
 
 table existing_plants IN: 
-  EXISTING_PLANTS <- [load_zone, plant_code], 
+  EXISTING_PLANTS <- [load_area, plant_code], 
     ep_size_mw ~ size_mw, ep_technology ~ technology, ep_fuel ~ fuel, ep_heat_rate ~ heat_rate, 
     ep_vintage ~ start_year, ep_max_age_years ~ max_age, 
     ep_overnight_cost ~ overnight_cost, ep_fixed_o_m ~ fixed_o_m, ep_variable_o_m ~ variable_o_m,
@@ -61,8 +48,21 @@ table existing_plants IN:
 read table existing_plants;
 
 table existing_intermittent_plant_cap_factor IN: 
-  EP_INTERMITTENT_HOURS <- [load_zone, plant_code, hour], eip_cap_factor ~ cap_factor;
+  EP_INTERMITTENT_HOURS <- [load_area, plant_code, hour], eip_cap_factor ~ cap_factor;
 read table existing_intermittent_plant_cap_factor;
+
+table hydro IN: 
+  PROJ_HYDRO_DATES <- [load_area, site, date], 
+  avg_hydro_flow ~ avg_flow, min_hydro_flow ~ min_flow, max_hydro_flow ~ max_flow;
+read table hydro;
+
+table proposed_renewable_sites IN: 
+  PROJ_RESOURCE_LIMITED_SITES <- [load_area, technology, site], max_capacity, connect_cost_per_mw;
+read table proposed_renewable_sites;
+
+table cap_factor IN: 
+  PROJ_INTERMITTENT_HOURS <- [load_area, technology, site, configuration, hour], cap_factor;
+read table cap_factor;
 
 table generator_info IN:  
 	TECHNOLOGIES <- [technology], min_build_year, fuel, heat_rate, construction_time_years,
@@ -71,35 +71,23 @@ table generator_info IN:
 read table generator_info;
 
 table regional_generator_costs IN:  
-	REGIONAL_TECHNOLOGIES <- [load_zone, technology], price_year, overnight_cost,
-	connect_cost_per_MW_generic, fixed_o_m, variable_o_m, overnight_cost_change,
+	REGIONAL_TECHNOLOGIES <- [load_area, technology], price_year, overnight_cost,
+	connect_cost_per_mw_generic, fixed_o_m, variable_o_m, overnight_cost_change,
 	fixed_o_m_change, variable_o_m_change;
 read table regional_generator_costs;
 
-table trans_lines IN: 
-  TRANS_LINES <- [load_zone_start, load_zone_end], existing_transmission, tid, 
-  transmission_length_km, transmission_efficiency;
-read table trans_lines;
+table regional_fuel_costs IN:
+	[load_area, fuel, year], fuel_price;
+read table regional_fuel_costs;
 
-table system_load IN: [load_zone, hour], system_load;
-read table system_load;
+table fuel_info IN:
+	FUELS <- [fuel], rps_fuel_category, carbon_content;
+read table fuel_info;
 
-table max_capacity IN: 
-  PROJ_RESOURCE_LIMITED <- [load_zone, technology, site, orientation], max_capacity;
-read table max_capacity;
+table fuel_qualifies_for_rps IN:
+	LOAD_AREAS_AND_FUEL_CATEGORY <- [load_area, rps_fuel_category], fuel_qualifies_for_rps ~ qualifies;
+read table fuel_qualifies_for_rps; 
 
-table connect_cost IN: 
-  [load_zone, technology, site, orientation], connect_length_km, connect_cost_per_MW;
-read table connect_cost;
-
-table cap_factor IN: 
-  PROJ_INTERMITTENT_HOURS <- [load_zone, technology, site, orientation, hour], cap_factor;
-read table cap_factor;
-
-table hydro IN: 
-  PROJ_HYDRO_DATES <- [load_zone, site, date], 
-  avg_hydro_flow ~ avg_flow, min_hydro_flow ~ min_flow, max_hydro_flow ~ max_flow;
-read table hydro;
 
 # parameter used to track execution times
 param curtime;
@@ -125,14 +113,14 @@ set ZONAL_REPORTING_HOURS ordered = {h in TIMEPOINTS: period[h] in ZONAL_REPORTI
 # parameters to report transmission and generation from various sources, in each load zone
 set TECHNOLOGIES_INTERMITTENT = setof {t in TECHNOLOGIES: intermittent[t]} (t);
 set TECHNOLOGIES_DISPATCH = setof {(z, t, s, o) in PROJ_DISPATCH} (t);
-param total_gen {LOAD_ZONES, TECHNOLOGIES, STUDY_YEARS} default 0;
-param surplus_gen {LOAD_ZONES, TECHNOLOGIES_INTERMITTENT, STUDY_YEARS} default 0;
-param intermittent_surplus_fraction {LOAD_ZONES, TIMEPOINTS} default 0;
+param total_gen {LOAD_AREAS, TECHNOLOGIES, STUDY_YEARS} default 0;
+param surplus_gen {LOAD_AREAS, TECHNOLOGIES_INTERMITTENT, STUDY_YEARS} default 0;
+param intermittent_surplus_fraction {LOAD_AREAS, TIMEPOINTS} default 0;
 param total_gen_installed {t in TECHNOLOGIES, y in STUDY_YEARS};
 param total_trans {TRANS_LINES, STUDY_YEARS} default 0;
-param avg_gen_by_zone {LOAD_ZONES, TECHNOLOGIES} default 0, >= 0;
-param avg_surp_by_zone {LOAD_ZONES, TECHNOLOGIES_INTERMITTENT} default 0, >= 0;
-param avg_load_by_zone {LOAD_ZONES} default 0, >= 0;
+param avg_gen_by_zone {LOAD_AREAS, TECHNOLOGIES} default 0, >= 0;
+param avg_surp_by_zone {LOAD_AREAS, TECHNOLOGIES_INTERMITTENT} default 0, >= 0;
+param avg_load_by_zone {LOAD_AREAS} default 0, >= 0;
 param avg_gen_by_year {STUDY_YEARS, TECHNOLOGIES} default 0, >= 0;
 param avg_surp_by_year {STUDY_YEARS, TECHNOLOGIES_INTERMITTENT} default 0, >= 0;
 param avg_load_by_year {STUDY_YEARS} default 0, >= 0;

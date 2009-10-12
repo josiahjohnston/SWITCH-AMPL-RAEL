@@ -64,7 +64,7 @@
 #  removed redundant vintage range specification from EP_BASELOAD_PERIODS definition
 #    because it was already specified in EP_PERIODS
 #  added data and calculations for the cost of connecting new projects to the grid
-#    these are either given generically, as connect_cost_per_MW_generic,
+#    these are either given generically, as connect_cost_per_mw_generic,
 #    or the connect_length_km (for an added line) and connect_cost_per_mw (for grid upgrades)
 #    are specified for each new project
 # 06/29/09 Josiah and Jimmy Regionalized plant costs
@@ -136,13 +136,13 @@ param end_year = last(PERIODS)+years_per_period;
 
 # list of all load zones in the state
 # it is ordered, so they are listed from north to south
-set LOAD_ZONES ordered;
+set LOAD_AREAS ordered;
 
 # system load (MW)
-param system_load {LOAD_ZONES, TIMEPOINTS} >= 0;
+param system_load {LOAD_AREAS, TIMEPOINTS} >= 0;
 
 # Regional cost multipliers
-param regional_economic_multiplier {LOAD_ZONES} >= 0;
+param economic_multiplier {LOAD_AREAS} >= 0;
 
 
 
@@ -224,7 +224,7 @@ param overnight_cost {REGIONAL_TECHNOLOGIES} >= 0;
 # cost of grid upgrades to deliver power from the new plant to the "center" of the load zone
 # (specified generically for all projects of a given technology, also specified per-project below.
 # if specified in both places, the two will be summed; usually one of them will be zero.)
-param connect_cost_per_MW_generic {REGIONAL_TECHNOLOGIES} >= 0;
+param connect_cost_per_mw_generic {REGIONAL_TECHNOLOGIES} >= 0;
 
 # fixed O&M ($/MW-year)
 param fixed_o_m {REGIONAL_TECHNOLOGIES} >= 0;
@@ -246,51 +246,52 @@ param fixed_o_m_change {REGIONAL_TECHNOLOGIES};
 # RPS goals for each load area 
 # (these come from generator_rps.tab and rps_requirement.tab)
 
-set RPS_FUEL_CATEGORY dimen 1;
-set LOAD_ZONES_AND_FUEL_CATEGORY dimen 2;
-set LOAD_ZONES_WITH_RPS dimen 1;
+set LOAD_AREAS_AND_FUEL_CATEGORY dimen 2;
+set RPS_FUEL_CATEGORY = setof {(load_area, rps_fuel_category) in LOAD_AREAS_AND_FUEL_CATEGORY} (rps_fuel_category);
+set LOAD_AREAS_WITH_RPS dimen 1;
 
 param enable_rps;
 
 # rps goals for each load area
-param rps_goal {LOAD_ZONES_WITH_RPS};
+param rps_compliance_percentage {LOAD_AREAS_WITH_RPS};
 
 # whether fuels in a load area qualify for rps 
-param fuel_qualifies_for_rps {LOAD_ZONES_AND_FUEL_CATEGORY};
+param fuel_qualifies_for_rps {LOAD_AREAS_AND_FUEL_CATEGORY};
 
 # determines if fuel falls in solar/wind/geo or gas/coal/nuclear/hydro
 param rps_fuel_category {FUELS} symbolic in RPS_FUEL_CATEGORY;
 
-# determines which load_zones have rps_requirements 
-param load_zone_rps_policy {LOAD_ZONES_WITH_RPS};
+# determines which LOAD_AREAS have rps_requirements 
+param load_area_rps_policy {LOAD_AREAS_WITH_RPS};
 
 # What year each zone needs to meet its RPS goal
-param rps_compliance_year {LOAD_ZONES_WITH_RPS};
-param period_rps_takes_effect {z in LOAD_ZONES_WITH_RPS} = 
+param rps_compliance_year {LOAD_AREAS_WITH_RPS};
+param period_rps_takes_effect {z in LOAD_AREAS_WITH_RPS} = 
 	years_per_period * round( ( rps_compliance_year[z] - start_year) / years_per_period ) + start_year;
 
 ###############################################
 # Project data
 
-# default values for projects that don't have sites or orientations
+# default values for projects that don't have sites or configurations
 param site_unspecified symbolic;
-param orient_unspecified symbolic;
+param configuration_unspecified symbolic;
 
 # Names of technologies that have capacity factors or maximum capacities 
 # tied to specific locations. 
-param tech_pv symbolic in TECHNOLOGIES;
-param tech_trough symbolic in TECHNOLOGIES;
+param tech_distributed_pv symbolic in TECHNOLOGIES;
+param tech_csp_trough symbolic in TECHNOLOGIES;
 param tech_wind symbolic in TECHNOLOGIES;
-param tech_bio symbolic in TECHNOLOGIES;
+param tech_offshore_wind symbolic in TECHNOLOGIES;
+param tech_biomass symbolic in TECHNOLOGIES;
 
 # names of other technologies, just to have them around 
 # (but this is getting silly)
 param tech_ccgt symbolic in TECHNOLOGIES;
-param tech_ct symbolic in TECHNOLOGIES;
+param tech_combustion_turbine symbolic in TECHNOLOGIES;
 
 # maximum capacity factors (%) for each project, each hour. 
 # generally based on renewable resources available
-set PROJ_INTERMITTENT_HOURS dimen 5;  # LOAD_ZONES, TECHNOLOGIES, SITES, ORIENTATIONS, TIMEPOINTS
+set PROJ_INTERMITTENT_HOURS dimen 5;  # LOAD_AREAS, TECHNOLOGIES, SITES, CONFIGURATIONS, TIMEPOINTS
 set PROJ_INTERMITTENT = setof {(z, t, s, o, h) in PROJ_INTERMITTENT_HOURS} (z, t, s, o);
 
 param cap_factor {PROJ_INTERMITTENT_HOURS} >= 0;
@@ -307,13 +308,17 @@ check {(z, t, s, o) in PROJ_INTERMITTENT, h in TIMEPOINTS: t in SOLAR_TECHNOLOGI
 check {(z, t, s, o) in PROJ_INTERMITTENT}: intermittent[t];
 
 # maximum capacity (MW) that can be installed in each project
-set PROJ_RESOURCE_LIMITED dimen 4;  # LOAD_ZONES, TECHNOLOGIES, SITES, ORIENTATIONS
+set PROJ_RESOURCE_LIMITED_SITES dimen 3;  # LOAD_AREAS, TECHNOLOGIES, SITES
+set PROJ_RESOURCE_LIMITED = 
+	PROJ_INTERMITTENT
+	union 
+	setof {(z, t, s) in PROJ_RESOURCE_LIMITED_SITES: not intermittent[t]} (z, t, s, configuration_unspecified);
 check {(z, t, s, o) in PROJ_RESOURCE_LIMITED}: resource_limited[t];
-param max_capacity {PROJ_RESOURCE_LIMITED} >= 0;
+param max_capacity {PROJ_RESOURCE_LIMITED_SITES} >= 0;
 
 # all other types of project (dispatchable and installable anywhere)
 set PROJ_ANYWHERE =
-	setof {(z,t) in REGIONAL_TECHNOLOGIES: not intermittent[t] and not resource_limited[t]} (z, t, site_unspecified, orient_unspecified);
+	setof {(z,t) in REGIONAL_TECHNOLOGIES: not intermittent[t] and not resource_limited[t]} (z, t, site_unspecified, configuration_unspecified);
 
 
 # hydro is resource limited but not intermittent
@@ -329,16 +334,12 @@ set PROJ_DISPATCH = {(z, t, s, o) in PROJECTS: not new_baseload[t] and not inter
 
 # sets derived from site-specific tables, help keep projects distinct
 set SITES = setof {(z, t, s, o) in PROJECTS} (s);
-set ORIENTATIONS = setof {(z, t, s, o) in PROJECTS} (o);
-
-# distance to connect a new project to an interconnect point on the grid, in km.
-# a line of this length will need to be built, at the standard transmission line cost.
-param connect_length_km {(z, t, s, o) in PROJECTS} >= 0 default 0;
+set CONFIGURATIONS = setof {(z, t, s, o) in PROJECTS} (o);
 
 # cost of grid upgrades to support a new project, in dollars per peak MW.
 # these are needed in order to deliver power from the interconnect point to
 # the load center (or make it deliverable to other zones)
-param connect_cost_per_MW {(z, t, s, o) in PROJECTS} >= 0 default 0;
+param connect_cost_per_mw {(z, t, s) in PROJ_RESOURCE_LIMITED_SITES} >= 0 default 0;
 
 ##############################################
 # Existing hydro plants (assumed impossible to build more, but these last forever)
@@ -358,7 +359,7 @@ param hydro_annual_payment_per_mw >= 0;
 # indexing sets for hydro data (read in along with data tables)
 # (this should probably be monthly data, but this has equivalent effect,
 # and doesn't require adding a month dataset and month <-> date links)
-set PROJ_HYDRO_DATES dimen 3; # load_zone, site, date
+set PROJ_HYDRO_DATES dimen 3; # load_area, site, date
 
 # minimum, maximum and average flow (in average MW) at each dam, each day
 # (note: we assume that the average dispatch for each day must come out at this average level,
@@ -428,9 +429,9 @@ check {(z, s) in PROJ_SIMPLE_HYDRO, d in DATES}:
     <= max_hydro_flow[z, s, d] * 1.001;
 
 # pre-aggregate the available simple hydro supply for use in the satisfy_load constraint
-param min_hydro_dispatch_all_sites {z in LOAD_ZONES, d in DATES} 
+param min_hydro_dispatch_all_sites {z in LOAD_AREAS, d in DATES} 
   = sum {(z, s) in PROJ_SIMPLE_HYDRO} min_hydro_dispatch[z, s, d];
-param avg_hydro_dispatch_all_sites {z in LOAD_ZONES, d in DATES} 
+param avg_hydro_dispatch_all_sites {z in LOAD_AREAS, d in DATES} 
   = sum {(z, s) in PROJ_SIMPLE_HYDRO} avg_hydro_flow[z, s, d];
 
 
@@ -440,7 +441,7 @@ param avg_hydro_dispatch_all_sites {z in LOAD_ZONES, d in DATES}
 # name of each plant
 set EXISTING_PLANTS dimen 2;  # load zone, plant code
 
-check {z in setof {(z, e) in EXISTING_PLANTS} (z)}: z in LOAD_ZONES;
+check {z in setof {(z, e) in EXISTING_PLANTS} (z)}: z in LOAD_AREAS;
 
 # the size of the plant in MW
 param ep_size_mw {EXISTING_PLANTS} >= 0;
@@ -512,27 +513,23 @@ param transmission_max_age_years >= 0;
 # forced outage rate for transmission lines, used for probabilistic dispatch(!)
 param transmission_forced_outage_rate >= 0;
 
-# x and y coordinates of center of each load zone, in meters
-param load_zone_x {LOAD_ZONES};
-param load_zone_y {LOAD_ZONES};
-
 # possible transmission lines are listed in advance;
-# these include all possible combinations of load_zones, with no double-counting
+# these include all possible combinations of LOAD_AREAS, with no double-counting
 # The model could be simplified by only allowing lines to be built between neighboring zones.
-set TRANS_LINES in {LOAD_ZONES, LOAD_ZONES};
+set TRANSMISSION_LINES in {LOAD_AREAS, LOAD_AREAS};
 
 # length of each transmission line
-param transmission_length_km {TRANS_LINES};
+param transmission_length_km {TRANSMISSION_LINES};
 
 # delivery efficiency on each transmission line
-param transmission_efficiency {TRANS_LINES};
+param transmission_efficiency {TRANSMISSION_LINES};
 
 # the rating of existing lines in MW (can be different for the two directions, but each direction is
 # represented by an individual entry in the table)
-param existing_transmission {TRANS_LINES} >= 0 default 0;
+param existing_transfer_capacity_mw {TRANSMISSION_LINES} >= 0 default 0;
 
 # unique ID for each transmission line, used for reporting results
-param tid {TRANS_LINES};
+param transmission_line_id {TRANSMISSION_LINES};
 
 # parameters for local transmission and distribution from the large-scale network to distributed loads
 param local_td_max_age_years >= 0;
@@ -564,7 +561,7 @@ set CARBON_COSTS;
 
 # annual fuel price forecast
 # old: param fuel_price {YEARS, FUELS} default 0, >= 0;
-param fuel_price {LOAD_ZONES, FUELS, YEARS} default 0, >= 0;
+param fuel_price {LOAD_AREAS, FUELS, YEARS} default 0, >= 0;
 
 # carbon content (tons) per million Btu of each fuel
 param carbon_content {FUELS} default 0, >= 0;
@@ -579,7 +576,7 @@ param carbon_content {FUELS} default 0, >= 0;
 # This could be updated to use fuel costs that vary by month,
 # or for an hourly model, it could interpolate between annual forecasts 
 # (see versions of this model from before 11/27/07 for code to do that).
-param fuel_cost_hourly {z in LOAD_ZONES, f in FUELS, h in TIMEPOINTS} := fuel_price[z, f, floor(period[h])];
+param fuel_cost_hourly {z in LOAD_AREAS, f in FUELS, h in TIMEPOINTS} := fuel_price[z, f, floor(period[h])];
 
 # planning reserve margin - fractional extra load the system must be able able to serve
 # when there are no forced outages
@@ -597,9 +594,8 @@ param planning_reserve_margin;
 # (all costs are in $/MW)
 param capital_cost_proj {(z, t, s, o) in PROJECTS, v in VINTAGE_YEARS} = 
   ( overnight_cost[z,t] * (1+overnight_cost_change[z,t])^(v - construction_time_years[t] - price_year[z,t])
-    + connect_length_km[z, t, s, o] * transmission_cost_per_mw_km
-    + connect_cost_per_MW_generic[z,t] 
-    + connect_cost_per_MW[z, t, s, o]
+    + connect_cost_per_mw_generic[z,t] 
+    + connect_cost_per_mw[z, t, s]
   )
 ; 
 
@@ -676,7 +672,7 @@ param ep_end_year {(z, e) in EXISTING_PLANTS} =
 # for now, we just assume it's the same as a new CCGT plant
 # TODO: Move the regional cost adjustment into the database. 
 param ep_capital_cost_annual_payment {(z, e) in EXISTING_PLANTS} = 
-  finance_rate[tech_ccgt] * (1 + 1/((1+finance_rate[tech_ccgt])^ep_max_age_years[z, e]-1)) * ep_overnight_cost[z, e] * regional_economic_multiplier[z];
+  finance_rate[tech_ccgt] * (1 + 1/((1+finance_rate[tech_ccgt])^ep_max_age_years[z, e]-1)) * ep_overnight_cost[z, e] * economic_multiplier[z];
 
 # discount capital costs to a lump-sum value at the start of the study.
 param ep_capital_cost {(z, e) in EXISTING_PLANTS} =
@@ -685,7 +681,7 @@ param ep_capital_cost {(z, e) in EXISTING_PLANTS} =
   * 1/(1+discount_rate)^(start_year-base_year);
 # cost per MW to operate a plant in any future period, discounted to start of study
 param ep_fixed_cost {(z, e) in EXISTING_PLANTS, p in PERIODS} =
-  ep_fixed_o_m[z, e] * regional_economic_multiplier[z] * (1-(1/(1+discount_rate)^(years_per_period)))/discount_rate
+  ep_fixed_o_m[z, e] * economic_multiplier[z] * (1-(1/(1+discount_rate)^(years_per_period)))/discount_rate
   * 1/(1+discount_rate)^(p-base_year);
 
 # all variable costs ($/MWh) for generating a MWh of electricity in some
@@ -693,7 +689,7 @@ param ep_fixed_cost {(z, e) in EXISTING_PLANTS, p in PERIODS} =
 # note: we divide heat_rate by 1000 to go from Btu/kWh to MBtu/MWh
 param ep_variable_cost {(z, e) in EXISTING_PLANTS, h in TIMEPOINTS} =
   hours_in_sample[h] * (
-    ep_variable_o_m[z, e] * regional_economic_multiplier[z]
+    ep_variable_o_m[z, e] * economic_multiplier[z]
     + ep_heat_rate[z, e]/1000 * fuel_cost_hourly[z, ep_fuel[z, e], h]
   ) * 1/(1+discount_rate)^(period[h]-base_year);
 
@@ -708,9 +704,9 @@ param ep_carbon_cost_per_mwh {(z, e) in EXISTING_PLANTS, h in TIMEPOINTS} =
 # cost per MW for transmission lines
 # TODO: use a transmission_annual_cost_change factor to make this vary between vintages
 # TODO: Move the regional cost adjustment into the database. 
-param transmission_annual_payment {(z1, z2) in TRANS_LINES, v in VINTAGE_YEARS} = 
+param transmission_annual_payment {(z1, z2) in TRANSMISSION_LINES, v in VINTAGE_YEARS} = 
   transmission_finance_rate * (1 + 1/((1+transmission_finance_rate)^transmission_max_age_years-1)) 
-  * transmission_cost_per_mw_km * (regional_economic_multiplier[z1] + regional_economic_multiplier[z2]) / 2 * transmission_length_km[z1, z2];
+  * transmission_cost_per_mw_km * (economic_multiplier[z1] + economic_multiplier[z2]) / 2 * transmission_length_km[z1, z2];
 
 # date when a transmission line built of each vintage will stop being included in the simulation
 # note: if it would be expected to retire between study periods,
@@ -719,7 +715,7 @@ param transmission_end_year {v in VINTAGE_YEARS} =
   min(end_year, v+ceil(transmission_max_age_years/years_per_period)*years_per_period);
 
 # discounted cost per MW
-param transmission_cost_per_mw {(z1, z2) in TRANS_LINES, v in VINTAGE_YEARS} =
+param transmission_cost_per_mw {(z1, z2) in TRANSMISSION_LINES, v in VINTAGE_YEARS} =
   transmission_annual_payment[z1, z2, v]
   * (1-(1/(1+discount_rate)^(transmission_end_year[v] - v)))/discount_rate
   * 1/(1+discount_rate)^(v-base_year);
@@ -735,8 +731,8 @@ param local_td_end_year {v in VINTAGE_YEARS} =
 # = local_td_finance_rate * (1 + 1/((1+local_td_finance_rate)^local_td_max_age_years-1)) 
 #  * local_td_real_cost_per_mw;
 # TODO: Move the regional cost adjustment into the database. 
-param local_td_cost_per_mw {v in VINTAGE_YEARS, z in LOAD_ZONES} = 
-  local_td_annual_payment_per_mw * regional_economic_multiplier[z]
+param local_td_cost_per_mw {v in VINTAGE_YEARS, z in LOAD_AREAS} = 
+  local_td_annual_payment_per_mw * economic_multiplier[z]
   * (1-(1/(1+discount_rate)^(local_td_end_year[v]-v)))/discount_rate
   * 1/(1+discount_rate)^(v-base_year);
 
@@ -747,8 +743,8 @@ param local_td_cost_per_mw {v in VINTAGE_YEARS, z in LOAD_ZONES} =
 
 # the total cost per MW for existing hydro plants
 # (the discounted stream of annual payments over the whole study)
-param hydro_cost_per_mw { z in LOAD_ZONES } = 
-  hydro_annual_payment_per_mw * regional_economic_multiplier[z]
+param hydro_cost_per_mw { z in LOAD_AREAS } = 
+  hydro_annual_payment_per_mw * economic_multiplier[z]
   * (1-(1/(1+discount_rate)^(end_year-start_year)))/discount_rate
   * 1/(1+discount_rate)^(start_year-base_year);
 # make a guess at the nameplate capacity of all existing hydro
@@ -758,7 +754,7 @@ param hydro_total_capacity =
 ######
 # "discounted" system load, for use in calculating levelized cost of power.
 param system_load_discounted = 
-  sum {z in LOAD_ZONES, h in TIMEPOINTS} 
+  sum {z in LOAD_AREAS, h in TIMEPOINTS} 
     (hours_in_sample[h] * system_load[z,h] 
      / (1+discount_rate)^(period[h]-base_year));
 
@@ -808,11 +804,11 @@ set EP_BASELOAD_PERIODS :=
 
 # trans_line-vintage-hour combinations for which dispatch decisions must be made
 set TRANS_VINTAGE_HOURS := 
-  {(z1, z2) in TRANS_LINES, v in VINTAGE_YEARS, h in TIMEPOINTS: v <= period[h] < transmission_end_year[v]};
+  {(z1, z2) in TRANSMISSION_LINES, v in VINTAGE_YEARS, h in TIMEPOINTS: v <= period[h] < transmission_end_year[v]};
 
 # local_td-vintage-hour combinations which must be reconciled
 set LOCAL_TD_HOURS := 
-  {z in LOAD_ZONES, v in VINTAGE_YEARS, h in TIMEPOINTS: v <= period[h] < local_td_end_year[v]};
+  {z in LOAD_AREAS, v in VINTAGE_YEARS, h in TIMEPOINTS: v <= period[h] < local_td_end_year[v]};
 
 
 #### VARIABLES ####
@@ -845,15 +841,15 @@ var OperateEPDuringPeriod {EP_PERIODS} binary;
 var DispatchEP {EP_DISPATCH_HOURS} >= 0;
 
 # number of MW to install in each transmission corridor at each vintage
-var InstallTrans {TRANS_LINES, VINTAGE_YEARS} >= 0;
+var InstallTrans {TRANSMISSION_LINES, VINTAGE_YEARS} >= 0;
 
 # number of MW to transmit through each transmission corridor in each hour
-var DispatchTransFromXToY {TRANS_LINES, TIMEPOINTS, RPS_FUEL_CATEGORY} >= 0;
-var DispatchTransFromXToY_Reserve {TRANS_LINES, TIMEPOINTS, RPS_FUEL_CATEGORY} >= 0;
+var DispatchTransFromXToY {TRANSMISSION_LINES, TIMEPOINTS, RPS_FUEL_CATEGORY} >= 0;
+var DispatchTransFromXToY_Reserve {TRANSMISSION_LINES, TIMEPOINTS, RPS_FUEL_CATEGORY} >= 0;
 
 # amount of local transmission and distribution capacity
 # (to carry peak power from transmission network to distributed loads)
-var InstallLocalTD {LOAD_ZONES, VINTAGE_YEARS} >= 0;
+var InstallLocalTD {LOAD_AREAS, VINTAGE_YEARS} >= 0;
 
 # amount of pumped hydro to store and dispatch during each hour
 # note: the amount "stored" is the number of MW that can be generated using
@@ -867,8 +863,8 @@ var DispatchPumpedHydro_Reserve {PROJ_PUMPED_HYDRO, TIMEPOINTS} >= 0;
 # simple hydro is dispatched on an aggregated basis, using a schedule that shows the
 # amount of discretionary hydro to dispatch during each study period, in each zone,
 # season (Jan-Mar, Apr-Jun, etc.) and hour
-var HydroDispatchShare {PERIODS, LOAD_ZONES, SEASONS_OF_YEAR, HOURS_OF_DAY} >= 0;
-var HydroDispatchShare_Reserve {PERIODS, LOAD_ZONES, SEASONS_OF_YEAR, HOURS_OF_DAY} >= 0;
+var HydroDispatchShare {PERIODS, LOAD_AREAS, SEASONS_OF_YEAR, HOURS_OF_DAY} >= 0;
+var HydroDispatchShare_Reserve {PERIODS, LOAD_AREAS, SEASONS_OF_YEAR, HOURS_OF_DAY} >= 0;
 
 #### OBJECTIVES ####
 
@@ -924,11 +920,11 @@ minimize Power_Cost:
 
 	########################################
 	#    TRANSMISSION & DISTRIBUTION
-  + sum {(z1, z2) in TRANS_LINES, v in VINTAGE_YEARS} 
+  + sum {(z1, z2) in TRANSMISSION_LINES, v in VINTAGE_YEARS} 
       InstallTrans[z1, z2, v] * transmission_cost_per_mw[z1, z2, v]
-  + sum {(z1, z2) in TRANS_LINES} 
-      transmission_cost_per_mw[z1, z2, first(PERIODS)] * (existing_transmission[z1, z2])/2
-  + sum {z in LOAD_ZONES, v in VINTAGE_YEARS}
+  + sum {(z1, z2) in TRANSMISSION_LINES} 
+      transmission_cost_per_mw[z1, z2, first(PERIODS)] * (existing_transfer_capacity_mw[z1, z2])/2
+  + sum {z in LOAD_AREAS, v in VINTAGE_YEARS}
       InstallLocalTD[z, v] * local_td_cost_per_mw[v, z]
 ;
 
@@ -937,7 +933,7 @@ minimize Power_Cost:
 # around loops, or shipping of unneeded power to neighboring zones, 
 # so it is more clear where surplus power is being generated
 minimize Transmission_Usage:
-  sum {(z1, z2) in TRANS_LINES, h in TIMEPOINTS, fuel_cat in RPS_FUEL_CATEGORY} 
+  sum {(z1, z2) in TRANSMISSION_LINES, h in TIMEPOINTS, fuel_cat in RPS_FUEL_CATEGORY} 
     (DispatchTransFromXToY[z1, z2, h, fuel_cat]);
 
 
@@ -945,7 +941,7 @@ minimize Transmission_Usage:
 
 # system needs to meet the load in each load zone in each hour
 # note: power is deemed to flow from z1 to z2 if positive, reverse if negative
-subject to Satisfy_Load {z in LOAD_ZONES, h in TIMEPOINTS}:
+subject to Satisfy_Load {z in LOAD_AREAS, h in TIMEPOINTS}:
 
 	#############################
 	#    NEW PLANTS
@@ -991,17 +987,17 @@ subject to Satisfy_Load {z in LOAD_ZONES, h in TIMEPOINTS}:
   # DispatchTransFromXToY[z, z1, h, ft] is not multiplied by the transmission efficiency.
 
   # Imports (have experienced transmission losses)
-  + (sum {(z2, z) in TRANS_LINES, f in FUELS} (transmission_efficiency[z2, z] * DispatchTransFromXToY[z2, z, h, rps_fuel_category[f]]))
+  + (sum {(z2, z) in TRANSMISSION_LINES, f in FUELS} (transmission_efficiency[z2, z] * DispatchTransFromXToY[z2, z, h, rps_fuel_category[f]]))
   
   # Exports (have not experienced transmission losses)
-  - (sum {(z, z1) in TRANS_LINES, f in FUELS} (DispatchTransFromXToY[z, z1, h, rps_fuel_category[f]]))
+  - (sum {(z, z1) in TRANSMISSION_LINES, f in FUELS} (DispatchTransFromXToY[z, z1, h, rps_fuel_category[f]]))
 
   >= system_load[z, h];
 
 ################################################################################
 # same on a reserve basis
 # note: these are not prorated by forced outage rate, because that is incorporated in the reserve margin
-subject to Satisfy_Load_Reserve {z in LOAD_ZONES, h in TIMEPOINTS}:
+subject to Satisfy_Load_Reserve {z in LOAD_AREAS, h in TIMEPOINTS}:
 
 	#############################
 	#    NEW PLANTS
@@ -1040,9 +1036,9 @@ subject to Satisfy_Load_Reserve {z in LOAD_ZONES, h in TIMEPOINTS}:
 	########################################
 	#    TRANSMISSION
   # Imports (have experienced transmission losses)
-  + (sum {(z2, z) in TRANS_LINES, f in FUELS} (transmission_efficiency[z2, z] * DispatchTransFromXToY_Reserve[z2, z, h, rps_fuel_category[f]]))
+  + (sum {(z2, z) in TRANSMISSION_LINES, f in FUELS} (transmission_efficiency[z2, z] * DispatchTransFromXToY_Reserve[z2, z, h, rps_fuel_category[f]]))
   # Exports (have not experienced transmission losses)
-  - (sum {(z, z1) in TRANS_LINES, f in FUELS} (DispatchTransFromXToY_Reserve[z, z1, h, rps_fuel_category[f]]))
+  - (sum {(z, z1) in TRANSMISSION_LINES, f in FUELS} (DispatchTransFromXToY_Reserve[z, z1, h, rps_fuel_category[f]]))
 
   >= system_load[z, h] * (1 + planning_reserve_margin);
 
@@ -1069,11 +1065,11 @@ subject to Maximum_StoreNonPumpedHydro {(z, s) in PROJ_PUMPED_HYDRO, h in TIMEPO
 # note: dispatch is deemed to happen no matter what (to respect flow constraints), 
 # but energy supply is later de-rated by hydro forced outage rate
 subject to Maximum_DispatchHydroShare
-  {p in PERIODS, z in LOAD_ZONES, s in SEASONS_OF_YEAR}: sum {h in HOURS_OF_DAY} HydroDispatchShare[p, z, s, h] <= 1;
+  {p in PERIODS, z in LOAD_AREAS, s in SEASONS_OF_YEAR}: sum {h in HOURS_OF_DAY} HydroDispatchShare[p, z, s, h] <= 1;
 
 # only part of the discretionary hydro can be dispatched in each hour of the day
 subject to MaximumHourly_DispatchHydroShare
-  {p in PERIODS, z in LOAD_ZONES, s in SEASONS_OF_YEAR, h in HOURS_OF_DAY}:
+  {p in PERIODS, z in LOAD_AREAS, s in SEASONS_OF_YEAR, h in HOURS_OF_DAY}:
     0 <= HydroDispatchShare[p, z, s, h] <= max_hydro_dispatch_per_hour;
 
 # same for reserve margin operation
@@ -1089,9 +1085,9 @@ subject to Minimum_DispatchNonPumpedHydro_Reserve {(z, s) in PROJ_PUMPED_HYDRO, 
 subject to Maximum_StoreNonPumpedHydro_Reserve {(z, s) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS: min_hydro_flow[z, s, date[h]] >= 0}:
   StorePumpedHydro_Reserve[z, s, h] = 0;
 subject to Maximum_DispatchHydroShare_Reserve
-  {p in PERIODS, z in LOAD_ZONES, s in SEASONS_OF_YEAR}: sum {h in HOURS_OF_DAY} HydroDispatchShare_Reserve[p, z, s, h] <= 1;
+  {p in PERIODS, z in LOAD_AREAS, s in SEASONS_OF_YEAR}: sum {h in HOURS_OF_DAY} HydroDispatchShare_Reserve[p, z, s, h] <= 1;
 subject to MaximumHourly_DispatchHydroShare_Reserve
-  {p in PERIODS, z in LOAD_ZONES, s in SEASONS_OF_YEAR, h in HOURS_OF_DAY}:
+  {p in PERIODS, z in LOAD_AREAS, s in SEASONS_OF_YEAR, h in HOURS_OF_DAY}:
     0 <= HydroDispatchShare_Reserve[p, z, s, h] <= max_hydro_dispatch_per_hour;
 
 
@@ -1108,7 +1104,7 @@ subject to Maximum_DispatchGen
 # (not an issue if the simulation is too short to retire plants)
 # or even allow forced retiring of earlier plants if new technologies are better
 subject to Maximum_Resource {(z, t, s, o) in PROJ_RESOURCE_LIMITED}:
-  sum {v in VINTAGE_YEARS: v >= min_build_year[t] + construction_time_years[t]} InstallGen[z, t, s, o, v] <= max_capacity[z, t, s, o];
+  sum {v in VINTAGE_YEARS: v >= min_build_year[t] + construction_time_years[t]} InstallGen[z, t, s, o, v] <= max_capacity[z, t, s];
 
 # Some generators have a minimum build size. This enforces that constraint
 # If a generator is installed, then BuildGenOrNot is 1, and InstallGen has to be >= min_build_capacity
@@ -1139,25 +1135,25 @@ subject to EP_Operational
 # TODO: retire pre-existing transmission lines after transmission_max_age_years 
 #   (this requires figuring out when they were first built!)
 subject to Maximum_DispatchTransFromXToY
-  {(z1, z2) in TRANS_LINES, h in TIMEPOINTS}:
+  {(z1, z2) in TRANSMISSION_LINES, h in TIMEPOINTS}:
   ( sum { f in FUELS } DispatchTransFromXToY[z1, z2, h, rps_fuel_category[f]] )
     <= (1-transmission_forced_outage_rate) * 
-          (existing_transmission[z1, z2] + sum {(z1, z2, v, h) in TRANS_VINTAGE_HOURS} InstallTrans[z1, z2, v]);
+          (existing_transfer_capacity_mw[z1, z2] + sum {(z1, z2, v, h) in TRANS_VINTAGE_HOURS} InstallTrans[z1, z2, v]);
 
 subject to Maximum_DispatchTransFromXToY_Reserve
-  {(z1, z2) in TRANS_LINES, h in TIMEPOINTS}:
+  {(z1, z2) in TRANSMISSION_LINES, h in TIMEPOINTS}:
   ( sum { f in FUELS } DispatchTransFromXToY_Reserve[z1, z2, h, rps_fuel_category[f]] )
-    <= (existing_transmission[z1, z2] + sum {(z1, z2, v, h) in TRANS_VINTAGE_HOURS} InstallTrans[z1, z2, v]);
+    <= (existing_transfer_capacity_mw[z1, z2] + sum {(z1, z2, v, h) in TRANS_VINTAGE_HOURS} InstallTrans[z1, z2, v]);
 
 
 # make sure there's enough intra-zone transmission and distribution capacity
 # to handle the net distributed loads
 subject to Maximum_LocalTD 
-  {z in LOAD_ZONES, h in TIMEPOINTS}:
+  {z in LOAD_AREAS, h in TIMEPOINTS}:
   system_load[z,h]
-    - (sum {(z, t, s, o, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS: t=tech_pv}
+    - (sum {(z, t, s, o, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS: t=tech_distributed_pv}
         (1-forced_outage_rate[t]) * cap_factor[z, t, s, o, h] * InstallGen[z, t, s, o, v])
-    - (sum {(z, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: ep_technology[z,e]=tech_pv}
+    - (sum {(z, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: ep_technology[z,e]=tech_distributed_pv}
     	OperateEPDuringPeriod[z, e, period[h]] * 
         (1-ep_forced_outage_rate[z,e]) * eip_cap_factor[z, e, h] * ep_size_mw[z, e] )
   <= sum {(z, v, h) in LOCAL_TD_HOURS} InstallLocalTD[z, v];
@@ -1173,11 +1169,11 @@ subject to Min_Gen_Fraction_From_Solar { if enable_min_solar_production}:
     	OperateEPDuringPeriod[z, e, period[h]] * 
         (1-ep_forced_outage_rate[z,e]) * eip_cap_factor[z, e, h]   * ep_size_mw[z, e] )
       >=
-    min_solar_production * (sum {z in LOAD_ZONES, h in TIMEPOINTS} (system_load[z,h]) );
+    min_solar_production * (sum {z in LOAD_AREAS, h in TIMEPOINTS} (system_load[z,h]) );
 
 #################################################
 # RPS constraint
-subject to Satisfy_RPS {z in LOAD_ZONES_WITH_RPS, p in PERIODS: 
+subject to Satisfy_RPS {z in LOAD_AREAS_WITH_RPS, p in PERIODS: 
 	p >= period_rps_takes_effect[z] and enable_rps}:
 
  (
@@ -1222,26 +1218,26 @@ subject to Satisfy_RPS {z in LOAD_ZONES_WITH_RPS, p in PERIODS:
   # transmission into and out of the zone.
 
 #  Imports
-  + (sum {(z2, z) in TRANS_LINES, f in FUELS, h in TIMEPOINTS: 
+  + (sum {(z2, z) in TRANSMISSION_LINES, f in FUELS, h in TIMEPOINTS: 
           period[h]=p and fuel_qualifies_for_rps[z, rps_fuel_category[f]]}
       (transmission_efficiency[z2, z] * DispatchTransFromXToY[z2, z, h, rps_fuel_category[f]]) * hours_in_sample[h]
     )
   
 #  Exports
-  - (sum {(z, z1) in TRANS_LINES, f in FUELS, h in TIMEPOINTS: 
+  - (sum {(z, z1) in TRANSMISSION_LINES, f in FUELS, h in TIMEPOINTS: 
           period[h]=p and fuel_qualifies_for_rps[z, rps_fuel_category[f]]}
       DispatchTransFromXToY[z, z1, h, rps_fuel_category[f]] * hours_in_sample[h]
     )
  ) 
   / (sum { h in TIMEPOINTS: 
-           period[h] = p  and load_zone_rps_policy[z] = 1} 
+           period[h] = p  and load_area_rps_policy[z] = 1} 
       system_load[z, h] * hours_in_sample[h]
     )
-  >= rps_goal[z];
+  >= rps_compliance_percentage[z];
 
 #############################
 # REC accounting: Reclassifying electrons is verboten!
-subject to Conservation_of_Colored_Electrons {z in LOAD_ZONES, h in TIMEPOINTS, ft in RPS_FUEL_CATEGORY: enable_rps}:
+subject to Conservation_of_Colored_Electrons {z in LOAD_AREAS, h in TIMEPOINTS, ft in RPS_FUEL_CATEGORY: enable_rps}:
 
 	#############################
 	#    Power Production
@@ -1272,20 +1268,20 @@ subject to Conservation_of_Colored_Electrons {z in LOAD_ZONES, h in TIMEPOINTS, 
 
   #############################
   # Imports (have experienced transmission losses)
-  + (sum {(z2, z) in TRANS_LINES} 
+  + (sum {(z2, z) in TRANSMISSION_LINES} 
       transmission_efficiency[z2, z] * DispatchTransFromXToY[z2, z, h, ft]
     )
   
      #############################
      # Exports (have not experienced transmission losses)
-  >= (sum {(z, z1) in TRANS_LINES} (DispatchTransFromXToY[z, z1, h, ft]));
+  >= (sum {(z, z1) in TRANSMISSION_LINES} (DispatchTransFromXToY[z, z1, h, ft]));
 
 
 #######
 # REC accounting: Reclassifying electrons is verboten!
 # Hydro power production is done differently than all the other technologies
 # Consequently, we need to express it in a separate constraint instead of bundling it into the one above. 
-subject to Conservation_of_Blue_Electrons {z in LOAD_ZONES, h in TIMEPOINTS: enable_rps}:
+subject to Conservation_of_Blue_Electrons {z in LOAD_AREAS, h in TIMEPOINTS: enable_rps}:
 
   ####
   # Hydro Production
@@ -1301,10 +1297,10 @@ subject to Conservation_of_Blue_Electrons {z in LOAD_ZONES, h in TIMEPOINTS: ena
          * (avg_hydro_dispatch_all_sites[z, date[h]] - min_hydro_dispatch_all_sites[z, date[h]]) * 24)
 
   # Imports (have experienced transmission losses)
-  + (sum {(z2, z) in TRANS_LINES} (transmission_efficiency[z2, z] * DispatchTransFromXToY[z2, z, h, rps_fuel_category[fuel_hydro]]))
+  + (sum {(z2, z) in TRANSMISSION_LINES} (transmission_efficiency[z2, z] * DispatchTransFromXToY[z2, z, h, rps_fuel_category[fuel_hydro]]))
   
      # Exports (have not experienced transmission losses)
-  >= (sum {(z, z1) in TRANS_LINES} (DispatchTransFromXToY[z, z1, h, rps_fuel_category[fuel_hydro] ]));
+  >= (sum {(z, z1) in TRANSMISSION_LINES} (DispatchTransFromXToY[z, z1, h, rps_fuel_category[fuel_hydro] ]));
 
 
 
