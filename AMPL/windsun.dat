@@ -14,7 +14,7 @@ param enable_min_solar_production := 0;
 
 # required rates of return (real) for generators and transmission lines
 # NOTE: 9 June 2009, default generator and transmission finance rates were changed from 0.06 to 0.08 to more accurately reflect the private cost of capital
-param finance_rate default 0.08 := DistPV 0.03;
+param finance_rate default 0.08 := Distributed_PV 0.03;
 param transmission_finance_rate := 0.08;
 
 # retirement age for transmission lines
@@ -69,7 +69,7 @@ param tech_distributed_pv := "Distributed_PV";
 param tech_csp_trough := "CSP_Trough";
 param tech_wind := "Wind";
 param tech_offshore_wind := "Offshore_Wind";
-param tech_biomass := "Biomass";
+param tech_biomass := "Biomass_ST";
 param fuel_hydro := "Water";
 
 # All of the solar technologies. If you change what they are called in the section immediately above, change them here too.

@@ -43,7 +43,7 @@ select  ( CASE load_area
 		hour,
 		power
 from 	wecc.system_load
-where	load_area IN ( 'CAN_BC', 'CAN_ALB', 'MEX_BAJA' );
+where	load_area IN ( 'BCTC', 'AESO', 'CFE' );
 
 -- Study Hours----------------------
 -- Randomly select study dates and hours for the SWITCH model. 
@@ -629,7 +629,8 @@ create table fuel_qualifies_for_rps(
 );
 
 insert into fuel_qualifies_for_rps
-	select 	area_id,
+	select distinct 
+	        area_id,
 			load_area,
 			rps_fuel_category,
 			if(rps_fuel_category like 'renewable', 1, 0)

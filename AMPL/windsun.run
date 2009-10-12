@@ -76,9 +76,9 @@ table regional_generator_costs IN:
 	fixed_o_m_change, variable_o_m_change;
 read table regional_generator_costs;
 
-table regional_fuel_costs IN:
+table fuel_costs IN:
 	[load_area, fuel, year], fuel_price;
-read table regional_fuel_costs;
+read table fuel_costs;
 
 table fuel_info IN:
 	FUELS <- [fuel], rps_fuel_category, carbon_content;
@@ -117,7 +117,7 @@ param total_gen {LOAD_AREAS, TECHNOLOGIES, STUDY_YEARS} default 0;
 param surplus_gen {LOAD_AREAS, TECHNOLOGIES_INTERMITTENT, STUDY_YEARS} default 0;
 param intermittent_surplus_fraction {LOAD_AREAS, TIMEPOINTS} default 0;
 param total_gen_installed {t in TECHNOLOGIES, y in STUDY_YEARS};
-param total_trans {TRANS_LINES, STUDY_YEARS} default 0;
+param total_trans {TRANSMISSION_LINES, STUDY_YEARS} default 0;
 param avg_gen_by_zone {LOAD_AREAS, TECHNOLOGIES} default 0, >= 0;
 param avg_surp_by_zone {LOAD_AREAS, TECHNOLOGIES_INTERMITTENT} default 0, >= 0;
 param avg_load_by_zone {LOAD_AREAS} default 0, >= 0;

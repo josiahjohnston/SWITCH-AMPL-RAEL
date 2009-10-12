@@ -113,5 +113,5 @@ echo ampl.tab 1 2 > fuel_info.tab
 mysql -h $db_server -u $user -p$password -e "select fuel, rps_fuel_category, carbon_content from $db_name.fuel_info;" >> fuel_info.tab
 
 echo '	fuel_qualifies_for_rps.tab...'
-echo ampl.tab 2 1 > qualifies_for_rps.tab
-mysql -h $db_server -u $user -p$password -e "select load_area, rps_fuel_category, qualifies from $db_name.fuel_qualifies_for_rps;" >> qualifies_for_rps.tab
+echo ampl.tab 2 1 > fuel_qualifies_for_rps.tab
+mysql -h $db_server -u $user -p$password -e "select load_area, rps_fuel_category, qualifies from $db_name.fuel_qualifies_for_rps;" >> fuel_qualifies_for_rps.tab

@@ -246,14 +246,17 @@ param fixed_o_m_change {REGIONAL_TECHNOLOGIES};
 # RPS goals for each load area 
 # (these come from generator_rps.tab and rps_requirement.tab)
 
-set LOAD_AREAS_AND_FUEL_CATEGORY dimen 2;
-set RPS_FUEL_CATEGORY = setof {(load_area, rps_fuel_category) in LOAD_AREAS_AND_FUEL_CATEGORY} (rps_fuel_category);
-set LOAD_AREAS_WITH_RPS dimen 1;
-
-param enable_rps;
 
 # rps goals for each load area
-param rps_compliance_percentage {LOAD_AREAS_WITH_RPS};
+param rps_compliance_percentage {LOAD_AREAS};
+# What year each zone needs to meet its RPS goal
+param rps_compliance_year {LOAD_AREAS};
+
+set LOAD_AREAS_AND_FUEL_CATEGORY dimen 2;
+set RPS_FUEL_CATEGORY = setof {(load_area, rps_fuel_category) in LOAD_AREAS_AND_FUEL_CATEGORY} (rps_fuel_category);
+set LOAD_AREAS_WITH_RPS = setof {load_area in LOAD_AREAS: rps_compliance_percentage[load_area] > 0 } (load_area);
+
+param enable_rps;
 
 # whether fuels in a load area qualify for rps 
 param fuel_qualifies_for_rps {LOAD_AREAS_AND_FUEL_CATEGORY};
@@ -264,8 +267,6 @@ param rps_fuel_category {FUELS} symbolic in RPS_FUEL_CATEGORY;
 # determines which LOAD_AREAS have rps_requirements 
 param load_area_rps_policy {LOAD_AREAS_WITH_RPS};
 
-# What year each zone needs to meet its RPS goal
-param rps_compliance_year {LOAD_AREAS_WITH_RPS};
 param period_rps_takes_effect {z in LOAD_AREAS_WITH_RPS} = 
 	years_per_period * round( ( rps_compliance_year[z] - start_year) / years_per_period ) + start_year;
 
@@ -294,10 +295,13 @@ param tech_combustion_turbine symbolic in TECHNOLOGIES;
 set PROJ_INTERMITTENT_HOURS dimen 5;  # LOAD_AREAS, TECHNOLOGIES, SITES, CONFIGURATIONS, TIMEPOINTS
 set PROJ_INTERMITTENT = setof {(z, t, s, o, h) in PROJ_INTERMITTENT_HOURS} (z, t, s, o);
 
-param cap_factor {PROJ_INTERMITTENT_HOURS} >= 0;
+param cap_factor {PROJ_INTERMITTENT_HOURS};
 
-# make sure all hours are represented
-check {(z, t, s, o) in PROJ_INTERMITTENT, h in TIMEPOINTS}: cap_factor[z, t, s, o, h] >= 0;
+# make sure all hours are represented, and that cap factors make sense.
+# Solar thermal can be parasitic, which means negative cap factors are allowed (just not TOO negative)
+check {(z, t, s, o) in PROJ_INTERMITTENT, h in TIMEPOINTS: t = tech_csp_trough}: cap_factor[z, t, s, o, h] >= -0.1;
+# No other technology can be parasitic, so only positive cap factors allowed
+check {(z, t, s, o) in PROJ_INTERMITTENT, h in TIMEPOINTS: t != tech_csp_trough}: cap_factor[z, t, s, o, h] >= 0;
 # cap factors for solar can be greater than 1 becasue sometimes the sun shines more than 1000W/m^2
 # which is how PV cap factors are defined.
 # The below checks make sure that for other plants the cap factors
@@ -329,6 +333,7 @@ set PROJECTS =
   union PROJ_INTERMITTENT
   union PROJ_RESOURCE_LIMITED;
 
+
 # the set of all dispatchable projects (i.e., non-intermittent)
 set PROJ_DISPATCH = {(z, t, s, o) in PROJECTS: not new_baseload[t] and not intermittent[t]};
 
@@ -339,7 +344,8 @@ set CONFIGURATIONS = setof {(z, t, s, o) in PROJECTS} (o);
 # cost of grid upgrades to support a new project, in dollars per peak MW.
 # these are needed in order to deliver power from the interconnect point to
 # the load center (or make it deliverable to other zones)
-param connect_cost_per_mw {(z, t, s) in PROJ_RESOURCE_LIMITED_SITES} >= 0 default 0;
+set PROJECTS_SANS_CONFIGURATION = setof{ (z, t, s, o) in PROJECTS } (z, t, s);
+param connect_cost_per_mw {(z, t, s) in PROJECTS_SANS_CONFIGURATION} >= 0 default 0;
 
 ##############################################
 # Existing hydro plants (assumed impossible to build more, but these last forever)
@@ -447,9 +453,7 @@ check {z in setof {(z, e) in EXISTING_PLANTS} (z)}: z in LOAD_AREAS;
 param ep_size_mw {EXISTING_PLANTS} >= 0;
 
 # type of technology used by the plant
-# This variable needs to have the check symbolic in TECHNOLOGIES, but we don't know all of the generators technologies for all of the existing plants. 
-set TECHNOLOGIES_AND_UNKNOWN = TECHNOLOGIES union { "unknown" };
-param ep_technology {EXISTING_PLANTS} symbolic in TECHNOLOGIES_AND_UNKNOWN;
+param ep_technology {EXISTING_PLANTS} symbolic;
 
 # type of fuel used by the plant
 param ep_fuel {EXISTING_PLANTS} symbolic in FUELS;
