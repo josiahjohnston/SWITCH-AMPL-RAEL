@@ -90,7 +90,7 @@ mysql -h $db_server -u $user -p$password -e "select load_area, site, study_date 
 
 echo '	proposed_renewable_sites.tab...'
 echo ampl.tab 3 2 > proposed_renewable_sites.tab
-mysql -h $db_server -u $user -p$password -e "select load_area, generator_type as technology, site_id as site, capacity_mw as max_capacity, connect_cost_per_mw from $db_name.proposed_renewable_sites;" >> proposed_renewable_sites.tab
+mysql -h $db_server -u $user -p$password -e "select load_area, generator_type as technology, site, capacity_mw as max_capacity, connect_cost_per_mw from $db_name.proposed_renewable_sites;" >> proposed_renewable_sites.tab
 
 echo '	cap_factor.tab...'
 echo ampl.tab 5 1 > cap_factor.tab
