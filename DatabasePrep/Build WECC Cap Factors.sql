@@ -9,20 +9,34 @@ use switch_inputs_wecc_v2;
 -- creates hours table from the CSP data because 3tier knows how to deal correctly in UTC, right now only for 2004-2005
 -- omits the last day because we're using UTC and so records for the first day (Jan 1 2004) won't be complete.
 drop table if exists hours;
-create table hours 
-	select distinct(datetime_utc)
+CREATE TABLE hours (
+  datetime_utc datetime NOT NULL COMMENT 'date & time in Coordinated Universal Time, with Daylight Savings Time ignored',
+  hournum int NOT NULL,
+  UNIQUE KEY datetime_utc (datetime_utc),
+  UNIQUE KEY hournum (hournum)
+);
+
+set @curhour = 0;
+insert into hours
+	select distinct(datetime_utc), (@curhour := @curhour+1)
 		FROM 3tier.csp_power_output
 		where datetime_utc between "2004-01-02 00:00" and "2005-12-31 23:59"
 	order by datetime_utc;
-alter table hours add column hournum int;
-set @curhour = 0;
-update hours set hournum = (@curhour := @curhour+1);
-alter table hours add index (datetime_utc);
 
 -- SYSTEM LOAD
--- patched together from the old wecc loads... should be improved in the future
+-- patched together from the old wecc loads...
+-- should be improved in the future from FERC data
 drop table if exists system_load;
-create table system_load as
+CREATE TABLE  system_load (
+  load_area varchar(11),
+  hour int,
+  power double,
+  INDEX hour (hour ),
+  INDEX load_area (load_area),
+  UNIQUE KEY hour_load_area (hour, load_area)
+);
+
+insert into system_load 
 select 	v2_load_area as load_area, 
 		hour,
 		sum( power * population_fraction) as power
@@ -30,318 +44,9 @@ from 	loads_wecc.v1_wecc_load_areas_to_v2_wecc_load_areas,
 		wecc.system_load
 where	v1_load_area = wecc.system_load.load_area
 group by v2_load_area, hour;
-alter table system_load add index hour(hour);
-alter table system_load add index load_area(load_area);
-
-insert into system_load
-select  ( CASE load_area
-          WHEN 'BCTC' THEN 'CAN_BC'
-          WHEN 'AESO' THEN 'CAN_ALB'
-          WHEN 'CFE'  THEN 'MEX_BAJA'
-          END
-        ),
-		hour,
-		power
-from 	wecc.system_load
-where	load_area IN ( 'BCTC', 'AESO', 'CFE' );
 
 -- Study Hours----------------------
--- Randomly select study dates and hours for the SWITCH model. 
--- Sub-sampling of specific months and hours are the responsibility of the shell script that exports data from the DB
--- Add rows to the tperiods table (defined in the middle of the section) if you want more than 4 investment periods
-
-set @base_year        := 2010;
-set @years_per_period := 4;
-set @max_timepoints_per_day = 24;
-
--- correct? Check!
-set @training_set_method := 'MEDIAN';
-set @training_set_notes := 'For each month, the day with peak load and a representative day with near-median load were selected. The peak day was selected by average hourly consumption (system-wide), while the median was based on total consumption during the day.';
-
-
--- make lists of all the possible periods and months
--- also report the number of days in each month, for sample-weighting later
-drop temporary table if exists tperiods;
-create temporary table tperiods (periodnum int);
-insert into tperiods (periodnum) values (0), (1), (2), (3);
-select count( periodnum ) into @num_periods from tperiods;
-drop temporary table if exists tmonths;
-create temporary table tmonths (month_of_year tinyint, days_in_month double);
-insert into tmonths values 
-  (1, 31), (2, 29.25), (3, 31), (4, 30), (5, 31), (6, 30),
-  (7, 31), (8, 31), (9, 30), (10, 31), (11, 30), (12, 31);
-
-
--- Make a table of study hours
-CREATE TABLE IF NOT EXISTS study_hours_all (
-  training_set_id INT NOT NULL,
-  period BIGINT,
-  study_date INT,
-  study_hour INT,
-  date_utc DATE, 
-  month_of_year INT,
-  hours_in_sample DOUBLE,
-  hour_of_day INT,
-  hournum INT,
-  datetime_utc DATETIME, 
-  INDEX training_set_id(training_set_id),
-  INDEX date_utc(date_utc),
-  INDEX datetime_utc(datetime_utc),
-  INDEX hour(hournum),
-  INDEX period(period),
-  INDEX date_subselect(period, training_set_id),
-  INDEX hour_subselect(period, training_set_id, hours_in_sample),
-  PRIMARY KEY id_hour (training_set_id, study_hour),
-  CONSTRAINT training_set_id FOREIGN KEY training_set_id (training_set_id)
-    REFERENCES training_sets (training_set_id),
-  CONSTRAINT hournum FOREIGN KEY hournum (hournum)
-    REFERENCES hours (hournum)
-);
-
-
--- makes a table of study dates
-CREATE TABLE IF NOT EXISTS study_dates_all(
-  training_set_id INT NOT NULL,
-  period BIGINT,
-  study_date INT,
-  date_utc DATE, 
-  month_of_year INT,
-  hours_in_sample DOUBLE,
-  INDEX training_set_id(training_set_id),
-  INDEX date_utc(date_utc),
-  INDEX period(period),
-  INDEX date_subselect(period, training_set_id),
-  INDEX hour_subselect(period, training_set_id, hours_in_sample),
-  PRIMARY KEY (training_set_id, study_date), 
-  CONSTRAINT training_set_id FOREIGN KEY training_set_id (training_set_id)
-    REFERENCES training_sets (training_set_id)
-);
-
-CREATE TABLE IF NOT EXISTS training_sets (
-  training_set_id INT NOT NULL AUTO_INCREMENT,
-  selection_method VARCHAR(64) NOT NULL COMMENT 'This field describes the method of selection of timepoints. The two main methods - MEDIAN and RAND - differ in their selection of representative timepoints. MEDIAN selects days with near-median loads. RAND selects representative days at random.',
-  notes TEXT COMMENT 'This field describes the selection method in full sentences. ',
-  PRIMARY KEY (training_set_id)
-)
-COMMENT = 'This stores descriptions of a set of timepoints that the SWITCH model optimizes cost over. i.e. Training sets ';
-
--- This select sets @training_set_id to the next valid id
-select if(max(training_set_id) is null, 1, max(training_set_id)+1) into @training_set_id from training_sets;
-
-INSERT INTO training_sets VALUES ( @training_set_id, @training_set_method, @training_set_notes );
-
--- Create a list of all the dates for which we have 24 hours of data. This will exclude the Fall daylight savings times days because they are missing an hour.
-drop temporary table if exists tdates;
-create temporary table tdates
-  select date(hours.datetime_utc) as date_utc, month(hours.datetime_utc) as month_of_year, rand() as ord
-    from hours
-    group by 1
-    having count(*) = @max_timepoints_per_day;
-alter table tdates add index( date_utc );
-
--- Add the peak system load for every day considered
-drop temporary table if exists thourtotal;
-create temporary table thourtotal select hour, sum(system_load.power) as system_load from system_load group by 1;
-alter table tdates add column max_load int;
-update tdates set tdates.max_load = (
-  select max( round( thourtotal.system_load ) ) 
-    from thourtotal, hours
-    where hours.hournum = thourtotal.hour
-    and date(hours.datetime_utc) = tdates.date_utc
-);
-
--- Create a list of days with peak load by month
-drop temporary table if exists tmaxday_in_month;
-create temporary table tmaxday_in_month
-  select month(tdates.date_utc) as month_of_year, max( max_load ) as max_load
-    from tdates group by 1;
-alter table tmaxday_in_month add column max_load_date datetime;
-update tmaxday_in_month, thourtotal, hours set tmaxday_in_month.max_load_date = hours.datetime_utc 
-  where thourtotal.hour = hours.hournum and round(thourtotal.system_load) = tmaxday_in_month.max_load;
-
--- Mark the peak days of each month by setting their ord column to a 2. This will ensure they have the top rank, since the rest of the historic dates have ord values between 0 & 1.
-update tdates, tmaxday_in_month set tdates.ord = 2
-  where tdates.date_utc = date( tmaxday_in_month.max_load_date );
-
--- randomly order the dates that fall within each month of the year
--- they will be selected for study (without replacement) based on this ordering.
--- another option would be a stratified approach, e.g. just to take the 15th of the month, 
--- and alternate between using data from the first or second year of measurements
-alter table tdates add column rank int;
-set @lastrank = 0, @lastmonth = 0;
--- to switch from random ordering to choosing days with median loads, change 'ord' in the order by clause to 'max_load'
--- to switch from choosing days with median loads to random ordering, change 'max_load' in the order by clause to 'ord'
-update tdates set rank = (@lastrank := if(@lastmonth=(@lastmonth:=month_of_year), @lastrank+1, 1)) order by month_of_year, max_load desc;
-alter table tdates add index mr (month_of_year, rank), add index (date_utc);
-
-
--- Make a table listing the individual dates that we are sampling
--- Choose the individual dates from the datelist, based on their ordering
--- The first study period uses one of the dates in the middle of the list, second uses the one after, etc.
--- This strategy allows us to easily switch between selecting random dates and dates with near-median loads.
--- We also report how many hours are represented by each sample, for weighting in the optimization
--- The formula for the number of hours represented by each sample is based on one less than the days in 
--- the month, to avoid overlapping with the days of peak load.
-INSERT INTO study_dates_all ( training_set_id, period, study_date, date_utc, month_of_year, hours_in_sample )
-  select @training_set_id, periodnum * @years_per_period + @base_year as period, 
-    -- create unique ids for each date of the simulation
-    -- NOTE: the following code assumes that no historical date is used more than once in the same investment period
-    -- it also assumes that study periods and historical years are uniquely identified by their last two digits
-    (periodnum * @years_per_period + @base_year mod 100) * 1000000 + mod(year(date_utc), 100) * 10000 + month(date_utc)*100 + day(date_utc) as study_date, 
-    date_utc, d.month_of_year, 
-    (days_in_month-1)*@years_per_period as hours_in_sample
-    from tperiods p join tmonths m 
-      join tdates d 
-        on (d.month_of_year=m.month_of_year and
-      	    d.rank = floor( m.days_in_month / 2 - @num_periods/2 + p.periodnum ) 
-      	)
-      order by period, month_of_year, date_utc;
-
--- Add the dates with peak loads. The peak load have a rank of 1.
-INSERT INTO study_dates_all ( training_set_id, period, study_date, date_utc, month_of_year, hours_in_sample )
-  select @training_set_id, periodnum * @years_per_period + @base_year as period, 
-    -- create unique ids for each date of the simulation
-    -- NOTE: the following code assumes that no historical date is used more than once in the same investment period
-    -- it also assumes that study periods and historical years are uniquely identified by their last two digits
-    (periodnum * @years_per_period + @base_year mod 100) * 1000000 + mod(year(date_utc), 100) * 10000 + month(date_utc)*100 + day(date_utc) as study_date, 
-    date_utc, d.month_of_year, 
-    @years_per_period as hours_in_sample
-    from tperiods p join tdates d 
-    where rank = 1 
-      order by period, month_of_year, date_utc;
-
--- create the final list of study hours
-INSERT INTO study_hours_all ( training_set_id, period, study_date, study_hour, date_utc, month_of_year, hours_in_sample, hour_of_day, hournum, datetime_utc )
-  select @training_set_id, period, study_date, 
-    -- create unique ids for each hour of the simulation
-    ((period mod 100) * 10000 + month_of_year * 100 + hour(datetime_utc)) * 1000 + (year(date_utc) mod 10) * 100 + day(date_utc)  as study_hour,
-    date_utc, month_of_year, hours_in_sample,
-    hour(datetime_utc) as hour_of_day, hournum, datetime_utc
-    from study_dates_all d join hours h on d.date_utc = date(h.datetime_utc)
-      where training_set_id = @training_set_id
-      order by period, month_of_year, datetime_utc;
-
-
-CREATE TABLE IF NOT EXISTS scenarios (
-  scenario_id INT NOT NULL AUTO_INCREMENT,
-  scenario_name VARCHAR(128),
-  training_set_id INT NOT NULL,
-  exclude_peaks BOOLEAN NOT NULL default 0, 
-  exclude_periods VARCHAR(256) NOT NULL default '' COMMENT 'If you want to exclude the periods starting at 2010 and 2018, you would set this to "2010,2018".',
-  period_reduced_by float NOT NULL DEFAULT 1 COMMENT 'If you exclude 2 of four periods, set this value to 4/2=2. If you do not exclude any periods, this will default to 1. The "hours_in_sample" are multiplied by this factor to scale them appropriately.',
-  regional_cost_multiplier_scenario_id INT NOT NULL DEFAULT 1, 
-  regional_fuel_cost_scenario_id INT NOT NULL DEFAULT 1, 
-  regional_gen_price_scenario_id INT NOT NULL DEFAULT 1, 
-  months_between_samples INT NOT NULL DEFAULT 6, 
-  start_month INT NOT NULL DEFAULT 3 COMMENT 'The value of START_MONTH should be between 0 and one less than the value of NUM_HOURS_BETWEEN_SAMPLES. 0 means sampling starts in Jan, 1 means Feb, 2 -> March, 3 -> April', 
-  hours_between_samples INT NOT NULL DEFAULT 24, 
-  start_hour INT NOT NULL DEFAULT 11 COMMENT 'The value of START_HOUR should be between 0 and one less than the value of NUM_HOURS_BETWEEN_SAMPLES. 0 means sampling starts at 12am, 1 means 1am, ... 15 means 3pm, etc', 
-  enable_rps BOOLEAN NOT NULL DEFAULT 0 COMMENT 'This controls whether Renewable Portfolio Standards are considered in the optimization.', 
-  notes TEXT,
-  num_timepoints INT, 
-  _datesample TEXT,
-  _timesample TEXT,
-  _hours_in_sample TEXT,
-  PRIMARY KEY (scenario_id), 
-  UNIQUE INDEX unique_params(`training_set_id`, `exclude_peaks`, `exclude_periods`, `period_reduced_by`, `regional_cost_multiplier_scenario_id`, `regional_fuel_cost_scenario_id`, `regional_gen_price_scenario_id`, `months_between_samples`, `start_month`, `hours_between_samples`, `start_hour`, `enable_rps`), 
-  CONSTRAINT training_set_id FOREIGN KEY training_set_id (training_set_id)
-    REFERENCES training_sets (training_set_id), 
-  CONSTRAINT regional_cost_multiplier_scenario_id FOREIGN KEY regional_cost_multiplier_scenario_id (regional_cost_multiplier_scenario_id)
-    REFERENCES regional_economic_multiplier (scenario_id), 
-  CONSTRAINT regional_fuel_cost_scenario_id FOREIGN KEY regional_fuel_cost_scenario_id (regional_fuel_cost_scenario_id)
-    REFERENCES regional_fuel_prices (scenario_id), 
-  CONSTRAINT regional_gen_price_scenario_id FOREIGN KEY regional_gen_price_scenario_id (regional_gen_price_scenario_id)
-    REFERENCES regional_generator_costs (scenario_id)
-)
-COMMENT = 'Each record in this table is a specification of how to compile a set of inputs for a specific run. Several fields specify how to subselect timepoints from a given training_set. Other fields indicate which set of regional price data to use.';
-
-
-DELIMITER $$
-
-DROP FUNCTION IF EXISTS `switch_inputs_wecc_v2`.`set_scenarios_sql_columns`$$
-CREATE FUNCTION `switch_inputs_wecc_v2`.`set_scenarios_sql_columns` (target_scenario_id int) RETURNS INT 
-BEGIN
-  DECLARE done INT DEFAULT 0;
-  DECLARE current_scenario_id INT;
-  DECLARE cur_id_list CURSOR FOR SELECT scenario_id FROM switch_inputs_wecc_v2.scenarios WHERE switch_inputs_wecc_v2.scenarios.scenario_id >= target_scenario_id;
-  DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = 1;
-  
-  DROP TEMPORARY TABLE IF EXISTS switch_inputs_wecc_v2.__set_scenarios_sql_columns;
-  CREATE TEMPORARY TABLE switch_inputs_wecc_v2.__set_scenarios_sql_columns
-    SELECT * FROM switch_inputs_wecc_v2.scenarios WHERE switch_inputs_wecc_v2.scenarios.scenario_id >= target_scenario_id;
-
-  OPEN cur_id_list;
-  
-  REPEAT
-    FETCH cur_id_list INTO current_scenario_id;
-  
-    UPDATE switch_inputs_wecc_v2.scenarios
-      SET 
-        _datesample = concat(
-            concat( 'FIND_IN_SET( period, "', exclude_periods, '")=0 and '), 
-            'MOD(month_of_year, ', months_between_samples, ') = ', start_month, ' and ',
-            'training_set_id = ', training_set_id, 
-            if( exclude_peaks, ' and hours_in_sample > 100', '')
-        )
-      WHERE switch_inputs_wecc_v2.scenarios.scenario_id = current_scenario_id;
-    UPDATE switch_inputs_wecc_v2.scenarios
-      SET 
-        _timesample = concat(
-            _datesample, ' and ', 
-            'MOD(hour_of_day, ', hours_between_samples, ') = ', start_hour
-        ),
-        _hours_in_sample = if( period_reduced_by * months_between_samples * hours_between_samples != 1,
-           concat( 'hours_in_sample', '*', period_reduced_by, '*', months_between_samples, '*', hours_between_samples ), 
-           'hours_in_sample'
-        )
-      WHERE switch_inputs_wecc_v2.scenarios.scenario_id = current_scenario_id;
-    UPDATE switch_inputs_wecc_v2.scenarios
-      SET 
-        switch_inputs_wecc_v2.scenarios.num_timepoints = 
-        (select count(switch_inputs_wecc_v2.study_hours_all.hournum) 
-          from switch_inputs_wecc_v2.study_hours_all, switch_inputs_wecc_v2.__set_scenarios_sql_columns params
-          where
-            params.scenario_id = current_scenario_id and
-            switch_inputs_wecc_v2.study_hours_all.training_set_id = params.training_set_id and
-            FIND_IN_SET( switch_inputs_wecc_v2.study_hours_all.period, params.exclude_periods ) = 0 and 
-            MOD(switch_inputs_wecc_v2.study_hours_all.month_of_year, params.months_between_samples ) = params.start_month and
-            switch_inputs_wecc_v2.study_hours_all.hours_in_sample > 100*params.exclude_peaks and
-            MOD(switch_inputs_wecc_v2.study_hours_all.hour_of_day, params.hours_between_samples) = params.start_hour
-        )
-      WHERE switch_inputs_wecc_v2.scenarios.scenario_id = current_scenario_id
-    ;
-    UPDATE switch_inputs_wecc_v2.scenarios
-      SET 
-        scenario_name = concat(
-           't', target_scenario_id, '_', 
-           if(exclude_peaks, 'np_', 'p_'),
-           if(length(exclude_periods) > 0, 
-             concat( 'xp_', replace(exclude_periods,',','_' ) ),
-             ''
-           ), 
-           'regids', regional_cost_multiplier_scenario_id, '_', regional_fuel_cost_scenario_id, '_', regional_gen_price_scenario_id, '_', 
-           'm', months_between_samples, '_', start_month, '_',
-           'h', hours_between_samples, '_', start_hour
-        )
-      WHERE switch_inputs_wecc_v2.scenarios.scenario_id = current_scenario_id and (scenario_name is NULL or length(scenario_name) = 0)
-      ;
-  UNTIL done END REPEAT;
-  CLOSE cur_id_list;
-  
-  DROP TEMPORARY TABLE switch_inputs_wecc_v2.__set_scenarios_sql_columns;
-  RETURN (SELECT count(*) FROM switch_inputs_wecc_v2.scenarios WHERE scenario_id >= target_scenario_id);
-END$$
-
-DELIMITER ;
-
-INSERT INTO scenarios (scenario_name, training_set_id) 
-  VALUES ( 'default scenario', @training_set_id );
-select max(scenario_id) into @scenario_id from scenarios;
-SELECT set_scenarios_sql_columns( @scenario_id );
-
-
-
-
+source Setup_Study_Hours.sql;
 
 
 
@@ -350,70 +55,112 @@ SELECT set_scenarios_sql_columns( @scenario_id );
 -- RENEWABLE SITES--------------
 -- imported from postgresql, this table has all distributed pv, trough, wind, geothermal and biomass sites
 drop table if exists proposed_renewable_sites;
-create table proposed_renewable_sites
-select 	generator_type,
-		load_area,
-		site_id,
-		renewable_id,
-		capacity_mw,
-		connect_cost_per_mw
-from generator_info.proposed_renewable_sites
-order by 1,2,3;
+CREATE TABLE  proposed_renewable_sites (
+  generator_type varchar(20),
+  load_area varchar(11),
+  site varchar(50),
+  renewable_id bigint(20),
+  capacity_mw float,
+  connect_cost_per_mw float,
+  INDEX generator_type_renewable_id (generator_type,renewable_id),
+  INDEX renewable_id (renewable_id),
+  UNIQUE (site)
+);
 
-CREATE INDEX site_id ON proposed_renewable_sites (site_id);
-CREATE INDEX generator_type_renewable_id ON proposed_renewable_sites (generator_type, renewable_id);
-
+insert into proposed_renewable_sites
+	select 	generator_type,
+			load_area,
+			site,
+			renewable_id,
+			capacity_mw,
+			connect_cost_per_mw
+	from generator_info.proposed_renewable_sites
+	order by 1,2,3;
 
 
 -- CAP FACTOR-----------------
+-- assembles the hourly power output for Distributed_PV, CSP_Trough, Wind and Offshore_Wind
 drop table if exists cap_factor_proposed_renewable_sites;
-create table cap_factor_proposed_renewable_sites
-SELECT      generator_type,
-            generator_info.proposed_renewable_sites.load_area,
-            generator_info.proposed_renewable_sites.site_id as site,
-			cast(orientation as char(2)) as configuration,
-            hournum as hour,
-            cap_factor
-    from    generator_info.proposed_renewable_sites, 
-            suny.grid_hourlies,
+create table cap_factor_proposed_renewable_sites(
+	generator_type varchar(30),
+	load_area varchar(11),
+	site varchar(50),
+	configuration varchar(20),
+	hour int,
+	cap_factor float,
+	INDEX hour (hour),
+	INDEX site (site),
+	INDEX generator_type (generator_type),
+	UNIQUE (site, configuration, hour),
+	CONSTRAINT site_fk FOREIGN KEY site (site) REFERENCES proposed_renewable_sites (site)
+);
+
+select 'Compiling Distributed_PV' as progress;
+insert into cap_factor_proposed_renewable_sites
+SELECT      proposed_renewable_sites.generator_type,
+            proposed_renewable_sites.load_area,
+            proposed_renewable_sites.site as site,
+			suny.grid_hourlies.orientation as configuration,
+            hours.hournum as hour,
+            suny.grid_hourlies.cap_factor
+    from    suny.grid_hourlies       join
+            proposed_renewable_sites join
             hours
     where   generator_type = 'Distributed_PV'
-	and		generator_info.proposed_renewable_sites.renewable_id = suny.grid_hourlies.grid_id
+	and		suny.grid_hourlies.grid_id = proposed_renewable_sites.renewable_id
     and     hours.datetime_utc = suny.grid_hourlies.datetime_utc;
  
+select 'Compiling CSP_Trough' as progress;
 insert into cap_factor_proposed_renewable_sites
-SELECT      generator_type,
-            load_area,
-            generator_info.proposed_renewable_sites.site_id as site,
+SELECT      proposed_renewable_sites.generator_type,
+            proposed_renewable_sites.load_area,
+            proposed_renewable_sites.site as site,
             'na' as configuration,
-            hournum as hour,
-            e_net_mw/100 as cap_factor
-    from    generator_info.proposed_renewable_sites, 
+            hours.hournum as hour,
+            3tier.csp_power_output.e_net_mw/100 as cap_factor
+    from    proposed_renewable_sites, 
             3tier.csp_power_output,
             hours
-    where   generator_type in ('CSP_Trough')
-    and     generator_info.proposed_renewable_sites.renewable_id = 3tier.csp_power_output.siteid
+    where   generator_type = 'CSP_Trough'
+    and     proposed_renewable_sites.renewable_id = 3tier.csp_power_output.siteid
     and     hours.datetime_utc = 3tier.csp_power_output.datetime_utc;
 
+select 'Compiling Offshore_Wind' as progress;
 insert into cap_factor_proposed_renewable_sites
-SELECT      generator_type,
-            load_area,
-            generator_info.proposed_renewable_sites.site_id as site,
-            'na' as configuration,           
-            hournum as hour,
-            cap_factor
-    from    generator_info.proposed_renewable_sites, 
+SELECT      proposed_renewable_sites.generator_type,
+            proposed_renewable_sites.load_area,
+            proposed_renewable_sites.site as site,
+            'na' as configuration,
+            hours.hournum as hour,
+            3tier.wind_farm_power_output.cap_factor
+    from    proposed_renewable_sites, 
             3tier.wind_farm_power_output,
             hours
-    where   generator_type in ('Wind', 'Offshore Wind')
-    and     generator_info.proposed_renewable_sites.renewable_id = 3tier.wind_farm_power_output.wind_farm_id
+    where   generator_type = 'Offshore_Wind'
+    and     proposed_renewable_sites.renewable_id = 3tier.wind_farm_power_output.wind_farm_id
     and     hours.datetime_utc = 3tier.wind_farm_power_output.datetime_utc;
-    
-alter table cap_factor_proposed_renewable_sites add index hour (hour);
+
+select 'Compiling Wind' as progress;
+insert into cap_factor_proposed_renewable_sites
+SELECT      proposed_renewable_sites.generator_type,
+            proposed_renewable_sites.load_area,
+            proposed_renewable_sites.site as site,
+            'na' as configuration,
+            hours.hournum as hour,
+            3tier.wind_farm_power_output.cap_factor
+    from    proposed_renewable_sites, 
+            3tier.wind_farm_power_output,
+            hours
+    where   generator_type = 'Wind'
+    and     proposed_renewable_sites.renewable_id = 3tier.wind_farm_power_output.wind_farm_id
+    and     hours.datetime_utc = 3tier.wind_farm_power_output.datetime_utc;
+
+
 
 
 -- EXISTING PLANTS---------
 -- made in 'build proposed plants table.sql'
+select 'Copying existing_plants' as progress;
 drop table if exists existing_plants;
 create table existing_plants
 select * from generator_info.existing_plants_agg;
@@ -441,7 +188,7 @@ create table transmission_lines(
 );
 
 load data local infile
-	'/Volumes/1TB_RAID-2/Models/Switch\ Input\ Data/Transmission/wecc_trans_lines.csv'
+	'/Volumes/1TB_RAID/Models/Switch\ Input\ Data/Transmission/wecc_trans_lines.csv'
 	into table transmission_lines
 	fields terminated by	','
 	optionally enclosed by '"'
@@ -461,7 +208,7 @@ create table load_area_info(
 );
 
 load data local infile
-	'/Volumes/1TB_RAID-2/Models/GIS/wecc_load_area_info.csv'
+	'/Volumes/1TB_RAID/Models/GIS/wecc_load_area_info.csv'
 	into table load_area_info
 	fields terminated by	','
 	optionally enclosed by '"'
@@ -489,7 +236,7 @@ CREATE TABLE regional_generator_costs(
   technology varchar(30),
   price_year year(4),
   overnight_cost double,
-  connect_cost_per_MW_generic double,
+  connect_cost_per_mw_generic double,
   fixed_o_m double,
   variable_o_m double,
   overnight_cost_change double,
@@ -507,7 +254,7 @@ select if( max(scenario_id) + 1 is null, 1, max(scenario_id) + 1 ) into @reg_gen
 -- The rest of these variables aren't affected by region, but they're brought along here to make it easier in AMPL
 -- technologies that Switch can't build yet but might in the future are eliminated in the last line
 insert into regional_generator_costs
-    (scenario_id, area_id, technology, price_year, overnight_cost, connect_cost_per_MW_generic, 
+    (scenario_id, area_id, technology, price_year, overnight_cost, connect_cost_per_mw_generic, 
      fixed_o_m, variable_o_m, overnight_cost_change, fixed_o_m_change, variable_o_m_change)
 
     select 	@reg_generator_scenario_id as scenario_id, 
@@ -515,7 +262,7 @@ insert into regional_generator_costs
     		technology,
     		price_year,  
    			overnight_cost * economic_multiplier as overnight_cost,
-    		connect_cost_per_MW_generic * economic_multiplier as connect_cost_per_MW_generic,
+    		connect_cost_per_mw_generic * economic_multiplier as connect_cost_per_mw_generic,
     		fixed_o_m * economic_multiplier as fixed_o_m,
     		variable_o_m * economic_multiplier as variable_o_m,
    			overnight_cost_change,
