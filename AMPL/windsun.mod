@@ -264,9 +264,6 @@ param fuel_qualifies_for_rps {LOAD_AREAS_AND_FUEL_CATEGORY};
 # determines if fuel falls in solar/wind/geo or gas/coal/nuclear/hydro
 param rps_fuel_category {FUELS} symbolic in RPS_FUEL_CATEGORY;
 
-# determines which LOAD_AREAS have rps_requirements 
-param load_area_rps_policy {LOAD_AREAS_WITH_RPS};
-
 param period_rps_takes_effect {z in LOAD_AREAS_WITH_RPS} = 
 	years_per_period * round( ( rps_compliance_year[z] - start_year) / years_per_period ) + start_year;
 
@@ -1234,7 +1231,7 @@ subject to Satisfy_RPS {z in LOAD_AREAS_WITH_RPS, p in PERIODS:
     )
  ) 
   / (sum { h in TIMEPOINTS: 
-           period[h] = p  and load_area_rps_policy[z] = 1} 
+           period[h] = p } 
       system_load[z, h] * hours_in_sample[h]
     )
   >= rps_compliance_percentage[z];
