@@ -4,7 +4,7 @@
 ##########################
 # Constants
 read SCENARIO_ID < scenario_id.txt
-export DB_name='switch_results'
+export DB_name='switch_results_wecc_v2'
 export db_server='xserve-rael.erg.berkeley.edu'
 #db_server="localhost"
 current_dir=`pwd`
