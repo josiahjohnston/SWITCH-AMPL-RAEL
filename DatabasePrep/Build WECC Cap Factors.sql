@@ -355,10 +355,10 @@ create table fuel_info(
 --   and variable emissions. Currently, this only lists variable emissions. 
 insert into fuel_info (fuel, rps_fuel_category, carbon_content) values
 	('Gas', 'fossilish', 0.0531),
-	('Wind', 'renewable', 0.0939),
+	('Wind', 'renewable', 0),
 	('Solar', 'renewable', 0),
 	('Biomass', 'renewable', 0),
-	('Coal', 'fossilish', 0),
+	('Coal', 'fossilish', 0.0939),
 	('Uranium', 'fossilish', 0),
 	('Geothermal', 'renewable', 0),
 	('Water', 'fossilish', 0);
