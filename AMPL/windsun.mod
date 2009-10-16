@@ -624,6 +624,8 @@ param project_end_year {t in TECHNOLOGIES, v in VINTAGE_YEARS} =
 # and discount to a lump-sum value at the start of the project,
 # then discount from there to the base_year.
 param fixed_cost {(z, t, s, o) in PROJECTS, v in VINTAGE_YEARS} = 
+# Multiply fixed costs by years per period so they will match the way multi-year periods are implicitly treated in variable costs. In variable costs, hours_in_sample is a weight intended to reflect how many hours are represented by a timepoint. hours_in_sample is calculated using period length in MySQL: period_length * (days represented) * (subsampling factors), so if you work through the math, variable costs are multiplied by period_length. A better treatment of this would be to pull period_length out of hours_in_sample and calculate the fixed & costs as the sum of annual payments that occur in a given investment year.
+years_per_period * ( 
   # Capital payments that are paid from when construction starts till the plant is retired (or the study period ends)
   capital_cost_annual_payment[z,t,s,o,v]
     # A factor to convert Uniform annual capital payments to "Present value" in the construction year - a lump sum at the beginning of the payments. This considers the time from when construction began to the end year
@@ -636,7 +638,8 @@ param fixed_cost {(z, t, s, o) in PROJECTS, v in VINTAGE_YEARS} =
     # U to P, from the time the plant comes online to the end year
     * (1-(1/(1+discount_rate)^(project_end_year[t,v]-v)))/discount_rate
     # F to P, from the time the plant comes online to the base year
-    * 1/(1+discount_rate)^(v-base_year);
+    * 1/(1+discount_rate)^(v-base_year)
+);
 
 # all variable costs ($/MWh) for generating a MWh of electricity in some
 # future hour, using a particular technology and vintage, 
@@ -677,13 +680,19 @@ param ep_capital_cost_annual_payment {(z, e) in EXISTING_PLANTS} =
 
 # discount capital costs to a lump-sum value at the start of the study.
 param ep_capital_cost {(z, e) in EXISTING_PLANTS} =
+# Multiply fixed costs by years per period so they will match the way multi-year periods are implicitly treated in variable costs. In variable costs, hours_in_sample is a weight intended to reflect how many hours are represented by a timepoint. hours_in_sample is calculated using period length in MySQL: period_length * (days represented) * (subsampling factors), so if you work through the math, variable costs are multiplied by period_length. A better treatment of this would be to pull period_length out of hours_in_sample and calculate the fixed & costs as the sum of annual payments that occur in a given investment year.
+years_per_period * ( 
   ep_capital_cost_annual_payment[z, e]
   * (1-(1/(1+discount_rate)^(ep_end_year[z, e]-start_year)))/discount_rate
-  * 1/(1+discount_rate)^(start_year-base_year);
+  * 1/(1+discount_rate)^(start_year-base_year)
+);
 # cost per MW to operate a plant in any future period, discounted to start of study
 param ep_fixed_cost {(z, e) in EXISTING_PLANTS, p in PERIODS} =
+# Multiply fixed costs by years per period so they will match the way multi-year periods are implicitly treated in variable costs. In variable costs, hours_in_sample is a weight intended to reflect how many hours are represented by a timepoint. hours_in_sample is calculated using period length in MySQL: period_length * (days represented) * (subsampling factors), so if you work through the math, variable costs are multiplied by period_length. A better treatment of this would be to pull period_length out of hours_in_sample and calculate the fixed & costs as the sum of annual payments that occur in a given investment year.
+years_per_period * ( 
   ep_fixed_o_m[z, e] * economic_multiplier[z] * (1-(1/(1+discount_rate)^(years_per_period)))/discount_rate
-  * 1/(1+discount_rate)^(p-base_year);
+  * 1/(1+discount_rate)^(p-base_year)
+);
 
 # all variable costs ($/MWh) for generating a MWh of electricity in some
 # future hour, from each existing project, discounted to the reference year
