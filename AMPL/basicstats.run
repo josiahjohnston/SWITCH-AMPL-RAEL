@@ -16,7 +16,49 @@ printf "\nTax=%d: cost=$%3.2f/MWh ",
 			* (ep_carbon_cost_per_mwh[z, e, h])
 	)) / system_load_discounted;
 
-printf "\nPower produced by each fuel in the last investment period\n\t";
+let total_power_produced_last_period := (
+	# Intermittent
+	sum {(z, t, s, o, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS: period[h]=last(PERIODS) }
+	   (1-forced_outage_rate[t]) * cap_factor[z, t, s, o, h] * InstallGen[z, t, s, o, v] * hours_in_sample[h]
+	+
+	# New dispatchable projects
+	sum {(z, t, s, o) in PROJ_DISPATCH, h in TIMEPOINTS: period[h]=last(PERIODS) } 
+	   DispatchGen[z, t, s, o, h] * hours_in_sample[h]
+	+
+	# Existing dispatchable plants
+	sum {(z, e, h) in EP_DISPATCH_HOURS: period[h]=last(PERIODS) } 
+	   DispatchEP[z, e, h] * hours_in_sample[h]
+	+
+	# Existing Intermittent plants
+	sum {(z, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: period[h]=last(PERIODS) } 
+	   OperateEPDuringPeriod[z, e, period[h]] * ep_size_mw[z, e] * eip_cap_factor[z, e, h] * (1-ep_forced_outage_rate[z, e]) * hours_in_sample[h]
+	+
+	# New baseload plants
+	sum {(z, t, s, o, v) in NEW_BASELOAD_PERIODS, h in TIMEPOINTS: period[h]=v and v=last(PERIODS)} 
+	   (1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[z, t, s, o, v] * hours_in_sample[h]
+	+ 
+	# existing baseload plants
+	sum {(z, e, p) in EP_BASELOAD_PERIODS, h in TIMEPOINTS: period[h]=p and p=last(PERIODS)} 
+	   OperateEPDuringPeriod[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e] * hours_in_sample[h]
+	+
+	# Hydro
+	sum {z in LOAD_AREAS, h in TIMEPOINTS: period[h]=last(PERIODS)} (
+	   # pumped hydro, de-rated to reflect occasional unavailability of the hydro plants
+	   (sum {(z, s) in PROJ_PUMPED_HYDRO} DispatchPumpedHydro[z, s, h]) * (1 - forced_outage_rate_hydro) * hours_in_sample[h]
+	   - 
+	   (sum {(z, s) in PROJ_PUMPED_HYDRO} StorePumpedHydro[z, s, h]) * (1 - forced_outage_rate_hydro) * (1/pumped_hydro_efficiency) * hours_in_sample[h]
+	   +
+	   # simple hydro, dispatched using the season-hour schedules chosen above
+	   # also de-rated to reflect occasional unavailability
+	   (1 - forced_outage_rate_hydro) * 
+	   (min_hydro_dispatch_all_sites[z, date[h]] 
+		+ HydroDispatchShare[period[h], z, season_of_year[h], hour_of_day[h]]
+		  * (avg_hydro_dispatch_all_sites[z, date[h]] - min_hydro_dispatch_all_sites[z, date[h]]) * 24
+	   ) * hours_in_sample[h]
+	 )
+);
+
+printf "\nPercentage of power produced by each fuel in the last investment period\n\t";
 printf { f in FUELS } "%s=%2d\%, ", 
   f, 
   100 * (
@@ -65,6 +107,11 @@ printf { f in FUELS } "%s=%2d\%, ",
 	  else 0
 	)
   )
-  / (sum {z in LOAD_AREAS, h in TIMEPOINTS: period[h]=last(PERIODS)} system_load[z, h] * hours_in_sample[h])
+  / total_power_produced_last_period;
 ;
+printf "Spilled=%2d\%\n", 100 * (total_power_produced_last_period - total_load_last_period) / total_power_produced_last_period;
+
+printf "Total Load  = %.0d\n", total_load_last_period;
+printf "Total Power = %.0d\n", total_power_produced_last_period;
+
 printf "\n";
