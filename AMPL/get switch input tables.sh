@@ -36,7 +36,8 @@ export DATESAMPLE=`mysql -h $db_server -u $user -p$password --column-names=false
 export TIMESAMPLE=`mysql -h $db_server -u $user -p$password --column-names=false -e "select _timesample from wecc.scenarios where scenario_id=$SCENARIO_ID;"` 
 export HOURS_IN_SAMPLE=`mysql -h $db_server -u $user -p$password --column-names=false -e "select _hours_in_sample from wecc.scenarios where scenario_id=$SCENARIO_ID;"` 
 export ENABLE_RPS=`mysql -h $db_server -u $user -p$password --column-names=false -e "select enable_rps from wecc.scenarios where scenario_id=$SCENARIO_ID;"` 
-
+export STUDY_START_YEAR=`mysql -h $db_server -u $user -p$password --column-names=false -e "select min(period) from $db_name.study_hours_all where $TIMESAMPLE;"` 
+export STUDY_END_YEAR=`mysql -h $db_server -u $user -p$password --column-names=false -e "select max(period) + (max(period)-min(period))/(count(distinct period) - 1 ) from $db_name.study_hours_all where $TIMESAMPLE;"` 
 
 ###########################
 # Export data to be read into ampl.
@@ -106,7 +107,7 @@ mysql -h $db_server -u $user -p$password -e "select load_area, technology, price
 
 echo '	fuel_costs.tab...'
 echo ampl.tab 3 1 > fuel_costs.tab
-mysql -h $db_server -u $user -p$password -e "select load_area, fuel, year, fuel_price from $db_name.regional_fuel_prices_view where scenario_id = $REGIONAL_FUEL_COST_SCENARIO_ID" >> fuel_costs.tab
+mysql -h $db_server -u $user -p$password -e "select load_area, fuel, year, fuel_price from $db_name.regional_fuel_prices_view where scenario_id = $REGIONAL_FUEL_COST_SCENARIO_ID and year >= $STUDY_START_YEAR and year <= $STUDY_END_YEAR" >> fuel_costs.tab
 
 echo '	fuel_info.tab...'
 echo ampl.tab 1 2 > fuel_info.tab
