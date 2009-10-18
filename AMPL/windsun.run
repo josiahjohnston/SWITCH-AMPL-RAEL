@@ -67,13 +67,14 @@ read table cap_factor;
 table generator_info IN:  
 	TECHNOLOGIES <- [technology], min_build_year, fuel, heat_rate, construction_time_years,
 	max_age_years, forced_outage_rate, scheduled_outage_rate,
-	intermittent, resource_limited, new_baseload ~ baseload, min_build_capacity;
+	intermittent, resource_limited, new_baseload ~ baseload, min_build_capacity, 
+	min_dispatch_mw, min_runtime, min_downtime,	startup_fuel_mbtu;
 read table generator_info;
 
 table regional_generator_costs IN:  
 	REGIONAL_TECHNOLOGIES <- [load_area, technology], price_year, overnight_cost,
 	connect_cost_per_mw_generic, fixed_o_m, variable_o_m, overnight_cost_change,
-	fixed_o_m_change, variable_o_m_change;
+	fixed_o_m_change, variable_o_m_change, nonfuel_startup_cost;
 read table regional_generator_costs;
 
 table fuel_costs IN:
