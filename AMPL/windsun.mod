@@ -76,7 +76,6 @@
 # Time-tracking parameters
 #
 
-set YEARS ordered; # all possible years
 set TIMEPOINTS ordered;
 
 # Each timepoint is assigned to a study period exogenously,
@@ -106,10 +105,9 @@ param season_of_year {h in TIMEPOINTS} = floor((month_of_year[h]-1)/3)+1;
 # note: periods must be evenly spaced and count by years, 
 # but they can have decimals (e.g., 2006.5 for July 1, 2006)
 # and be any distance apart.
-# VINTAGE_YEARS are a synonym for PERIODS, but refer more explicitly
+# PERIODS are a synonym for PERIODS, but refer more explicitly
 # the date when a power plant starts running.
 set PERIODS ordered = setof {h in TIMEPOINTS} (period[h]);
-set VINTAGE_YEARS ordered = PERIODS;
 
 # specific dates are used to collect hours that are part of the same
 # day, for the purpose of hydro dispatch, etc.
@@ -123,11 +121,14 @@ set SEASONS_OF_YEAR ordered = setof {h in TIMEPOINTS} (season_of_year[h]);
 param start_year = first(PERIODS);
 
 # interval between study periods
-param years_per_period = (last(PERIODS)-first(PERIODS))/(card(PERIODS)-1);
+param num_years_per_period = (last(PERIODS)-first(PERIODS))/(card(PERIODS)-1);
 
 # the first year that is beyond the simulation
 # (i.e., this would be the first year of the next simulation, if there were one)
-param end_year = last(PERIODS)+years_per_period;
+param end_year = last(PERIODS)+num_years_per_period;
+
+# all possible years in the study
+set YEARS ordered = start_year .. end_year by 1;
 
 ###############################################
 #
@@ -279,7 +280,7 @@ param fuel_qualifies_for_rps {LOAD_AREAS_AND_FUEL_CATEGORY};
 param rps_fuel_category {FUELS} symbolic in RPS_FUEL_CATEGORY;
 
 param period_rps_takes_effect {z in LOAD_AREAS_WITH_RPS} = 
-	years_per_period * round( ( rps_compliance_year[z] - start_year) / years_per_period ) + start_year;
+	num_years_per_period * round( ( rps_compliance_year[z] - start_year) / num_years_per_period ) + start_year;
 
 ###############################################
 # Project data
@@ -606,23 +607,23 @@ param planning_reserve_margin;
 # first, the capital cost of the plant and any 
 # interconnecting lines and grid upgrades
 # (all costs are in $/MW)
-param capital_cost_proj {(z, t, s, o) in PROJECTS, v in VINTAGE_YEARS} = 
-  ( overnight_cost[z,t] * (1+overnight_cost_change[z,t])^(v - construction_time_years[t] - price_year[z,t])
+param capital_cost_proj {(z, t, s, o) in PROJECTS, p in PERIODS} = 
+  ( overnight_cost[z,t] * (1+overnight_cost_change[z,t])^(p - construction_time_years[t] - price_year[z,t])
     + connect_cost_per_mw_generic[z,t] 
     + connect_cost_per_mw[z, t, s]
   )
 ; 
 
 # The O&M change is locked in when the shovel hits the ground (implicitly assumes that the installed tech is the most significant influence on this change)
-param fixed_o_m_cost_proj {(z,t) in REGIONAL_TECHNOLOGIES, v in VINTAGE_YEARS} = 
-  fixed_o_m[z,t] * (1+fixed_o_m_change[z,t])^(v - construction_time_years[t] - price_year[z,t]);
+param fixed_o_m_cost_proj {(z,t) in REGIONAL_TECHNOLOGIES, p in PERIODS} = 
+  fixed_o_m[z,t] * (1+fixed_o_m_change[z,t])^(p - construction_time_years[t] - price_year[z,t]);
 # earlier versions also assumed that variable costs declined for future vintages,
 # but this version does not, because the changes were minor, hard to support,
 # and required separate dispatch decisions for every vintage of every technology,
 # which needlessly expands the model.
 
 # annual revenue that will be needed to cover the capital cost
-param capital_cost_annual_payment {(z, t, s, o) in PROJECTS, v in VINTAGE_YEARS} = 
+param capital_cost_annual_payment {(z, t, s, o) in PROJECTS, v in PERIODS} = 
   finance_rate[t] * (1 + 1/((1+finance_rate[t])^(max_age_years[t] + construction_time_years[t])-1)) * capital_cost_proj[z, t, s, o, v];
 
 # date when a plant of each type and vintage will stop being included in the simulation
@@ -630,29 +631,26 @@ param capital_cost_annual_payment {(z, t, s, o) in PROJECTS, v in VINTAGE_YEARS}
 # it is kept running (and annual payments continue to be made) 
 # until the end of that period. This avoids having artificial gaps
 # between retirements and starting new plants.
-param project_end_year {t in TECHNOLOGIES, v in VINTAGE_YEARS} =
-  min(end_year, v+ceil(max_age_years[t]/years_per_period)*years_per_period);
+param project_end_year {t in TECHNOLOGIES, v in PERIODS} =
+  min(end_year, v+ceil(max_age_years[t]/num_years_per_period)*num_years_per_period);
 
 # finally, take the stream of capital & fixed costs over the duration of the project,
 # and discount to a lump-sum value at the start of the project,
 # then discount from there to the base_year.
-param fixed_cost {(z, t, s, o) in PROJECTS, v in VINTAGE_YEARS} = 
-# Multiply fixed costs by years per period so they will match the way multi-year periods are implicitly treated in variable costs. In variable costs, hours_in_sample is a weight intended to reflect how many hours are represented by a timepoint. hours_in_sample is calculated using period length in MySQL: period_length * (days represented) * (subsampling factors), so if you work through the math, variable costs are multiplied by period_length. A better treatment of this would be to pull period_length out of hours_in_sample and calculate the fixed & costs as the sum of annual payments that occur in a given investment year.
-years_per_period * ( 
+param fixed_cost {(z, t, s, o) in PROJECTS, p in PERIODS} = 
   # Capital payments that are paid from when construction starts till the plant is retired (or the study period ends)
-  capital_cost_annual_payment[z,t,s,o,v]
+  capital_cost_annual_payment[z,t,s,o,p]
     # A factor to convert Uniform annual capital payments to "Present value" in the construction year - a lump sum at the beginning of the payments. This considers the time from when construction began to the end year
-    * (1-(1/(1+discount_rate)^(project_end_year[t,v] - v + construction_time_years[t])))/discount_rate
+    * (1-(1/(1+discount_rate)^(project_end_year[t,p] - p + construction_time_years[t])))/discount_rate
     # Future value (in the construction year) to Present value (in the base year)
-    * 1/(1+discount_rate)^(v-construction_time_years[t]-base_year)
+    * 1/(1+discount_rate)^(p-construction_time_years[t]-base_year)
 +
   # Fixed annual costs that are paid while the plant is operating (up to the end of the study period)
-  fixed_o_m_cost_proj[z,t,v]
+  fixed_o_m_cost_proj[z,t,p]
     # U to P, from the time the plant comes online to the end year
-    * (1-(1/(1+discount_rate)^(project_end_year[t,v]-v)))/discount_rate
+    * (1-(1/(1+discount_rate)^(project_end_year[t,p]-p)))/discount_rate
     # F to P, from the time the plant comes online to the base year
-    * 1/(1+discount_rate)^(v-base_year)
-);
+    * 1/(1+discount_rate)^(p-base_year);
 
 # all variable costs ($/MWh) for generating a MWh of electricity in some
 # future hour, using a particular technology and vintage, 
@@ -681,7 +679,7 @@ param carbon_cost_per_mwh {t in TECHNOLOGIES, h in TIMEPOINTS} =
 # this is rounded up to the end of the study period when the retirement would occur,
 # so power is generated and capital & O&M payments are made until the end of that period.
 param ep_end_year {(z, e) in EXISTING_PLANTS} =
-  min(end_year, start_year+ceil((ep_vintage[z, e]+ep_max_age_years[z, e]-start_year)/years_per_period)*years_per_period);
+  min(end_year, start_year+ceil((ep_vintage[z, e]+ep_max_age_years[z, e]-start_year)/num_years_per_period)*num_years_per_period);
 
 # annual revenue that is needed to cover the capital cost (per MW)
 # TODO: find a better way to specify the finance rate applied to existing projects
@@ -693,18 +691,18 @@ param ep_capital_cost_annual_payment {(z, e) in EXISTING_PLANTS} =
 # discount capital costs to a lump-sum value at the start of the study.
 param ep_capital_cost {(z, e) in EXISTING_PLANTS} =
 # Multiply fixed costs by years per period so they will match the way multi-year periods are implicitly treated in variable costs. In variable costs, hours_in_sample is a weight intended to reflect how many hours are represented by a timepoint. hours_in_sample is calculated using period length in MySQL: period_length * (days represented) * (subsampling factors), so if you work through the math, variable costs are multiplied by period_length. A better treatment of this would be to pull period_length out of hours_in_sample and calculate the fixed & costs as the sum of annual payments that occur in a given investment year.
-years_per_period * ( 
   ep_capital_cost_annual_payment[z, e]
-  * (1-(1/(1+discount_rate)^(ep_end_year[z, e]-start_year)))/discount_rate
-  * 1/(1+discount_rate)^(start_year-base_year)
-);
+    # A factor to convert Uniform annual capital payments from the start of the study until the plant is retired.
+    * (1-(1/(1+discount_rate)^(ep_end_year[z, e]-start_year)))/discount_rate
+    # Future value (at the start of the study) to Present value (in the base year)
+    * 1/(1+discount_rate)^(start_year-base_year);
 # cost per MW to operate a plant in any future period, discounted to start of study
 param ep_fixed_cost {(z, e) in EXISTING_PLANTS, p in PERIODS} =
-# Multiply fixed costs by years per period so they will match the way multi-year periods are implicitly treated in variable costs. In variable costs, hours_in_sample is a weight intended to reflect how many hours are represented by a timepoint. hours_in_sample is calculated using period length in MySQL: period_length * (days represented) * (subsampling factors), so if you work through the math, variable costs are multiplied by period_length. A better treatment of this would be to pull period_length out of hours_in_sample and calculate the fixed & costs as the sum of annual payments that occur in a given investment year.
-years_per_period * ( 
-  ep_fixed_o_m[z, e] * economic_multiplier[z] * (1-(1/(1+discount_rate)^(years_per_period)))/discount_rate
-  * 1/(1+discount_rate)^(p-base_year)
-);
+  ep_fixed_o_m[z, e] * economic_multiplier[z] 
+    # A factor to convert all of the uniform annual payments that occur in a study period to the start of a study period
+    * (1-(1/(1+discount_rate)^(num_years_per_period)))/discount_rate
+    # Future value (at the start of the study) to Present value (in the base year)
+    * 1/(1+discount_rate)^(p-base_year);
 
 # all variable costs ($/MWh) for generating a MWh of electricity in some
 # future hour, from each existing project, discounted to the reference year
@@ -725,18 +723,18 @@ param ep_carbon_cost_per_mwh {(z, e) in EXISTING_PLANTS, h in TIMEPOINTS} =
 # cost per MW for transmission lines
 # TODO: use a transmission_annual_cost_change factor to make this vary between vintages
 # TODO: Move the regional cost adjustment into the database. 
-param transmission_annual_payment {(z1, z2) in TRANSMISSION_LINES, v in VINTAGE_YEARS} = 
+param transmission_annual_payment {(z1, z2) in TRANSMISSION_LINES, v in PERIODS} = 
   transmission_finance_rate * (1 + 1/((1+transmission_finance_rate)^transmission_max_age_years-1)) 
   * transmission_cost_per_mw_km * (economic_multiplier[z1] + economic_multiplier[z2]) / 2 * transmission_length_km[z1, z2];
 
 # date when a transmission line built of each vintage will stop being included in the simulation
 # note: if it would be expected to retire between study periods,
 # it is kept running (and annual payments continue to be made).
-param transmission_end_year {v in VINTAGE_YEARS} =
-  min(end_year, v+ceil(transmission_max_age_years/years_per_period)*years_per_period);
+param transmission_end_year {v in PERIODS} =
+  min(end_year, v+ceil(transmission_max_age_years/num_years_per_period)*num_years_per_period);
 
 # discounted cost per MW
-param transmission_cost_per_mw {(z1, z2) in TRANSMISSION_LINES, v in VINTAGE_YEARS} =
+param transmission_cost_per_mw {(z1, z2) in TRANSMISSION_LINES, v in PERIODS} =
   transmission_annual_payment[z1, z2, v]
   * (1-(1/(1+discount_rate)^(transmission_end_year[v] - v)))/discount_rate
   * 1/(1+discount_rate)^(v-base_year);
@@ -744,15 +742,15 @@ param transmission_cost_per_mw {(z1, z2) in TRANSMISSION_LINES, v in VINTAGE_YEA
 # date when a when local T&D infrastructure of each vintage will stop being included in the simulation
 # note: if it would be expected to retire between study periods,
 # it is kept running (and annual payments continue to be made).
-param local_td_end_year {v in VINTAGE_YEARS} =
-  min(end_year, v+ceil(local_td_max_age_years/years_per_period)*years_per_period);
+param local_td_end_year {v in PERIODS} =
+  min(end_year, v+ceil(local_td_max_age_years/num_years_per_period)*num_years_per_period);
 
 # discounted cost per MW for local T&D
 # note: instead of bringing in an annual payment directly (above), we could calculate it as
 # = local_td_finance_rate * (1 + 1/((1+local_td_finance_rate)^local_td_max_age_years-1)) 
 #  * local_td_real_cost_per_mw;
 # TODO: Move the regional cost adjustment into the database. 
-param local_td_cost_per_mw {v in VINTAGE_YEARS, z in LOAD_AREAS} = 
+param local_td_cost_per_mw {v in PERIODS, z in LOAD_AREAS} = 
   local_td_annual_payment_per_mw * economic_multiplier[z]
   * (1-(1/(1+discount_rate)^(local_td_end_year[v]-v)))/discount_rate
   * 1/(1+discount_rate)^(v-base_year);
@@ -783,7 +781,7 @@ param system_load_discounted =
 # reduced sets for decision variables and constraints
 
 # project-vintage combinations that can be installed
-set PROJECT_VINTAGES = setof {(z, t, s, o) in PROJECTS, v in VINTAGE_YEARS: v >= min_build_year[t] + construction_time_years[t]} (z, t, s, o, v);
+set PROJECT_VINTAGES = setof {(z, t, s, o) in PROJECTS, v in PERIODS: v >= min_build_year[t] + construction_time_years[t]} (z, t, s, o, v);
 
 # project-vintage combinations that have a minimum size constraint.
 set PROJ_MIN_BUILD_VINTAGES = setof {(z, t, s, o, v) in PROJECT_VINTAGES: min_build_capacity[t] > 0} (z, t, s, o, v);
@@ -791,11 +789,11 @@ set PROJ_MIN_BUILD_VINTAGES = setof {(z, t, s, o, v) in PROJECT_VINTAGES: min_bu
 # technology-site-vintage-hour combinations for dispatchable projects
 # (i.e., all the project-vintage combinations that are still active in a given hour of the study)
 set PROJ_DISPATCH_VINTAGE_HOURS := 
-  {(z, t, s, o) in PROJ_DISPATCH, v in VINTAGE_YEARS, h in TIMEPOINTS: not new_baseload[t] and v >= min_build_year[t] + construction_time_years[t] and v <= period[h] < project_end_year[t, v]};
+  {(z, t, s, o) in PROJ_DISPATCH, v in PERIODS, h in TIMEPOINTS: not new_baseload[t] and v >= min_build_year[t] + construction_time_years[t] and v <= period[h] < project_end_year[t, v]};
 
 # technology-site-vintage-hour combinations for intermittent (non-dispatchable) projects
 set PROJ_INTERMITTENT_VINTAGE_HOURS := 
-  {(z, t, s, o) in PROJ_INTERMITTENT, v in VINTAGE_YEARS, h in TIMEPOINTS: v >= min_build_year[t] + construction_time_years[t] and v <= period[h] < project_end_year[t, v]};
+  {(z, t, s, o) in PROJ_INTERMITTENT, v in PERIODS, h in TIMEPOINTS: v >= min_build_year[t] + construction_time_years[t] and v <= period[h] < project_end_year[t, v]};
 
 # plant-period combinations when new baseload plants can run
 set NEW_BASELOAD_PERIODS :=
@@ -825,11 +823,11 @@ set EP_BASELOAD_PERIODS :=
 
 # trans_line-vintage-hour combinations for which dispatch decisions must be made
 set TRANS_VINTAGE_HOURS := 
-  {(z1, z2) in TRANSMISSION_LINES, v in VINTAGE_YEARS, h in TIMEPOINTS: v <= period[h] < transmission_end_year[v]};
+  {(z1, z2) in TRANSMISSION_LINES, v in PERIODS, h in TIMEPOINTS: v <= period[h] < transmission_end_year[v]};
 
 # local_td-vintage-hour combinations which must be reconciled
 set LOCAL_TD_HOURS := 
-  {z in LOAD_AREAS, v in VINTAGE_YEARS, h in TIMEPOINTS: v <= period[h] < local_td_end_year[v]};
+  {z in LOAD_AREAS, v in PERIODS, h in TIMEPOINTS: v <= period[h] < local_td_end_year[v]};
 
 
 #### VARIABLES ####
@@ -840,6 +838,7 @@ var InstallGen {PROJECT_VINTAGES} >= 0;
 # binary constraint that restricts small plants of certain types of generators (ex: Nuclear) from being built
 # this quantity is one when there is there is not a constraint on how small plants can be
 # and is zero when there is a constraint
+#var BuildGenOrNot {PROJ_MIN_BUILD_VINTAGES} >= 0, <= 1; 
 var BuildGenOrNot {PROJ_MIN_BUILD_VINTAGES} binary;
 
 # number of MW to generate from each project, in each hour
@@ -862,7 +861,7 @@ var OperateEPDuringPeriod {EP_PERIODS} binary;
 var DispatchEP {EP_DISPATCH_HOURS} >= 0;
 
 # number of MW to install in each transmission corridor at each vintage
-var InstallTrans {TRANSMISSION_LINES, VINTAGE_YEARS} >= 0;
+var InstallTrans {TRANSMISSION_LINES, PERIODS} >= 0;
 
 # number of MW to transmit through each transmission corridor in each hour
 var DispatchTransFromXToY {TRANSMISSION_LINES, TIMEPOINTS, RPS_FUEL_CATEGORY} >= 0;
@@ -870,7 +869,7 @@ var DispatchTransFromXToY_Reserve {TRANSMISSION_LINES, TIMEPOINTS, RPS_FUEL_CATE
 
 # amount of local transmission and distribution capacity
 # (to carry peak power from transmission network to distributed loads)
-var InstallLocalTD {LOAD_AREAS, VINTAGE_YEARS} >= 0;
+var InstallLocalTD {LOAD_AREAS, PERIODS} >= 0;
 
 # amount of pumped hydro to store and dispatch during each hour
 # note: the amount "stored" is the number of MW that can be generated using
@@ -894,7 +893,7 @@ var HydroDispatchShare_Reserve {PERIODS, LOAD_AREAS, SEASONS_OF_YEAR, HOURS_OF_D
 # t = technology
 # s = site
 # o = orientation (PV tilt, usually not used)
-# v = VINTAGE_YEARS, are a synonym for PERIODS, but refer more explicitly the date when a power plant starts running.
+# p = PERIODS, the start of an investment period as well as the date when a power plant starts running.
 # h = study hour - unique timepoint considered
 # e = Plant ID for existing plants. In US, this is the FERC plant_code. e.g. 55306-CC
 # p = investment period
@@ -941,11 +940,11 @@ minimize Power_Cost:
 
 	########################################
 	#    TRANSMISSION & DISTRIBUTION
-  + sum {(z1, z2) in TRANSMISSION_LINES, v in VINTAGE_YEARS} 
+  + sum {(z1, z2) in TRANSMISSION_LINES, v in PERIODS} 
       InstallTrans[z1, z2, v] * transmission_cost_per_mw[z1, z2, v]
   + sum {(z1, z2) in TRANSMISSION_LINES} 
       transmission_cost_per_mw[z1, z2, first(PERIODS)] * (existing_transfer_capacity_mw[z1, z2])/2
-  + sum {z in LOAD_AREAS, v in VINTAGE_YEARS}
+  + sum {z in LOAD_AREAS, v in PERIODS}
       InstallLocalTD[z, v] * local_td_cost_per_mw[v, z]
 ;
 
@@ -1125,7 +1124,7 @@ subject to Maximum_DispatchGen
 # (not an issue if the simulation is too short to retire plants)
 # or even allow forced retiring of earlier plants if new technologies are better
 subject to Maximum_Resource {(z, t, s, o) in PROJ_RESOURCE_LIMITED}:
-  sum {v in VINTAGE_YEARS: v >= min_build_year[t] + construction_time_years[t]} InstallGen[z, t, s, o, v] <= max_capacity[z, t, s];
+  sum {v in PERIODS: v >= min_build_year[t] + construction_time_years[t]} InstallGen[z, t, s, o, v] <= max_capacity[z, t, s];
 
 # Some generators have a minimum build size. This enforces that constraint
 # If a generator is installed, then BuildGenOrNot is 1, and InstallGen has to be >= min_build_capacity
@@ -1183,10 +1182,11 @@ subject to Maximum_LocalTD
 # make the system generate a certain amount of power from a certain resource
 subject to Min_Gen_Fraction_From_Solar { if enable_min_solar_production}:
     # New plants
-	(sum {(z, t, s, o, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS: t in SOLAR_TECHNOLOGIES             and v = last( VINTAGE_YEARS )} 
+	(sum {(z, t, s, o, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS: t in SOLAR_TECHNOLOGIES
+	      and v = last( PERIODS )} 
         (1-forced_outage_rate[t]) * cap_factor[z, t, s, o, h] * InstallGen[z, t, s, o, v]) 
     # Existing plants
-    - (sum {(z, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: ep_technology[z,e] in SOLAR_TECHNOLOGIES and period[h] = last( VINTAGE_YEARS )}
+    - (sum {(z, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: ep_technology[z,e] in SOLAR_TECHNOLOGIES and period[h] = last( PERIODS )}
     	OperateEPDuringPeriod[z, e, period[h]] * 
         (1-ep_forced_outage_rate[z,e]) * eip_cap_factor[z, e, h]   * ep_size_mw[z, e] )
       >=
