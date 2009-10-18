@@ -14,7 +14,7 @@ results_dir="results"
 # Get the user name and password 
 # Note that passing the password to mysql via a command line parameter is considered insecure
 #	http://dev.mysql.com/doc/refman/5.0/en/password-security.html
-if [ $# -ge 2 ]
+if [ $# -ge 2 -a $1 != "--FlushPriorResults" ]
 then 
 	user=$1
 	password=$2
@@ -35,8 +35,14 @@ if [ $# -ge 3 ]
 then 
 	if [ $3 = "--FlushPriorResults" ]
 	then
+		echo "Flushing Prior results for scenario ${SCENARIO_ID}";
 		mysql -h $db_server -u $user -p$password -e "use $DB_name; select clear_scenario_results(${SCENARIO_ID});"
 	fi
+fi
+if [ $1 = "--FlushPriorResults" ]
+then
+	echo "Flushing Prior results for scenario ${SCENARIO_ID}";
+	mysql -h $db_server -u $user -p$password -e "use $DB_name; select clear_scenario_results(${SCENARIO_ID});"
 fi
 
 ###################################################
