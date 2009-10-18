@@ -178,7 +178,7 @@ param fuel {TECHNOLOGIES} symbolic in FUELS;
 # earliest time when each technology can be built
 param min_build_year {TECHNOLOGIES} >= 0;
 
-# heat rate (in Btu/kWh)
+# heat rate (in MBtu/MWh)
 param heat_rate {TECHNOLOGIES} >= 0;
 
 # construction lead time (years)
@@ -205,7 +205,19 @@ param new_baseload {TECHNOLOGIES} binary;
 # can this type of project only be installed in limited amounts?
 param min_build_capacity {TECHNOLOGIES} >= 0;
 
+# the minimum capacity in MW that a project can be dispatched due to operation constraints
+# (i.e. CCGTs don't operate at 5% capacity)
+param min_dispatch_mw {TECHNOLOGIES} >= 0;
 
+# the minimum amount of hours a generator must be operating (at >= min_dispatch_mw)
+# if that generator is to be turned on at all
+param min_runtime {TECHNOLOGIES} >= 0;
+
+# the minimum amount of hours a generator must be left off before ramping up again
+param min_downtime {TECHNOLOGIES} >= 0;
+
+# the amount of fuel burned in MBtu that is needed to start a generator from cold
+param startup_fuel_mbtu {TECHNOLOGIES} >= 0;
 
 ###############################################
 #
@@ -240,6 +252,8 @@ param overnight_cost_change {REGIONAL_TECHNOLOGIES};
 # annual rate of change of fixed O&M, beginning at min_build_year
 param fixed_o_m_change {REGIONAL_TECHNOLOGIES};
 
+# the nonfuel costs incurred by starting a plant from cold to producing powers
+param nonfuel_startup_cost {REGIONAL_TECHNOLOGIES};
 
 ##################################################################
 #
@@ -455,7 +469,7 @@ param ep_technology {EXISTING_PLANTS} symbolic;
 # type of fuel used by the plant
 param ep_fuel {EXISTING_PLANTS} symbolic in FUELS;
 
-# heat rate (in Btu/kWh)
+# heat rate (in MBtu/MWh)
 param ep_heat_rate {EXISTING_PLANTS} >= 0;
 
 # year when the plant was built (used to calculate annual capital cost and retirement date)
@@ -560,11 +574,10 @@ param carbon_cost;
 # set and parameters used to make carbon cost curves
 set CARBON_COSTS;
 
-# annual fuel price forecast
-# old: param fuel_price {YEARS, FUELS} default 0, >= 0;
+# annual fuel price forecast in $/MBtu
 param fuel_price {LOAD_AREAS, FUELS, YEARS} default 0, >= 0;
 
-# carbon content (tons) per million Btu of each fuel
+# carbon content (tons) per MBtu of each fuel
 param carbon_content {FUELS} default 0, >= 0;
 
 # Calculate discounted fixed and variable costs for each technology and vintage
@@ -645,7 +658,6 @@ years_per_period * (
 # future hour, using a particular technology and vintage, 
 # discounted to reference year
 # these include O&M, fuel, carbon tax
-# note: we divide heat_rate by 1000 to go from Btu/kWh to MBtu/MWh
 # We also multiply by the number of real hours represented by each sample,
 # because a case study could use only a limited subset of hours.
 # (this used to vary by vintage to allow for changing variable costs, but not anymore)
@@ -654,12 +666,12 @@ years_per_period * (
 # they are all discounted by the same factor
 param variable_cost {(z,t) in REGIONAL_TECHNOLOGIES, h in TIMEPOINTS} =
   hours_in_sample[h] * (
-    variable_o_m[z,t] + heat_rate[t]/1000 * fuel_cost_hourly[z, fuel[t], h]
+    variable_o_m[z,t] + heat_rate[t] * fuel_cost_hourly[z, fuel[t], h]
   ) * 1/(1+discount_rate)^(period[h]-base_year);
 
 param carbon_cost_per_mwh {t in TECHNOLOGIES, h in TIMEPOINTS} = 
   hours_in_sample[h] * (
-    heat_rate[t]/1000 * carbon_content[fuel[t]] * carbon_cost
+    heat_rate[t] * carbon_content[fuel[t]] * carbon_cost
   ) * 1/(1+discount_rate)^(period[h]-base_year);
 
 ########
@@ -696,16 +708,15 @@ years_per_period * (
 
 # all variable costs ($/MWh) for generating a MWh of electricity in some
 # future hour, from each existing project, discounted to the reference year
-# note: we divide heat_rate by 1000 to go from Btu/kWh to MBtu/MWh
 param ep_variable_cost {(z, e) in EXISTING_PLANTS, h in TIMEPOINTS} =
   hours_in_sample[h] * (
     ep_variable_o_m[z, e] * economic_multiplier[z]
-    + ep_heat_rate[z, e]/1000 * fuel_cost_hourly[z, ep_fuel[z, e], h]
+    + ep_heat_rate[z, e] * fuel_cost_hourly[z, ep_fuel[z, e], h]
   ) * 1/(1+discount_rate)^(period[h]-base_year);
 
 param ep_carbon_cost_per_mwh {(z, e) in EXISTING_PLANTS, h in TIMEPOINTS} = 
   hours_in_sample[h] * (
-    ep_heat_rate[z, e]/1000 * carbon_content[ep_fuel[z, e]] * carbon_cost
+    ep_heat_rate[z, e] * carbon_content[ep_fuel[z, e]] * carbon_cost
   ) * 1/(1+discount_rate)^(period[h]-base_year);
 
 ########
