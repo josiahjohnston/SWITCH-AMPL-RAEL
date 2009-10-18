@@ -33,6 +33,8 @@ for {c in CARBON_COSTS} {
     printf "%d seconds to optimize for cost.", time() - curtime;
   }
 
+  # show some info about this run
+#  include basicstats.run;
 
 
 
@@ -77,6 +79,7 @@ for {c in CARBON_COSTS} {
     write ("b" & trans_problem_file);
     solve;
 
+    objective Power_Cost;
     unfix InstallGen;
     unfix BuildGenOrNot;
     unfix DispatchGen;
@@ -93,12 +96,13 @@ for {c in CARBON_COSTS} {
     unfix HydroDispatchShare_Reserve;
 
     printf "\n%d seconds to optimize for cost and transmission.\n", time() - curtime;
+
+    # show some info about this run
+    include basicstats.run;
+
+    # restore the original solution
+    solution (cost_solution_file);
   }
-
-
-
-  # show some info about this run
-  include basicstats.run;
 
   # export the results to csv files and the like
   include record_results.run;
