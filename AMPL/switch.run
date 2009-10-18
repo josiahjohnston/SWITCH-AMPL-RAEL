@@ -92,7 +92,7 @@ for {c in CARBON_COSTS} {
     unfix HydroDispatchShare;
     unfix HydroDispatchShare_Reserve;
 
-    printf "\n%d seconds to optimize for transmission.\n", time() - curtime;
+    printf "\n%d seconds to optimize for cost and transmission.\n", time() - curtime;
   }
 
 
