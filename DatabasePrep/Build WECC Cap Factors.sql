@@ -235,13 +235,14 @@ CREATE TABLE regional_generator_costs(
   area_id INT NOT NULL,
   technology varchar(30),
   price_year year(4),
-  overnight_cost double,
-  connect_cost_per_mw_generic double,
-  fixed_o_m double,
-  variable_o_m double,
-  overnight_cost_change double,
-  fixed_o_m_change double,
-  variable_o_m_change double
+  overnight_cost float,
+  connect_cost_per_mw_generic float,
+  fixed_o_m float,
+  variable_o_m float,
+  overnight_cost_change float,
+  fixed_o_m_change float,
+  variable_o_m_change float,
+  nonfuel_startup_cost float
 );
 
 set @cost_mult_scenario_id = 1;
@@ -255,7 +256,7 @@ select if( max(scenario_id) + 1 is null, 1, max(scenario_id) + 1 ) into @reg_gen
 -- technologies that Switch can't build yet but might in the future are eliminated in the last line
 insert into regional_generator_costs
     (scenario_id, area_id, technology, price_year, overnight_cost, connect_cost_per_mw_generic, 
-     fixed_o_m, variable_o_m, overnight_cost_change, fixed_o_m_change, variable_o_m_change)
+     fixed_o_m, variable_o_m, overnight_cost_change, fixed_o_m_change, variable_o_m_change, nonfuel_startup_cost)
 
     select 	@reg_generator_scenario_id as scenario_id, 
     		area_id,
@@ -267,7 +268,8 @@ insert into regional_generator_costs
     		variable_o_m * economic_multiplier as variable_o_m,
    			overnight_cost_change,
    			fixed_o_m_change,
-   			variable_o_m_change
+   			variable_o_m_change,
+   			nonfuel_startup_cost * economic_multiplier as nonfuel_startup_cost
     from 	generator_info.generator_costs,
 			load_area_info
 	where 	load_area_info.scenario_id  = @cost_mult_scenario_id
@@ -296,9 +298,22 @@ CREATE VIEW regional_generator_costs_view as
 
 DROP TABLE IF EXISTS generator_info;
 CREATE TABLE generator_info (
-  select technology, min_build_year, fuel, heat_rate, construction_time_years,
-  		max_age_years, forced_outage_rate, scheduled_outage_rate, intermittent,
-  		resource_limited, baseload, min_build_capacity
+  select 	technology,
+			min_build_year,
+			fuel,
+			heat_rate,
+			construction_time_years,
+  			max_age_years,
+			forced_outage_rate,
+			scheduled_outage_rate,
+			intermittent,
+  			resource_limited,
+			baseload,
+			min_build_capacity,
+			min_dispatch_mw,
+			min_runtime,
+			min_downtime,
+			startup_fuel_mbtu
   from generator_info.generator_costs );
 
 
