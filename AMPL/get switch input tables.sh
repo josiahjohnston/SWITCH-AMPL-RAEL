@@ -97,12 +97,12 @@ echo ampl.tab 5 1 > cap_factor.tab
 mysql -h $db_server -u $user -p$password -e "select load_area, generator_type as technology, site, configuration, study_hour as hour, cap_factor from $db_name.cap_factor_proposed_renewable_sites c join $db_name.study_hours_all h on (h.hournum=c.hour) where $TIMESAMPLE;" >> cap_factor.tab
 
 echo '	generator_info.tab...'
-echo ampl.tab 1 11 > generator_info.tab
-mysql -h $db_server -u $user -p$password -e "select technology, min_build_year, fuel, heat_rate, construction_time_years, max_age_years, forced_outage_rate, scheduled_outage_rate, intermittent, resource_limited, baseload, min_build_capacity from $db_name.generator_info;" >> generator_info.tab
+echo ampl.tab 1 15 > generator_info.tab
+mysql -h $db_server -u $user -p$password -e "select technology, min_build_year, fuel, heat_rate, construction_time_years, max_age_years, forced_outage_rate, scheduled_outage_rate, intermittent, resource_limited, baseload, min_build_capacity, min_dispatch_mw, min_runtime, min_downtime, startup_fuel_mbtu from $db_name.generator_info;" >> generator_info.tab
 
 echo '	regional_generator_costs.tab...'
-echo ampl.tab 2 8 > regional_generator_costs.tab
-mysql -h $db_server -u $user -p$password -e "select load_area, technology, price_year, overnight_cost, connect_cost_per_mw_generic, fixed_o_m, variable_o_m, overnight_cost_change, fixed_o_m_change, variable_o_m_change from $db_name.regional_generator_costs_view where scenario_id = $REGIONAL_GEN_PRICE_SCENARIO_ID;" >> regional_generator_costs.tab
+echo ampl.tab 2 9 > regional_generator_costs.tab
+mysql -h $db_server -u $user -p$password -e "select load_area, technology, price_year, overnight_cost, connect_cost_per_mw_generic, fixed_o_m, variable_o_m, overnight_cost_change, fixed_o_m_change, variable_o_m_change, nonfuel_startup_cost from $db_name.regional_generator_costs_view where scenario_id = $REGIONAL_GEN_PRICE_SCENARIO_ID;" >> regional_generator_costs.tab
 
 echo '	fuel_costs.tab...'
 echo ampl.tab 3 1 > fuel_costs.tab
