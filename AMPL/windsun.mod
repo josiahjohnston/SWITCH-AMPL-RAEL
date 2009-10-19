@@ -795,9 +795,14 @@ set PROJ_DISPATCH_VINTAGE_HOURS :=
 set PROJ_INTERMITTENT_VINTAGE_HOURS := 
   {(z, t, s, o) in PROJ_INTERMITTENT, v in PERIODS, h in TIMEPOINTS: v >= min_build_year[t] + construction_time_years[t] and v <= period[h] < project_end_year[t, v]};
 
-# plant-period combinations when new baseload plants can run
-set NEW_BASELOAD_PERIODS :=
-  {(z, t, s, o, v) in PROJECT_VINTAGES: new_baseload[t]};
+# plant-period combinations when new baseload plants can be installed
+set NEW_BASELOAD_VINTAGES =
+  setof {(z, t, s, o, v) in PROJECT_VINTAGES: new_baseload[t] and v >= min_build_year[t] + construction_time_years[t] } (z, t, s, o, v);
+
+# plant-period combinations when new baseload plants can run. That is, all new baseload plants that are active in a given hour of the study
+set NEW_BASELOAD_VINTAGE_HOURS =
+  setof {(z, t, s, o, v) in NEW_BASELOAD_VINTAGES, h in TIMEPOINTS: v <= period[h] < project_end_year[t, v]} (z, t, s, o, v, h);
+
 
 # plant-period combinations when existing plants can run
 # these are the times when a decision must be made about whether a plant will be kept available for the year
@@ -907,8 +912,8 @@ minimize Power_Cost:
   # Calculate variable costs for new plants that are dispatchable. 
   + sum {(z, t, s, o) in PROJ_DISPATCH, h in TIMEPOINTS} 
       DispatchGen[z, t, s, o, h] * (variable_cost[z, t, h] + carbon_cost_per_mwh[t, h])
-  # Calculate variable costs for new baseload plants
-  + sum {(z, t, s, o, v) in NEW_BASELOAD_PERIODS, h in TIMEPOINTS: period[h]=v}
+  # Calculate variable costs for new baseload plants for all the hours in which they will operate
+  + sum {(z, t, s, o, v, h) in NEW_BASELOAD_VINTAGE_HOURS}
       (1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[z, t, s, o, v] 
       * (variable_cost[z, t, h] + carbon_cost_per_mwh[t, h])
 
@@ -971,7 +976,7 @@ subject to Satisfy_Load {z in LOAD_AREAS, h in TIMEPOINTS}:
   + (sum {(z, t, s, o, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS} 
       (1-forced_outage_rate[t]) * cap_factor[z, t, s, o, h] * InstallGen[z, t, s, o, v])
   # new baseload plants
-  + sum {(z, t, s, o, v) in NEW_BASELOAD_PERIODS} 
+  + sum {(z, t, s, o, v, h) in NEW_BASELOAD_VINTAGE_HOURS} 
       ((1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[z, t, s, o, v] )
 
 	#############################
@@ -1030,7 +1035,7 @@ subject to Satisfy_Load_Reserve {z in LOAD_AREAS, h in TIMEPOINTS}:
       cap_factor[z, t, s, o, h] * InstallGen[z, t, s, o, v])
 
   # new baseload plants
-  + sum {(z, t, s, o, v) in NEW_BASELOAD_PERIODS} 
+  + sum {(z, t, s, o, v, h) in NEW_BASELOAD_VINTAGE_HOURS} 
       ((1-scheduled_outage_rate[t]) * InstallGen[z, t, s, o, v] )
 
 	#############################
@@ -1124,7 +1129,7 @@ subject to Maximum_DispatchGen
 # (not an issue if the simulation is too short to retire plants)
 # or even allow forced retiring of earlier plants if new technologies are better
 subject to Maximum_Resource {(z, t, s, o) in PROJ_RESOURCE_LIMITED}:
-  sum {v in PERIODS: v >= min_build_year[t] + construction_time_years[t]} InstallGen[z, t, s, o, v] <= max_capacity[z, t, s];
+  sum {p in PERIODS: p >= min_build_year[t] + construction_time_years[t]} InstallGen[z, t, s, o, p] <= max_capacity[z, t, s];
 
 # Some generators have a minimum build size. This enforces that constraint
 # If a generator is installed, then BuildGenOrNot is 1, and InstallGen has to be >= min_build_capacity
@@ -1206,14 +1211,14 @@ subject to Satisfy_RPS {z in LOAD_AREAS_WITH_RPS, p in PERIODS:
      DispatchGen[z, t, s, o, h] * hours_in_sample[h]
    )
   # output from new intermittent projects
-  + (sum {(z, t, s, o, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS: 
-          v = p and fuel_qualifies_for_rps[z, rps_fuel_category[fuel[t]]]} 
-      (1-forced_outage_rate[t]) * cap_factor[z, t, s, o, h] * InstallGen[z, t, s, o, v] * hours_in_sample[h]
+  + (sum {(z, t, s, o, install_year, h) in PROJ_INTERMITTENT_VINTAGE_HOURS: 
+          period[h] = p and fuel_qualifies_for_rps[z, rps_fuel_category[fuel[t]]]} 
+      (1-forced_outage_rate[t]) * cap_factor[z, t, s, o, h] * InstallGen[z, t, s, o, install_year] * hours_in_sample[h]
     )
   # new baseload plants
-  + (sum {(z, t, s, o, v) in NEW_BASELOAD_PERIODS, h in TIMEPOINTS: 
-          v = p and period[h] = p and fuel_qualifies_for_rps[z, rps_fuel_category[fuel[t]]]} 
-      (1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[z, t, s, o, v] * hours_in_sample[h]
+  + (sum {(z, t, s, o, install_year, h) in NEW_BASELOAD_VINTAGE_HOURS: 
+          period[h] = p and fuel_qualifies_for_rps[z, rps_fuel_category[fuel[t]]]} 
+      (1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[z, t, s, o, install_year] * hours_in_sample[h]
     )
 
 	#############################
@@ -1267,12 +1272,12 @@ subject to Conservation_of_Colored_Electrons {z in LOAD_AREAS, h in TIMEPOINTS, 
       DispatchGen[z, t, s, o, h]
     )
   # new intermittent projects
-  + (sum {(z, t, s, o, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS: rps_fuel_category[fuel[t]] = ft} 
-      (1-forced_outage_rate[t]) * cap_factor[z, t, s, o, h] * InstallGen[z, t, s, o, v]
+  + (sum {(z, t, s, o, install_year, h) in PROJ_INTERMITTENT_VINTAGE_HOURS: rps_fuel_category[fuel[t]] = ft} 
+      (1-forced_outage_rate[t]) * cap_factor[z, t, s, o, h] * InstallGen[z, t, s, o, install_year]
     )
   # new baseload plants
-  + (sum {(z, t, s, o, v) in NEW_BASELOAD_PERIODS: rps_fuel_category[fuel[t]] = ft} 
-      (1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[z, t, s, o, v] 
+  + (sum {(z, t, s, o, install_year, h) in NEW_BASELOAD_VINTAGE_HOURS: rps_fuel_category[fuel[t]] = ft} 
+      (1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[z, t, s, o, install_year] 
     )
   # existing baseload plants
   + (sum {(z, e, p) in EP_BASELOAD_PERIODS: p=period[h] and rps_fuel_category[ep_fuel[z,e]] = ft} 

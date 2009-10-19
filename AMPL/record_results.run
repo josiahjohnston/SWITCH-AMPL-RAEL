@@ -45,7 +45,7 @@ printf {(z, t) in setof {(z1, t1, s1, o1) in PROJ_INTERMITTENT} (z1, t1), h in T
 
 # new baseload plants
 # 
-printf {(z, t, s, o, v) in NEW_BASELOAD_PERIODS, h in TIMEPOINTS: period[h]=v} 
+printf {(z, t, s, o, v, h) in NEW_BASELOAD_VINTAGE_HOURS} 
   "%s,%f,%d,%s,%d,%d,%s,%s,%s,%d,%d,%d,%s,%f,%f,%d,%f,%f,%f,%f\n",
   scenario_id, carbon_cost, v, z, date[h], h, t, s, o, 1, new_baseload[t], 0, fuel[t],
   (1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[z, t, s, o, v],
