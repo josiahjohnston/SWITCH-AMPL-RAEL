@@ -280,7 +280,7 @@ insert into regional_generator_costs
 -- regional generator restrictions
 -- currently, the only restrictions are that Coal_ST and Nuclear can't be built in CA
 delete from regional_generator_costs
- 	where 	(technology in ('Nuclear', 'Coal_ST') and
+ 	where 	(technology in ('Nuclear', 'Coal_ST', 'Coal_IGCC', 'Coal_IGCC_With_CCS') and
 			area_id in (select area_id from load_area_info where primary_nerc_subregion like 'CA'));
 
 
