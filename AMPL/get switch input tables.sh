@@ -28,14 +28,14 @@ fi
 
 read SCENARIO_ID < scenario_id.txt
 
-export REGIONAL_MULTIPLIER_SCENARIO_ID=`mysql -h $db_server -u $user -p$password --column-names=false -e "select regional_cost_multiplier_scenario_id from wecc.scenarios where scenario_id=$SCENARIO_ID;"` 
-export REGIONAL_FUEL_COST_SCENARIO_ID=`mysql -h $db_server -u $user -p$password --column-names=false -e "select regional_fuel_cost_scenario_id from wecc.scenarios where scenario_id=$SCENARIO_ID;"` 
-export REGIONAL_GEN_PRICE_SCENARIO_ID=`mysql -h $db_server -u $user -p$password --column-names=false -e "select regional_gen_price_scenario_id from wecc.scenarios where scenario_id=$SCENARIO_ID;"` 
-export SCENARIO_NAME=`mysql -h $db_server -u $user -p$password --column-names=false -e "select scenario_name from wecc.scenarios where scenario_id=$SCENARIO_ID;"` 
-export DATESAMPLE=`mysql -h $db_server -u $user -p$password --column-names=false -e "select _datesample from wecc.scenarios where scenario_id=$SCENARIO_ID;"` 
-export TIMESAMPLE=`mysql -h $db_server -u $user -p$password --column-names=false -e "select _timesample from wecc.scenarios where scenario_id=$SCENARIO_ID;"` 
-export HOURS_IN_SAMPLE=`mysql -h $db_server -u $user -p$password --column-names=false -e "select _hours_in_sample from wecc.scenarios where scenario_id=$SCENARIO_ID;"` 
-export ENABLE_RPS=`mysql -h $db_server -u $user -p$password --column-names=false -e "select enable_rps from wecc.scenarios where scenario_id=$SCENARIO_ID;"` 
+export REGIONAL_MULTIPLIER_SCENARIO_ID=`mysql -h $db_server -u $user -p$password --column-names=false -e "select regional_cost_multiplier_scenario_id from $db_name.scenarios where scenario_id=$SCENARIO_ID;"` 
+export REGIONAL_FUEL_COST_SCENARIO_ID=`mysql -h $db_server -u $user -p$password --column-names=false -e "select regional_fuel_cost_scenario_id from $db_name.scenarios where scenario_id=$SCENARIO_ID;"` 
+export REGIONAL_GEN_PRICE_SCENARIO_ID=`mysql -h $db_server -u $user -p$password --column-names=false -e "select regional_gen_price_scenario_id from $db_name.scenarios where scenario_id=$SCENARIO_ID;"` 
+export SCENARIO_NAME=`mysql -h $db_server -u $user -p$password --column-names=false -e "select scenario_name from $db_name.scenarios where scenario_id=$SCENARIO_ID;"` 
+export DATESAMPLE=`mysql -h $db_server -u $user -p$password --column-names=false -e "select _datesample from $db_name.scenarios where scenario_id=$SCENARIO_ID;"` 
+export TIMESAMPLE=`mysql -h $db_server -u $user -p$password --column-names=false -e "select _timesample from $db_name.scenarios where scenario_id=$SCENARIO_ID;"` 
+export HOURS_IN_SAMPLE=`mysql -h $db_server -u $user -p$password --column-names=false -e "select _hours_in_sample from $db_name.scenarios where scenario_id=$SCENARIO_ID;"` 
+export ENABLE_RPS=`mysql -h $db_server -u $user -p$password --column-names=false -e "select enable_rps from $db_name.scenarios where scenario_id=$SCENARIO_ID;"` 
 export STUDY_START_YEAR=`mysql -h $db_server -u $user -p$password --column-names=false -e "select min(period) from $db_name.study_hours_all where $TIMESAMPLE;"` 
 export STUDY_END_YEAR=`mysql -h $db_server -u $user -p$password --column-names=false -e "select max(period) + (max(period)-min(period))/(count(distinct period) - 1 ) from $db_name.study_hours_all where $TIMESAMPLE;"` 
 
