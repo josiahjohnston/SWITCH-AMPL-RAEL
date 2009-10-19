@@ -84,4 +84,4 @@ param carbon_cost;
 # Set this to more than one value if you want to run the carbon curve scripty thing
 # Leave the following line at the end of the file, or you'll get syntax errors.
 #let CARBON_COSTS := {0, 500};
-let CARBON_COSTS := {0};
+let CARBON_COSTS := {0, 30, 50};
