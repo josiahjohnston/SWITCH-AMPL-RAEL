@@ -285,7 +285,26 @@ BEGIN
   DELETE FROM transmission WHERE scenario_id = target_scenario_id;
   
   RETURN 1;
-END$$
+END
+$$
 
 DELIMITER ;
 
+DROP FUNCTION IF EXISTS `get_gen_cap_query_source_as_col`;
+DELIMITER $$
+CREATE DEFINER=`siah`@`localhost` FUNCTION `get_gen_cap_query_source_as_col`(target_scenario_id int) RETURNS varchar(16384)
+BEGIN
+  
+  return( select concat( 
+  "select * from (SELECT distinct scenario_id,carbon_cost, period, study_date,study_hour,hours_in_sample,month,month_name,quarter_of_day,hour_of_day FROM gen_hourly_summary WHERE scenario_id = ",target_scenario_id,") t ", 
+  group_concat(
+    concat(
+      "join (select carbon_cost, study_hour, power as `",source,"` FROM gen_hourly_summary where source='",source,"' and scenario_id = ",target_scenario_id,") as `",source,"` using (carbon_cost, study_hour)"
+      )
+    SEPARATOR ' '
+  ),
+  " order by carbon_cost, period, month, hour_of_day;") as column_oriented_query 
+from (select distinct source from gen_hourly_summary where target_scenario_id = target_scenario_id ) as a );
+
+END
+$$
