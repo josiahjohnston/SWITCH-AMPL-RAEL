@@ -106,6 +106,9 @@ for {c in CARBON_COSTS} {
     solution (cost_solution_file);
   }
 
+  # show some info about this run
+  include basicstats.run;
+
   # export the results to csv files and the like
   include record_results.run;
 
