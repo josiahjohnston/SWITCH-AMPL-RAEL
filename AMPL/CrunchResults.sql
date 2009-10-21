@@ -2,10 +2,10 @@
 -- Export results for graphing
 
 -- Determine investment period length
-set @first_period  := (select min( period) from gen_cap);
-set @second_period := (select min(period) from gen_cap where period != @first_period );
+set @first_period  := (select min( period) from gen_cap where scenario_id=@scenario_id);
+set @second_period := (select min(period) from gen_cap where period != @first_period and scenario_id=@scenario_id);
 set @period_length := (@second_period - @first_period);
-set @last_period := (select max(period) from gen_cap);
+set @last_period := (select max(period) from gen_cap where scenario_id=@scenario_id);
 
 
 -- total generation each hour
@@ -59,7 +59,7 @@ update gen_hourly_summary_la set power=-power where source="Hydro Pumping" and s
 -- total generation each period
 -- this pools the dispatchable and fixed loads, and the regular and pumped hydro
 insert into gen_summary
-  select @scenario_id, carbon_cost, concat(period, "-", period+@period_length-1) as period, 
+  select @scenario_id, carbon_cost, period, 
     case when site in ("Transmission Losses", "Load", "Fixed Load", "Dispatched Load") then "System Load"
          when fuel like "Hydro%" then "Hydro"
          when new then concat("New ", technology)
@@ -68,7 +68,7 @@ insert into gen_summary
            if( cogen, " Cogen", "")
          )
     end as source,
-    sum(power*hours_in_sample)/(8760*@period_length) as avg_power
+    sum(power*hours_in_sample)/sum(hours_in_sample) as avg_power
     from dispatch
     where site <> "Transmission" and scenario_id = @scenario_id
     group by 2, 3, 4;
@@ -76,7 +76,7 @@ insert into gen_summary
 -- total generation each period by load area
 -- this pools the dispatchable and fixed loads, and the regular and pumped hydro
 insert into gen_summary_la
-  select @scenario_id, carbon_cost, concat(period, "-", period+@period_length-1) as period, load_area, 
+  select @scenario_id, carbon_cost, period, load_area, 
     case when site in ("Transmission Losses", "Load", "Fixed Load", "Dispatched Load") then "System Load"
          when fuel like "Hydro%" then "Hydro"
          when new then concat("New ", technology)
@@ -85,7 +85,7 @@ insert into gen_summary_la
            if( cogen, " Cogen", "")
          )
     end as source,
-    sum(power*hours_in_sample)/(8760*@period_length) as avg_power
+    sum(power*hours_in_sample)/sum(hours_in_sample) as avg_power
     from dispatch
     where site <> "Transmission" and scenario_id = @scenario_id
     group by 2, 3, 4, 5;
@@ -105,7 +105,7 @@ create table grouptots
            if( cogen, " Cogen", "")
          )
   end as source,
-  sum(power*hours_in_sample)/(8760*@period_length) as avg_power
+  sum(power*hours_in_sample)/sum(hours_in_sample) as avg_power
   from dispatch
   where site <> "Transmission" and period=@last_period and scenario_id = @scenario_id
   group by 1, 2, 3;
@@ -188,7 +188,7 @@ drop table if exists grouptots;
 
 -- capacity each period
 insert into gen_cap_summary
-  select @scenario_id as scenario_id, carbon_cost, concat(period, "-", period+@period_length-1) as period, 
+  select @scenario_id as scenario_id, carbon_cost, period, 
     case when site in ("Transmission Losses", "Load", "Fixed Load", "Dispatched Load") then "System Load"
          when fuel like "Hydro%" then "Hydro"
          when new then concat("New ", technology)
@@ -200,13 +200,13 @@ insert into gen_cap_summary
       sum(capacity) as capacity
     from gen_cap
     where site <> "Transmission" and scenario_id = @scenario_id
-    group by 1, 2, 3
+    group by 2, 3, 4
   union 
-  select @scenario_id as scenario_id, carbon_cost, concat(period, "-", period+@period_length-1) as period, "Peak Load" as source, max(power) as capacity 
+  select @scenario_id as scenario_id, carbon_cost, period, "Peak Load" as source, max(power) as capacity 
     from gen_hourly_summary where source="Fixed Load" and scenario_id = @scenario_id
     group by 2, 3, 4
   union 
-  select @scenario_id as scenario_id, carbon_cost, concat(period, "-", period+@period_length-1) as period, "Reserve Margin" as source, 1.15 * max(power) as capacity 
+  select @scenario_id as scenario_id, carbon_cost, period, "Reserve Margin" as source, 1.15 * max(power) as capacity 
     from gen_hourly_summary where source="Fixed Load" and scenario_id = @scenario_id
     group by 2, 3, 4;
 -- if a technology is not developed, it doesn't show up in the generator list,
@@ -217,7 +217,7 @@ insert into gen_cap_summary (scenario_id, carbon_cost, period, source, capacity)
 
 -- capacity each period by load area
 insert into gen_cap_summary_la
-  select @scenario_id as scenario_id, carbon_cost, concat(period, "-", period+@period_length-1) as period, load_area, 
+  select @scenario_id as scenario_id, carbon_cost, period, load_area, 
     case when site in ("Transmission Losses", "Load", "Fixed Load", "Dispatched Load") then "System Load"
          when fuel like "Hydro%" then "Hydro"
          when new then concat("New ", technology)
@@ -231,11 +231,11 @@ insert into gen_cap_summary_la
     where site <> "Transmission" and scenario_id = @scenario_id
     group by 2, 3, 4, 5
   union 
-  select @scenario_id as scenario_id, carbon_cost, concat(period, "-", period+@period_length-1) as period, load_area, "Peak Load" as source, max(power) as capacity 
+  select @scenario_id as scenario_id, carbon_cost, period, load_area, "Peak Load" as source, max(power) as capacity 
     from gen_hourly_summary_la where source="Fixed Load" and scenario_id = @scenario_id
     group by 2, 3, 4, 5
   union 
-  select @scenario_id as scenario_id, carbon_cost, concat(period, "-", period+@period_length-1) as period, load_area, "Reserve Margin" as source, 1.15 * max(power) as capacity 
+  select @scenario_id as scenario_id, carbon_cost, period, load_area, "Reserve Margin" as source, 1.15 * max(power) as capacity 
     from gen_hourly_summary_la where source="Fixed Load" and scenario_id = @scenario_id
     group by 2, 3, 4, 5;
 -- if a technology is not developed, it doesn't show up in the generator list,
