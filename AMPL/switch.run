@@ -5,8 +5,6 @@ param cost_problem_file symbolic;
 param trans_problem_file symbolic;
 param trans_solution_file symbolic;
 param solution_exists;
-param total_load_last_period := (sum {z in LOAD_AREAS, h in TIMEPOINTS: period[h]=last(PERIODS)} system_load[z, h] * hours_in_sample[h]);
-param total_power_produced_last_period;
 
 for {c in CARBON_COSTS} {
   let carbon_cost := c;

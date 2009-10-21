@@ -127,3 +127,7 @@ param avg_surp_by_year {STUDY_YEARS, TECHNOLOGIES_INTERMITTENT} default 0, >= 0;
 param avg_load_by_year {STUDY_YEARS} default 0, >= 0;
 param power_cost_by_year {STUDY_YEARS} >= 0;
 param outfile symbolic;
+
+# Parameters for basicstats.run
+param total_load_last_period := (sum {z in LOAD_AREAS, h in TIMEPOINTS: period[h]=last(PERIODS)} system_load[z, h] * hours_in_sample[h]);
+param total_power_produced_last_period;
