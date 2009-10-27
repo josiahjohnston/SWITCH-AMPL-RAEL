@@ -60,8 +60,10 @@ do
   # Almost every output file goes into a table of the same name. The file "power" is the exception, it goes into "dispatch"
   if [ $file_base_name != power ]
   then
+    echo "    $file_name  ->  $DB_name.$file_base_name"
     mysql -h $db_server -u $user -p$password -e "use $DB_name; load data local infile \"$file_path\" into table $file_base_name fields terminated by \",\" optionally enclosed by '\"' ignore 1 lines;"
   else
+    echo "    $file_name  ->  $DB_name.dispatch"
     mysql -h $db_server -u $user -p$password -e "use $DB_name; load data local infile \"$file_path\" into table dispatch fields terminated by \",\" optionally enclosed by '\"' ignore 1 lines;"
   fi
  done
@@ -74,7 +76,7 @@ echo "use ${DB_name};" > tmp_data_crunch.sql
 echo "set @scenario_id := ${SCENARIO_ID};" >> tmp_data_crunch.sql
 cat CrunchResults.sql >> tmp_data_crunch.sql
 mysql -h $db_server -u $user -p$password < tmp_data_crunch.sql
-#rm tmp_data_crunch.sql
+rm tmp_data_crunch.sql
 
 
 ###################################################
@@ -137,10 +139,6 @@ mysql -h $db_server -u $user -p$password -e "$select_dispatch_summary" > $result
 # Export simple summary views of the data
 echo 'Exporting dispatch_summary.csv...'
 mysql -h $db_server -u $user -p$password -e "select * from $DB_name.gen_hourly_summary WHERE scenario_id = $SCENARIO_ID;" > $results_dir/dispatch_summary.csv
-echo 'Exporting gen_source_share_by_carbon_cost.csv...'
-mysql -h $db_server -u $user -p$password --column-names=false -e "select * from $DB_name.gen_source_share_by_carbon_cost WHERE scenario_id = $SCENARIO_ID ;" > $results_dir/gen_source_share_by_carbon_cost.csv
-echo 'Exporting gen_source_capacity_by_carbon_cost.csv...'
-mysql -h $db_server -u $user -p$password --column-names=false -e "select * from $DB_name.gen_source_capacity_by_carbon_cost WHERE scenario_id = $SCENARIO_ID ;" > $results_dir/gen_source_capacity_by_carbon_cost.csv
 echo 'Exporting co2_cc.csv...'
 mysql -h $db_server -u $user -p$password -e "select * from $DB_name.co2_cc WHERE scenario_id = $SCENARIO_ID;" > $results_dir/co2_cc.csv
 echo 'Exporting power_cost_cc.csv...'
