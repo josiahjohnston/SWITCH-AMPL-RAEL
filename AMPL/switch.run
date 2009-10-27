@@ -4,25 +4,37 @@ param cost_solution_file symbolic;
 param cost_problem_file symbolic;
 param trans_problem_file symbolic;
 param trans_solution_file symbolic;
-param solution_exists;
+param cost_solution_exists;
+param trans_solution_exists;
 
 for {c in CARBON_COSTS} {
   let carbon_cost := c;
   let curtime := time();
 
-  ###############################
-  # Cost optimization
-
   let cost_problem_file := "results/sol" & carbon_cost & "cost";
   let cost_solution_file := cost_problem_file & ".sol";
+  let trans_problem_file := "results/sol" & carbon_cost & "trans";
+  let trans_solution_file := trans_problem_file & ".sol";
 
-  # Determine if this solution already exists. 
+
+  ###############################
+  # Determine if which solutions already exists. 
   shell("if [ -f " & cost_solution_file & " ]; then echo 1 > sol_exists.txt; else echo 0 > sol_exists.txt; fi");
-  read solution_exists < "sol_exists.txt";
+  read cost_solution_exists < "sol_exists.txt";
   close "sol_exists.txt";
   shell("rm sol_exists.txt");
 
-  if ( solution_exists )
+  # Determine if the transmission solution already exists. 
+  shell("if [ -f " & trans_solution_file & " ]; then echo 1 > sol_exists.txt; else echo 0 > sol_exists.txt; fi");
+  read trans_solution_exists < "sol_exists.txt";
+  close "sol_exists.txt";
+  shell("rm sol_exists.txt");
+
+
+  ###############################
+  # Cost optimization
+
+  if ( cost_solution_exists )
   then {
     printf "\nLoading Cost solution from disk for a carbon cost of %d.\n", carbon_cost;
     solution (cost_solution_file);
@@ -31,6 +43,12 @@ for {c in CARBON_COSTS} {
     write ("b" & cost_problem_file);
     solve;
     printf "%d seconds to optimize for cost.", time() - curtime;
+    # Remove the transmission problem if it exists; It will need to be re-run from the new cost solution
+    if ( trans_solution_exists )
+    then {
+      shell ("rm trans_problem_file trans_solution_file");
+      let trans_solution_exists := 0;
+    }    
   }
 
   # show some info about this run
@@ -42,72 +60,66 @@ for {c in CARBON_COSTS} {
   # Transmission optimization
   # All decision variables except DispatchTransFromXToY are fixed for the transmission usage objective function
 
-  let trans_problem_file := "results/sol" & carbon_cost & "trans";
-  let trans_solution_file := trans_problem_file & ".sol";
+  fix InstallGen;
+  fix BuildGenOrNot;
+  fix DispatchGen;
+  fix OperateEPDuringPeriod;
+  fix DispatchEP;
+  fix InstallTrans;
+  fix DispatchTransFromXToY_Reserve;
+  fix InstallLocalTD;
+  fix StorePumpedHydro;
+  fix DispatchPumpedHydro;
+  fix StorePumpedHydro_Reserve;
+  fix DispatchPumpedHydro_Reserve;
+  fix HydroDispatchShare;
+  fix HydroDispatchShare_Reserve;
+  objective Transmission_Usage;
+  option presolve_eps 1e-10;
 
-  # Determine if this solution already exists. 
-  shell("if [ -f " & trans_solution_file & " ]; then echo 1 > sol_exists.txt; else echo 0 > sol_exists.txt; fi");
-  read solution_exists < "sol_exists.txt";
-  close "sol_exists.txt";
-  shell("rm sol_exists.txt");
-
-  if ( solution_exists )
+  if ( trans_solution_exists )
   then {
     printf "\nLoading Transmission solution from disk for a carbon cost of %d.\n", carbon_cost;
     solution (trans_solution_file);
+    # show some info about this run
+    include basicstats.run;
+
   } else {
 
     printf "\nTransmission solution not found on disk for a carbon cost of %d; solving optimization problem.\n", carbon_cost;
+    let curtime := time();
     
-    fix InstallGen;
-    fix BuildGenOrNot;
-    fix DispatchGen;
-    fix OperateEPDuringPeriod;
-    fix DispatchEP;
-    fix InstallTrans;
-    fix DispatchTransFromXToY_Reserve;
-    fix InstallLocalTD;
-    fix StorePumpedHydro;
-    fix DispatchPumpedHydro;
-    fix StorePumpedHydro_Reserve;
-    fix DispatchPumpedHydro_Reserve;
-    fix HydroDispatchShare;
-    fix HydroDispatchShare_Reserve;
-    objective Transmission_Usage;
-    option presolve_eps 1e-10;
-
     write ("b" & trans_problem_file);
     solve;
 
-    objective Power_Cost;
-    unfix InstallGen;
-    unfix BuildGenOrNot;
-    unfix DispatchGen;
-    unfix OperateEPDuringPeriod;
-    unfix DispatchEP;
-    unfix InstallTrans;
-    unfix DispatchTransFromXToY_Reserve;
-    unfix InstallLocalTD;
-    unfix StorePumpedHydro;
-    unfix DispatchPumpedHydro;
-    unfix StorePumpedHydro_Reserve;
-    unfix DispatchPumpedHydro_Reserve;
-    unfix HydroDispatchShare;
-    unfix HydroDispatchShare_Reserve;
-
-    printf "\n%d seconds to optimize for cost and transmission.\n", time() - curtime;
+    printf "\n%d seconds to optimize for transmission.\n", time() - curtime;
 
     # show some info about this run
     include basicstats.run;
 
-    # restore the original solution
-    solution (cost_solution_file);
   }
-
-  # show some info about this run
-  include basicstats.run;
 
   # export the results to csv files and the like
   include record_results.run;
+
+  unfix InstallGen;
+  unfix BuildGenOrNot;
+  unfix DispatchGen;
+  unfix OperateEPDuringPeriod;
+  unfix DispatchEP;
+  unfix InstallTrans;
+  unfix DispatchTransFromXToY_Reserve;
+  unfix InstallLocalTD;
+  unfix StorePumpedHydro;
+  unfix DispatchPumpedHydro;
+  unfix StorePumpedHydro_Reserve;
+  unfix DispatchPumpedHydro_Reserve;
+  unfix HydroDispatchShare;
+  unfix HydroDispatchShare_Reserve;
+  objective Power_Cost;
+
+
+  # restore the cost solution
+  solution (cost_solution_file);
 
 }
