@@ -4,11 +4,11 @@
 ##########################
 # Constants
 read SCENARIO_ID < scenario_id.txt
-export DB_name='switch_results_wecc_v2'
-export db_server='xserve-rael.erg.berkeley.edu'
-#db_server="localhost"
+DB_name='switch_results_wecc_v2'
+db_server='xserve-rael.erg.berkeley.edu'
 current_dir=`pwd`
 results_dir="results"
+write_over_prior_results="IGNORE"
 
 ##########################
 # Get the user name and password 
@@ -35,6 +35,7 @@ if [ $# -ge 3 ]
 then 
 	if [ $3 = "--FlushPriorResults" ]
 	then
+		rewrite_results="REPLACE";
 		echo "Flushing Prior results for scenario ${SCENARIO_ID}";
 		mysql -h $db_server -u $user -p$password -e "use $DB_name; select clear_scenario_results(${SCENARIO_ID});"
 	fi
@@ -43,6 +44,7 @@ if [ $# -ge 1 ]
 then
 	if [ $1 = "--FlushPriorResults" ]
 	then
+		rewrite_results="REPLACE";
 		echo "Flushing Prior results for scenario ${SCENARIO_ID}";
 		mysql -h $db_server -u $user -p$password -e "use $DB_name; select clear_scenario_results(${SCENARIO_ID});"
 	fi
@@ -61,10 +63,10 @@ do
   if [ $file_base_name != power ]
   then
     echo "    $file_name  ->  $DB_name.$file_base_name"
-    mysql -h $db_server -u $user -p$password -e "use $DB_name; load data local infile \"$file_path\" into table $file_base_name fields terminated by \",\" optionally enclosed by '\"' ignore 1 lines;"
+    mysql -h $db_server -u $user -p$password -e "use $DB_name; load data local infile \"$file_path\" $write_over_prior_results into table $file_base_name fields terminated by \",\" optionally enclosed by '\"' ignore 1 lines;"
   else
     echo "    $file_name  ->  $DB_name.dispatch"
-    mysql -h $db_server -u $user -p$password -e "use $DB_name; load data local infile \"$file_path\" into table dispatch fields terminated by \",\" optionally enclosed by '\"' ignore 1 lines;"
+    mysql -h $db_server -u $user -p$password -e "use $DB_name; load data local infile \"$file_path\" $write_over_prior_results into table dispatch fields terminated by \",\" optionally enclosed by '\"' ignore 1 lines;"
   fi
  done
 done
@@ -80,77 +82,78 @@ rm tmp_data_crunch.sql
 
 
 ###################################################
-# Export summary views of the data
+# Build pivot-table like views that are easier to read
 
 # Make a temporary file of investment periods
 echo 'Getting a list of Investment periods...'
-mysql -h $db_server -u $user -p$password --column-names=false -e "select distinct(period) from $DB_name.gen_summary where scenario_id = $SCENARIO_ID;" > tmp_invest_periods.txt
+mysql -h $db_server -u $user -p$password --column-names=false -e "select distinct(period) from $DB_name.gen_summary order by period;" > tmp_invest_periods.txt
 
 # Generation....
 # Build a long query that will make one column for each investment period
-echo 'Exporting gen_summary.txt...'
-select_gen_summary="SELECT distinct(source) as gen_source, carbon_cost as carb_cost, "
+select_gen_summary="SELECT distinct g.scenario_id, g.source, g.carbon_cost"
 while read inv_period; do 
-	select_gen_summary=$select_gen_summary" (select avg_power from $DB_name.gen_summary where source = gen_source and period = '$inv_period' and carbon_cost = carb_cost and scenario_id = $SCENARIO_ID) as '$inv_period', "
+	select_gen_summary=$select_gen_summary", (select round(avg_power) from $DB_name.gen_summary where source = g.source and period = '$inv_period' and carbon_cost = g.carbon_cost and scenario_id = g.scenario_id) as '$inv_period'"
 done < tmp_invest_periods.txt
-select_gen_summary=$select_gen_summary" '' FROM $DB_name.gen_summary WHERE scenario_id = $SCENARIO_ID;"
-mysql -h $db_server -u $user -p$password -e "$select_gen_summary" > $results_dir/gen_summary.txt
-# Uncomment the next line to see the mysql query
-#echo 'select_gen_summary: '$select_gen_summary
-#echo ''
-#echo ''
+select_gen_summary=$select_gen_summary" FROM $DB_name.gen_summary g;"
+mysql -h $db_server -u $user -p$password -e "CREATE OR REPLACE VIEW $DB_name.gen_summary_by_source AS $select_gen_summary"
+
 
 # Generation capacity...
 # Build a long query that will make one column for each investment period
-echo 'Exporting gen_cap_summary.txt...'
-select_gen_cap_summary="SELECT distinct(source) as gen_source, carbon_cost as carb_cost, "
+select_gen_cap_summary="SELECT distinct g.scenario_id, g.source, g.carbon_cost"
 while read inv_period; do 
-	select_gen_cap_summary=$select_gen_cap_summary" (select capacity from $DB_name.gen_cap_summary where source = gen_source and period = '$inv_period' and carbon_cost = carb_cost and scenario_id = $SCENARIO_ID) as '$inv_period', "
+	select_gen_cap_summary=$select_gen_cap_summary", (select round(capacity) from $DB_name.gen_cap_summary where source = g.source and period = '$inv_period' and carbon_cost = g.carbon_cost and scenario_id = g.scenario_id) as '$inv_period'"
 done < tmp_invest_periods.txt
-select_gen_cap_summary=$select_gen_cap_summary" '' FROM $DB_name.gen_cap_summary WHERE scenario_id = $SCENARIO_ID;"
-mysql -h $db_server -u $user -p$password -e "$select_gen_cap_summary" > $results_dir/gen_cap_summary.txt
-# Uncomment the next line to see the mysql query
-#echo 'select_gen_cap_summary: '$select_gen_cap_summary
-#echo ''
-#echo ''
+select_gen_cap_summary=$select_gen_cap_summary" FROM $DB_name.gen_cap_summary g;"
+mysql -h $db_server -u $user -p$password -e "CREATE OR REPLACE VIEW $DB_name.gen_cap_summary_by_source AS $select_gen_cap_summary"
+
 
 # Make a temporary file of generation sources
 echo 'Getting a list of generation technologies...'
 mysql -h $db_server -u $user -p$password --column-names=false -e "select distinct(source) from $DB_name.gen_hourly_summary WHERE scenario_id = $SCENARIO_ID;" > tmp_sources.txt
 
-echo 'Exporting dispatch_summary2.txt...'
-# Dispatch summary, each column 
-# Build a long query that will make one column for each investment period
-select_dispatch_summary="select * from (SELECT distinct scenario_id,carbon_cost, period, study_date,study_hour,hours_in_sample,month,month_name,quarter_of_day,hour_of_day FROM $DB_name.gen_hourly_summary WHERE scenario_id = $SCENARIO_ID) t"
+# Dispatch summary, 
+# Build a long query that will make one column for each generation source
+select_dispatch_summary="SELECT distinct g.scenario_id, g.carbon_cost, g.period, g.study_date, g.study_hour, g.hours_in_sample, g.month, g.month_name, g.quarter_of_day, g.hour_of_day"
 while read gen_source; do 
-	select_dispatch_summary="$select_dispatch_summary"" join (select scenario_id,carbon_cost, study_hour, power as '$gen_source' FROM $DB_name.gen_hourly_summary where source='$gen_source' and scenario_id = $SCENARIO_ID) \`$gen_source\` using (carbon_cost, study_hour)"
+	select_dispatch_summary="$select_dispatch_summary"", (select round(power) FROM $DB_name.gen_hourly_summary where source='$gen_source' and scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and study_hour = g.study_hour ) as '$gen_source'"
 done < tmp_sources.txt
-select_dispatch_summary="$select_dispatch_summary"" order by carbon_cost, period, month, hour_of_day;"
-mysql -h $db_server -u $user -p$password -e "$select_dispatch_summary" > $results_dir/dispatch_summary2.txt
-# Uncomment the next line to see the mysql query
-#echo 'select_dispatch_summary: '"$select_dispatch_summary"
-#echo ''
-#echo ''
+select_dispatch_summary="$select_dispatch_summary"" FROM $DB_name.gen_hourly_summary g order by scenario_id, carbon_cost, period, month, hour_of_day;"
+mysql -h $db_server -u $user -p$password -e "CREATE OR REPLACE VIEW $DB_name._gen_hourly_summary_by_source AS $select_dispatch_summary"
 
+# Dispatch by load area and gen source 
+# Build a long query that will make one column for each generation source
+select_dispatch_summary="SELECT distinct g.scenario_id, g.carbon_cost, g.period, g.load_area,  g.study_date, g.study_hour, g.hours_in_sample, g.month, g.month_name, g.quarter_of_day, g.hour_of_day"
+while read gen_source; do 
+	select_dispatch_summary="$select_dispatch_summary"", (select round(power) FROM $DB_name.gen_hourly_summary_la where source='$gen_source' and scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and study_hour = g.study_hour and load_area = g.load_area) as '$gen_source'"
+done < tmp_sources.txt
+select_dispatch_summary="$select_dispatch_summary"" FROM $DB_name.gen_hourly_summary_la g order by scenario_id, carbon_cost, period, month, hour_of_day;"
+mysql -h $db_server -u $user -p$password -e "CREATE OR REPLACE VIEW $DB_name._gen_hourly_summary_la_by_source AS $select_dispatch_summary"
+
+
+# delete the temporary files
+rm tmp_invest_periods.txt
+rm tmp_sources.txt
 
 
 
 ###################################################
-# Export simple summary views of the data
+# Export summaries of the results
+echo 'Exporting gen_summary.txt...'
+mysql -h $db_server -u $user -p$password -e "select * from $DB_name.gen_summary_by_source WHERE scenario_id = $SCENARIO_ID" > $results_dir/gen_summary.txt
+echo 'Exporting gen_cap_summary.txt...'
+mysql -h $db_server -u $user -p$password -e "select * from $DB_name.gen_cap_summary_by_source WHERE scenario_id = $SCENARIO_ID" > $results_dir/gen_cap_summary.txt
 echo 'Exporting dispatch_summary.csv...'
 mysql -h $db_server -u $user -p$password -e "select * from $DB_name.gen_hourly_summary WHERE scenario_id = $SCENARIO_ID;" > $results_dir/dispatch_summary.csv
+echo 'Exporting dispatch_summary2.txt...'
+mysql -h $db_server -u $user -p$password -e "select * from $DB_name._gen_hourly_summary_by_source WHERE scenario_id = $SCENARIO_ID" > $results_dir/dispatch_summary2.txt
 echo 'Exporting co2_cc.csv...'
 mysql -h $db_server -u $user -p$password -e "select * from $DB_name.co2_cc WHERE scenario_id = $SCENARIO_ID;" > $results_dir/co2_cc.csv
 echo 'Exporting power_cost_cc.csv...'
-mysql -h $db_server -u $user -p$password -e "select * from $DB_name.power_cost where period=2022 AND scenario_id = $SCENARIO_ID;" > $results_dir/power_cost_cc.csv
+mysql -h $db_server -u $user -p$password -e "select * from $DB_name.power_cost where period=(SELECT max(period) FROM $DB_name.power_cost where scenario_id=$SCENARIO_ID) AND scenario_id = $SCENARIO_ID;" > $results_dir/power_cost_cc.csv
 echo 'Exporting gen_by_load_area.csv...'
 mysql -h $db_server -u $user -p$password --column-names=false -e "select * from $DB_name.gen_by_load_area WHERE scenario_id = $SCENARIO_ID;" > $results_dir/gen_by_load_area.csv
 echo 'Exporting trans_cap_new.csv...'
-mysql -h $db_server -u $user -p$password -e "select * from $DB_name.trans_cap where new and period=2022 AND scenario_id = $SCENARIO_ID;" > $results_dir/trans_cap_new.tcsv
+mysql -h $db_server -u $user -p$password -e "select * from $DB_name.trans_cap where new and period=(SELECT max(period) FROM $DB_name.trans_cap where scenario_id=$SCENARIO_ID) AND scenario_id = $SCENARIO_ID;" > $results_dir/trans_cap_new.tcsv
 echo 'Exporting trans_cap_exist.csv...'
-mysql -h $db_server -u $user -p$password -e "select * from $DB_name.trans_cap where not new and period=2022 AND scenario_id = $SCENARIO_ID;" > $results_dir/trans_cap_exist.csv
-
-
-# delete the temporary file
-rm tmp_invest_periods.txt
-rm tmp_sources.txt
+mysql -h $db_server -u $user -p$password -e "select * from $DB_name.trans_cap where not new and period=(SELECT max(period) FROM $DB_name.trans_cap where scenario_id=$SCENARIO_ID) AND scenario_id = $SCENARIO_ID;" > $results_dir/trans_cap_exist.csv
