@@ -129,5 +129,6 @@ param power_cost_by_year {STUDY_YEARS} >= 0;
 param outfile symbolic;
 
 # Parameters for basicstats.run
-param total_load_last_period := (sum {z in LOAD_AREAS, h in TIMEPOINTS: period[h]=last(PERIODS)} system_load[z, h] * hours_in_sample[h]);
-param total_power_produced_last_period;
+param total_loads_by_period {p in PERIODS} := (sum {z in LOAD_AREAS, h in TIMEPOINTS: period[h]=p} system_load[z, h]);
+param total_loads_by_period_weighted {p in PERIODS} := (sum {z in LOAD_AREAS, h in TIMEPOINTS: period[h]=p} system_load[z, h] * hours_in_sample[h]);
+param total_power_produced_last_period {PERIODS};
