@@ -147,19 +147,6 @@ CREATE TABLE IF NOT EXISTS gen_hourly_summary_la (
   PRIMARY KEY (scenario_id, carbon_cost, study_hour, load_area, `source`)
 );
 
-
-CREATE TABLE IF NOT EXISTS gen_source_capacity_by_carbon_cost (
-  scenario_id int,
-  row longblob,
-  INDEX scenario_id (scenario_id)
-);
-
-CREATE TABLE IF NOT EXISTS gen_source_share_by_carbon_cost (
-  scenario_id int,
-  row longblob,
-  INDEX scenario_id (scenario_id)
-);
-
 CREATE TABLE IF NOT EXISTS gen_summary (
   scenario_id int,
   carbon_cost double,
