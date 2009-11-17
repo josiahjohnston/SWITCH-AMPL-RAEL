@@ -1012,10 +1012,10 @@ subject to Satisfy_Load {z in LOAD_AREAS, h in TIMEPOINTS}:
   # DispatchTransFromXToY[z, z1, h, ft] is not multiplied by the transmission efficiency.
 
   # Imports (have experienced transmission losses)
-  + (sum {(z2, z) in TRANSMISSION_LINES, f in FUELS} (transmission_efficiency[z2, z] * DispatchTransFromXToY[z2, z, h, rps_fuel_category[f]]))
+  + (sum {(z2, z) in TRANSMISSION_LINES, fc in RPS_FUEL_CATEGORY} (transmission_efficiency[z2, z] * DispatchTransFromXToY[z2, z, h, fc]))
   
   # Exports (have not experienced transmission losses)
-  - (sum {(z, z1) in TRANSMISSION_LINES, f in FUELS} (DispatchTransFromXToY[z, z1, h, rps_fuel_category[f]]))
+  - (sum {(z, z1) in TRANSMISSION_LINES, fc in RPS_FUEL_CATEGORY} (DispatchTransFromXToY[z, z1, h, fc]))
 
   >= system_load[z, h];
 
@@ -1061,9 +1061,9 @@ subject to Satisfy_Load_Reserve {z in LOAD_AREAS, h in TIMEPOINTS}:
 	########################################
 	#    TRANSMISSION
   # Imports (have experienced transmission losses)
-  + (sum {(z2, z) in TRANSMISSION_LINES, f in FUELS} (transmission_efficiency[z2, z] * DispatchTransFromXToY_Reserve[z2, z, h, rps_fuel_category[f]]))
+  + (sum {(z2, z) in TRANSMISSION_LINES, fc in RPS_FUEL_CATEGORY} (transmission_efficiency[z2, z] * DispatchTransFromXToY_Reserve[z2, z, h, fc]))
   # Exports (have not experienced transmission losses)
-  - (sum {(z, z1) in TRANSMISSION_LINES, f in FUELS} (DispatchTransFromXToY_Reserve[z, z1, h, rps_fuel_category[f]]))
+  - (sum {(z, z1) in TRANSMISSION_LINES, fc in RPS_FUEL_CATEGORY} (DispatchTransFromXToY_Reserve[z, z1, h, fc]))
 
   >= system_load[z, h] * (1 + planning_reserve_margin);
 
@@ -1161,13 +1161,13 @@ subject to EP_Operational
 #   (this requires figuring out when they were first built!)
 subject to Maximum_DispatchTransFromXToY
   {(z1, z2) in TRANSMISSION_LINES, h in TIMEPOINTS}:
-  ( sum { f in FUELS } DispatchTransFromXToY[z1, z2, h, rps_fuel_category[f]] )
+  ( sum { fc in RPS_FUEL_CATEGORY } DispatchTransFromXToY[z1, z2, h, fc] )
     <= (1-transmission_forced_outage_rate) * 
           (existing_transfer_capacity_mw[z1, z2] + sum {(z1, z2, v, h) in TRANS_VINTAGE_HOURS} InstallTrans[z1, z2, v]);
 
 subject to Maximum_DispatchTransFromXToY_Reserve
   {(z1, z2) in TRANSMISSION_LINES, h in TIMEPOINTS}:
-  ( sum { f in FUELS } DispatchTransFromXToY_Reserve[z1, z2, h, rps_fuel_category[f]] )
+  ( sum { fc in RPS_FUEL_CATEGORY } DispatchTransFromXToY_Reserve[z1, z2, h, fc] )
     <= (existing_transfer_capacity_mw[z1, z2] + sum {(z1, z2, v, h) in TRANS_VINTAGE_HOURS} InstallTrans[z1, z2, v]);
 
 
@@ -1191,11 +1191,11 @@ subject to Min_Gen_Fraction_From_Solar { if enable_min_solar_production}:
 	      and v = last( PERIODS )} 
         (1-forced_outage_rate[t]) * cap_factor[z, t, s, o, h] * InstallGen[z, t, s, o, v]) 
     # Existing plants
-    - (sum {(z, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: ep_technology[z,e] in SOLAR_TECHNOLOGIES and period[h] = last( PERIODS )}
+    + (sum {(z, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: ep_technology[z,e] in SOLAR_TECHNOLOGIES and period[h] = last( PERIODS )}
     	OperateEPDuringPeriod[z, e, period[h]] * 
         (1-ep_forced_outage_rate[z,e]) * eip_cap_factor[z, e, h]   * ep_size_mw[z, e] )
       >=
-    min_solar_production * (sum {z in LOAD_AREAS, h in TIMEPOINTS} (system_load[z,h]) );
+    min_solar_production * (sum {z in LOAD_AREAS, h in TIMEPOINTS: period[h] = last( PERIODS )} (system_load[z,h]) );
 
 #################################################
 # RPS constraint
@@ -1244,15 +1244,15 @@ subject to Satisfy_RPS {z in LOAD_AREAS_WITH_RPS, p in PERIODS:
   # transmission into and out of the zone.
 
 #  Imports
-  + (sum {(z2, z) in TRANSMISSION_LINES, f in FUELS, h in TIMEPOINTS: 
-          period[h]=p and fuel_qualifies_for_rps[z, rps_fuel_category[f]]}
-      (transmission_efficiency[z2, z] * DispatchTransFromXToY[z2, z, h, rps_fuel_category[f]]) * hours_in_sample[h]
+  + (sum {(z2, z) in TRANSMISSION_LINES, fc in RPS_FUEL_CATEGORY, h in TIMEPOINTS: 
+          period[h]=p and fuel_qualifies_for_rps[z, fc]}
+      (transmission_efficiency[z2, z] * DispatchTransFromXToY[z2, z, h, fc]) * hours_in_sample[h]
     )
   
 #  Exports
-  - (sum {(z, z1) in TRANSMISSION_LINES, f in FUELS, h in TIMEPOINTS: 
-          period[h]=p and fuel_qualifies_for_rps[z, rps_fuel_category[f]]}
-      DispatchTransFromXToY[z, z1, h, rps_fuel_category[f]] * hours_in_sample[h]
+  - (sum {(z, z1) in TRANSMISSION_LINES, fc in RPS_FUEL_CATEGORY, h in TIMEPOINTS: 
+          period[h]=p and fuel_qualifies_for_rps[z, fc]}
+      DispatchTransFromXToY[z, z1, h, fc] * hours_in_sample[h]
     )
  ) 
   / (sum { h in TIMEPOINTS: 
