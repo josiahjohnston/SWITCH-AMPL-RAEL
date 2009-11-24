@@ -129,6 +129,46 @@ param power_cost_by_year {STUDY_YEARS} >= 0;
 param outfile symbolic;
 
 # Parameters for basicstats.run
-param total_loads_by_period {p in PERIODS} := (sum {z in LOAD_AREAS, h in TIMEPOINTS: period[h]=p} system_load[z, h]);
-param total_loads_by_period_weighted {p in PERIODS} := (sum {z in LOAD_AREAS, h in TIMEPOINTS: period[h]=p} system_load[z, h] * hours_in_sample[h]);
-param total_power_produced_last_period {PERIODS};
+param total_power_produced_by_period {PERIODS};
+
+
+# Enable or disable policy constraints as needed. 
+# This might be implemented better as named problems.
+if enable_min_solar_production = 0 then {
+	drop Min_Gen_Fraction_From_Solar;
+}
+
+if enable_rps = 0 then {
+	drop Satisfy_RPS;
+	drop Conservation_of_Blue_Electrons;
+	drop Conservation_of_Colored_Electrons;
+}
+
+
+# Maximum potential from resource-limited sources
+set RESOURCE_LIMITED_TECHNOLOGIES = setof{ t in TECHNOLOGIES: resource_limited[t] } (t);
+param max_potential_power { t in RESOURCE_LIMITED_TECHNOLOGIES, p in PERIODS } = 
+# Intermittent, resource-limited technologies
+	# New plants
+	sum{ (z, t, s, o) in PROJ_RESOURCE_LIMITED, h in TIMEPOINTS: 
+	     period[h] = p and intermittent[t]} (
+		(1-forced_outage_rate[t]) * max_capacity[z, t, s] * cap_factor[z, t, s, o, h] * hours_in_sample[h]
+	)
+	# Existing plants (assume they are operating)
+  + sum { (z, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: 
+             period[h] = p and intermittent[t] and ep_technology[z,e] = t } (
+        (1-ep_forced_outage_rate[z,e]) * eip_cap_factor[z, e, h]  * ep_size_mw[z, e] * hours_in_sample[h]
+    )    
+# Baseload, resource-limited technologies (currently biomass & geothermal)
+	# New plants
+  + sum { (z, t, s, o, v, h) in NEW_BASELOAD_VINTAGE_HOURS:
+	      period[h] = p } ( 
+    	(1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * max_capacity[z, t, s] * hours_in_sample[h]
+    )
+	# Existing plants (assume they are operating)
+  + sum { (z, e, p) in EP_BASELOAD_PERIODS, h in TIMEPOINTS: 
+          period[h] = p and ep_technology[z,e] = t} (
+    	(1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e] * hours_in_sample[h]
+    )
+# ToDo: add a part for dispatchable, resource-limited technologies when we add tech of that type
+;

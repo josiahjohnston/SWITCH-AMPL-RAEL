@@ -145,7 +145,11 @@ param system_load {LOAD_AREAS, TIMEPOINTS} >= 0;
 # Regional cost multipliers
 param economic_multiplier {LOAD_AREAS} >= 0;
 
-
+# system load aggregated in various ways
+param total_loads_by_period {p in PERIODS} = 
+	sum {z in LOAD_AREAS, h in TIMEPOINTS: period[h]=p} system_load[z, h];
+param total_loads_by_period_weighted {p in PERIODS} = 
+	sum {z in LOAD_AREAS, h in TIMEPOINTS: period[h]=p} system_load[z, h] * hours_in_sample[h];
 
 ###############################################
 # Solar run parameters
@@ -154,7 +158,7 @@ param economic_multiplier {LOAD_AREAS} >= 0;
 param min_solar_production >= 0, <= 1;
 
 # Minimum amount of electricity that solar must produce
-param enable_min_solar_production;
+param enable_min_solar_production >= 0, <= 1 default 0;
 
 # Solar-based technologies
 set SOLAR_TECHNOLOGIES;
@@ -271,7 +275,7 @@ set LOAD_AREAS_AND_FUEL_CATEGORY dimen 2;
 set RPS_FUEL_CATEGORY = setof {(load_area, rps_fuel_category) in LOAD_AREAS_AND_FUEL_CATEGORY} (rps_fuel_category);
 set LOAD_AREAS_WITH_RPS = setof {load_area in LOAD_AREAS: rps_compliance_percentage[load_area] > 0 } (load_area);
 
-param enable_rps;
+param enable_rps >= 0, <= 1 default 0;
 
 # whether fuels in a load area qualify for rps 
 param fuel_qualifies_for_rps {LOAD_AREAS_AND_FUEL_CATEGORY};
@@ -358,6 +362,7 @@ set CONFIGURATIONS = setof {(z, t, s, o) in PROJECTS} (o);
 # the load center (or make it deliverable to other zones)
 set PROJECTS_SANS_CONFIGURATION = setof{ (z, t, s, o) in PROJECTS } (z, t, s);
 param connect_cost_per_mw {(z, t, s) in PROJECTS_SANS_CONFIGURATION} >= 0 default 0;
+
 
 ##############################################
 # Existing hydro plants (assumed impossible to build more, but these last forever)
@@ -1184,23 +1189,31 @@ subject to Maximum_LocalTD
   <= sum {(z, v, h) in LOCAL_TD_HOURS} InstallLocalTD[z, v];
 
 
-# make the system generate a certain amount of power from a certain resource
-subject to Min_Gen_Fraction_From_Solar { if enable_min_solar_production}:
-    # New plants
-	(sum {(z, t, s, o, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS: t in SOLAR_TECHNOLOGIES
-	      and v = last( PERIODS )} 
-        (1-forced_outage_rate[t]) * cap_factor[z, t, s, o, h] * InstallGen[z, t, s, o, v]) 
-    # Existing plants
-    + (sum {(z, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: ep_technology[z,e] in SOLAR_TECHNOLOGIES and period[h] = last( PERIODS )}
+#################################################
+# Constraint: Min_Gen_Fraction_From_Solar
+# The sum of system-wide power output by new and existing solar plants in the last investment period 
+# (weighted by hours in each timepoint) must be greater than or equal to the policy target 
+# (expressed as a fraction of system load)
+#
+# Note, by default windsun.run will drop this constraint. Set enable_min_solar_production to 1 to enable this constraint.
+subject to Min_Gen_Fraction_From_Solar:
+    # New solar plants power output in the last periods
+	(sum {(z, t, s, o, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS: 
+	      t in SOLAR_TECHNOLOGIES                and v = last( PERIODS ) } 
+        (1-forced_outage_rate[t]) * cap_factor[z, t, s, o, h] * InstallGen[z, t, s, o, v] * hours_in_sample[h]) 
+    # Existing solar plants power output in the last periods
+    + (sum {(z, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: 
+        ep_technology[z,e] in SOLAR_TECHNOLOGIES and period[h] = last( PERIODS ) }
     	OperateEPDuringPeriod[z, e, period[h]] * 
-        (1-ep_forced_outage_rate[z,e]) * eip_cap_factor[z, e, h]   * ep_size_mw[z, e] )
-      >=
-    min_solar_production * (sum {z in LOAD_AREAS, h in TIMEPOINTS: period[h] = last( PERIODS )} (system_load[z,h]) );
+        (1-ep_forced_outage_rate[z,e]) * eip_cap_factor[z, e, h]  * ep_size_mw[z, e] * hours_in_sample[h] )
+    # The policy target expressed as a fraction of total load in the last period
+    >=  min_solar_production * total_loads_by_period_weighted[ last( PERIODS ) ];
 
 #################################################
 # RPS constraint
+# windsun.run will drop this constraint if enable_rps is 0 (its default value)
 subject to Satisfy_RPS {z in LOAD_AREAS_WITH_RPS, p in PERIODS: 
-	p >= period_rps_takes_effect[z] and enable_rps}:
+	p >= period_rps_takes_effect[z] }:
 
  (
 	#############################
@@ -1263,7 +1276,8 @@ subject to Satisfy_RPS {z in LOAD_AREAS_WITH_RPS, p in PERIODS:
 
 #############################
 # REC accounting: Reclassifying electrons is verboten!
-subject to Conservation_of_Colored_Electrons {z in LOAD_AREAS, h in TIMEPOINTS, ft in RPS_FUEL_CATEGORY: enable_rps}:
+# windsun.run will drop this constraint if enable_rps is 0 (its default value)
+subject to Conservation_of_Colored_Electrons {z in LOAD_AREAS, h in TIMEPOINTS, ft in RPS_FUEL_CATEGORY }:
 
 	#############################
 	#    Power Production
@@ -1307,7 +1321,8 @@ subject to Conservation_of_Colored_Electrons {z in LOAD_AREAS, h in TIMEPOINTS, 
 # REC accounting: Reclassifying electrons is verboten!
 # Hydro power production is done differently than all the other technologies
 # Consequently, we need to express it in a separate constraint instead of bundling it into the one above. 
-subject to Conservation_of_Blue_Electrons {z in LOAD_AREAS, h in TIMEPOINTS: enable_rps}:
+# windsun.run will drop this constraint if enable_rps is 0 (its default value)
+subject to Conservation_of_Blue_Electrons {z in LOAD_AREAS, h in TIMEPOINTS}:
 
   ####
   # Hydro Production
