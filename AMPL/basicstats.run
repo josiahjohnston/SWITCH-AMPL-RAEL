@@ -16,11 +16,11 @@ printf "\nTax=%d: cost=$%3.2f/MWh ",
 			* (ep_carbon_cost_per_mwh[z, e, h])
 	)) / system_load_discounted;
 
-printf "\nPercentage of power produced by each fuel in the given investment periods.\n";
+printf "\nPercentage of power produced by each fuel in the given investment periods, expressed as a fraction of total power produced.\n";
 
 for {p in PERIODS} {
 	printf "%.0d:\t", p;
-	let total_power_produced_last_period[p] := (
+	let total_power_produced_by_period[p] := (
 		# Intermittent
 		sum {(z, t, s, o, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS: period[h]=p }
 		   (1-forced_outage_rate[t]) * cap_factor[z, t, s, o, h] * InstallGen[z, t, s, o, v] * hours_in_sample[h]
@@ -110,12 +110,15 @@ for {p in PERIODS} {
 		  else 0
 		)
 	  )
-	  / total_power_produced_last_period[p];
+	  / total_power_produced_by_period[p]
+	  # Add .5% for rounding purposes
+	  + .5
 	;
-	printf "Spilled=%2d\%\n", 100 * (total_power_produced_last_period[p] - total_loads_by_period_weighted[p]) / total_power_produced_last_period[p];
+	
+	printf "Spilled=%2d\%\n", 100 * (total_power_produced_by_period[p] - total_loads_by_period_weighted[p]) / total_power_produced_by_period[p];
 	
 	printf "Total Load  = %.0d\n", total_loads_by_period_weighted[p];
-	printf "Total Power = %.0d\n", total_power_produced_last_period[p];
+	printf "Total Power = %.0d\n", total_power_produced_by_period[p];
 	
 	printf "\n";
 }
