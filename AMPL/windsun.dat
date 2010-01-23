@@ -5,17 +5,19 @@ param base_year := 2007;
 # when there are no forced outages
 param planning_reserve_margin := 0.15;
 
-# annual rate (real) to use to discount future costs to current year
-param discount_rate := 0.03;
+# discount rate
+# a 7% real discount rate was chosen as per the recommendations of the Office of Managment and Budget
+# see http://www.whitehouse.gov/omb/rewrite/circulars/a094/a094.html#8 or subsequent revisions
+# (inflation is not included in a real discount rate so we're discounting constant year dollars here)
+param discount_rate := 0.07;
 
 # Minimum amount of electricity that solar must produce
 param min_solar_production := 0.0030;
 param enable_min_solar_production := 0;
 
 # required rates of return (real) for generators and transmission lines
-# NOTE: 9 June 2009, default generator and transmission finance rates were changed from 0.06 to 0.08 to more accurately reflect the private cost of capital
-param finance_rate default 0.08 := Distributed_PV 0.03;
-param transmission_finance_rate := 0.08;
+param finance_rate := 0.07;
+param transmission_finance_rate := 0.07;
 
 # retirement age for transmission lines
 param transmission_max_age_years := 20;
@@ -38,8 +40,8 @@ param local_td_max_age_years := 20;
 param forced_outage_rate_hydro := 0.02;
 
 # round-trip efficiency for storing power via a pumped hydro system
-# TODO: find plant-specific numbers for this (0.8 is made up)
-param pumped_hydro_efficiency := 0.8;
+# Black and Veach / NREL ReEDS has this number at 0.87
+param pumped_hydro_efficiency := 0.87;
 
 # maximum share of each day's "discretionary" hydro flow 
 # (everything between the minimum_hydro_flow and the average_hydro_flow) 
@@ -69,7 +71,8 @@ param tech_distributed_pv := "Distributed_PV";
 param tech_csp_trough := "CSP_Trough";
 param tech_wind := "Wind";
 param tech_offshore_wind := "Offshore_Wind";
-param tech_biomass := "Biomass_ST";
+param tech_biomass_igcc := "Biomass_IGCC";
+param tech_bio_gas := "Bio_Gas";
 param fuel_hydro := "Water";
 
 # All of the solar technologies. If you change what they are called in the section immediately above, change them here too.
@@ -84,4 +87,4 @@ param carbon_cost;
 # Set this to more than one value if you want to run the carbon curve scripty thing
 # Leave the following line at the end of the file, or you'll get syntax errors.
 #let CARBON_COSTS := {0, 500};
-let CARBON_COSTS := {0, 30, 50};
+let CARBON_COSTS := {500};

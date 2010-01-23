@@ -6,7 +6,7 @@
 
 export write_to_path='.'
 
-db_server="xserve-rael.erg.berkeley.edu"
+db_server="switch-db1.erg.berkeley.edu"
 db_name="switch_inputs_wecc_v2"
 
 if [ $# = 2 ]
@@ -83,7 +83,7 @@ mysql -h $db_server -u $user -p$password -e "select load_area, plant_code, peak_
 
 echo '	existing_intermittent_plant_cap_factor.tab...'
 echo ampl.tab 3 1 > existing_intermittent_plant_cap_factor.tab
-echo "load_area	plant_code	hour	cap_factor" >> existing_intermittent_plant_cap_factor.tab
+mysql -h $db_server -u $user -p$password -e "select load_area, plant_code, study_hour as hour, cap_factor from  $db_name.existing_intermittent_plant_cap_factor c join $db_name.study_hours_all h on (h.hournum=c.hour) where $TIMESAMPLE order by 1,2;" >> existing_intermittent_plant_cap_factor.tab
 
 echo '	hydro.tab...'
 echo ampl.tab 3 3 > hydro.tab

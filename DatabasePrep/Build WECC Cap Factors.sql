@@ -161,9 +161,108 @@ SELECT      proposed_renewable_sites.generator_type,
 -- EXISTING PLANTS---------
 -- made in 'build proposed plants table.sql'
 select 'Copying existing_plants' as progress;
+
 drop table if exists existing_plants;
-create table existing_plants
-select * from generator_info.existing_plants_agg;
+CREATE TABLE existing_plants (
+	load_area varchar(11),
+	plant_code varchar(40),
+	gentype varchar(10),
+	aer_fuel varchar(20),
+	peak_mw double,
+	avg_mw double,
+	heat_rate double,
+	start_year year,
+	baseload boolean,
+	cogen boolean,
+	overnight_cost double,
+	fixed_o_m double,
+	variable_o_m double,
+	forced_outage_rate double,
+	scheduled_outage_rate double,
+	max_age double,
+	intermittent boolean,
+	technology varchar(30),
+	INDEX plant_code_load_area (load_area, plant_code)
+);
+
+insert into existing_plants
+	select * from generator_info.existing_plants_agg;
+
+-- existing windfarms added here
+-- should find overnight costs of historical wind turbines
+-- $2/W is used here ($2,000,000/MW)
+-- fixed O+M,forced_outage_rate are from new wind
+insert into existing_plants
+		(load_area,
+		plant_code,
+		gentype,
+		aer_fuel,
+		peak_mw,
+		avg_mw,
+		heat_rate,
+		start_year,
+		baseload,
+		cogen,
+		overnight_cost,
+		fixed_o_m,
+		variable_o_m,
+		forced_outage_rate,
+		scheduled_outage_rate,
+		max_age,
+		intermittent,
+		technology)
+select 	load_area,
+		concat('Wind', '_', load_area, '_', 3tier.windfarms_existing_info_wecc.windfarm_existing_id) as plant_code,
+		'Wind' as gentype,
+		'Wind' as aer_fuel,
+		capacity_mw as peak_mw,
+		avg(cap_factor) * capacity_mw as avg_mw,
+		0 as heat_rate,
+		year_online as start_year,
+		0 as baseload,
+		0 as cogen,
+		2000000 as overnight_cost,
+		30300 as fixed_o_m,
+		0 as variable_o_m,
+		0.015 as forced_outage_rate,
+		0.003 as scheduled_outage_rate,
+		30 as max_age,
+		1 as intermittent,
+		'Wind' as technology
+from 	3tier.windfarms_existing_info_wecc,
+		3tier.windfarms_existing_cap_factor
+where 	3tier.windfarms_existing_info_wecc.windfarm_existing_id = 3tier.windfarms_existing_cap_factor.windfarm_existing_id
+group by 3tier.windfarms_existing_info_wecc.windfarm_existing_id
+;
+
+
+drop table if exists existing_intermittent_plant_cap_factor;
+create table existing_intermittent_plant_cap_factor(
+		load_area varchar(11),
+		plant_code varchar(40),
+		hour int,
+		cap_factor float,
+		INDEX eip_index (load_area, plant_code, hour),
+		INDEX hour (hour),
+		INDEX plant_code (plant_code),
+		UNIQUE (plant_code, hour),
+		CONSTRAINT plant_code_fk FOREIGN KEY plant_code (plant_code) REFERENCES existing_plants (plant_code)
+);
+
+
+insert into existing_intermittent_plant_cap_factor
+SELECT      existing_plants.load_area,
+            existing_plants.plant_code,
+            hours.hournum as hour,
+            3tier.windfarms_existing_cap_factor.cap_factor
+    from    existing_plants, 
+            3tier.windfarms_existing_cap_factor,
+            hours
+    where   technology = 'Wind'
+    and		concat('Wind', '_', load_area, '_', 3tier.windfarms_existing_cap_factor.windfarm_existing_id) = existing_plants.plant_code
+    and     hours.datetime_utc = 3tier.windfarms_existing_cap_factor.datetime_utc;
+
+
 
 
 -- HYDRO-------------------
@@ -372,7 +471,8 @@ insert into fuel_info (fuel, rps_fuel_category, carbon_content) values
 	('Gas', 'fossilish', 0.0531),
 	('Wind', 'renewable', 0),
 	('Solar', 'renewable', 0),
-	('Biomass', 'renewable', 0),
+	('Bio_Solid', 'renewable', 0),
+	('Bio_Gas', 'renewable', 0),
 	('Coal', 'fossilish', 0.0939),
 	('Uranium', 'fossilish', 0),
 	('Geothermal', 'renewable', 0),

@@ -299,7 +299,8 @@ param tech_distributed_pv symbolic in TECHNOLOGIES;
 param tech_csp_trough symbolic in TECHNOLOGIES;
 param tech_wind symbolic in TECHNOLOGIES;
 param tech_offshore_wind symbolic in TECHNOLOGIES;
-param tech_biomass symbolic in TECHNOLOGIES;
+param tech_biomass_igcc symbolic in TECHNOLOGIES;
+param tech_bio_gas symbolic in TECHNOLOGIES;
 
 # names of other technologies, just to have them around 
 # (but this is getting silly)
@@ -570,7 +571,7 @@ param discount_rate;
 
 # required rates of return (real) for generator and transmission investments
 # may differ between generator types, and between generators and transmission lines
-param finance_rate {TECHNOLOGIES} >= 0;
+param finance_rate >= 0;
 param transmission_finance_rate >= 0;
 
 # cost of carbon emissions ($/ton), e.g., from a carbon tax
@@ -629,7 +630,7 @@ param fixed_o_m_cost_proj {(z,t) in REGIONAL_TECHNOLOGIES, p in PERIODS} =
 
 # annual revenue that will be needed to cover the capital cost
 param capital_cost_annual_payment {(z, t, s, o) in PROJECTS, v in PERIODS} = 
-  finance_rate[t] * (1 + 1/((1+finance_rate[t])^(max_age_years[t] + construction_time_years[t])-1)) * capital_cost_proj[z, t, s, o, v];
+  finance_rate * (1 + 1/((1+finance_rate)^(max_age_years[t] + construction_time_years[t])-1)) * capital_cost_proj[z, t, s, o, v];
 
 # date when a plant of each type and vintage will stop being included in the simulation
 # note: if it would be expected to retire between study periods,
@@ -691,7 +692,7 @@ param ep_end_year {(z, e) in EXISTING_PLANTS} =
 # for now, we just assume it's the same as a new CCGT plant
 # TODO: Move the regional cost adjustment into the database. 
 param ep_capital_cost_annual_payment {(z, e) in EXISTING_PLANTS} = 
-  finance_rate[tech_ccgt] * (1 + 1/((1+finance_rate[tech_ccgt])^ep_max_age_years[z, e]-1)) * ep_overnight_cost[z, e] * economic_multiplier[z];
+  finance_rate * (1 + 1/((1+finance_rate)^ep_max_age_years[z, e]-1)) * ep_overnight_cost[z, e] * economic_multiplier[z];
 
 # discount capital costs to a lump-sum value at the start of the study.
 param ep_capital_cost {(z, e) in EXISTING_PLANTS} =
