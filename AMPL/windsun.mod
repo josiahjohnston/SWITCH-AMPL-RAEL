@@ -1170,6 +1170,9 @@ subject to Maximum_DispatchTransFromXToY
   ( sum { fc in RPS_FUEL_CATEGORY } DispatchTransFromXToY[z1, z2, h, fc] )
     <= (1-transmission_forced_outage_rate) * 
           (existing_transfer_capacity_mw[z1, z2] + sum {(z1, z2, v, h) in TRANS_VINTAGE_HOURS} InstallTrans[z1, z2, v]);
+# Simple fix to problem of asymetrical transmission build-out
+subject to SymetricalTrans
+  {(z1, z2) in TRANSMISSION_LINES, p in PERIODS}: InstallTrans[z1, z2, p] == InstallTrans[z2, z1, p];
 
 subject to Maximum_DispatchTransFromXToY_Reserve
   {(z1, z2) in TRANSMISSION_LINES, h in TIMEPOINTS}:
