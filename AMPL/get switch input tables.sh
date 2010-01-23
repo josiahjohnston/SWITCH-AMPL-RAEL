@@ -70,7 +70,7 @@ mysql -h $db_server -u $user -p$password -e "select load_area, economic_multipli
 
 echo '	transmission_lines.tab...'
 echo ampl.tab 2 4 > transmission_lines.tab
-mysql -h $db_server -u $user -p$password -e "select load_area_start, load_area_end, existing_transfer_capacity_mw, transmission_line_id, transmission_length_km, 0.95 as transmission_efficiency from $db_name.transmission_lines where (existing_transfer_capacity_mw > 0 or load_areas_border_each_other like 't' or transmission_length_km < 300);" >> transmission_lines.tab
+mysql -h $db_server -u $user -p$password -e "select load_area_start, load_area_end, existing_transfer_capacity_mw, transmission_line_id, transmission_length_km, 0.95 as transmission_efficiency from $db_name.transmission_lines where (existing_transfer_capacity_mw > 0 or load_areas_border_each_other like 't');" >> transmission_lines.tab
 
 # TODO: adopt better load forecasts; this assumes a simple 1.6%/year increase
 echo '	system_load.tab...'
