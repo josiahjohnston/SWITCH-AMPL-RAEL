@@ -23,7 +23,10 @@ param transmission_finance_rate := 0.07;
 param transmission_max_age_years := 20;
 
 # $ cost per mw-km for transmission lines
-param transmission_cost_per_mw_km := 1000;
+# because transmission lines are built in one direction only and then 
+# constrained to have the same capacity in both directions, this value needs to be half
+# of what it would cost to install each line.. $1000 per mw per km / 2
+param transmission_cost_per_mw_km := 500;
 
 # forced outage rate for transmission lines, used for probabilistic dispatch(!)
 param transmission_forced_outage_rate := 0.01;
@@ -87,4 +90,4 @@ param carbon_cost;
 # Set this to more than one value if you want to run the carbon curve scripty thing
 # Leave the following line at the end of the file, or you'll get syntax errors.
 #let CARBON_COSTS := {0, 500};
-let CARBON_COSTS := {500};
+let CARBON_COSTS := {0, 30, 50};
