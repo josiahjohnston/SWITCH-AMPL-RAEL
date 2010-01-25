@@ -246,6 +246,15 @@ CREATE TABLE IF NOT EXISTS transmission (
   PRIMARY KEY (scenario_id, carbon_cost, period, study_hour, load_area_receive, load_area_from, rps_fuel_category)
 );
 
+CREATE TABLE IF NOT EXISTS run_times (
+  scenario_id int,
+  carbon_cost double,
+  optimization_run_time float COMMENT 'Time to optimize for cost and transmission in seconds.',
+  INDEX scenario_id (scenario_id),
+  INDEX carbon_cost (carbon_cost),
+  PRIMARY KEY (scenario_id, carbon_cost)
+);
+
 
 DELIMITER $$
 
@@ -262,8 +271,6 @@ BEGIN
   DELETE FROM gen_cap_summary_la WHERE scenario_id = target_scenario_id;
   DELETE FROM gen_hourly_summary WHERE scenario_id = target_scenario_id;
   DELETE FROM gen_hourly_summary_la WHERE scenario_id = target_scenario_id;
-  DELETE FROM gen_source_capacity_by_carbon_cost WHERE scenario_id = target_scenario_id;
-  DELETE FROM gen_source_share_by_carbon_cost WHERE scenario_id = target_scenario_id;
   DELETE FROM gen_summary WHERE scenario_id = target_scenario_id;
   DELETE FROM gen_summary_la WHERE scenario_id = target_scenario_id;
   DELETE FROM local_td_cap WHERE scenario_id = target_scenario_id;
