@@ -5,7 +5,7 @@
 # Constants
 read SCENARIO_ID < scenario_id.txt
 DB_name='switch_results_wecc_v2'
-db_server='xserve-rael.erg.berkeley.edu'
+db_server='switch-db1.erg.berkeley.edu'
 current_dir=`pwd`
 results_dir="results"
 write_over_prior_results="IGNORE"
