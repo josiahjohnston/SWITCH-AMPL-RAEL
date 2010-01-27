@@ -249,7 +249,8 @@ CREATE TABLE IF NOT EXISTS transmission (
 CREATE TABLE IF NOT EXISTS run_times (
   scenario_id int,
   carbon_cost double,
-  optimization_run_time float COMMENT 'Time to optimize for cost and transmission in seconds.',
+  cost_optimization_run_time float COMMENT 'Time to optimize for cost (in seconds).',
+  trans_optimization_run_time float COMMENT 'Time to optimize for transmission (in seconds).',
   INDEX scenario_id (scenario_id),
   INDEX carbon_cost (carbon_cost),
   PRIMARY KEY (scenario_id, carbon_cost)
