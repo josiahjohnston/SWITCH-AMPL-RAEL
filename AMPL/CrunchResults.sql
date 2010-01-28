@@ -9,11 +9,11 @@ set @last_period := (select max(period) from gen_cap where scenario_id=@scenario
 set @sum_hourly_weights_per_period = ( SELECT sum(hours_in_sample)
 	from dispatch 
 	where
-	  scenario_id=1164 and
+	  scenario_id=@scenario_id and
 	  site = "Fixed Load" and 
-	  carbon_cost = (select carbon_cost from dispatch where scenario_id=1164 limit 1) and 
-	  load_area = (select load_area from dispatch where scenario_id=1164 limit 1) and 
-	  period = (select period from dispatch where scenario_id=1164 limit 1)
+	  carbon_cost = (select carbon_cost from dispatch where scenario_id=@scenario_id limit 1) and 
+	  load_area = (select load_area from dispatch where scenario_id=@scenario_id limit 1) and 
+	  period = (select period from dispatch where scenario_id=@scenario_id limit 1)
 	);
 
 
