@@ -7,7 +7,7 @@
 export write_to_path='.'
 
 db_server="switch-db1.erg.berkeley.edu"
-db_name="switch_inputs_wecc_v2"
+db_name="switch_inputs_wecc_v2_1"
 
 if [ $# = 2 ]
 then 
@@ -65,8 +65,8 @@ echo '	enable_rps.txt...'
 echo $ENABLE_RPS > enable_rps.txt
 
 echo '	load_areas.tab...'
-echo ampl.tab 1 3 > load_areas.tab
-mysql -h $db_server -u $user -p$password -e "select load_area, economic_multiplier, rps_compliance_year, rps_compliance_percentage from $db_name.load_area_info;" >> load_areas.tab
+echo ampl.tab 1 4 > load_areas.tab
+mysql -h $db_server -u $user -p$password -e "select load_area, area_id as load_area_id, economic_multiplier, rps_compliance_year, rps_compliance_percentage from $db_name.load_area_info;" >> load_areas.tab
 
 echo '	transmission_lines.tab...'
 echo ampl.tab 2 4 > transmission_lines.tab
@@ -78,36 +78,36 @@ echo ampl.tab 2 1 > system_load.tab
 mysql -h $db_server -u $user -p$password -e "select load_area, study_hour as hour, power(1.016, period-(2004+datediff(datetime_utc, '2004-01-01')/365))*power as system_load from $db_name.system_load l join $db_name.study_hours_all h on (h.hournum=l.hour) where $TIMESAMPLE order by study_hour, load_area;" >> system_load.tab
 
 echo '	existing_plants.tab...'
-echo ampl.tab 2 14 > existing_plants.tab
-mysql -h $db_server -u $user -p$password -e "select load_area, plant_code, peak_mw as size_mw, technology, aer_fuel as fuel, heat_rate, start_year, max_age, overnight_cost, fixed_o_m, variable_o_m, forced_outage_rate, scheduled_outage_rate, baseload, cogen, intermittent from $db_name.existing_plants order by 1, 2;" >> existing_plants.tab
+echo ampl.tab 2 15 > existing_plants.tab
+mysql -h $db_server -u $user -p$password -e "select load_area, plant_code, project_id as ep_project_id, peak_mw as size_mw, technology, aer_fuel as fuel, heat_rate, start_year, max_age, overnight_cost, fixed_o_m, variable_o_m, forced_outage_rate, scheduled_outage_rate, baseload, cogen, intermittent from $db_name.existing_plants order by 1, 2;" >> existing_plants.tab
 
 echo '	existing_intermittent_plant_cap_factor.tab...'
 echo ampl.tab 3 1 > existing_intermittent_plant_cap_factor.tab
 mysql -h $db_server -u $user -p$password -e "select load_area, plant_code, study_hour as hour, cap_factor from  $db_name.existing_intermittent_plant_cap_factor c join $db_name.study_hours_all h on (h.hournum=c.hour) where $TIMESAMPLE order by 1,2;" >> existing_intermittent_plant_cap_factor.tab
 
 echo '	hydro.tab...'
-echo ampl.tab 3 3 > hydro.tab
-mysql -h $db_server -u $user -p$password -e "select load_area, site, study_date as date, avg_flow, min_flow, max_flow from $db_name.hydro_monthly_limits l join $db_name.study_dates_all d on l.year = year(d.date_utc) and l.month=month(d.date_utc) where $DATESAMPLE order by 1, 2, month, year;" >> hydro.tab
+echo ampl.tab 3 4 > hydro.tab
+mysql -h $db_server -u $user -p$password -e "select load_area, site, study_date as date, project_id as hydro_project_id, avg_flow, min_flow, max_flow from $db_name.hydro_monthly_limits l join $db_name.study_dates_all d on l.year = year(d.date_utc) and l.month=month(d.date_utc) where $DATESAMPLE order by 1, 2, month, year;" >> hydro.tab
 
 echo '	proposed_renewable_sites.tab...'
 echo ampl.tab 3 2 > proposed_renewable_sites.tab
-mysql -h $db_server -u $user -p$password -e "select load_area, generator_type as technology, site, capacity_mw as max_capacity, connect_cost_per_mw from $db_name.proposed_renewable_sites;" >> proposed_renewable_sites.tab
+mysql -h $db_server -u $user -p$password -e "select load_area, generator_type as technology, project_id as site, capacity_mw as max_capacity, connect_cost_per_mw from $db_name.proposed_renewable_sites;" >> proposed_renewable_sites.tab
 
 echo '	cap_factor.tab...'
 echo ampl.tab 5 1 > cap_factor.tab
-mysql -h $db_server -u $user -p$password -e "select load_area, generator_type as technology, site, configuration, study_hour as hour, cap_factor from $db_name.cap_factor_proposed_renewable_sites c join $db_name.study_hours_all h on (h.hournum=c.hour) where $TIMESAMPLE;" >> cap_factor.tab
+mysql -h $db_server -u $user -p$password -e "select load_area, generator_type as technology, project_id as site, configuration, study_hour as hour, cap_factor from $db_name.cap_factor_proposed_renewable_sites c join $db_name.study_hours_all h on (h.hournum=c.hour) where $TIMESAMPLE;" >> cap_factor.tab
 
 echo '	generator_info.tab...'
-echo ampl.tab 1 15 > generator_info.tab
-mysql -h $db_server -u $user -p$password -e "select technology, min_build_year, fuel, heat_rate, construction_time_years, max_age_years, forced_outage_rate, scheduled_outage_rate, intermittent, resource_limited, baseload, min_build_capacity, min_dispatch_mw, min_runtime, min_downtime, startup_fuel_mbtu from $db_name.generator_info;" >> generator_info.tab
+echo ampl.tab 1 17 > generator_info.tab
+mysql -h $db_server -u $user -p$password -e "select technology, technology_id, min_build_year, fuel, heat_rate, construction_time_years, max_age_years, forced_outage_rate, scheduled_outage_rate, intermittent, resource_limited, baseload, min_build_capacity, min_dispatch_fraction, min_runtime, min_downtime, max_ramp_rate_mw_per_hour, startup_fuel_mbtu from $db_name.generator_info;" >> generator_info.tab
 
-echo '	regional_generator_costs.tab...'
-echo ampl.tab 2 9 > regional_generator_costs.tab
-mysql -h $db_server -u $user -p$password -e "select load_area, technology, price_year, overnight_cost, connect_cost_per_mw_generic, fixed_o_m, variable_o_m, overnight_cost_change, fixed_o_m_change, variable_o_m_change, nonfuel_startup_cost from $db_name.regional_generator_costs_view where scenario_id = $REGIONAL_GEN_PRICE_SCENARIO_ID;" >> regional_generator_costs.tab
+echo '	generator_costs_regional.tab...'
+echo ampl.tab 2 8 > generator_costs_regional.tab
+mysql -h $db_server -u $user -p$password -e "select load_area, technology, project_id as regional_project_id, price_and_dollar_year, overnight_cost, connect_cost_per_mw_generic, fixed_o_m, variable_o_m, overnight_cost_change, nonfuel_startup_cost from $db_name.generator_costs_regional where scenario_id = $REGIONAL_GEN_PRICE_SCENARIO_ID;" >> generator_costs_regional.tab
 
 echo '	fuel_costs.tab...'
 echo ampl.tab 3 1 > fuel_costs.tab
-mysql -h $db_server -u $user -p$password -e "select load_area, fuel, year, fuel_price from $db_name.regional_fuel_prices_view where scenario_id = $REGIONAL_FUEL_COST_SCENARIO_ID and year >= $STUDY_START_YEAR and year <= $STUDY_END_YEAR" >> fuel_costs.tab
+mysql -h $db_server -u $user -p$password -e "select load_area, fuel, year, fuel_price from $db_name.fuel_prices_regional where scenario_id = $REGIONAL_FUEL_COST_SCENARIO_ID and year >= $STUDY_START_YEAR and year <= $STUDY_END_YEAR" >> fuel_costs.tab
 
 echo '	fuel_info.tab...'
 echo ampl.tab 1 2 > fuel_info.tab
