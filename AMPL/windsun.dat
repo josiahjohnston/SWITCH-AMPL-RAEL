@@ -46,14 +46,6 @@ param forced_outage_rate_hydro := 0.02;
 # Black and Veach / NREL ReEDS has this number at 0.87
 param pumped_hydro_efficiency := 0.87;
 
-# maximum share of each day's "discretionary" hydro flow 
-# (everything between the minimum_hydro_flow and the average_hydro_flow) 
-# that can be dispatched in a single hour
-# Higher values will produce narrower, taller hydro dispatch schedules,
-# but also more "baseload" hydro.
-# Max_hydro_dispatch_per_hour changed to 0.5 = 0.167 * 3 for three-hourly sampling
-param max_hydro_dispatch_per_hour = 0.5;
-
 # "carrying cost" for hydro and pumped hydro facilities ($/MWp/year)
 # this is calculated as 
 #   $1500/kW * 1000 kW/MW * 0.061 (capital recovery factor for a 70-year project at 6% interest)
@@ -68,10 +60,9 @@ param hydro_annual_payment_per_mw := 113172;
 
 # Names of intermittent and resource-limited technologies. 
 param tech_ccgt := "CCGT";
-param tech_combustion_turbine := "Combustion_Turbine";
+param tech_gas_combustion_turbine := "Gas_Combustion_Turbine";
 param tech_distributed_pv := "Distributed_PV";
-#param tech_central_station_pv := "Central_Station_PV";
-param tech_csp_trough := "CSP_Trough";
+param tech_csp_trough_storage := "CSP_Trough_6h_TES";
 param tech_wind := "Wind";
 param tech_offshore_wind := "Offshore_Wind";
 param tech_biomass_igcc := "Biomass_IGCC";
@@ -79,7 +70,7 @@ param tech_bio_gas := "Bio_Gas";
 param fuel_hydro := "Water";
 
 # All of the solar technologies. If you change what they are called in the section immediately above, change them here too.
-set SOLAR_TECHNOLOGIES := Distributed_PV CSP_Trough;
+set SOLAR_TECHNOLOGIES := Distributed_PV CSP_Trough_6h_TES;
 
 # default values for projects that don't have sites or orientations
 param site_unspecified := "na";
@@ -90,4 +81,4 @@ param carbon_cost;
 # Set this to more than one value if you want to run the carbon curve scripty thing
 # Leave the following line at the end of the file, or you'll get syntax errors.
 #let CARBON_COSTS := {0, 500};
-let CARBON_COSTS := {0, 30, 50};
+let CARBON_COSTS := {0, 20, 40, 60};
