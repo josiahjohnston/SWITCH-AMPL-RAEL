@@ -27,7 +27,7 @@ data windsun.dat;
 table study_hours IN: TIMEPOINTS <- [hour], period, date, hours_in_sample, month_of_year, hour_of_day;
 read table study_hours;
 
-table load_areas IN: LOAD_AREAS <- [load_area], economic_multiplier, rps_compliance_year, rps_compliance_percentage;
+table load_areas IN: LOAD_AREAS <- [load_area], load_area_id, economic_multiplier, rps_compliance_year, rps_compliance_percentage;
 read table load_areas;
 
 table transmission_lines IN: 
@@ -39,7 +39,7 @@ table system_load IN: [load_area, hour], system_load;
 read table system_load;
 
 table existing_plants IN: 
-  EXISTING_PLANTS <- [load_area, plant_code], 
+  EXISTING_PLANTS <- [load_area, plant_code], ep_project_id, 
     ep_size_mw ~ size_mw, ep_technology ~ technology, ep_fuel ~ fuel, ep_heat_rate ~ heat_rate, 
     ep_vintage ~ start_year, ep_max_age_years ~ max_age, 
     ep_overnight_cost ~ overnight_cost, ep_fixed_o_m ~ fixed_o_m, ep_variable_o_m ~ variable_o_m,
@@ -52,7 +52,7 @@ table existing_intermittent_plant_cap_factor IN:
 read table existing_intermittent_plant_cap_factor;
 
 table hydro IN: 
-  PROJ_HYDRO_DATES <- [load_area, site, date], 
+  PROJ_HYDRO_DATES <- [load_area, site, date], hydro_project_id, 
   avg_hydro_flow ~ avg_flow, min_hydro_flow ~ min_flow, max_hydro_flow ~ max_flow;
 read table hydro;
 
@@ -65,17 +65,17 @@ table cap_factor IN:
 read table cap_factor;
 
 table generator_info IN:  
-	TECHNOLOGIES <- [technology], min_build_year, fuel, heat_rate, construction_time_years,
+	TECHNOLOGIES <- [technology], technology_id, min_build_year, fuel, heat_rate, construction_time_years,
 	max_age_years, forced_outage_rate, scheduled_outage_rate,
 	intermittent, resource_limited, new_baseload ~ baseload, min_build_capacity, 
-	min_dispatch_mw, min_runtime, min_downtime,	startup_fuel_mbtu;
+	min_dispatch_fraction, min_runtime, min_downtime, max_ramp_rate_mw_per_hour, startup_fuel_mbtu;
 read table generator_info;
 
-table regional_generator_costs IN:  
-	REGIONAL_TECHNOLOGIES <- [load_area, technology], price_year, overnight_cost,
+table generator_costs_regional IN:  
+	REGIONAL_TECHNOLOGIES <- [load_area, technology], regional_project_id, price_and_dollar_year, overnight_cost,
 	connect_cost_per_mw_generic, fixed_o_m, variable_o_m, overnight_cost_change,
-	fixed_o_m_change, variable_o_m_change, nonfuel_startup_cost;
-read table regional_generator_costs;
+	nonfuel_startup_cost;
+read table generator_costs_regional;
 
 table fuel_costs IN:
 	[load_area, fuel, year], fuel_price;
