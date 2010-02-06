@@ -79,11 +79,9 @@ for {c in CARBON_COSTS} {
   fix DispatchTransFromXToY_Reserve;
   fix InstallLocalTD;
   fix StorePumpedHydro;
-  fix DispatchPumpedHydro;
+  fix DispatchHydro;
   fix StorePumpedHydro_Reserve;
-  fix DispatchPumpedHydro_Reserve;
-  fix HydroDispatchShare;
-  fix HydroDispatchShare_Reserve;
+  fix DispatchHydro_Reserve;
   objective Transmission_Usage;
   option presolve_eps 1e-10;
 
@@ -121,11 +119,9 @@ for {c in CARBON_COSTS} {
   unfix DispatchTransFromXToY_Reserve;
   unfix InstallLocalTD;
   unfix StorePumpedHydro;
-  unfix DispatchPumpedHydro;
+  unfix DispatchHydro;
   unfix StorePumpedHydro_Reserve;
-  unfix DispatchPumpedHydro_Reserve;
-  unfix HydroDispatchShare;
-  unfix HydroDispatchShare_Reserve;
+  unfix DispatchHydro_Reserve;
   objective Power_Cost;
 
 
