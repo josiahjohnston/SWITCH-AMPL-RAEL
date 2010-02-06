@@ -1,5 +1,5 @@
-create database if not exists switch_inputs_wecc_v2;
-use switch_inputs_wecc_v2;
+create database if not exists switch_inputs_wecc_v2_1;
+use switch_inputs_wecc_v2_1;
 
 
 -- Study Hours----------------------
@@ -215,24 +215,24 @@ COMMENT = 'Each record in this table is a specification of how to compile a set 
 
 DELIMITER $$
 
-DROP FUNCTION IF EXISTS `switch_inputs_wecc_v2`.`set_scenarios_sql_columns`$$
-CREATE FUNCTION `switch_inputs_wecc_v2`.`set_scenarios_sql_columns` (target_scenario_id int) RETURNS INT 
+DROP FUNCTION IF EXISTS set_scenarios_sql_columns$$
+CREATE FUNCTION set_scenarios_sql_columns (target_scenario_id int) RETURNS INT 
 BEGIN
   DECLARE done INT DEFAULT 0;
   DECLARE current_scenario_id INT;
-  DECLARE cur_id_list CURSOR FOR SELECT scenario_id FROM switch_inputs_wecc_v2.scenarios WHERE switch_inputs_wecc_v2.scenarios.scenario_id >= target_scenario_id;
+  DECLARE cur_id_list CURSOR FOR SELECT scenario_id FROM switch_inputs_wecc_v2_1.scenarios WHERE switch_inputs_wecc_v2_1.scenarios.scenario_id >= target_scenario_id;
   DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = 1;
   
-  DROP TEMPORARY TABLE IF EXISTS switch_inputs_wecc_v2.__set_scenarios_sql_columns;
-  CREATE TEMPORARY TABLE switch_inputs_wecc_v2.__set_scenarios_sql_columns
-    SELECT * FROM switch_inputs_wecc_v2.scenarios WHERE switch_inputs_wecc_v2.scenarios.scenario_id >= target_scenario_id;
+  DROP TEMPORARY TABLE IF EXISTS switch_inputs_wecc_v2_1.__set_scenarios_sql_columns;
+  CREATE TEMPORARY TABLE switch_inputs_wecc_v2_1.__set_scenarios_sql_columns
+    SELECT * FROM switch_inputs_wecc_v2_1.scenarios WHERE switch_inputs_wecc_v2_1.scenarios.scenario_id >= target_scenario_id;
 
   OPEN cur_id_list;
   
   REPEAT
     FETCH cur_id_list INTO current_scenario_id;
   
-    UPDATE switch_inputs_wecc_v2.scenarios
+    UPDATE switch_inputs_wecc_v2_1.scenarios
       SET 
         _datesample = concat(
             concat( 'FIND_IN_SET( period, "', exclude_periods, '")=0 and '), 
@@ -240,8 +240,8 @@ BEGIN
             'training_set_id = ', training_set_id, 
             if( exclude_peaks, ' and hours_in_sample > 100', '')
         )
-      WHERE switch_inputs_wecc_v2.scenarios.scenario_id = current_scenario_id;
-    UPDATE switch_inputs_wecc_v2.scenarios
+      WHERE switch_inputs_wecc_v2_1.scenarios.scenario_id = current_scenario_id;
+    UPDATE switch_inputs_wecc_v2_1.scenarios
       SET 
         _timesample = concat(
             _datesample, ' and ', 
@@ -251,23 +251,23 @@ BEGIN
            concat( 'hours_in_sample', '*', period_reduced_by, '*', months_between_samples, '*', hours_between_samples ), 
            'hours_in_sample'
         )
-      WHERE switch_inputs_wecc_v2.scenarios.scenario_id = current_scenario_id;
-    UPDATE switch_inputs_wecc_v2.scenarios
+      WHERE switch_inputs_wecc_v2_1.scenarios.scenario_id = current_scenario_id;
+    UPDATE switch_inputs_wecc_v2_1.scenarios
       SET 
-        switch_inputs_wecc_v2.scenarios.num_timepoints = 
-        (select count(switch_inputs_wecc_v2.study_hours_all.hournum) 
-          from switch_inputs_wecc_v2.study_hours_all, switch_inputs_wecc_v2.__set_scenarios_sql_columns params
+        switch_inputs_wecc_v2_1.scenarios.num_timepoints = 
+        (select count(switch_inputs_wecc_v2_1.study_hours_all.hournum) 
+          from switch_inputs_wecc_v2_1.study_hours_all, switch_inputs_wecc_v2_1.__set_scenarios_sql_columns params
           where
             params.scenario_id = current_scenario_id and
-            switch_inputs_wecc_v2.study_hours_all.training_set_id = params.training_set_id and
-            FIND_IN_SET( switch_inputs_wecc_v2.study_hours_all.period, params.exclude_periods ) = 0 and 
-            MOD(switch_inputs_wecc_v2.study_hours_all.month_of_year, params.months_between_samples ) = params.start_month and
-            switch_inputs_wecc_v2.study_hours_all.hours_in_sample > 100*params.exclude_peaks and
-            MOD(switch_inputs_wecc_v2.study_hours_all.hour_of_day, params.hours_between_samples) = params.start_hour
+            switch_inputs_wecc_v2_1.study_hours_all.training_set_id = params.training_set_id and
+            FIND_IN_SET( switch_inputs_wecc_v2_1.study_hours_all.period, params.exclude_periods ) = 0 and 
+            MOD(switch_inputs_wecc_v2_1.study_hours_all.month_of_year, params.months_between_samples ) = params.start_month and
+            switch_inputs_wecc_v2_1.study_hours_all.hours_in_sample > 100*params.exclude_peaks and
+            MOD(switch_inputs_wecc_v2_1.study_hours_all.hour_of_day, params.hours_between_samples) = params.start_hour
         )
-      WHERE switch_inputs_wecc_v2.scenarios.scenario_id = current_scenario_id
+      WHERE switch_inputs_wecc_v2_1.scenarios.scenario_id = current_scenario_id
     ;
-    UPDATE switch_inputs_wecc_v2.scenarios
+    UPDATE switch_inputs_wecc_v2_1.scenarios
       SET 
         scenario_name = concat(
            't', target_scenario_id, '_', 
@@ -280,13 +280,13 @@ BEGIN
            'm', months_between_samples, '_', start_month, '_',
            'h', hours_between_samples, '_', start_hour
         )
-      WHERE switch_inputs_wecc_v2.scenarios.scenario_id = current_scenario_id and (scenario_name is NULL or length(scenario_name) = 0)
+      WHERE switch_inputs_wecc_v2_1.scenarios.scenario_id = current_scenario_id and (scenario_name is NULL or length(scenario_name) = 0)
       ;
   UNTIL done END REPEAT;
   CLOSE cur_id_list;
   
-  DROP TEMPORARY TABLE switch_inputs_wecc_v2.__set_scenarios_sql_columns;
-  RETURN (SELECT count(*) FROM switch_inputs_wecc_v2.scenarios WHERE scenario_id >= target_scenario_id);
+  DROP TEMPORARY TABLE switch_inputs_wecc_v2_1.__set_scenarios_sql_columns;
+  RETURN (SELECT count(*) FROM switch_inputs_wecc_v2_1.scenarios WHERE scenario_id >= target_scenario_id);
 END$$
 
 DELIMITER ;
