@@ -139,6 +139,9 @@ set YEARS ordered = start_year .. end_year by 1;
 # it is ordered, so they are listed from north to south
 set LOAD_AREAS ordered;
 
+# load area id, useful for rapidly referencing the database
+param load_area_id {LOAD_AREAS} >= 0;
+
 # system load (MW)
 param system_load {LOAD_AREAS, TIMEPOINTS} >= 0;
 
@@ -170,6 +173,9 @@ set SOLAR_TECHNOLOGIES;
 # (most of these come from generator_info.tab)
 
 set TECHNOLOGIES;
+
+# database ids for technologies
+param technology_id {TECHNOLOGIES} >= 0;
 
 # list of all possible fuels
 set FUELS; 
@@ -212,14 +218,17 @@ param min_build_capacity {TECHNOLOGIES} >= 0;
 
 # the minimum capacity in MW that a project can be dispatched due to operation constraints
 # (i.e. CCGTs don't operate at 5% capacity)
-param min_dispatch_mw {TECHNOLOGIES} >= 0;
+param min_dispatch_fraction {TECHNOLOGIES} >= 0;
 
-# the minimum amount of hours a generator must be operating (at >= min_dispatch_mw)
+# the minimum amount of hours a generator must be operating (at >= min_dispatch_fraction)
 # if that generator is to be turned on at all
 param min_runtime {TECHNOLOGIES} >= 0;
 
 # the minimum amount of hours a generator must be left off before ramping up again
 param min_downtime {TECHNOLOGIES} >= 0;
+
+# the maximum ramp rate (unused at the moment)
+param max_ramp_rate_mw_per_hour {TECHNOLOGIES} >= 0;
 
 # the amount of fuel burned in MBtu that is needed to start a generator from cold
 param startup_fuel_mbtu {TECHNOLOGIES} >= 0;
@@ -232,8 +241,11 @@ param startup_fuel_mbtu {TECHNOLOGIES} >= 0;
 # list of all available technologies (from the generator cost table)
 set REGIONAL_TECHNOLOGIES dimen 2;
 
+# Database id of regional technologies
+param regional_project_id {REGIONAL_TECHNOLOGIES} >= 0;
+
 # year for which the price of each technology has been specified
-param price_year {REGIONAL_TECHNOLOGIES} >= 0;
+param price_and_dollar_year {REGIONAL_TECHNOLOGIES} >= 0;
 
 # overnight cost for the plant ($/MW)
 param overnight_cost {REGIONAL_TECHNOLOGIES} >= 0;
@@ -248,14 +260,9 @@ param fixed_o_m {REGIONAL_TECHNOLOGIES} >= 0;
 
 # variable O&M ($/MWh)
 param variable_o_m {REGIONAL_TECHNOLOGIES} >= 0;
-# unused parameter for changing o&m
-param variable_o_m_change {REGIONAL_TECHNOLOGIES};
 
-# annual rate of change of overnight cost, beginning at price_year
+# annual rate of change of overnight cost, beginning at price_and_dollar_year
 param overnight_cost_change {REGIONAL_TECHNOLOGIES};
-
-# annual rate of change of fixed O&M, beginning at min_build_year
-param fixed_o_m_change {REGIONAL_TECHNOLOGIES};
 
 # the nonfuel costs incurred by starting a plant from cold to producing powers
 param nonfuel_startup_cost {REGIONAL_TECHNOLOGIES};
@@ -296,7 +303,7 @@ param configuration_unspecified symbolic;
 # Names of technologies that have capacity factors or maximum capacities 
 # tied to specific locations. 
 param tech_distributed_pv symbolic in TECHNOLOGIES;
-param tech_csp_trough symbolic in TECHNOLOGIES;
+param tech_csp_trough_storage symbolic in TECHNOLOGIES;
 param tech_wind symbolic in TECHNOLOGIES;
 param tech_offshore_wind symbolic in TECHNOLOGIES;
 param tech_biomass_igcc symbolic in TECHNOLOGIES;
@@ -305,7 +312,7 @@ param tech_bio_gas symbolic in TECHNOLOGIES;
 # names of other technologies, just to have them around 
 # (but this is getting silly)
 param tech_ccgt symbolic in TECHNOLOGIES;
-param tech_combustion_turbine symbolic in TECHNOLOGIES;
+param tech_gas_combustion_turbine symbolic in TECHNOLOGIES;
 
 # maximum capacity factors (%) for each project, each hour. 
 # generally based on renewable resources available
@@ -316,9 +323,9 @@ param cap_factor {PROJ_INTERMITTENT_HOURS};
 
 # make sure all hours are represented, and that cap factors make sense.
 # Solar thermal can be parasitic, which means negative cap factors are allowed (just not TOO negative)
-check {(z, t, s, o) in PROJ_INTERMITTENT, h in TIMEPOINTS: t = tech_csp_trough}: cap_factor[z, t, s, o, h] >= -0.1;
+check {(z, t, s, o) in PROJ_INTERMITTENT, h in TIMEPOINTS: t = tech_csp_trough_storage}: cap_factor[z, t, s, o, h] >= -0.1;
 # No other technology can be parasitic, so only positive cap factors allowed
-check {(z, t, s, o) in PROJ_INTERMITTENT, h in TIMEPOINTS: t != tech_csp_trough}: cap_factor[z, t, s, o, h] >= 0;
+check {(z, t, s, o) in PROJ_INTERMITTENT, h in TIMEPOINTS: t != tech_csp_trough_storage}: cap_factor[z, t, s, o, h] >= 0;
 # cap factors for solar can be greater than 1 becasue sometimes the sun shines more than 1000W/m^2
 # which is how PV cap factors are defined.
 # The below checks make sure that for other plants the cap factors
@@ -364,7 +371,6 @@ set CONFIGURATIONS = setof {(z, t, s, o) in PROJECTS} (o);
 set PROJECTS_SANS_CONFIGURATION = setof{ (z, t, s, o) in PROJECTS } (z, t, s);
 param connect_cost_per_mw {(z, t, s) in PROJECTS_SANS_CONFIGURATION} >= 0 default 0;
 
-
 ##############################################
 # Existing hydro plants (assumed impossible to build more, but these last forever)
 
@@ -385,6 +391,9 @@ param hydro_annual_payment_per_mw >= 0;
 # and doesn't require adding a month dataset and month <-> date links)
 set PROJ_HYDRO_DATES dimen 3; # load_area, site, date
 
+# database id for hydro projects
+param hydro_project_id {PROJ_HYDRO_DATES} >= 0;
+
 # minimum, maximum and average flow (in average MW) at each dam, each day
 # (note: we assume that the average dispatch for each day must come out at this average level,
 # and flow will always be between minimum and maximum levels)
@@ -403,60 +412,13 @@ check {(z, s, d) in PROJ_HYDRO_DATES}:
 # list of all hydroelectric projects (pumped or simple)
 set PROJ_HYDRO = setof {(z, s, d) in PROJ_HYDRO_DATES} (z, s);
 
-# pumped hydro projects (have negative minimum flows at some point)
-# or any projects that should get individual-hour dispatch
-# set PROJ_PUMPED_HYDRO = setof {(z, s, d) in PROJ_HYDRO_DATES} (z, s);
-# the next two limits are equivalent (they give individual dispatch of all large hydro, and aggregated dispatch of small, baseload hydro)
-# set PROJ_PUMPED_HYDRO = setof {(z, s, d) in PROJ_HYDRO_DATES: min_hydro_flow[z, s, d] < 0 or z="Northwest" or max_hydro_flow[z, s, d] >= 50} (z, s);
-# set PROJ_PUMPED_HYDRO = setof {(z, s, d) in PROJ_HYDRO_DATES: min_hydro_flow[z, s, d] < 0.9999 * avg_hydro_flow[z, s, d]} (z, s);
-set PROJ_PUMPED_HYDRO = setof {(z, s, d) in PROJ_HYDRO_DATES: min_hydro_flow[z, s, d] < 0 or z="Northwest" or max_hydro_flow[z, s, d] >= 100} (z, s);
-# set PROJ_PUMPED_HYDRO = setof {(z, s, d) in PROJ_HYDRO_DATES: min_hydro_flow[z, s, d] < 0 or z="Northwest"} (z, s);
+set PROJ_PUMPED_HYDRO = setof {(z, s, d) in PROJ_HYDRO_DATES: min_hydro_flow[z, s, d] < 0} (z, s);
+set PROJ_NONPUMPED_HYDRO = setof {(z, s, d) in PROJ_HYDRO_DATES: min_hydro_flow[z, s, d] >= 0} (z, s);
 
-# model can fit in 32-bit cplex with installtrans fixed, or with individual dispatch only for hydro sites >= 100 MW. 
-# it cannot fit if installtrans is free and sites between 50 and 100 MW are dispatched individually.
-
-# simple hydro projects (everything else)
-set PROJ_SIMPLE_HYDRO = PROJ_HYDRO diff PROJ_PUMPED_HYDRO;
 
 # make sure the data tables have full, matching sets of data
  check card(DATES symdiff setof {(z, s, d) in PROJ_HYDRO_DATES} (d)) = 0;
  check card(PROJ_HYDRO_DATES) = card(PROJ_HYDRO) * card(DATES);
-
-#################
-# simple hydro projects are dispatched on a linearized, aggregated basis in each zone
-# the code below sets up parameters for this.
-
-# maximum share of each day's "discretionary" hydro flow 
-# (everything between the minimum_hydro_flow and the average_hydro_flow) 
-# that can be dispatched in a single hour
-# Higher values will produce narrower, taller hydro dispatch schedules,
-# but also more "baseload" hydro.
-param max_hydro_dispatch_per_hour;
-
-# minimum and maximum flow rates for each simple hydro facility,
-# dispatched on a linearized, aggregated basis.
-param min_hydro_dispatch {(z, s) in PROJ_SIMPLE_HYDRO, d in DATES} =
-  max(
-    # if the avg_hydro_flow is close to the max_hydro_flow for this site, then we need to increase the 
-    # minimum flow rate, reducing the amount of  "discretionary" hydro, so that when max_hydro_dispatch_per_hour
-    # is dispatched, it won't overshoot the max_hydro_flow for this site.
-    (max_hydro_dispatch_per_hour * 24 * avg_hydro_flow[z, s, d] - max_hydro_flow[z, s, d]) 
-      / (max_hydro_dispatch_per_hour * 24 - 1),
-
-    # in other cases, we just respect the lower flow limit for the site.
-    min_hydro_flow[z, s, d]
-  );
-# make sure we'll never overshoot maximum allowed production
-check {(z, s) in PROJ_SIMPLE_HYDRO, d in DATES}: 
-  min_hydro_dispatch[z, s, d] 
-  + max_hydro_dispatch_per_hour * (avg_hydro_flow[z, s, d] - min_hydro_dispatch[z, s, d]) * 24
-    <= max_hydro_flow[z, s, d] * 1.001;
-
-# pre-aggregate the available simple hydro supply for use in the satisfy_load constraint
-param min_hydro_dispatch_all_sites {z in LOAD_AREAS, d in DATES} 
-  = sum {(z, s) in PROJ_SIMPLE_HYDRO} min_hydro_dispatch[z, s, d];
-param avg_hydro_dispatch_all_sites {z in LOAD_AREAS, d in DATES} 
-  = sum {(z, s) in PROJ_SIMPLE_HYDRO} avg_hydro_flow[z, s, d];
 
 
 ###############################################
@@ -466,6 +428,9 @@ param avg_hydro_dispatch_all_sites {z in LOAD_AREAS, d in DATES}
 set EXISTING_PLANTS dimen 2;  # load zone, plant code
 
 check {z in setof {(z, e) in EXISTING_PLANTS} (z)}: z in LOAD_AREAS;
+
+# the database id of the plant
+param ep_project_id {EXISTING_PLANTS} >= 0;
 
 # the size of the plant in MW
 param ep_size_mw {EXISTING_PLANTS} >= 0;
@@ -614,19 +579,11 @@ param planning_reserve_margin;
 # interconnecting lines and grid upgrades
 # (all costs are in $/MW)
 param capital_cost_proj {(z, t, s, o) in PROJECTS, p in PERIODS} = 
-  ( overnight_cost[z,t] * (1+overnight_cost_change[z,t])^(p - construction_time_years[t] - price_year[z,t])
+  ( overnight_cost[z,t] * (1+overnight_cost_change[z,t])^(p - construction_time_years[t] - price_and_dollar_year[z,t])
     + connect_cost_per_mw_generic[z,t] 
     + connect_cost_per_mw[z, t, s]
   )
 ; 
-
-# The O&M change is locked in when the shovel hits the ground (implicitly assumes that the installed tech is the most significant influence on this change)
-param fixed_o_m_cost_proj {(z,t) in REGIONAL_TECHNOLOGIES, p in PERIODS} = 
-  fixed_o_m[z,t] * (1+fixed_o_m_change[z,t])^(p - construction_time_years[t] - price_year[z,t]);
-# earlier versions also assumed that variable costs declined for future vintages,
-# but this version does not, because the changes were minor, hard to support,
-# and required separate dispatch decisions for every vintage of every technology,
-# which needlessly expands the model.
 
 # annual revenue that will be needed to cover the capital cost
 param capital_cost_annual_payment {(z, t, s, o) in PROJECTS, v in PERIODS} = 
@@ -652,7 +609,7 @@ param fixed_cost {(z, t, s, o) in PROJECTS, p in PERIODS} =
     * 1/(1+discount_rate)^(p-construction_time_years[t]-base_year)
 +
   # Fixed annual costs that are paid while the plant is operating (up to the end of the study period)
-  fixed_o_m_cost_proj[z,t,p]
+  fixed_o_m[z,t]
     # U to P, from the time the plant comes online to the end year
     * (1-(1/(1+discount_rate)^(project_end_year[t,p]-p)))/discount_rate
     # F to P, from the time the plant comes online to the base year
@@ -887,15 +844,9 @@ var InstallLocalTD {LOAD_AREAS, PERIODS} >= 0;
 # the water that is stored, 
 # so it takes 1/pumped_hydro_efficiency MWh to store 1 MWh
 var StorePumpedHydro {PROJ_PUMPED_HYDRO, TIMEPOINTS} >= 0;
-var DispatchPumpedHydro {PROJ_PUMPED_HYDRO, TIMEPOINTS} >= 0;
+var DispatchHydro {PROJ_HYDRO, TIMEPOINTS} >= 0;
 var StorePumpedHydro_Reserve {PROJ_PUMPED_HYDRO, TIMEPOINTS} >= 0;
-var DispatchPumpedHydro_Reserve {PROJ_PUMPED_HYDRO, TIMEPOINTS} >= 0;
-
-# simple hydro is dispatched on an aggregated basis, using a schedule that shows the
-# amount of discretionary hydro to dispatch during each study period, in each zone,
-# season (Jan-Mar, Apr-Jun, etc.) and hour
-var HydroDispatchShare {PERIODS, LOAD_AREAS, SEASONS_OF_YEAR, HOURS_OF_DAY} >= 0;
-var HydroDispatchShare_Reserve {PERIODS, LOAD_AREAS, SEASONS_OF_YEAR, HOURS_OF_DAY} >= 0;
+var DispatchHydro_Reserve {PROJ_HYDRO, TIMEPOINTS} >= 0;
 
 #### OBJECTIVES ####
 
@@ -997,15 +948,9 @@ subject to Satisfy_Load {z in LOAD_AREAS, h in TIMEPOINTS}:
       OperateEPDuringPeriod[z, e, period[h]] * ep_size_mw[z, e] * eip_cap_factor[z, e, h] * (1-ep_forced_outage_rate[z, e])
 
   # pumped hydro, de-rated to reflect occasional unavailability of the hydro plants
-  + (1 - forced_outage_rate_hydro) * (sum {(z, s) in PROJ_PUMPED_HYDRO} DispatchPumpedHydro[z, s, h])
+  + (1 - forced_outage_rate_hydro) * (sum {(z, s) in PROJ_HYDRO} DispatchHydro[z, s, h])
   - (1 - forced_outage_rate_hydro) * (1/pumped_hydro_efficiency) * 
       (sum {(z, s) in PROJ_PUMPED_HYDRO} StorePumpedHydro[z, s, h])
-  # simple hydro, dispatched using the season-hour schedules chosen above
-  # also de-rated to reflect occasional unavailability
-  + (1 - forced_outage_rate_hydro) * 
-    (min_hydro_dispatch_all_sites[z, date[h]] 
-       + HydroDispatchShare[period[h], z, season_of_year[h], hour_of_day[h]]
-         * (avg_hydro_dispatch_all_sites[z, date[h]] - min_hydro_dispatch_all_sites[z, date[h]]) * 24)
 
 
 	########################################
@@ -1055,14 +1000,10 @@ subject to Satisfy_Load_Reserve {z in LOAD_AREAS, h in TIMEPOINTS}:
   + sum {(z, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS} 
       OperateEPDuringPeriod[z, e, period[h]] * ep_size_mw[z, e] * eip_cap_factor[z, e, h]
 
-  # pumped hydro
-  + (sum {(z, s) in PROJ_PUMPED_HYDRO} DispatchPumpedHydro_Reserve[z, s, h])
+  # Hydro
+  + (sum {(z, s) in PROJ_HYDRO} DispatchHydro_Reserve[z, s, h])
   - (1/pumped_hydro_efficiency) * 
       (sum {(z, s) in PROJ_PUMPED_HYDRO} StorePumpedHydro_Reserve[z, s, h])
-  # simple hydro, dispatched using the season-hour schedules chosen above
-  + (min_hydro_dispatch_all_sites[z, date[h]] 
-       + HydroDispatchShare_Reserve[period[h], z, season_of_year[h], hour_of_day[h]]
-         * (avg_hydro_dispatch_all_sites[z, date[h]] - min_hydro_dispatch_all_sites[z, date[h]]) * 24)
 
 	########################################
 	#    TRANSMISSION
@@ -1079,47 +1020,42 @@ subject to Satisfy_Load_Reserve {z in LOAD_AREAS, h in TIMEPOINTS}:
 # net flow of power (i.e., water) must also match the historical average
 # TODO: find better historical averages that reflect net balance of generated and stored power,
 #  because the values currently used are equal to sum(Dispatch - 1/efficiency * Storage)
-subject to Maximum_DispatchPumpedHydro {(z, s) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS}:
-  DispatchPumpedHydro[z, s, h] <= max_hydro_flow[z, s, date[h]];
-subject to Maximum_StorePumpedHydro {(z, s) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS: min_hydro_flow[z, s, date[h]] < 0}:
+
+# All hydro is subject to max flow constraints
+subject to Maximum_DispatchHydro {(z, s) in PROJ_HYDRO, h in TIMEPOINTS}:
+  DispatchHydro[z, s, h] <= max_hydro_flow[z, s, date[h]];
+
+# Min flow for non-pumped hydro
+subject to Minimum_DispatchNonPumpedHydro {(z, s) in PROJ_NONPUMPED_HYDRO, h in TIMEPOINTS}:
+  DispatchHydro[z, s, h] >= min_hydro_flow[z, s, date[h]];
+# Pumped hydro storage
+subject to Maximum_StorePumpedHydro {(z, s) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS}:
   StorePumpedHydro[z, s, h] <= -min_hydro_flow[z, s, date[h]];
+  
+# Average flow for pumped & standard hydro
 subject to Average_PumpedHydroFlow {(z, s) in PROJ_PUMPED_HYDRO, d in DATES}:
-  sum {h in TIMEPOINTS: date[h]=d} (DispatchPumpedHydro[z, s, h] - StorePumpedHydro[z, s, h]) <= 
+  sum {h in TIMEPOINTS: date[h]=d} (DispatchHydro[z, s, h] - StorePumpedHydro[z, s, h]) <= 
   sum {h in TIMEPOINTS: date[h]=d} avg_hydro_flow[z, s, d];
-# extra rules to apply when non-pumped sites are also dispatched hourly
-subject to Minimum_DispatchNonPumpedHydro {(z, s) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS: min_hydro_flow[z, s, date[h]] >= 0}:
-  DispatchPumpedHydro[z, s, h] >= min_hydro_flow[z, s, date[h]];
-subject to Maximum_StoreNonPumpedHydro {(z, s) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS: min_hydro_flow[z, s, date[h]] >= 0}:
-  StorePumpedHydro[z, s, h] = 0;
+subject to Average_HydroFlow {(z, s) in PROJ_NONPUMPED_HYDRO, d in DATES}:
+  sum {h in TIMEPOINTS: date[h]=d} DispatchHydro[z, s, h] <= 
+  sum {h in TIMEPOINTS: date[h]=d} avg_hydro_flow[z, s, d];
 
-# discretionary hydro dispatch for all hours of the day must sum to 1
-# note: dispatch is deemed to happen no matter what (to respect flow constraints), 
-# but energy supply is later de-rated by hydro forced outage rate
-subject to Maximum_DispatchHydroShare
-  {p in PERIODS, z in LOAD_AREAS, s in SEASONS_OF_YEAR}: sum {h in HOURS_OF_DAY} HydroDispatchShare[p, z, s, h] <= 1;
-
-# only part of the discretionary hydro can be dispatched in each hour of the day
-subject to MaximumHourly_DispatchHydroShare
-  {p in PERIODS, z in LOAD_AREAS, s in SEASONS_OF_YEAR, h in HOURS_OF_DAY}:
-    0 <= HydroDispatchShare[p, z, s, h] <= max_hydro_dispatch_per_hour;
 
 # same for reserve margin operation
-subject to Maximum_DispatchPumpedHydro_Reserve {(z, s) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS}:
-  DispatchPumpedHydro_Reserve[z, s, h] <= max_hydro_flow[z, s, date[h]];
-subject to Maximum_StorePumpedHydro_Reserve {(z, s) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS: min_hydro_flow[z, s, date[h]] < 0}:
+subject to Maximum_DispatchHydro_Reserve {(z, s) in PROJ_HYDRO, h in TIMEPOINTS}:
+  DispatchHydro_Reserve[z, s, h] <= max_hydro_flow[z, s, date[h]];
+
+subject to Minimum_DispatchHydro_Reserve {(z, s) in PROJ_NONPUMPED_HYDRO, h in TIMEPOINTS}:
+  DispatchHydro_Reserve[z, s, h] >= min_hydro_flow[z, s, date[h]];
+subject to Maximum_StorePumpedHydro_Reserve {(z, s) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS}:
   StorePumpedHydro_Reserve[z, s, h] <= -min_hydro_flow[z, s, date[h]];
+
 subject to Average_PumpedHydroFlow_Reserve {(z, s) in PROJ_PUMPED_HYDRO, d in DATES}:
-  sum {h in TIMEPOINTS: date[h]=d} (DispatchPumpedHydro_Reserve[z, s, h] - StorePumpedHydro_Reserve[z, s, h]) <= 
+  sum {h in TIMEPOINTS: date[h]=d} (DispatchHydro_Reserve[z, s, h] - StorePumpedHydro_Reserve[z, s, h]) <= 
   sum {h in TIMEPOINTS: date[h]=d} avg_hydro_flow[z, s, d];
-subject to Minimum_DispatchNonPumpedHydro_Reserve {(z, s) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS: min_hydro_flow[z, s, date[h]] >= 0}:
-  DispatchPumpedHydro_Reserve[z, s, h] >= min_hydro_flow[z, s, date[h]];
-subject to Maximum_StoreNonPumpedHydro_Reserve {(z, s) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS: min_hydro_flow[z, s, date[h]] >= 0}:
-  StorePumpedHydro_Reserve[z, s, h] = 0;
-subject to Maximum_DispatchHydroShare_Reserve
-  {p in PERIODS, z in LOAD_AREAS, s in SEASONS_OF_YEAR}: sum {h in HOURS_OF_DAY} HydroDispatchShare_Reserve[p, z, s, h] <= 1;
-subject to MaximumHourly_DispatchHydroShare_Reserve
-  {p in PERIODS, z in LOAD_AREAS, s in SEASONS_OF_YEAR, h in HOURS_OF_DAY}:
-    0 <= HydroDispatchShare_Reserve[p, z, s, h] <= max_hydro_dispatch_per_hour;
+subject to Average_HydroFlow_Reserve {(z, s) in PROJ_NONPUMPED_HYDRO, d in DATES}:
+  sum {h in TIMEPOINTS: date[h]=d} DispatchHydro_Reserve[z, s, h] <= 
+  sum {h in TIMEPOINTS: date[h]=d} avg_hydro_flow[z, s, d];
 
 
 # system can only dispatch as much of each project as is EXPECTED to be available
@@ -1331,15 +1267,9 @@ subject to Conservation_of_Blue_Electrons {z in LOAD_AREAS, h in TIMEPOINTS}:
   ####
   # Hydro Production
   # pumped hydro, de-rated to reflect occasional unavailability of the hydro plants
-  + (1 - forced_outage_rate_hydro) * (sum {(z, s) in PROJ_PUMPED_HYDRO} DispatchPumpedHydro[z, s, h])
+  + (1 - forced_outage_rate_hydro) * (sum {(z, s) in PROJ_HYDRO} DispatchHydro[z, s, h])
   - (1 - forced_outage_rate_hydro) * (1/pumped_hydro_efficiency) * 
       (sum {(z, s) in PROJ_PUMPED_HYDRO} StorePumpedHydro[z, s, h])
-  # simple hydro, dispatched using the season-hour schedules chosen above
-  # also de-rated to reflect occasional unavailability
-  + (1 - forced_outage_rate_hydro) * 
-    (min_hydro_dispatch_all_sites[z, date[h]] 
-       + HydroDispatchShare[period[h], z, season_of_year[h], hour_of_day[h]]
-         * (avg_hydro_dispatch_all_sites[z, date[h]] - min_hydro_dispatch_all_sites[z, date[h]]) * 24)
 
   # Imports (have experienced transmission losses)
   + (sum {(z2, z) in TRANSMISSION_LINES} (transmission_efficiency[z2, z] * DispatchTransFromXToY[z2, z, h, rps_fuel_category[fuel_hydro]]))
