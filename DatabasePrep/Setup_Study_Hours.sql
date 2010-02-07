@@ -7,7 +7,7 @@ use switch_inputs_wecc_v2_1;
 -- Sub-sampling of specific months and hours are the responsibility of the shell script that exports data from the DB
 -- Add rows to the tperiods table (defined in the middle of the section) if you want more than 4 investment periods
 
-set @base_year        := 2010;
+set @base_year        := 2014;
 set @years_per_period := 4;
 set @max_timepoints_per_day = 24;
 
