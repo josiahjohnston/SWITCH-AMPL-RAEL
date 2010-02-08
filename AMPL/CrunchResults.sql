@@ -18,7 +18,7 @@ set @sum_hourly_weights_per_period = ( SELECT sum(hours_in_sample)
 
 
 -- total generation each hour
-insert into _gen_hourly_summary
+replace into _gen_hourly_summary
   select scenario_id, carbon_cost, period, study_date, study_hour, hours_in_sample, mod(floor(study_hour/100000),100) as month, 
     6*floor(mod(study_hour, 100000)/6000) as quarter_of_day,
     mod(floor(study_hour/1000),100) as hour_of_day, 
@@ -40,7 +40,7 @@ update _gen_hourly_summary set power=-power where source="Hydro Pumping" and sce
 
 
 -- total generation each hour
-insert into _gen_hourly_summary_la
+replace into _gen_hourly_summary_la
   select @scenario_id, carbon_cost, period, area_id, study_date, study_hour, hours_in_sample, mod(floor(study_hour/100000),100) as month, 
     6*floor(mod(study_hour, 100000)/6000) as quarter_of_day,
     mod(floor(study_hour/1000),100) as hour_of_day, 
@@ -63,7 +63,7 @@ update _gen_hourly_summary_la set power=-power where source="Hydro Pumping" and 
 
 -- total generation each period
 -- this pools the dispatchable and fixed loads, and the regular and pumped hydro
-insert into gen_summary
+replace into gen_summary
   select @scenario_id, carbon_cost, period, 
     case when site in ("Transmission Losses", "Fixed Load") then site
          when fuel like "Hydro%" then "Hydro"
@@ -80,7 +80,7 @@ insert into gen_summary
 
 -- total generation each period by load area
 -- this pools the dispatchable and fixed loads, and the regular and pumped hydro
-insert into _gen_summary_la
+replace into _gen_summary_la
   select @scenario_id, carbon_cost, period, area_id, 
     case when site in ("Transmission Losses", "Fixed Load") then site
          when fuel like "Hydro%" then "Hydro"
@@ -97,7 +97,7 @@ insert into _gen_summary_la
 
 
 -- capacity each period
-insert into gen_cap_summary
+replace into gen_cap_summary
   select @scenario_id as scenario_id, carbon_cost, period, 
     case when fuel like "Hydro%" then "Hydro"
          when new then concat("New ", technology)
@@ -120,12 +120,12 @@ insert into gen_cap_summary
     group by 2, 3, 4;
 -- if a technology is not developed, it doesn't show up in the generator list,
 -- but it's convenient to have it in the list anyway
-insert into gen_cap_summary (scenario_id, carbon_cost, period, source, capacity)
+replace into gen_cap_summary (scenario_id, carbon_cost, period, source, capacity)
   select @scenario_id, carbon_cost, period, source, 0 from gen_summary 
     where source <> "System Load" and scenario_id = @scenario_id and (carbon_cost, period, source) not in (select carbon_cost, period, source from gen_cap_summary where scenario_id = @scenario_id);
 
 -- capacity each period by load area
-insert into _gen_cap_summary_la
+replace into _gen_cap_summary_la
   select @scenario_id as scenario_id, carbon_cost, period, area_id, 
     case when fuel like "Hydro%" then "Hydro"
          when new then concat("New ", technology)
@@ -184,7 +184,7 @@ set @co2_tons_1990 := 86700000; -- electricity generation
 -- set @co2_tons_1990 := @co2_tons_1990 + 0.5*305983000*42*8.8/1000;  -- vehicle fleet
 
 -- Currently, the co2_tons_reduced & co2_share_reduced are broken b/c @base_co2_tons is returning NULL. See note above.
-insert into co2_cc 
+replace into co2_cc 
   select @scenario_id as scenario_id, carbon_cost, sum(co2_tons*hours_in_sample)/@period_length as co2_tons, 
     @base_co2_tons-sum(co2_tons*hours_in_sample)/@period_length as co2_tons_reduced, 
     1-sum(co2_tons*hours_in_sample)/@period_length/@base_co2_tons as co2_share_reduced, 
@@ -229,7 +229,7 @@ create temporary table tvariable_costs
     from dispatch where scenario_id = @scenario_id group by 1, 2;
 alter table tvariable_costs add index pc (period, carbon_cost);
 
-insert into power_cost (scenario_id, carbon_cost, period, load_mwh,fixed_cost_gen, fixed_cost_trans, fixed_cost_local_td, fuel_cost,carbon_cost_tot, variable_o_m, total_cost )
+replace into power_cost (scenario_id, carbon_cost, period, load_mwh,fixed_cost_gen, fixed_cost_trans, fixed_cost_local_td, fuel_cost,carbon_cost_tot, variable_o_m, total_cost )
   select @scenario_id, l.carbon_cost, l.period, load_mwh, 
     fixed_cost_gen, fixed_cost_trans, fixed_cost_local_td,
     fuel_cost, carbon_cost_tot, variable_o_m,
@@ -244,7 +244,7 @@ update power_cost set cost_per_mwh = total_cost/load_mwh where scenario_id=@scen
 
 -- Transmission summary: net transmission for each zone in each hour
 -- First add imports, then subtract exports
-insert into _trans_summary (scenario_id, carbon_cost, period, area_id, study_date, study_hour, hours_in_sample, net_power)
+replace into _trans_summary (scenario_id, carbon_cost, period, area_id, study_date, study_hour, hours_in_sample, net_power)
   select scenario_id, carbon_cost, period, receive_id, study_date, study_hour, hours_in_sample, sum(power_received) 
     from _transmission where scenario_id = @scenario_id group by 1, 2, 3, 4, 5, 6, 7;
 insert into _trans_summary (scenario_id, carbon_cost, period, area_id, study_date, study_hour, hours_in_sample, net_power)
@@ -253,7 +253,7 @@ insert into _trans_summary (scenario_id, carbon_cost, period, area_id, study_dat
   on duplicate key update net_power = net_power + VALUES(net_power);
 
 -- Tally transmission losses using a similar method
-insert into _trans_loss (scenario_id, carbon_cost, period, area_id, study_date, study_hour, hours_in_sample, power)
+replace into _trans_loss (scenario_id, carbon_cost, period, area_id, study_date, study_hour, hours_in_sample, power)
   select scenario_id, carbon_cost, period, send_id, study_date, study_hour, hours_in_sample, sum(power_sent - power_received) as power
     from _transmission where scenario_id = @scenario_id group by 1, 2, 3, 4, 5, 6, 7;
     
