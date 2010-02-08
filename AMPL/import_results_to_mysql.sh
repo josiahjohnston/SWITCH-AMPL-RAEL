@@ -10,17 +10,73 @@ current_dir=`pwd`
 results_dir="results"
 write_over_prior_results="IGNORE"
 
+###################################################
+# Detect optional command-line arguments
+FlushPriorResults=0
+SkipImport=0
+help=0
+while [ -n "$1" ]; do
+case $1 in
+  -u)
+    user=$2
+    shift 2
+  ;;
+  -p)
+    password=$2
+    shift 2
+  ;;
+  -D)
+    DB_name=$2
+    shift 2
+  ;;
+  -h)
+    db_server=$2
+    shift 2
+  ;;
+  --FlushPriorResults) 
+	FlushPriorResults=1
+	shift 1
+  ;;
+  --SkipImport) 
+    SkipImport=1;
+    shift 1
+  ;;
+  --help)
+    help=1
+    shift 1
+  ;;
+  *)
+    echo "Unknown option $1"
+    shift 1
+  ;;
+esac
+done
+
+if [ $help = 1 ]
+then
+  echo "Usage: $0 [OPTIONS]"
+  echo "  --help                   Print this menu"
+  echo "  -u [DB Username]"
+  echo "  -p [DB Password]"
+  echo "  -D [DB name]"
+  echo "  -h [DB server]"
+  echo "  --FlushPriorResults      Delete all prior results for this scenario before importing."
+  echo "  --SkipImport             Just crunch the results, don't import any files"
+  echo "All arguments are optional. "
+  exit 0
+fi
+
 ##########################
 # Get the user name and password 
 # Note that passing the password to mysql via a command line parameter is considered insecure
 #	http://dev.mysql.com/doc/refman/5.0/en/password-security.html
-if [ $# -ge 2  ]
+if [ ! -n "$user" ]
 then 
-	user=$1
-	password=$2
-else
 	echo "User name for MySQL $DB_name on $db_server? "
 	read user
+fi
+if [ ! -n "$password" ]
+then 
 	echo "Password for MySQL $DB_name on $db_server? "
 	stty_orig=`stty -g`   # Save screen settings
 	stty -echo            # To keep the password vaguely secure, don't let it show to the screen
@@ -41,51 +97,43 @@ rm $runtime_path
 ###################################################
 # Clear out the prior instance of this run if requested
 # You can do this manually with this SQL command: select clear_scenario_results(SCENARIO_ID);
-if [ $# -ge 3 ]
-then 
-	if [ $3 = "--FlushPriorResults" ]
-	then
-		rewrite_results="REPLACE";
-		echo "Flushing Prior results for scenario ${SCENARIO_ID}";
-		mysql -h $db_server -u $user -p$password --column-names=false -e "select clear_scenario_results(${SCENARIO_ID});" $DB_name
-	fi
-fi
-if [ $# -ge 1 ]
-then
-	if [ $1 = "--FlushPriorResults" ]
-	then
-		rewrite_results="REPLACE";
-		echo "Flushing Prior results for scenario ${SCENARIO_ID}";
-		mysql -h $db_server -u $user -p$password --column-names=false -e "select clear_scenario_results(${SCENARIO_ID});" $DB_name
-	fi
+if [ $FlushPriorResults = 1 ]; then
+  rewrite_results="REPLACE"
+  echo "Flushing Prior results for scenario ${SCENARIO_ID}"
+  mysql -h $db_server -u $user -p$password --column-names=false -e "select clear_scenario_results(${SCENARIO_ID});" $DB_name
 fi
 
 ###################################################
 # Import all of the results files into the DB
-echo 'Importing results files...'
-for file_base_name in gen_cap trans_cap local_td_cap dispatch transmission system_load
-do
- for file_name in `ls results/${file_base_name}_*txt | grep "[[:digit:]]"`
- do
-  file_path="$current_dir/$file_name"
-  echo "    ${file_name}  ->  ${DB_name}._${file_base_name}"
-  # Import the file in question into the DB
-  case $file_base_name in
-    gen_cap) printf "%20s seconds to import %s rows\n" `(time -p mysql -h $db_server -u $user -p$password -e "load data local infile \"$file_path\" $write_over_prior_results into table _gen_cap (scenario_id, carbon_cost, period, project_id, area_id, @junk, technology_id, @junk, @junk, orientation, new, baseload, cogen, fuel, capacity, fixed_cost);" $DB_name) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
-      ;;
-    trans_cap) printf "%20s seconds to import %s rows\n" `(time -p mysql -h $db_server -u $user -p$password -e "load data local infile \"$file_path\" $write_over_prior_results into table _trans_cap (scenario_id,carbon_cost,period,start_id,end_id,@junk,@junk,tid,new,trans_mw,fixed_cost);" $DB_name) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
-      ;;
-    local_td_cap) printf "%20s seconds to import %s rows\n" `(time -p mysql -h $db_server -u $user -p$password -e "load data local infile \"$file_path\" $write_over_prior_results into table _local_td_cap (scenario_id, carbon_cost, period, area_id, @junk, local_td_mw, fixed_cost);" $DB_name) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
-      ;;
-    dispatch) printf "%20s seconds to import %s rows\n" `(time -p mysql -h $db_server -u $user -p$password -e "load data local infile \"$file_path\" $write_over_prior_results into table _dispatch (scenario_id, carbon_cost, period, project_id, area_id, @junk, study_date, study_hour, technology_id, @junk, @junk, orientation, new, baseload, cogen, fuel, power, co2_tons, hours_in_sample, heat_rate, fuel_cost_tot, carbon_cost_tot, variable_o_m_tot);" $DB_name) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
-      ;;
-    transmission) printf "%20s seconds to import %s rows\n" `(time -p mysql -h $db_server -u $user -p$password -e "load data local infile \"$file_path\" $write_over_prior_results into table _transmission (scenario_id, carbon_cost, period, receive_id, send_id, @junk, @junk, study_date, study_hour, rps_fuel_category, power_sent, power_received, hours_in_sample);" $DB_name) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
-      ;;
-    system_load) printf "%20s seconds to import %s rows\n" `(time -p mysql -h $db_server -u $user -p$password -e "load data local infile \"$file_path\" $write_over_prior_results into table _system_load (scenario_id, carbon_cost, period, area_id, @junk, study_date, study_hour, power, hours_in_sample);" $DB_name) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
-      ;;
-   esac
- done
-done
+if [ $SkipImport = 0 ]; then
+  echo 'Importing results files...'
+  for file_base_name in gen_cap trans_cap local_td_cap dispatch transmission system_load
+  do
+   for file_name in `ls results/${file_base_name}_*txt | grep "[[:digit:]]"`
+   do
+	file_path="$current_dir/$file_name"
+	echo "    ${file_name}  ->  ${DB_name}._${file_base_name}"
+	# Import the file in question into the DB
+	case $file_base_name in
+	  gen_cap) printf "%20s seconds to import %s rows\n" `(time -p mysql -h $db_server -u $user -p$password -e "load data local infile \"$file_path\" $write_over_prior_results into table _gen_cap (scenario_id, carbon_cost, period, project_id, area_id, @junk, technology_id, @junk, @junk, orientation, new, baseload, cogen, fuel, capacity, fixed_cost);" $DB_name) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
+		;;
+	  trans_cap) printf "%20s seconds to import %s rows\n" `(time -p mysql -h $db_server -u $user -p$password -e "load data local infile \"$file_path\" $write_over_prior_results into table _trans_cap (scenario_id,carbon_cost,period,start_id,end_id,@junk,@junk,tid,new,trans_mw,fixed_cost);" $DB_name) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
+		;;
+	  local_td_cap) printf "%20s seconds to import %s rows\n" `(time -p mysql -h $db_server -u $user -p$password -e "load data local infile \"$file_path\" $write_over_prior_results into table _local_td_cap (scenario_id, carbon_cost, period, area_id, @junk, local_td_mw, fixed_cost);" $DB_name) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
+		;;
+	  dispatch) printf "%20s seconds to import %s rows\n" `(time -p mysql -h $db_server -u $user -p$password -e "load data local infile \"$file_path\" $write_over_prior_results into table _dispatch (scenario_id, carbon_cost, period, project_id, area_id, @junk, study_date, study_hour, technology_id, @junk, @junk, orientation, new, baseload, cogen, fuel, power, co2_tons, hours_in_sample, heat_rate, fuel_cost_tot, carbon_cost_tot, variable_o_m_tot);" $DB_name) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
+		;;
+	  transmission) printf "%20s seconds to import %s rows\n" `(time -p mysql -h $db_server -u $user -p$password -e "load data local infile \"$file_path\" $write_over_prior_results into table _transmission (scenario_id, carbon_cost, period, receive_id, send_id, @junk, @junk, study_date, study_hour, rps_fuel_category, power_sent, power_received, hours_in_sample);" $DB_name) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
+		;;
+	  system_load) printf "%20s seconds to import %s rows\n" `(time -p mysql -h $db_server -u $user -p$password -e "load data local infile \"$file_path\" $write_over_prior_results into table _system_load (scenario_id, carbon_cost, period, area_id, @junk, study_date, study_hour, power, hours_in_sample);" $DB_name) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
+		;;
+	 esac
+   done
+  done
+else
+  echo 'Skipping Import.'
+fi
+
 
 ###################################################
 # Crunch through the data
