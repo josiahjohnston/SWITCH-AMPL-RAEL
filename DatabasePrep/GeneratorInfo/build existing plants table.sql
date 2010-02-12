@@ -472,6 +472,16 @@ alter table existing_plants_agg add column intermittent boolean default 0;
 alter table existing_plants_agg add column technology varchar(30);
 update existing_plants_agg set technology = concat(aer_fuel, '_', gentype);
 
+-- Update technology names
+update existing_plants_agg set technology = 'Coal_Steam_Turbine' where technology = 'Coal_ST';
+update existing_plants_agg set technology = 'Geothermal' where technology = 'Geothermal_ST';
+update existing_plants_agg set technology = 'Gas_Combustion_Turbine' where technology = 'Gas_GT' or technology = 'Gas_IC' ;
+update existing_plants_agg set technology = 'Gas_Steam_Turbine' where technology = 'Gas_ST';
+update existing_plants_agg set technology = 'CCGT' where technology = 'Gas_CC';
+update existing_plants_agg set technology = 'Nuclear' where technology = 'Uranium_ST';
+
+
+
 -- HYDRO----------
 use generator_info;
 
