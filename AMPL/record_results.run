@@ -222,12 +222,20 @@ printf {(z, e, p) in EP_PERIODS}
   + ep_size_mw[z, e] * ep_capital_cost_annual_payment[z, e] * (1-(1/(1+discount_rate)^(num_years_per_period)))/discount_rate
   >> (outfile);
 
-# hydro plants (pumped or simple)
+# In the results database, Hydro has a hard-coded id of 15, and Hydro Pumping has 16 (see DatabasePrep/GeneratorInfo/generator_costs.csv)
+# hydro plants (non-pumped)
 # note: capacity is defined as the maximum possible output on any date in the period
 # currently assumed to have no fixed cost; fix this later!
-printf {(z, s) in PROJ_HYDRO, p in PERIODS}
+printf {(z, s) in PROJ_NONPUMPED_HYDRO, p in PERIODS}
   "%s	%.2f	%d	%d	%d	%s	%d	%s	%s	%s	%d	%d	%d	%s	%.2f	%.0f\n",
-  scenario_id, carbon_cost, p, hydro_project_id[z, s, first(DATES)], load_area_id[z], z, 100, "Hydro", s, "na", 0, 0, 0, "Hydro",
+  scenario_id, carbon_cost, p, hydro_project_id[z, s, first(DATES)], load_area_id[z], z, 15, "Hydro_NonPumped", s, "na", 0, 0, 0, fuel_hydro,
+  max {d in DATES, h in TIMEPOINTS: date[h] = d and period[h] = p} max_hydro_flow[z, s, d],
+  0
+  >> (outfile);
+# hydro plants (pumped)
+printf {(z, s) in PROJ_PUMPED_HYDRO, p in PERIODS}
+  "%s	%.2f	%d	%d	%d	%s	%d	%s	%s	%s	%d	%d	%d	%s	%.2f	%.0f\n",
+  scenario_id, carbon_cost, p, hydro_project_id[z, s, first(DATES)], load_area_id[z], z, 16, "Hydro_Pumped", s, "na", 0, 0, 0, fuel_hydro,
   max {d in DATES, h in TIMEPOINTS: date[h] = d and period[h] = p} max_hydro_flow[z, s, d],
   0
   >> (outfile);
