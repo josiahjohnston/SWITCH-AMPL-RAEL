@@ -19,6 +19,12 @@ create table if not exists generator_costs (
 	connect_cost_per_mw_generic float,
 	heat_rate float,
 	construction_time_years float,
+	year_1_cost_fraction float,
+	year_2_cost_fraction float,
+	year_3_cost_fraction float,
+	year_4_cost_fraction float,
+	year_5_cost_fraction float,
+	year_6_cost_fraction float,
 	max_age_years float,
 	forced_outage_rate float,
 	scheduled_outage_rate float,
@@ -31,40 +37,14 @@ create table if not exists generator_costs (
 	min_downtime int,
 	max_ramp_rate_mw_per_hour float,
 	startup_fuel_mbtu float,
-	nonfuel_startup_cost float
+	nonfuel_startup_cost float, 
+	can_build_new TINYINT
 );
 
 -- import the data
-load data local infile "/Volumes/1TB_RAID/Models/Switch\ Input\ Data/Generators/Generator\ Costs/generator_costs_02-03-2010.csv"
+load data local infile "generator_costs.csv"
   into table generator_costs 
   fields terminated by ","
   optionally enclosed by '"'
   lines terminated by "\r"
   ignore 1 lines;
-
-update generator_costs 
-	set min_build_year = 0 where min_build_year is NULL;
-update generator_costs set
-	price_and_dollar_year = 0, 
-	min_build_year = 0, 
-	overnight_cost = 0, 
-	fixed_o_m = 0, 
-	variable_o_m = 0, 
-	overnight_cost_change = 0, 
-	connect_cost_per_mw_generic = 0, 
-	heat_rate = 0, 
-	construction_time_years = 0, 
-	max_age_years = 0, 
-	forced_outage_rate = 0, 
-	scheduled_outage_rate = 0, 
-	intermittent = 0, 
-	resource_limited = 0, 
-	baseload = 0, 
-	min_build_capacity = 0, 
-	min_dispatch_fraction = 0, 
-	min_runtime = 0, 
-	min_downtime = 0, 
-	max_ramp_rate_mw_per_hour = 0, 
-	startup_fuel_mbtu = 0, 
-	nonfuel_startup_cost = 0
-  where price_and_dollar_year is NULL or price_and_dollar_year = 0;
