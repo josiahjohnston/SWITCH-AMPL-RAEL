@@ -25,6 +25,12 @@ CREATE TABLE IF NOT EXISTS sites (
 ) ROW_FORMAT=FIXED;
 INSERT IGNORE INTO sites (project_id, site)
   SELECT project_id, site from switch_inputs_wecc_v2_1.proposed_renewable_sites src;
+INSERT IGNORE INTO sites (project_id, site)
+  SELECT project_id, plant_code from switch_inputs_wecc_v2_1.existing_plants;
+INSERT IGNORE INTO sites (project_id, site)
+  SELECT distinct project_id, site from switch_inputs_wecc_v2_1.hydro_monthly_limits;
+INSERT IGNORE INTO sites (project_id, site)
+  SELECT project_id, concat(load_area,'-',technology) from switch_inputs_wecc_v2_1.generator_costs_regional;
 
 
 CREATE TABLE IF NOT EXISTS months (
