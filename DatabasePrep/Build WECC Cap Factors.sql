@@ -415,7 +415,8 @@ create table generator_info (
 	min_runtime int,
 	min_downtime int,
 	max_ramp_rate_mw_per_hour float,
-	startup_fuel_mbtu float
+	startup_fuel_mbtu float,
+	can_build_new TINYINT
 );
 insert into generator_info
  select 
@@ -436,7 +437,8 @@ insert into generator_info
 	min_runtime,
 	min_downtime,
 	max_ramp_rate_mw_per_hour,
-	startup_fuel_mbtu
+	startup_fuel_mbtu,
+	can_build_new
  from generator_info.generator_costs;
 
 -----------------------------------------------------------------------
@@ -499,7 +501,7 @@ insert into _generator_costs_regional
    			nonfuel_startup_cost * economic_multiplier as nonfuel_startup_cost
     from 	generator_info.generator_costs gen_costs,
 			load_area_info
-			where gen_costs.min_build_year > 0
+			where gen_costs.can_build_new
 	where 	load_area_info.scenario_id  = @load_area_scenario_id
  on duplicate key update
 	price_and_dollar_year       = gen_costs.price_and_dollar_year,
@@ -517,6 +519,9 @@ insert into _generator_costs_regional
 delete from _generator_costs_regional
  	where 	(technology_id in (select technology_id from generator_info where fuel in ('Uranium', 'Coal')) and
 			area_id in (select area_id from load_area_info where primary_nerc_subregion like 'CA'));
+delete from _generator_costs_regional
+ 	where 	(technology_id in (select technology_id from generator_info where fuel in ('Uranium')) and
+			area_id in (select area_id from load_area_info where primary_nerc_subregion like 'MX'));
 
 
 -- Make a view that is more user-friendly
