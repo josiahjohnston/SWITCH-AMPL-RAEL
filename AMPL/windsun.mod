@@ -1070,8 +1070,8 @@ subject to Maximum_DispatchGen
 # TODO: adjust this to allow re-installing at the same site after retiring an earlier plant
 # (not an issue if the simulation is too short to retire plants)
 # or even allow forced retiring of earlier plants if new technologies are better
-subject to Maximum_Resource {(z, t, s, o) in PROJ_RESOURCE_LIMITED}:
-  sum {p in PERIODS: p >= min_build_year[t] + construction_time_years[t]} InstallGen[z, t, s, o, p] <= max_capacity[z, t, s];
+subject to Maximum_Resource {(z, t, s) in PROJ_RESOURCE_LIMITED_SITES}:
+  sum {p in PERIODS, (z, t, s, o) in PROJ_RESOURCE_LIMITED: p >= min_build_year[t] + construction_time_years[t]} InstallGen[z, t, s, o, p] <= max_capacity[z, t, s];
 
 # Some generators have a minimum build size. This enforces that constraint
 # If a generator is installed, then BuildGenOrNot is 1, and InstallGen has to be >= min_build_capacity
@@ -1106,6 +1106,7 @@ subject to Maximum_DispatchTransFromXToY
   ( sum { fc in RPS_FUEL_CATEGORY } DispatchTransFromXToY[z1, z2, h, fc] )
     <= (1-transmission_forced_outage_rate) * 
           (existing_transfer_capacity_mw[z1, z2] + sum {(z1, z2, v, h) in TRANS_VINTAGE_HOURS} InstallTrans[z1, z2, v]);
+
 # Simple fix to problem of asymetrical transmission build-out
 subject to SymetricalTrans
   {(z1, z2) in TRANSMISSION_LINES, p in PERIODS}: InstallTrans[z1, z2, p] == InstallTrans[z2, z1, p];
