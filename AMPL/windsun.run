@@ -11,6 +11,9 @@ if match($version, 'Darwin') > 0 then {
 # New settings for multi-threaded execution
 #  option cplex_options 'lpdisplay=1 threads=8 mipdisplay=1';
   option cplex_options 'lpdisplay=1 iisfind=1 mipdisplay=1';
+  
+# Another settings for speeding up resolving process when one parameter is slightly adjusted
+# advance=2
 } else {
   option solver cplexamp;
 #  Old setting for single-threaded execution
