@@ -195,6 +195,15 @@ param heat_rate {TECHNOLOGIES} >= 0;
 # construction lead time (years)
 param construction_time_years {TECHNOLOGIES} >= 0;
 
+# the next six parameters decribe the fraction of costs that must be paid from the
+# start of construction to the completion of the project
+param year_1_cost_fraction {TECHNOLOGIES} >= 0, <= 1;
+param year_2_cost_fraction {TECHNOLOGIES} >= 0, <= 1;
+param year_3_cost_fraction {TECHNOLOGIES} >= 0, <= 1;
+param year_4_cost_fraction {TECHNOLOGIES} >= 0, <= 1;
+param year_5_cost_fraction {TECHNOLOGIES} >= 0, <= 1;
+param year_6_cost_fraction {TECHNOLOGIES} >= 0, <= 1;
+
 # life of the plant (age when it must be retired)
 param max_age_years {TECHNOLOGIES} >= 0;
 
