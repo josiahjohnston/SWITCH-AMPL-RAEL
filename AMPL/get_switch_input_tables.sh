@@ -167,8 +167,8 @@ echo ampl.tab 5 1 > cap_factor.tab
 mysql $connection_string -e "select load_area, generator_type as technology, project_id as site, configuration, study_hour as hour, cap_factor from cap_factor_proposed_renewable_sites c join study_hours_all h on (h.hournum=c.hour) join configurations using(configuration) where $TIMESAMPLE;" >> cap_factor.tab
 
 echo '	generator_info.tab...'
-echo ampl.tab 1 17 > generator_info.tab
-mysql $connection_string -e "select technology, technology_id, min_build_year, fuel, heat_rate, construction_time_years, max_age_years, forced_outage_rate, scheduled_outage_rate, intermittent, resource_limited, baseload, min_build_capacity, min_dispatch_fraction, min_runtime, min_downtime, max_ramp_rate_mw_per_hour, startup_fuel_mbtu from generator_info;" >> generator_info.tab
+echo ampl.tab 1 23 > generator_info.tab
+mysql $connection_string -e "select technology, technology_id, min_build_year, fuel, heat_rate, construction_time_years, year_1_cost_fraction, year_2_cost_fraction, year_3_cost_fraction, year_4_cost_fraction, year_5_cost_fraction, year_6_cost_fraction, max_age_years, forced_outage_rate, scheduled_outage_rate, intermittent, resource_limited, baseload, min_build_capacity, min_dispatch_fraction, min_runtime, min_downtime, max_ramp_rate_mw_per_hour, startup_fuel_mbtu from generator_info;" >> generator_info.tab
 
 echo '	generator_costs_regional.tab...'
 echo ampl.tab 2 8 > generator_costs_regional.tab
