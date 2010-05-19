@@ -7,6 +7,7 @@ param trans_solution_file symbolic;
 param cost_solution_exists;
 param trans_solution_exists;
 param max_potential_solar_last_period;
+param num_result_files;
 
 
 if (enable_min_solar_production = 1) then {
@@ -31,22 +32,13 @@ for {c in CARBON_COSTS} {
 
 
   ###############################
-  # Determine if which solutions already exists. 
+  # Cost optimization
+
+  # Determine if a cost solution already exists. 
   shell("if [ -f " & cost_solution_file & " ]; then echo 1 > sol_exists.txt; else echo 0 > sol_exists.txt; fi");
   read cost_solution_exists < "sol_exists.txt";
   close "sol_exists.txt";
   shell("rm sol_exists.txt");
-
-  # Determine if the transmission solution already exists. 
-  shell("if [ -f " & trans_solution_file & " ]; then echo 1 > sol_exists.txt; else echo 0 > sol_exists.txt; fi");
-  read trans_solution_exists < "sol_exists.txt";
-  close "sol_exists.txt";
-  shell("rm sol_exists.txt");
-
-
-  ###############################
-  # Cost optimization
-
   if ( cost_solution_exists )
   then {
     printf "\nLoading Cost solution from disk for a carbon cost of %d.\n", carbon_cost;
@@ -110,7 +102,7 @@ for {c in CARBON_COSTS} {
 
   }
 
-  # export the results to csv files and the like
+  # export the results to csv files and the like if they haven't already been exported
   include record_results.run;
 
   unfix InstallGen;

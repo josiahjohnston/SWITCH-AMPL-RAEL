@@ -200,3 +200,23 @@ if ( enable_min_solar_production = 1 ) then {
   }
 }
 check;
+
+set RESULT_FILES;
+param result_file_path_templates{RESULT_FILES} symbolic;
+param result_header_paths{RESULT_FILES} symbolic;
+param output_section symbolic;
+
+let RESULT_FILES := { 'dispatch', 'system_load', 'transmission', 'generation_capacity', 'transmission_capacity', 'local_trans_and_distribution_capacity' };
+let result_file_path_templates['dispatch']                              := 'results/dispatch_%d.txt';
+let result_file_path_templates['system_load']                           := 'results/sys_load_%d.txt';
+let result_file_path_templates['transmission']                          := 'results/transmission_%d.txt';
+let result_file_path_templates['generation_capacity']                   := 'results/gen_cap_%d.txt';
+let result_file_path_templates['transmission_capacity']                 := 'results/trans_cap_%d.txt';
+let result_file_path_templates['local_trans_and_distribution_capacity'] := 'results/local_td_cap_%d.txt';
+
+let result_header_paths['dispatch']                              := 'results/dispatch_columns.txt';
+let result_header_paths['system_load']                           := 'results/sys_load_columns.txt';
+let result_header_paths['transmission']                          := 'results/transmission_columns.txt';
+let result_header_paths['generation_capacity']                   := 'results/gen_cap_columns.txt';
+let result_header_paths['transmission_capacity']                 := 'results/trans_cap_columns.txt';
+let result_header_paths['local_trans_and_distribution_capacity'] := 'results/local_td_cap_columns.txt';

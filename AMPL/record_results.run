@@ -1,6 +1,5 @@
 let curtime := time();
 
-
 #######################
 # store all hourly generation data in standardized, MW terms
 
@@ -8,13 +7,15 @@ let curtime := time();
 # as well as total CO2 emissions per hour, heat rate, variable costs per MWh
 # It might be better to report sub-components (CO2_per_mwh, variable_o_m and fuel_cost_hourly) instead of total emissions and variable costs
 # (that would simplify the code here, but then the components would have to be multiplied and added in mysql later)
-let outfile := "results/dispatch_columns.txt";
+let output_section := 'dispatch';
+let outfile := result_header_paths[output_section];
 printf "scenario_id	carbon_cost	period	project_id	load_area_id	load_area	date	hour	technology_id	technology	location_id	new	baseload	cogen	fuel	power	co2_tons	hours_in_sample	heat_rate	fuel_cost_tot	carbon_cost_tot	variable_o_m_tot\n"
   > (outfile);
 close (outfile);
 
 # new dispatchable projects
-let outfile := "results/dispatch_" & carbon_cost & ".txt";
+let outfile := sprintf( result_file_path_templates[output_section], carbon_cost );
+#"results/dispatch_" & carbon_cost & ".txt";
 printf {(z, t, p) in PROJ_DISPATCH, h in TIMEPOINTS} 
   "%s	%.2f	%d	%d	%d	%s	%d	%d	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%d	%.2f	%.2f	%.2f	%.2f\n",
   scenario_id, carbon_cost, period[h], regional_project_id[z, t], load_area_id[z], z, date[h], h, technology_id[t], t, location_unspecified, 1, 0, 0, fuel[t], 
@@ -157,11 +158,12 @@ close (outfile);
 
 #######################
 # system load
-let outfile := "results/sys_load_columns.txt";
+let output_section := 'system_load';
+let outfile := result_header_paths[output_section];
 printf "scenario_id	carbon_cost	period	load_area_id	load_area	date	hour	power	hours_in_sample\n"
   > (outfile);
 close (outfile);
-let outfile := "results/system_load_" & carbon_cost & ".txt";
+let outfile := sprintf( result_file_path_templates[output_section], carbon_cost );
 printf {z in LOAD_AREAS, h in TIMEPOINTS, p in PERIODS: period[h]=p} 
   "%s	%.2f	%d	%d	%s	%d	%d	%.2f	%d\n",
   scenario_id, carbon_cost, p, load_area_id[z], z, date[h], h, system_load[z, h], hours_in_sample[h]
@@ -173,14 +175,15 @@ close (outfile);
 #######################
 # store detailed transmission info in standardized, MW terms
 
-let outfile := "results/transmission_columns.txt";
+let output_section := 'transmission';
+let outfile := result_header_paths[output_section];
 printf "scenario_id	carbon_cost	period	load_area_receive_id	load_area_from_id	load_area_receive	load_area_from	date	hour	rps_fuel_category	power_sent	power_received	hours_in_sample\n"
   > (outfile);
 close (outfile);
 
 
 # detailed imports & exports
-let outfile := "results/transmission_" & carbon_cost & ".txt";
+let outfile := sprintf( result_file_path_templates[output_section], carbon_cost );
 printf {(x, y) in TRANSMISSION_LINES, h in TIMEPOINTS, fuel_cat in RPS_FUEL_CATEGORY: DispatchTransFromXToY[x, y, h, fuel_cat] > 0.001} 
   "%s	%.2f	%d	%d	%d	%s	%s	%d	%d	%s	%.2f	%.2f	%d\n",
   scenario_id, carbon_cost, period[h], load_area_id[y], load_area_id[x], y, x, date[h], h, fuel_cat,
@@ -195,11 +198,12 @@ close (outfile);
 # store all gen/trans capacity data in standardized, MW terms
 # (these are quoted as total capacity installed up through each study period)
 
-let outfile := "results/gen_cap_columns.txt";
+let output_section := 'generation_capacity';
+let outfile := result_header_paths[output_section];
 printf "scenario_id	carbon_cost	period	project_id	load_area_id	load_area	technology_id	technology	site	new	baseload	cogen	fuel	capacity	fixed_cost\n" > (outfile);
 close (outfile);
 
-let outfile := "results/gen_cap_" & carbon_cost & ".txt";
+let outfile := sprintf( result_file_path_templates[output_section], carbon_cost );
 # new projects INTERMITTENT
 printf {(z, t, proj) in PROJ_INTERMITTENT union PROJ_RESOURCE_LIMITED, p in PERIODS: (max {(z, t, proj, v) in PROJECT_VINTAGES} InstallGen[z, t, proj, v]) > 0}
   "%s	%.2f	%d	%d	%d	%s	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f\n",
@@ -263,11 +267,12 @@ close (outfile);
 
 ########################
 # store all trans capacity between zones
-let outfile := "results/trans_cap_columns.txt";
+let output_section := 'transmission_capacity';
+let outfile := result_header_paths[output_section];
 printf "scenario_id	carbon_cost	period	start_id	end_id	start	end	transmission_line_id	new	trans_mw	fixed_cost\n" > (outfile);
 close (outfile);
 
-let outfile := "results/trans_cap_" & carbon_cost & ".txt";
+let outfile := sprintf( result_file_path_templates[output_section], carbon_cost );
 # existing lines 
 # TODO: update this if the main model is changed to retire existing lines when they reach transmission_max_age_years
 # TODO: switch this to record the bidirectional capacities, instead of averaging them together
@@ -292,11 +297,12 @@ close (outfile);
 
 ########################
 # store local T&D capacity within each zone
-let outfile := "results/local_td_cap_columns.txt";
+let output_section := 'local_trans_and_distribution_capacity';
+let outfile := result_header_paths[output_section];
 printf "scenario_id	carbon_cost	period	load_area_id	load_area	local_td_mw	fixed_cost\n" > (outfile);
 close (outfile);
 
-let outfile := "results/local_td_cap_" & carbon_cost & ".txt";
+let outfile := sprintf( result_file_path_templates[output_section], carbon_cost );
 printf {p in PERIODS, z in LOAD_AREAS}:
   "%s	%.2f	%d	%d	%s	%.2f	%.2f\n",
   scenario_id, carbon_cost, p, load_area_id[z], z, 
