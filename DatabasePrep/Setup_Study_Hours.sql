@@ -1,5 +1,5 @@
-create database if not exists switch_inputs_wecc_v2_1;
-use switch_inputs_wecc_v2_1;
+create database if not exists switch_inputs_wecc_v2_2;
+use switch_inputs_wecc_v2_2;
 
 
 -- Study Hours----------------------
@@ -9,7 +9,6 @@ use switch_inputs_wecc_v2_1;
 
 set @base_year        := 2014;
 set @years_per_period := 4;
-set @max_timepoints_per_day = 24;
 
 -- correct? Check!
 set @training_set_method := 'MEDIAN';
@@ -18,13 +17,13 @@ set @training_set_notes := 'For each month, the day with peak load and a represe
 
 -- make lists of all the possible periods and months
 -- also report the number of days in each month, for sample-weighting later
-drop temporary table if exists tperiods;
-create temporary table tperiods (periodnum int);
-insert into tperiods (periodnum) values (0), (1), (2), (3);
+-- drop temporary table if exists tperiods;
+create table if not exists tperiods (periodnum int PRIMARY KEY);
+insert IGNORE into tperiods (periodnum) values (0), (1), (2), (3);
 select count( periodnum ) into @num_periods from tperiods;
-drop temporary table if exists tmonths;
-create temporary table tmonths (month_of_year tinyint, days_in_month double);
-insert into tmonths values 
+-- drop temporary table if exists tmonths;
+create table if not exists tmonths (month_of_year tinyint PRIMARY KEY, days_in_month double);
+insert IGNORE into tmonths values 
   (1, 31), (2, 29.25), (3, 31), (4, 30), (5, 31), (6, 30),
   (7, 31), (8, 31), (9, 30), (10, 31), (11, 30), (12, 31);
 
@@ -83,53 +82,86 @@ CREATE TABLE IF NOT EXISTS training_sets (
 COMMENT = 'This stores descriptions of a set of timepoints that the SWITCH model optimizes cost over. i.e. Training sets ';
 
 -- This select sets @training_set_id to the next valid id
-select if(max(training_set_id) is null, 1, max(training_set_id)+1) into @training_set_id from training_sets;
+set @training_set_id := (select if(max(training_set_id) is null, 1, max(training_set_id)+1) from training_sets);
 
 INSERT INTO training_sets VALUES ( @training_set_id, @training_set_method, @training_set_notes );
 
--- Create a list of all the dates for which we have 24 hours of data. This will exclude the Fall daylight savings times days because they are missing an hour.
-drop temporary table if exists tdates;
-create temporary table tdates
-  select date(hours.datetime_utc) as date_utc, month(hours.datetime_utc) as month_of_year, rand() as ord
-    from hours
-    group by 1
-    having count(*) = @max_timepoints_per_day;
-alter table tdates add index( date_utc );
-
--- Add the peak system load for every day considered
-drop temporary table if exists thourtotal;
-create temporary table thourtotal select hour, sum(system_load.power) as system_load from system_load group by 1;
-alter table tdates add column max_load int;
-update tdates set tdates.max_load = (
-  select max( round( thourtotal.system_load ) ) 
-    from thourtotal, hours
-    where hours.hournum = thourtotal.hour
-    and date(hours.datetime_utc) = tdates.date_utc
+-- Create a list of all the dates for which we have 24 hours of data.
+-- The load data is the least scrubbed hourly data, so it will be used here to excluded days - the solar and wind data has proven robust to datetime problems
+-- This will exclude the Fall daylight savings times days because they are missing an hour,
+-- The first day of 2004 is already excluded because of the difference between datetime_utc and datetime_local (the load data starts on the 2nd of January utc)
+-- note that the load areas here are wecc_v1 load areas (should be changed over at some time, but the load data originates from here)
+-- drop temporary table if exists tdates;
+create table if not exists tdates (
+	date_utc date primary key,
+	month_of_year int,
+	date_order double,
+	max_load int,
+	rank int,
+	INDEX (date_utc),
+	index mr (month_of_year, rank)
 );
 
+set @num_load_areas := (select count(distinct(load_area)) as num_load_areas from loads_wecc.system_load);
+
+insert ignore into tdates
+select 
+	date(hours.datetime_utc) as date_utc,
+	month(hours.datetime_utc) as month_of_year,
+	rand() as date_order,
+	NULL as max_load,
+	NULL as rank
+	from hours,
+		(select hournum from
+			(select hournum,
+					count(*) as number_of_loads_in_hournum
+				from loads_wecc.system_load
+				group by 1
+				) as number_of_loads_in_hournum_table
+		where number_of_loads_in_hournum = @num_load_areas
+		) as complete_load_hours
+	where hours.hournum = complete_load_hours.hournum;
+
+
+
+-- Add the peak system load for every day considered
+-- drop temporary table if exists thourtotal;
+create table if not exists thourtotal 
+	(hour int PRIMARY KEY, system_load int, date_utc date, INDEX (date_utc));
+insert ignore into thourtotal
+	select hour, sum(system_load.power) as system_load, date(datetime_utc) from system_load join hours on(hournum=hour) group by 1;
+update tdates set tdates.max_load = (
+  select max( thourtotal.system_load ) 
+    from thourtotal
+    where thourtotal.date_utc = tdates.date_utc
+) where max_load is NULL;
+
 -- Create a list of days with peak load by month
-drop temporary table if exists tmaxday_in_month;
-create temporary table tmaxday_in_month
+-- drop temporary table if exists tmaxday_in_month;
+create table if not exists tmaxday_in_month (
+  month_of_year int PRIMARY KEY,
+  max_load int,
+  max_load_date datetime
+);
+insert ignore into tmaxday_in_month (month_of_year, max_load)
   select month(tdates.date_utc) as month_of_year, max( max_load ) as max_load
     from tdates group by 1;
-alter table tmaxday_in_month add column max_load_date datetime;
-update tmaxday_in_month, thourtotal, hours set tmaxday_in_month.max_load_date = hours.datetime_utc 
-  where thourtotal.hour = hours.hournum and round(thourtotal.system_load) = tmaxday_in_month.max_load;
+update tmaxday_in_month, thourtotal, hours set 
+  tmaxday_in_month.max_load_date = hours.datetime_utc 
+  where thourtotal.hour = hours.hournum and thourtotal.system_load = tmaxday_in_month.max_load;
 
--- Mark the peak days of each month by setting their ord column to a 2. This will ensure they have the top rank, since the rest of the historic dates have ord values between 0 & 1.
-update tdates, tmaxday_in_month set tdates.ord = 2
+-- Mark the peak days of each month by setting their date_order column to a 2. This will ensure they have the top rank, since the rest of the historic dates have date_order values between 0 & 1.
+update tdates, tmaxday_in_month set tdates.date_order = 2
   where tdates.date_utc = date( tmaxday_in_month.max_load_date );
 
 -- randomly order the dates that fall within each month of the year
 -- they will be selected for study (without replacement) based on this ordering.
 -- another option would be a stratified approach, e.g. just to take the 15th of the month, 
 -- and alternate between using data from the first or second year of measurements
-alter table tdates add column rank int;
 set @lastrank = 0, @lastmonth = 0;
--- to switch from random ordering to choosing days with median loads, change 'ord' in the order by clause to 'max_load'
--- to switch from choosing days with median loads to random ordering, change 'max_load' in the order by clause to 'ord'
+-- to switch from random ordering to choosing days with median loads, change 'date_order' in the order by clause to 'max_load'
+-- to switch from choosing days with median loads to random ordering, change 'max_load' in the order by clause to 'date_order'
 update tdates set rank = (@lastrank := if(@lastmonth=(@lastmonth:=month_of_year), @lastrank+1, 1)) order by month_of_year, max_load desc;
-alter table tdates add index mr (month_of_year, rank), add index (date_utc);
 
 
 -- Make a table listing the individual dates that we are sampling
@@ -220,19 +252,19 @@ CREATE FUNCTION set_scenarios_sql_columns (target_scenario_id int) RETURNS INT
 BEGIN
   DECLARE done INT DEFAULT 0;
   DECLARE current_scenario_id INT;
-  DECLARE cur_id_list CURSOR FOR SELECT scenario_id FROM switch_inputs_wecc_v2_1.scenarios WHERE switch_inputs_wecc_v2_1.scenarios.scenario_id >= target_scenario_id;
+  DECLARE cur_id_list CURSOR FOR SELECT scenario_id FROM switch_inputs_wecc_v2_2.scenarios WHERE switch_inputs_wecc_v2_2.scenarios.scenario_id >= target_scenario_id;
   DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = 1;
   
-  DROP TEMPORARY TABLE IF EXISTS switch_inputs_wecc_v2_1.__set_scenarios_sql_columns;
-  CREATE TEMPORARY TABLE switch_inputs_wecc_v2_1.__set_scenarios_sql_columns
-    SELECT * FROM switch_inputs_wecc_v2_1.scenarios WHERE switch_inputs_wecc_v2_1.scenarios.scenario_id >= target_scenario_id;
+  DROP TEMPORARY TABLE IF EXISTS switch_inputs_wecc_v2_2.__set_scenarios_sql_columns;
+  CREATE TEMPORARY TABLE switch_inputs_wecc_v2_2.__set_scenarios_sql_columns
+    SELECT * FROM switch_inputs_wecc_v2_2.scenarios WHERE switch_inputs_wecc_v2_2.scenarios.scenario_id >= target_scenario_id;
 
   OPEN cur_id_list;
   
   REPEAT
     FETCH cur_id_list INTO current_scenario_id;
   
-    UPDATE switch_inputs_wecc_v2_1.scenarios
+    UPDATE switch_inputs_wecc_v2_2.scenarios
       SET 
         _datesample = concat(
             concat( 'FIND_IN_SET( period, "', exclude_periods, '")=0 and '), 
@@ -240,8 +272,8 @@ BEGIN
             'training_set_id = ', training_set_id, 
             if( exclude_peaks, ' and hours_in_sample > 100', '')
         )
-      WHERE switch_inputs_wecc_v2_1.scenarios.scenario_id = current_scenario_id;
-    UPDATE switch_inputs_wecc_v2_1.scenarios
+      WHERE switch_inputs_wecc_v2_2.scenarios.scenario_id = current_scenario_id;
+    UPDATE switch_inputs_wecc_v2_2.scenarios
       SET 
         _timesample = concat(
             _datesample, ' and ', 
@@ -251,23 +283,23 @@ BEGIN
            concat( 'hours_in_sample', '*', period_reduced_by, '*', months_between_samples, '*', hours_between_samples ), 
            'hours_in_sample'
         )
-      WHERE switch_inputs_wecc_v2_1.scenarios.scenario_id = current_scenario_id;
-    UPDATE switch_inputs_wecc_v2_1.scenarios
+      WHERE switch_inputs_wecc_v2_2.scenarios.scenario_id = current_scenario_id;
+    UPDATE switch_inputs_wecc_v2_2.scenarios
       SET 
-        switch_inputs_wecc_v2_1.scenarios.num_timepoints = 
-        (select count(switch_inputs_wecc_v2_1.study_hours_all.hournum) 
-          from switch_inputs_wecc_v2_1.study_hours_all, switch_inputs_wecc_v2_1.__set_scenarios_sql_columns params
+        switch_inputs_wecc_v2_2.scenarios.num_timepoints = 
+        (select count(switch_inputs_wecc_v2_2.study_hours_all.hournum) 
+          from switch_inputs_wecc_v2_2.study_hours_all, switch_inputs_wecc_v2_2.__set_scenarios_sql_columns params
           where
             params.scenario_id = current_scenario_id and
-            switch_inputs_wecc_v2_1.study_hours_all.training_set_id = params.training_set_id and
-            FIND_IN_SET( switch_inputs_wecc_v2_1.study_hours_all.period, params.exclude_periods ) = 0 and 
-            MOD(switch_inputs_wecc_v2_1.study_hours_all.month_of_year, params.months_between_samples ) = params.start_month and
-            switch_inputs_wecc_v2_1.study_hours_all.hours_in_sample > 100*params.exclude_peaks and
-            MOD(switch_inputs_wecc_v2_1.study_hours_all.hour_of_day, params.hours_between_samples) = params.start_hour
+            switch_inputs_wecc_v2_2.study_hours_all.training_set_id = params.training_set_id and
+            FIND_IN_SET( switch_inputs_wecc_v2_2.study_hours_all.period, params.exclude_periods ) = 0 and 
+            MOD(switch_inputs_wecc_v2_2.study_hours_all.month_of_year, params.months_between_samples ) = params.start_month and
+            switch_inputs_wecc_v2_2.study_hours_all.hours_in_sample > 100*params.exclude_peaks and
+            MOD(switch_inputs_wecc_v2_2.study_hours_all.hour_of_day, params.hours_between_samples) = params.start_hour
         )
-      WHERE switch_inputs_wecc_v2_1.scenarios.scenario_id = current_scenario_id
+      WHERE switch_inputs_wecc_v2_2.scenarios.scenario_id = current_scenario_id
     ;
-    UPDATE switch_inputs_wecc_v2_1.scenarios
+    UPDATE switch_inputs_wecc_v2_2.scenarios
       SET 
         scenario_name = concat(
            't', target_scenario_id, '_', 
@@ -280,13 +312,13 @@ BEGIN
            'm', months_between_samples, '_', start_month, '_',
            'h', hours_between_samples, '_', start_hour
         )
-      WHERE switch_inputs_wecc_v2_1.scenarios.scenario_id = current_scenario_id and (scenario_name is NULL or length(scenario_name) = 0)
+      WHERE switch_inputs_wecc_v2_2.scenarios.scenario_id = current_scenario_id and (scenario_name is NULL or length(scenario_name) = 0)
       ;
   UNTIL done END REPEAT;
   CLOSE cur_id_list;
   
-  DROP TEMPORARY TABLE switch_inputs_wecc_v2_1.__set_scenarios_sql_columns;
-  RETURN (SELECT count(*) FROM switch_inputs_wecc_v2_1.scenarios WHERE scenario_id >= target_scenario_id);
+  DROP TEMPORARY TABLE switch_inputs_wecc_v2_2.__set_scenarios_sql_columns;
+  RETURN (SELECT count(*) FROM switch_inputs_wecc_v2_2.scenarios WHERE scenario_id >= target_scenario_id);
 END$$
 
 DELIMITER ;
@@ -297,3 +329,9 @@ select max(scenario_id) into @scenario_id from scenarios;
 SELECT set_scenarios_sql_columns( @scenario_id );
 
 
+-- Drop the tables that are supposed to be temporary if the script finished successfully.
+drop table tperiods;
+drop table tmonths;
+drop table tdates;
+drop table thourtotal;
+drop table tmaxday_in_month;

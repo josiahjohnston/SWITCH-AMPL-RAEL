@@ -1,5 +1,5 @@
-CREATE DATABASE IF NOT EXISTS switch_results_wecc_v2_1;
-USE switch_results_wecc_v2_1;
+CREATE DATABASE IF NOT EXISTS switch_results_wecc_v2_2;
+USE switch_results_wecc_v2_2;
 
 CREATE TABLE IF NOT EXISTS technologies (
   technology_id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS technologies (
   UNIQUE technology (technology)
 ) ROW_FORMAT=FIXED;
 INSERT IGNORE INTO technologies (technology_id, technology)
-  SELECT technology_id, technology from switch_inputs_wecc_v2_1.generator_info gen_info;
+  SELECT technology_id, technology from switch_inputs_wecc_v2_2.generator_info gen_info;
 
 
 CREATE TABLE IF NOT EXISTS load_areas (
@@ -16,21 +16,21 @@ CREATE TABLE IF NOT EXISTS load_areas (
   UNIQUE load_area (load_area)
 ) ROW_FORMAT=FIXED;
 INSERT IGNORE INTO load_areas (area_id, load_area)
-  SELECT area_id, load_area from switch_inputs_wecc_v2_1.load_area_info src;
+  SELECT area_id, load_area from switch_inputs_wecc_v2_2.load_area_info src;
 
 CREATE TABLE IF NOT EXISTS sites (
   project_id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
   site varchar(50),
-  UNIQUE site (site)
+  INDEX site (site)
 ) ROW_FORMAT=FIXED;
 INSERT IGNORE INTO sites (project_id, site)
-  SELECT project_id, site from switch_inputs_wecc_v2_1.proposed_renewable_sites src;
+  SELECT project_id, location_id from switch_inputs_wecc_v2_2.proposed_projects;
 INSERT IGNORE INTO sites (project_id, site)
-  SELECT project_id, plant_code from switch_inputs_wecc_v2_1.existing_plants;
+  SELECT project_id, plant_code from switch_inputs_wecc_v2_2.existing_plants;
 INSERT IGNORE INTO sites (project_id, site)
-  SELECT distinct project_id, site from switch_inputs_wecc_v2_1.hydro_monthly_limits;
+  SELECT distinct project_id, site from switch_inputs_wecc_v2_2.hydro_monthly_limits;
 INSERT IGNORE INTO sites (project_id, site)
-  SELECT project_id, concat(load_area,'-',technology) from switch_inputs_wecc_v2_1.generator_costs_regional;
+  SELECT project_id, concat(load_area,'-',technology) from switch_inputs_wecc_v2_2.generator_costs_regional;
 
 
 CREATE TABLE IF NOT EXISTS months (
@@ -64,7 +64,6 @@ CREATE TABLE IF NOT EXISTS _dispatch (
   study_hour int,
   technology_id int NOT NULL, 
   project_id int NOT NULL,
-  orientation char(3),
   new boolean,
   baseload boolean,
   cogen boolean,
@@ -80,16 +79,16 @@ CREATE TABLE IF NOT EXISTS _dispatch (
   INDEX period (period),
   INDEX carbon_cost (carbon_cost),
   INDEX study_hour (study_hour),
-  PRIMARY KEY (scenario_id, carbon_cost, area_id, study_hour, project_id, orientation), 
+  PRIMARY KEY (scenario_id, carbon_cost, area_id, study_hour, project_id), 
   INDEX technology_id (technology_id),
   FOREIGN KEY (technology_id) REFERENCES technologies(technology_id), 
   INDEX area_id (area_id),
   FOREIGN KEY (area_id) REFERENCES load_areas(area_id), 
-  INDEX site (project_id),
+  INDEX proj (project_id),
   FOREIGN KEY (project_id) REFERENCES sites(project_id)
 ) ROW_FORMAT=FIXED;
 CREATE OR REPLACE VIEW dispatch as
-  SELECT scenario_id, carbon_cost, period, load_area, study_date, study_hour, technology, site, orientation, new, baseload, cogen, fuel, power, co2_tons, hours_in_sample, heat_rate, fuel_cost_tot, carbon_cost_tot, variable_o_m_tot
+  SELECT scenario_id, carbon_cost, period, load_area, study_date, study_hour, technology, site, new, baseload, cogen, fuel, power, co2_tons, hours_in_sample, heat_rate, fuel_cost_tot, carbon_cost_tot, variable_o_m_tot
     FROM _dispatch join load_areas using(area_id) join technologies using(technology_id) join sites using (project_id);
 
 CREATE TABLE IF NOT EXISTS _gen_cap (
@@ -99,7 +98,6 @@ CREATE TABLE IF NOT EXISTS _gen_cap (
   area_id int NOT NULL, 
   technology_id int NOT NULL, 
   project_id int NOT NULL,
-  orientation CHAR(3),
   new BOOLEAN,
   baseload BOOLEAN,
   cogen BOOLEAN,
@@ -115,10 +113,10 @@ CREATE TABLE IF NOT EXISTS _gen_cap (
   FOREIGN KEY (technology_id) REFERENCES technologies(technology_id), 
   INDEX site (project_id),
   FOREIGN KEY (project_id) REFERENCES sites(project_id), 
-  PRIMARY KEY (scenario_id, carbon_cost, period, area_id, technology_id, project_id, orientation)
+  PRIMARY KEY (scenario_id, carbon_cost, period, area_id, technology_id, project_id)
 )  ROW_FORMAT=FIXED;
 CREATE OR REPLACE VIEW gen_cap as
-  SELECT scenario_id, carbon_cost, period, load_area, area_id, technology, technology_id, site, project_id, orientation, new, baseload, cogen, fuel, capacity, fixed_cost
+  SELECT scenario_id, carbon_cost, period, load_area, area_id, technology, technology_id, site, project_id, new, baseload, cogen, fuel, capacity, fixed_cost
     FROM _gen_cap join load_areas using(area_id) join technologies using(technology_id) join sites using (project_id);
 
 

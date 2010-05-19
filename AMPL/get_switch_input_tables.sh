@@ -7,7 +7,7 @@
 export write_to_path='.'
 
 db_server="switch-db1.erg.berkeley.edu"
-DB_name="switch_inputs_wecc_v2_1"
+DB_name="switch_inputs_wecc_v2_2"
 port=3306
 
 ###################################################
@@ -156,15 +156,19 @@ mysql $connection_string -e "select load_area, plant_code, study_hour as hour, c
 
 echo '	hydro.tab...'
 echo ampl.tab 3 4 > hydro.tab
-mysql $connection_string -e "select load_area, site, study_date as date, project_id as hydro_project_id, avg_flow, min_flow, max_flow from hydro_monthly_limits l join study_dates_all d on l.year = year(d.date_utc) and l.month=month(d.date_utc) where $DATESAMPLE order by 1, 2, month, year;" >> hydro.tab
+mysql $connection_string -e "select load_area, project_id as hydro_project_id, study_date as date, site as site_id, avg_flow, min_flow, max_flow from hydro_monthly_limits l join study_dates_all d on l.year = year(d.date_utc) and l.month=month(d.date_utc) where $DATESAMPLE order by 1, 2, month, year;" >> hydro.tab
 
-echo '	proposed_renewable_sites.tab...'
-echo ampl.tab 3 2 > proposed_renewable_sites.tab
-mysql $connection_string -e "select load_area, generator_type as technology, project_id as site, capacity_mw as max_capacity, connect_cost_per_mw from proposed_renewable_sites;" >> proposed_renewable_sites.tab
+echo '	proposed_projects.tab...'
+echo ampl.tab 3 4 > proposed_projects.tab
+mysql $connection_string -e "select load_area, technology, project_id, location_id, capacity_limit, capacity_limit_conversion, connect_cost_per_mw from proposed_projects;" >> proposed_projects.tab
+
+echo '	competing_locations.tab...'
+echo ampl.tab 1 > competing_locations.tab
+mysql $connection_string -e "select distinct location_id from _proposed_projects p where (select count(*) from proposed_projects p2 where p.location_id = p2.location_id)>1 and location_id!=0 and technology_id in (SELECT technology_id FROM generator_info g where technology in ('Central_PV','CSP_Trough_No_Storage','CSP_Trough_6h_Storage'));" >> competing_locations.tab
 
 echo '	cap_factor.tab...'
-echo ampl.tab 5 1 > cap_factor.tab
-mysql $connection_string -e "select load_area, generator_type as technology, project_id as site, configuration, study_hour as hour, cap_factor from cap_factor_proposed_renewable_sites c join study_hours_all h on (h.hournum=c.hour) join configurations using(configuration) where $TIMESAMPLE;" >> cap_factor.tab
+echo ampl.tab 4 1 > cap_factor.tab
+mysql $connection_string -e "select load_area, technology, project_id, study_hour as hour, cap_factor from cap_factor_intermittent_sites c join study_hours_all h on (h.hournum=c.hour) where $TIMESAMPLE;" >> cap_factor.tab
 
 echo '	generator_info.tab...'
 echo ampl.tab 1 23 > generator_info.tab

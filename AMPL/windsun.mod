@@ -163,9 +163,8 @@ param min_solar_production >= 0, <= 1;
 # Minimum amount of electricity that solar must produce
 param enable_min_solar_production >= 0, <= 1 default 0;
 
-# Solar-based technologies
-set SOLAR_TECHNOLOGIES;
-
+set SOLAR_CSP_TECHNOLOGIES;
+set SOLAR_DIST_PV_TECHNOLOGIES;
 
 ###############################################
 #
@@ -242,6 +241,12 @@ param max_ramp_rate_mw_per_hour {TECHNOLOGIES} >= 0;
 # the amount of fuel burned in MBtu that is needed to start a generator from cold
 param startup_fuel_mbtu {TECHNOLOGIES} >= 0;
 
+# Whether or not technologies located at the same place will compete for space
+param technologies_compete_for_space {TECHNOLOGIES} >= 0, <= 1 default 0;
+
+# Solar-based technologies
+set SOLAR_TECHNOLOGIES = {t in TECHNOLOGIES: fuel[t]=='Solar'};
+
 ###############################################
 #
 # Generator costs by technology & region
@@ -305,14 +310,11 @@ param period_rps_takes_effect {z in LOAD_AREAS_WITH_RPS} =
 ###############################################
 # Project data
 
-# default values for projects that don't have sites or configurations
-param site_unspecified symbolic;
-param configuration_unspecified symbolic;
+# default values for projects that don't have sites
+param location_unspecified symbolic;
 
 # Names of technologies that have capacity factors or maximum capacities 
 # tied to specific locations. 
-param tech_distributed_pv symbolic in TECHNOLOGIES;
-param tech_csp_trough_storage symbolic in TECHNOLOGIES;
 param tech_wind symbolic in TECHNOLOGIES;
 param tech_offshore_wind symbolic in TECHNOLOGIES;
 param tech_biomass_igcc symbolic in TECHNOLOGIES;
@@ -323,43 +325,45 @@ param tech_bio_gas symbolic in TECHNOLOGIES;
 param tech_ccgt symbolic in TECHNOLOGIES;
 param tech_gas_combustion_turbine symbolic in TECHNOLOGIES;
 
+
+# maximum capacity that can be installed in each project. These are units of MW for most technologies. The exceptions are Central PV and CSP, which have units of km^2 and a conversion factor of MW / km^2
+set PROJ_RESOURCE_LIMITED dimen 3;  # LOAD_AREAS, TECHNOLOGIES, PROJECT_ID
+check {(z, t, p) in PROJ_RESOURCE_LIMITED}: resource_limited[t];
+param location_id {PROJ_RESOURCE_LIMITED} >= 0;
+param location_count{PROJ_RESOURCE_LIMITED} >= 0;
+param capacity_limit_by_project {PROJ_RESOURCE_LIMITED} >= 0;
+param capacity_limit_conversion {PROJ_RESOURCE_LIMITED} >= 0;
+set LOCATIONS_WITH_COMPETING_TECHNOLOGIES;
+param capacity_limit_by_location {loc in LOCATIONS_WITH_COMPETING_TECHNOLOGIES} = min {(z, t, p) in PROJ_RESOURCE_LIMITED: location_id[z,t,p] == loc } capacity_limit_by_project[z,t,p];
+
 # maximum capacity factors (%) for each project, each hour. 
 # generally based on renewable resources available
-set PROJ_INTERMITTENT_HOURS dimen 5;  # LOAD_AREAS, TECHNOLOGIES, SITES, CONFIGURATIONS, TIMEPOINTS
-set PROJ_INTERMITTENT = setof {(z, t, s, o, h) in PROJ_INTERMITTENT_HOURS} (z, t, s, o);
+set PROJ_INTERMITTENT_HOURS dimen 4;  # LOAD_AREAS, TECHNOLOGIES, PROJECT_ID, TIMEPOINTS
+set PROJ_INTERMITTENT = setof {(z, t, p, h) in PROJ_INTERMITTENT_HOURS} (z, t, p);
+
+check: card({(z, t, p) in PROJ_RESOURCE_LIMITED: intermittent[t]} diff PROJ_INTERMITTENT) = 0;
 
 param cap_factor {PROJ_INTERMITTENT_HOURS};
 
 # make sure all hours are represented, and that cap factors make sense.
 # Solar thermal can be parasitic, which means negative cap factors are allowed (just not TOO negative)
-check {(z, t, s, o) in PROJ_INTERMITTENT, h in TIMEPOINTS: t = tech_csp_trough_storage}: cap_factor[z, t, s, o, h] >= -0.1;
+check {(z, t, p) in PROJ_INTERMITTENT, h in TIMEPOINTS: t in SOLAR_CSP_TECHNOLOGIES}: cap_factor[z, t, p, h] >= -0.1;
 # No other technology can be parasitic, so only positive cap factors allowed
-check {(z, t, s, o) in PROJ_INTERMITTENT, h in TIMEPOINTS: t != tech_csp_trough_storage}: cap_factor[z, t, s, o, h] >= 0;
+check {(z, t, p) in PROJ_INTERMITTENT, h in TIMEPOINTS: not( t in SOLAR_CSP_TECHNOLOGIES) }: cap_factor[z, t, p, h] >= 0;
 # cap factors for solar can be greater than 1 becasue sometimes the sun shines more than 1000W/m^2
 # which is how PV cap factors are defined.
 # The below checks make sure that for other plants the cap factors
 # are <= 1 but for solar they are <= 1.4
 # (roughly the irradiation coming in from space, though the cap factor shouldn't ever approach this number)
-check {(z, t, s, o) in PROJ_INTERMITTENT, h in TIMEPOINTS: not( t in SOLAR_TECHNOLOGIES )}: cap_factor[z, t, s, o, h] <= 1;
-check {(z, t, s, o) in PROJ_INTERMITTENT, h in TIMEPOINTS: t in SOLAR_TECHNOLOGIES }: cap_factor[z, t, s, o, h] <= 1.4;
-check {(z, t, s, o) in PROJ_INTERMITTENT}: intermittent[t];
-
-# maximum capacity (MW) that can be installed in each project
-set PROJ_RESOURCE_LIMITED_SITES dimen 3;  # LOAD_AREAS, TECHNOLOGIES, SITES
-set PROJ_RESOURCE_LIMITED = 
-	PROJ_INTERMITTENT
-	union 
-	setof {(z, t, s) in PROJ_RESOURCE_LIMITED_SITES: not intermittent[t]} (z, t, s, configuration_unspecified);
-check {(z, t, s, o) in PROJ_RESOURCE_LIMITED}: resource_limited[t];
-param max_capacity {PROJ_RESOURCE_LIMITED_SITES} >= 0;
-
+check {(z, t, p) in PROJ_INTERMITTENT, h in TIMEPOINTS: not( t in SOLAR_TECHNOLOGIES )}: cap_factor[z, t, p, h] <= 1;
+check {(z, t, p) in PROJ_INTERMITTENT, h in TIMEPOINTS: t in SOLAR_TECHNOLOGIES }: cap_factor[z, t, p, h] <= 1.4;
+check {(z, t, p) in PROJ_INTERMITTENT}: intermittent[t];
 # all other types of project (dispatchable and installable anywhere)
 set PROJ_ANYWHERE =
-	setof {(z,t) in REGIONAL_TECHNOLOGIES: not intermittent[t] and not resource_limited[t]} (z, t, site_unspecified, configuration_unspecified);
+	setof {(z,t) in REGIONAL_TECHNOLOGIES: not intermittent[t] and not resource_limited[t]} (z, t, location_unspecified);
 
 
 # hydro is resource limited but not intermittent
-# solar troughs are intermittent but not resource limited - not true anymore!!!!
 # so we union all the possibilities
 set PROJECTS = 
   PROJ_ANYWHERE 
@@ -368,17 +372,12 @@ set PROJECTS =
 
 
 # the set of all dispatchable projects (i.e., non-intermittent)
-set PROJ_DISPATCH = {(z, t, s, o) in PROJECTS: not new_baseload[t] and not intermittent[t]};
-
-# sets derived from site-specific tables, help keep projects distinct
-set SITES = setof {(z, t, s, o) in PROJECTS} (s);
-set CONFIGURATIONS = setof {(z, t, s, o) in PROJECTS} (o);
+set PROJ_DISPATCH = {(z, t, p) in PROJECTS: not new_baseload[t] and not intermittent[t]};
 
 # cost of grid upgrades to support a new project, in dollars per peak MW.
 # these are needed in order to deliver power from the interconnect point to
 # the load center (or make it deliverable to other zones)
-set PROJECTS_SANS_CONFIGURATION = setof{ (z, t, s, o) in PROJECTS } (z, t, s);
-param connect_cost_per_mw {(z, t, s) in PROJECTS_SANS_CONFIGURATION} >= 0 default 0;
+param connect_cost_per_mw {(z, t, p) in PROJECTS} >= 0 default 0;
 
 ##############################################
 # Existing hydro plants (assumed impossible to build more, but these last forever)
@@ -402,6 +401,7 @@ set PROJ_HYDRO_DATES dimen 3; # load_area, site, date
 
 # database id for hydro projects
 param hydro_project_id {PROJ_HYDRO_DATES} >= 0;
+param hydro_site {PROJ_HYDRO_DATES} symbolic;
 
 # minimum, maximum and average flow (in average MW) at each dam, each day
 # (note: we assume that the average dispatch for each day must come out at this average level,
@@ -587,33 +587,33 @@ param planning_reserve_margin;
 # first, the capital cost of the plant and any 
 # interconnecting lines and grid upgrades
 # (all costs are in $/MW)
-param capital_cost_proj {(z, t, s, o) in PROJECTS, p in PERIODS} = 
+param capital_cost_proj {(z, t, proj) in PROJECTS, p in PERIODS} = 
   ( overnight_cost[z,t] * (1+overnight_cost_change[z,t])^(p - construction_time_years[t] - price_and_dollar_year[z,t])
     + connect_cost_per_mw_generic[z,t] 
-    + connect_cost_per_mw[z, t, s]
+    + connect_cost_per_mw[z, t, proj]
   )
 ; 
 
 # annual revenue that will be needed to cover the capital cost
-param capital_cost_annual_payment {(z, t, s, o) in PROJECTS, v in PERIODS} = 
-  finance_rate * (1 + 1/((1+finance_rate)^(max_age_years[t] + construction_time_years[t])-1)) * capital_cost_proj[z, t, s, o, v];
+param capital_cost_annual_payment {(z, t, p) in PROJECTS, v in PERIODS} = 
+  finance_rate * (1 + 1/((1+finance_rate)^(max_age_years[t] + construction_time_years[t])-1)) * capital_cost_proj[z, t, p, v];
 
 # date when a plant of each type and vintage will stop being included in the simulation
 # note: if it would be expected to retire between study periods,
 # it is kept running (and annual payments continue to be made) 
 # until the end of that period. This avoids having artificial gaps
 # between retirements and starting new plants.
-param project_end_year {t in TECHNOLOGIES, v in PERIODS} =
-  min(end_year, v+ceil(max_age_years[t]/num_years_per_period)*num_years_per_period);
+param project_end_year {t in TECHNOLOGIES, p in PERIODS} =
+  min(end_year, p+ceil(max_age_years[t]/num_years_per_period)*num_years_per_period);
 
 # finally, take the stream of capital & fixed costs over the duration of the project,
 # and discount to a lump-sum value at the start of the project,
 # then discount from there to the base_year.
-param fixed_cost {(z, t, s, o) in PROJECTS, p in PERIODS} = 
+param fixed_cost {(z, t, proj) in PROJECTS, p in PERIODS} = 
   # Capital payments that are paid from when construction starts till the plant is retired (or the study period ends)
-  capital_cost_annual_payment[z,t,s,o,p]
+  capital_cost_annual_payment[z,t,proj,p]
     # A factor to convert Uniform annual capital payments to "Present value" in the construction year - a lump sum at the beginning of the payments. This considers the time from when construction began to the end year
-    * (1-(1/(1+discount_rate)^(project_end_year[t,p] - p + construction_time_years[t])))/discount_rate
+    * (1-(1+discount_rate)^(-1*(project_end_year[t,p] - p + construction_time_years[t])))/discount_rate
     # Future value (in the construction year) to Present value (in the base year)
     * 1/(1+discount_rate)^(p-construction_time_years[t]-base_year)
 +
@@ -753,27 +753,27 @@ param system_load_discounted =
 # reduced sets for decision variables and constraints
 
 # project-vintage combinations that can be installed
-set PROJECT_VINTAGES = setof {(z, t, s, o) in PROJECTS, v in PERIODS: v >= min_build_year[t] + construction_time_years[t]} (z, t, s, o, v);
+set PROJECT_VINTAGES = setof {(z, t, proj) in PROJECTS, v in PERIODS: v >= min_build_year[t] + construction_time_years[t]} (z, t, proj, v);
 
 # project-vintage combinations that have a minimum size constraint.
-set PROJ_MIN_BUILD_VINTAGES = setof {(z, t, s, o, v) in PROJECT_VINTAGES: min_build_capacity[t] > 0} (z, t, s, o, v);
+set PROJ_MIN_BUILD_VINTAGES = setof {(z, t, proj, v) in PROJECT_VINTAGES: min_build_capacity[t] > 0} (z, t, proj, v);
 
 # technology-site-vintage-hour combinations for dispatchable projects
 # (i.e., all the project-vintage combinations that are still active in a given hour of the study)
 set PROJ_DISPATCH_VINTAGE_HOURS := 
-  {(z, t, s, o) in PROJ_DISPATCH, v in PERIODS, h in TIMEPOINTS: not new_baseload[t] and v >= min_build_year[t] + construction_time_years[t] and v <= period[h] < project_end_year[t, v]};
+  {(z, t, proj) in PROJ_DISPATCH, v in PERIODS, h in TIMEPOINTS: not new_baseload[t] and v >= min_build_year[t] + construction_time_years[t] and v <= period[h] < project_end_year[t, v]};
 
-# technology-site-vintage-hour combinations for intermittent (non-dispatchable) projects
+# technology-project-vintage-hour combinations for intermittent (non-dispatchable) projects
 set PROJ_INTERMITTENT_VINTAGE_HOURS := 
-  {(z, t, s, o) in PROJ_INTERMITTENT, v in PERIODS, h in TIMEPOINTS: v >= min_build_year[t] + construction_time_years[t] and v <= period[h] < project_end_year[t, v]};
+  {(z, t, p) in PROJ_INTERMITTENT, v in PERIODS, h in TIMEPOINTS: v >= min_build_year[t] + construction_time_years[t] and v <= period[h] < project_end_year[t, v]};
 
 # plant-period combinations when new baseload plants can be installed
 set NEW_BASELOAD_VINTAGES =
-  setof {(z, t, s, o, v) in PROJECT_VINTAGES: new_baseload[t] and v >= min_build_year[t] + construction_time_years[t] } (z, t, s, o, v);
+  setof {(z, t, proj, v) in PROJECT_VINTAGES: new_baseload[t] and v >= min_build_year[t] + construction_time_years[t] } (z, t, proj, v);
 
 # plant-period combinations when new baseload plants can run. That is, all new baseload plants that are active in a given hour of the study
 set NEW_BASELOAD_VINTAGE_HOURS =
-  setof {(z, t, s, o, v) in NEW_BASELOAD_VINTAGES, h in TIMEPOINTS: v <= period[h] < project_end_year[t, v]} (z, t, s, o, v, h);
+  setof {(z, t, proj, v) in NEW_BASELOAD_VINTAGES, h in TIMEPOINTS: v <= period[h] < project_end_year[t, v]} (z, t, proj, v, h);
 
 
 # plant-period combinations when existing plants can run
@@ -821,13 +821,6 @@ var BuildGenOrNot {PROJ_MIN_BUILD_VINTAGES} binary;
 # number of MW to generate from each project, in each hour
 var DispatchGen {PROJ_DISPATCH, TIMEPOINTS} >= 0;
 
-# number of MW generated by intermittent renewables
-# this is not a decision variable, but is useful for reporting
-# (well, it would be useful for reporting, but it takes 63 MB of ram for 
-# 240 hours x 2 vintages and grows proportionally to that product)
-#var IntermittentOutput {(z, t, s, o, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS} 
-#   = (1-forced_outage_rate[t]) * cap_factor[z, t, s, o, h] * InstallGen[z, t, s, o, v];
-
 # share of existing plants to operate during each study period.
 # this should be a binary variable, but it's interesting to see 
 # how the continuous form works out
@@ -873,14 +866,14 @@ minimize Power_Cost:
 	#############################
 	#    NEW PLANTS
   # Calculate fixed costs for all new plants
-    sum {(z, t, s, o, v) in PROJECT_VINTAGES} 
-      InstallGen[z, t, s, o, v] * fixed_cost[z, t, s, o, v]
+    sum {(z, t, p, v) in PROJECT_VINTAGES} 
+      InstallGen[z, t, p, v] * fixed_cost[z, t, p, v]
   # Calculate variable costs for new plants that are dispatchable. 
-  + sum {(z, t, s, o) in PROJ_DISPATCH, h in TIMEPOINTS} 
-      DispatchGen[z, t, s, o, h] * (variable_cost[z, t, h] + carbon_cost_per_mwh[t, h])
+  + sum {(z, t, p) in PROJ_DISPATCH, h in TIMEPOINTS} 
+      DispatchGen[z, t, p, h] * (variable_cost[z, t, h] + carbon_cost_per_mwh[t, h])
   # Calculate variable costs for new baseload plants for all the hours in which they will operate
-  + sum {(z, t, s, o, v, h) in NEW_BASELOAD_VINTAGE_HOURS}
-      (1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[z, t, s, o, v] 
+  + sum {(z, t, p, v, h) in NEW_BASELOAD_VINTAGE_HOURS}
+      (1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[z, t, p, v] 
       * (variable_cost[z, t, h] + carbon_cost_per_mwh[t, h])
 
 	#############################
@@ -937,13 +930,13 @@ subject to Satisfy_Load {z in LOAD_AREAS, h in TIMEPOINTS}:
 	#############################
 	#    NEW PLANTS
   # new dispatchable projects
-  (sum {(z, t, s, o) in PROJ_DISPATCH} DispatchGen[z, t, s, o, h])
+  (sum {(z, t, p) in PROJ_DISPATCH} DispatchGen[z, t, p, h])
   # output from new intermittent projects
-  + (sum {(z, t, s, o, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS} 
-      (1-forced_outage_rate[t]) * cap_factor[z, t, s, o, h] * InstallGen[z, t, s, o, v])
+  + (sum {(z, t, p, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS} 
+      (1-forced_outage_rate[t]) * cap_factor[z, t, p, h] * InstallGen[z, t, p, v])
   # new baseload plants
-  + sum {(z, t, s, o, v, h) in NEW_BASELOAD_VINTAGE_HOURS} 
-      ((1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[z, t, s, o, v] )
+  + sum {(z, t, p, v, h) in NEW_BASELOAD_VINTAGE_HOURS} 
+      ((1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[z, t, p, v] )
 
 	#############################
 	#    EXISTING PLANTS
@@ -987,16 +980,16 @@ subject to Satisfy_Load_Reserve {z in LOAD_AREAS, h in TIMEPOINTS}:
 	#############################
 	#    NEW PLANTS
   # new dispatchable capacity (no need to decide how to dispatch it; we just need to know it's available)
-  (sum {(z, t, s, o, v, h) in PROJ_DISPATCH_VINTAGE_HOURS} InstallGen[z, t, s, o, v])
+  (sum {(z, t, p, v, h) in PROJ_DISPATCH_VINTAGE_HOURS} InstallGen[z, t, p, v])
 
   # Is it appropriate to put intermittent plants into the load reserve? Do any utility regulators currently allow this?
   # output from new intermittent projects
-  + (sum {(z, t, s, o, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS} 
-      cap_factor[z, t, s, o, h] * InstallGen[z, t, s, o, v])
+  + (sum {(z, t, p, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS} 
+      cap_factor[z, t, p, h] * InstallGen[z, t, p, v])
 
   # new baseload plants
-  + sum {(z, t, s, o, v, h) in NEW_BASELOAD_VINTAGE_HOURS} 
-      ((1-scheduled_outage_rate[t]) * InstallGen[z, t, s, o, v] )
+  + sum {(z, t, p, v, h) in NEW_BASELOAD_VINTAGE_HOURS} 
+      ((1-scheduled_outage_rate[t]) * InstallGen[z, t, p, v] )
 
 	#############################
 	#    EXISTING PLANTS
@@ -1071,31 +1064,37 @@ subject to Average_HydroFlow_Reserve {(z, s) in PROJ_NONPUMPED_HYDRO, d in DATES
 # i.e., we only dispatch up to 1-forced_outage_rate, so the system will work on an expected-value basis
 # (this is the base portfolio, more backup generators will be added later to get a lower year-round risk level)
 subject to Maximum_DispatchGen 
-  {(z, t, s, o) in PROJ_DISPATCH, h in TIMEPOINTS}:
-  DispatchGen[z, t, s, o, h] <= (1-forced_outage_rate[t]) * 
-    sum {(z, t, s, o, v, h) in PROJ_DISPATCH_VINTAGE_HOURS} InstallGen[z, t, s, o, v];
+  {(z, t, p) in PROJ_DISPATCH, h in TIMEPOINTS}:
+  DispatchGen[z, t, p, h] <= (1-forced_outage_rate[t]) * 
+    sum {(z, t, p, v, h) in PROJ_DISPATCH_VINTAGE_HOURS} InstallGen[z, t, p, v];
 
 # there are limits on total installations in certain projects
 # TODO: adjust this to allow re-installing at the same site after retiring an earlier plant
 # (not an issue if the simulation is too short to retire plants)
 # or even allow forced retiring of earlier plants if new technologies are better
-subject to Maximum_Resource {(z, t, s) in PROJ_RESOURCE_LIMITED_SITES}:
-  sum {p in PERIODS, (z, t, s, o) in PROJ_RESOURCE_LIMITED: p >= min_build_year[t] + construction_time_years[t]} InstallGen[z, t, s, o, p] <= max_capacity[z, t, s];
+subject to Maximum_Resource_Competing_Tech {l in LOCATIONS_WITH_COMPETING_TECHNOLOGIES}:
+  sum {p in PERIODS, (z, t, proj) in PROJ_RESOURCE_LIMITED: p >= min_build_year[t] + construction_time_years[t] and location_id[z,t,proj] = l} 
+  	InstallGen[z, t, proj, p] / capacity_limit_conversion[z, t, proj] <= capacity_limit_by_location[l];
+
+subject to Maximum_Resource_Location_Unspecified { (z, t, proj) in PROJ_RESOURCE_LIMITED: not( location_id[z,t,proj] in LOCATIONS_WITH_COMPETING_TECHNOLOGIES ) }:
+  sum {p in PERIODS: p >= min_build_year[t] + construction_time_years[t]} 
+  	InstallGen[z, t, proj, p] / capacity_limit_conversion[z, t, proj] <= capacity_limit_by_project[z, t, proj];
+
 
 # Some generators have a minimum build size. This enforces that constraint
 # If a generator is installed, then BuildGenOrNot is 1, and InstallGen has to be >= min_build_capacity
 # If a generator is NOT installed, then BuildGenOrNot is 0, and InstallGen has to be >= 0
 subject to Minimum_GenSize 
-  {(z, t, s, o, v) in PROJ_MIN_BUILD_VINTAGES}:
-  InstallGen[z, t, s, o, v] >= min_build_capacity[t] * BuildGenOrNot[z, t, s, o, v];
+  {(z, t, p, v) in PROJ_MIN_BUILD_VINTAGES}:
+  InstallGen[z, t, p, v] >= min_build_capacity[t] * BuildGenOrNot[z, t, p, v];
 
 # This binds BuildGenOrNot to InstallGen. The number below (1e6) is somewhat arbitrary. 
 # I picked a number that would be far above the largest generator that would possibly be built
 # If a generator is installed, then BuildGenOrNot is 1, and InstallGen has to be <= 0
 # If a generator is NOT installed, then BuildGenOrNot is 0, and InstallGen can be between 0 & 1e6 - basically no upper limit
 subject to BuildGenOrNot_Constraint 
-  {(z, t, s, o, v) in PROJ_MIN_BUILD_VINTAGES}:
-  InstallGen[z, t, s, o, v] <= 1000000 * BuildGenOrNot[z, t, s, o, v];
+  {(z, t, p, v) in PROJ_MIN_BUILD_VINTAGES}:
+  InstallGen[z, t, p, v] <= 1000000 * BuildGenOrNot[z, t, p, v];
 
 # existing dispatchable plants can only be used if they are operational this year
 subject to EP_Operational
@@ -1131,9 +1130,11 @@ subject to Maximum_DispatchTransFromXToY_Reserve
 subject to Maximum_LocalTD 
   {z in LOAD_AREAS, h in TIMEPOINTS}:
   system_load[z,h]
-    - (sum {(z, t, s, o, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS: t=tech_distributed_pv}
-        (1-forced_outage_rate[t]) * cap_factor[z, t, s, o, h] * InstallGen[z, t, s, o, v])
-    - (sum {(z, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: ep_technology[z,e]=tech_distributed_pv}
+    # New distributed PV
+    - (sum {(z, t, p, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES}
+        (1-forced_outage_rate[t]) * cap_factor[z, t, p, h] * InstallGen[z, t, p, v])
+    # Existing distributed PV
+    - (sum {(z, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: ep_technology[z,e] in SOLAR_DIST_PV_TECHNOLOGIES }
     	OperateEPDuringPeriod[z, e, period[h]] * 
         (1-ep_forced_outage_rate[z,e]) * eip_cap_factor[z, e, h] * ep_size_mw[z, e] )
   <= sum {(z, v, h) in LOCAL_TD_HOURS} InstallLocalTD[z, v];
@@ -1148,9 +1149,9 @@ subject to Maximum_LocalTD
 # Note, by default windsun.run will drop this constraint. Set enable_min_solar_production to 1 to enable this constraint.
 subject to Min_Gen_Fraction_From_Solar:
     # New solar plants power output in the last periods
-	(sum {(z, t, s, o, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS: 
+	(sum {(z, t, p, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS: 
 	      t in SOLAR_TECHNOLOGIES                and v = last( PERIODS ) } 
-        (1-forced_outage_rate[t]) * cap_factor[z, t, s, o, h] * InstallGen[z, t, s, o, v] * hours_in_sample[h]) 
+        (1-forced_outage_rate[t]) * cap_factor[z, t, p, h] * InstallGen[z, t, p, v] * hours_in_sample[h]) 
     # Existing solar plants power output in the last periods
     + (sum {(z, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: 
         ep_technology[z,e] in SOLAR_TECHNOLOGIES and period[h] = last( PERIODS ) }
@@ -1162,44 +1163,44 @@ subject to Min_Gen_Fraction_From_Solar:
 #################################################
 # RPS constraint
 # windsun.run will drop this constraint if enable_rps is 0 (its default value)
-subject to Satisfy_RPS {z in LOAD_AREAS_WITH_RPS, p in PERIODS: 
-	p >= period_rps_takes_effect[z] }:
+subject to Satisfy_RPS {z in LOAD_AREAS_WITH_RPS, v in PERIODS: 
+	v >= period_rps_takes_effect[z] }:
 
  (
 	#############################
 	#   Power from NEW PLANTS
   # new dispatchable projects
-   (sum {(z, t, s, o) in PROJ_DISPATCH, h in TIMEPOINTS: 
-        period[h] = p and fuel_qualifies_for_rps[z, rps_fuel_category[fuel[t]]]} 
-     DispatchGen[z, t, s, o, h] * hours_in_sample[h]
+   (sum {(z, t, p) in PROJ_DISPATCH, h in TIMEPOINTS: 
+        period[h] = v and fuel_qualifies_for_rps[z, rps_fuel_category[fuel[t]]]} 
+     DispatchGen[z, t, p, h] * hours_in_sample[h]
    )
   # output from new intermittent projects
-  + (sum {(z, t, s, o, install_year, h) in PROJ_INTERMITTENT_VINTAGE_HOURS: 
-          period[h] = p and fuel_qualifies_for_rps[z, rps_fuel_category[fuel[t]]]} 
-      (1-forced_outage_rate[t]) * cap_factor[z, t, s, o, h] * InstallGen[z, t, s, o, install_year] * hours_in_sample[h]
+  + (sum {(z, t, p, install_year, h) in PROJ_INTERMITTENT_VINTAGE_HOURS: 
+          period[h] = v and fuel_qualifies_for_rps[z, rps_fuel_category[fuel[t]]]} 
+      (1-forced_outage_rate[t]) * cap_factor[z, t, p, h] * InstallGen[z, t, p, install_year] * hours_in_sample[h]
     )
   # new baseload plants
-  + (sum {(z, t, s, o, install_year, h) in NEW_BASELOAD_VINTAGE_HOURS: 
-          period[h] = p and fuel_qualifies_for_rps[z, rps_fuel_category[fuel[t]]]} 
-      (1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[z, t, s, o, install_year] * hours_in_sample[h]
+  + (sum {(z, t, p, install_year, h) in NEW_BASELOAD_VINTAGE_HOURS: 
+          period[h] = v and fuel_qualifies_for_rps[z, rps_fuel_category[fuel[t]]]} 
+      (1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[z, t, p, install_year] * hours_in_sample[h]
     )
 
 	#############################
 	#    Power from EXISTING PLANTS
   # existing baseload plants
-  + (sum {(z, e, p) in EP_BASELOAD_PERIODS, h in TIMEPOINTS: 
-          period[h]=p and fuel_qualifies_for_rps[z, rps_fuel_category[ep_fuel[z,e]]]} 
-      OperateEPDuringPeriod[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e] * hours_in_sample[h]
+  + (sum {(z, e, v) in EP_BASELOAD_PERIODS, h in TIMEPOINTS: 
+          period[h]=v and fuel_qualifies_for_rps[z, rps_fuel_category[ep_fuel[z,e]]]} 
+      OperateEPDuringPeriod[z, e, v] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e] * hours_in_sample[h]
     )
   # existing dispatchable plants
   + (sum {(z, e, h) in EP_DISPATCH_HOURS: 
-          period[h]=p and fuel_qualifies_for_rps[z, rps_fuel_category[ep_fuel[z,e]]]} 
+          period[h]=v and fuel_qualifies_for_rps[z, rps_fuel_category[ep_fuel[z,e]]]} 
       DispatchEP[z, e, h] * hours_in_sample[h]
     )
   # existing intermittent plants
   + (sum {(z, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: 
-          period[h]=p and fuel_qualifies_for_rps[z, rps_fuel_category[ep_fuel[z,e]]]} 
-      OperateEPDuringPeriod[z, e, p] * ep_size_mw[z, e] * eip_cap_factor[z, e, h] * (1-ep_forced_outage_rate[z, e]) * hours_in_sample[h]
+          period[h]=v and fuel_qualifies_for_rps[z, rps_fuel_category[ep_fuel[z,e]]]} 
+      OperateEPDuringPeriod[z, e, v] * ep_size_mw[z, e] * eip_cap_factor[z, e, h] * (1-ep_forced_outage_rate[z, e]) * hours_in_sample[h]
     )
 
 	########################################
@@ -1208,18 +1209,18 @@ subject to Satisfy_RPS {z in LOAD_AREAS_WITH_RPS, p in PERIODS:
 
 #  Imports
   + (sum {(z2, z) in TRANSMISSION_LINES, fc in RPS_FUEL_CATEGORY, h in TIMEPOINTS: 
-          period[h]=p and fuel_qualifies_for_rps[z, fc]}
+          period[h]=v and fuel_qualifies_for_rps[z, fc]}
       (transmission_efficiency[z2, z] * DispatchTransFromXToY[z2, z, h, fc]) * hours_in_sample[h]
     )
   
 #  Exports
   - (sum {(z, z1) in TRANSMISSION_LINES, fc in RPS_FUEL_CATEGORY, h in TIMEPOINTS: 
-          period[h]=p and fuel_qualifies_for_rps[z, fc]}
+          period[h]=v and fuel_qualifies_for_rps[z, fc]}
       DispatchTransFromXToY[z, z1, h, fc] * hours_in_sample[h]
     )
  ) 
   / (sum { h in TIMEPOINTS: 
-           period[h] = p } 
+           period[h] = v } 
       system_load[z, h] * hours_in_sample[h]
     )
   >= rps_compliance_percentage[z];
@@ -1232,16 +1233,16 @@ subject to Conservation_of_Colored_Electrons {z in LOAD_AREAS, h in TIMEPOINTS, 
 	#############################
 	#    Power Production
   # new dispatchable projects
-    (sum {(z, t, s, o) in PROJ_DISPATCH: rps_fuel_category[fuel[t]] = ft} 
-      DispatchGen[z, t, s, o, h]
+    (sum {(z, t, p) in PROJ_DISPATCH: rps_fuel_category[fuel[t]] = ft} 
+      DispatchGen[z, t, p, h]
     )
   # new intermittent projects
-  + (sum {(z, t, s, o, install_year, h) in PROJ_INTERMITTENT_VINTAGE_HOURS: rps_fuel_category[fuel[t]] = ft} 
-      (1-forced_outage_rate[t]) * cap_factor[z, t, s, o, h] * InstallGen[z, t, s, o, install_year]
+  + (sum {(z, t, p, install_year, h) in PROJ_INTERMITTENT_VINTAGE_HOURS: rps_fuel_category[fuel[t]] = ft} 
+      (1-forced_outage_rate[t]) * cap_factor[z, t, p, h] * InstallGen[z, t, p, install_year]
     )
   # new baseload plants
-  + (sum {(z, t, s, o, install_year, h) in NEW_BASELOAD_VINTAGE_HOURS: rps_fuel_category[fuel[t]] = ft} 
-      (1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[z, t, s, o, install_year] 
+  + (sum {(z, t, p, install_year, h) in NEW_BASELOAD_VINTAGE_HOURS: rps_fuel_category[fuel[t]] = ft} 
+      (1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[z, t, p, install_year] 
     )
   # existing baseload plants
   + (sum {(z, e, p) in EP_BASELOAD_PERIODS: p=period[h] and rps_fuel_category[ep_fuel[z,e]] = ft} 
@@ -1286,6 +1287,3 @@ subject to Conservation_of_Blue_Electrons {z in LOAD_AREAS, h in TIMEPOINTS}:
   
      # Exports (have not experienced transmission losses)
   >= (sum {(z, z1) in TRANSMISSION_LINES} (DispatchTransFromXToY[z, z1, h, rps_fuel_category[fuel_hydro] ]));
-
-
-

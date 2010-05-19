@@ -7,15 +7,18 @@ param trans_solution_file symbolic;
 param cost_solution_exists;
 param trans_solution_exists;
 param max_potential_solar_last_period;
-let max_potential_solar_last_period :=
-	( sum{ t in SOLAR_TECHNOLOGIES } max_potential_power[ t, last(PERIODS) ] )
-	/ total_loads_by_period_weighted[ last( PERIODS ) ];
 
-if ( enable_min_solar_production = 1 and max_potential_solar_last_period < min_solar_production ) then {
+
+if (enable_min_solar_production = 1) then {
+	let max_potential_solar_last_period := 
+		max_potential_power[ 'Solar', last(PERIODS) ] / total_loads_by_period_weighted[ last( PERIODS ) ];
+
+	if ( max_potential_solar_last_period < min_solar_production ) then {
 		printf "Warning! Policy goal of %2d\% solar in %.0d exceeds maximum potential of %2.2f\%, making the problem infeasible. Adjust the value of min_solar_production before proceeding.\n", 
 			min_solar_production * 100, last(PERIODS), max_potential_solar_last_period * 100;
-} else {
-
+		exit;
+	}
+} 
 
 for {c in CARBON_COSTS} {
   let carbon_cost := c;
@@ -127,7 +130,5 @@ for {c in CARBON_COSTS} {
 
   # restore the cost solution
   solution (cost_solution_file);
-
-}
 
 }

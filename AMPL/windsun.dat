@@ -61,8 +61,6 @@ param hydro_annual_payment_per_mw := 113172;
 # Names of intermittent and resource-limited technologies. 
 param tech_ccgt := "CCGT";
 param tech_gas_combustion_turbine := "Gas_Combustion_Turbine";
-param tech_distributed_pv := "Distributed_PV";
-param tech_csp_trough_storage := "CSP_Trough_6h_TES";
 param tech_wind := "Wind";
 param tech_offshore_wind := "Offshore_Wind";
 param tech_biomass_igcc := "Biomass_IGCC";
@@ -70,11 +68,11 @@ param tech_bio_gas := "Bio_Gas";
 param fuel_hydro := "Water";
 
 # All of the solar technologies. If you change what they are called in the section immediately above, change them here too.
-set SOLAR_TECHNOLOGIES := Distributed_PV CSP_Trough_6h_TES;
+set SOLAR_CSP_TECHNOLOGIES := CSP_Trough_No_Storage CSP_Trough_6h_Storage;
+set SOLAR_DIST_PV_TECHNOLOGIES := Residential_PV Commercial_PV;
 
-# default values for projects that don't have sites or orientations
-param site_unspecified := "na";
-param configuration_unspecified := "na";
+# default values for projects that don't have a specific location assigned beyond the load area
+param location_unspecified := 0;
 
 # cost of carbon emissions ($/tonneCO2)
 param carbon_cost;

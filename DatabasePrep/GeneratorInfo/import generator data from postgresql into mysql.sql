@@ -1,4 +1,4 @@
--- run after 'generating unit to load area map in postgresql.sql' in the GIS folder
+-- run after 'generating unit to load area map in postgresql.sql'
 
 -- imports the ventyx plant data and the assigned load areas...
 -- will get cut up by other scripts...
@@ -66,25 +66,26 @@ load data local infile
 	ignore 1 lines;
 	
 	
--- PROPOSED RENEWABLE SITES
+-- PROPOSED PROJECTS
 -- also, import a table of renewable sites created in postgresql
-drop table if exists proposed_renewable_sites;
-create table proposed_renewable_sites(
-	site varchar(50),
-	generator_type varchar(20),
-	renewable_id bigint,
+drop table if exists proposed_projects;
+create table proposed_projects(
+	project_id bigint PRIMARY KEY,
+	technology varchar(30),
+	original_dataset_id integer NOT NULL,
 	load_area varchar(11),
-	capacity_mw double,
+	capacity_limit float,
+ 	capacity_limit_conversion float,
 	connect_cost_per_mw double,
-	timezone_difference_from_utc integer,
-	site_name_or_notes varchar(256),
-	INDEX renewable_id (renewable_id),
-	INDEX load_area (load_area)
+	location_id INT,
+	INDEX project_id (project_id),
+	INDEX load_area (load_area),
+	UNIQUE (technology, location_id, load_area)
 );
 	
 load data local infile
-	'/Volumes/1TB_RAID/Models/Switch\ Input\ Data/Generators/proposed_renewable_sites.csv'
-	into table proposed_renewable_sites
+	'proposed_projects.csv'
+	into table proposed_projects
 	fields terminated by	','
 	optionally enclosed by '"'
 	ignore 1 lines;	

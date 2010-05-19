@@ -2,26 +2,16 @@
 # holding all the tab files.
 
 reset;
-if match($version, 'Darwin') > 0 then {
-  #option solver cbc;
-  # note: you also need to use codeweavers to open the ampl1 bottle and then call wine --cx-app=ilmd.exe
-  option solver cplexamp;
-#  Old setting for single-threaded execution
-#  option cplex_options 'primalopt lpdisplay=1 mipdisplay=1';
-# New settings for multi-threaded execution
-#  option cplex_options 'lpdisplay=1 threads=8 mipdisplay=1';
-  option cplex_options 'lpdisplay=1 iisfind=1 mipdisplay=1';
-  
-# Another settings for speeding up resolving process when one parameter is slightly adjusted
-# advance=2
-} else {
-  option solver cplexamp;
-#  Old setting for single-threaded execution
-#  option cplex_options 'lpdisplay=1 threads=6 mipdisplay=1';
-# New settings for multi-threaded execution
-  option cplex_options 'lpdisplay=1 threads=8 mipdisplay=1';
-}
+option solver cplexamp;
+option cplex_options 'lpdisplay=1 iisfind=1 mipdisplay=1';
+# Other options
+# Add 'threads=8' for multi-threaded execution.
+# Adding 'advance=2' might speed up solutions that work from a similar problem's solution
 option presolve 0;
+
+# parameter used to track execution times
+param curtime;
+let curtime := time();
 
 model windsun.mod;
 
@@ -55,16 +45,24 @@ table existing_intermittent_plant_cap_factor IN:
 read table existing_intermittent_plant_cap_factor;
 
 table hydro IN: 
-  PROJ_HYDRO_DATES <- [load_area, site, date], hydro_project_id, 
+  PROJ_HYDRO_DATES <- [load_area, hydro_project_id, date], hydro_site ~ site_id, 
   avg_hydro_flow ~ avg_flow, min_hydro_flow ~ min_flow, max_hydro_flow ~ max_flow;
 read table hydro;
 
-table proposed_renewable_sites IN: 
-  PROJ_RESOURCE_LIMITED_SITES <- [load_area, technology, site], max_capacity, connect_cost_per_mw;
-read table proposed_renewable_sites;
+table proposed_projects IN: 
+  PROJ_RESOURCE_LIMITED <- [load_area, technology, project_id], location_id, capacity_limit_by_project ~ capacity_limit, capacity_limit_conversion, connect_cost_per_mw;
+read table proposed_projects;
+
+for {(z,t,p) in PROJ_RESOURCE_LIMITED: location_id[z,t,p] == 0} {
+	let location_id[z,t,p] := location_unspecified;
+}
+
+table competing_locations IN:
+	LOCATIONS_WITH_COMPETING_TECHNOLOGIES <- [location_id];
+read table competing_locations;
 
 table cap_factor IN: 
-  PROJ_INTERMITTENT_HOURS <- [load_area, technology, site, configuration, hour], cap_factor;
+  PROJ_INTERMITTENT_HOURS <- [load_area, technology, project_id, hour], cap_factor;
 read table cap_factor;
 
 table generator_info IN:  
@@ -74,6 +72,12 @@ table generator_info IN:
 	intermittent, resource_limited, new_baseload ~ baseload, min_build_capacity, 
 	min_dispatch_fraction, min_runtime, min_downtime, max_ramp_rate_mw_per_hour, startup_fuel_mbtu;
 read table generator_info;
+
+# Mark which technologies will be competing for space
+for { t in SOLAR_CSP_TECHNOLOGIES } {
+  let technologies_compete_for_space[t] := 1;
+}
+let technologies_compete_for_space['Central_PV'] := 1;
 
 table generator_costs_regional IN:  
 	REGIONAL_TECHNOLOGIES <- [load_area, technology], regional_project_id, price_and_dollar_year, overnight_cost,
@@ -93,10 +97,7 @@ table fuel_qualifies_for_rps IN:
 	LOAD_AREAS_AND_FUEL_CATEGORY <- [load_area, rps_fuel_category], fuel_qualifies_for_rps ~ qualifies;
 read table fuel_qualifies_for_rps; 
 
-
-# parameter used to track execution times
-param curtime;
-
+###################################
 # parameters used for reporting total generation and transmission
 
 # name of the scenario
@@ -117,7 +118,7 @@ set ZONAL_REPORTING_HOURS ordered = {h in TIMEPOINTS: period[h] in ZONAL_REPORTI
 
 # parameters to report transmission and generation from various sources, in each load zone
 set TECHNOLOGIES_INTERMITTENT = setof {t in TECHNOLOGIES: intermittent[t]} (t);
-set TECHNOLOGIES_DISPATCH = setof {(z, t, s, o) in PROJ_DISPATCH} (t);
+set TECHNOLOGIES_DISPATCH = setof {(z, t, proj) in PROJ_DISPATCH} (t);
 param total_gen {LOAD_AREAS, TECHNOLOGIES, STUDY_YEARS} default 0;
 param surplus_gen {LOAD_AREAS, TECHNOLOGIES_INTERMITTENT, STUDY_YEARS} default 0;
 param intermittent_surplus_fraction {LOAD_AREAS, TIMEPOINTS} default 0;
@@ -142,37 +143,54 @@ if enable_min_solar_production = 0 then {
 	drop Min_Gen_Fraction_From_Solar;
 }
 
-if enable_rps = 0 then {
+if (enable_rps = 0) then {
 	drop Satisfy_RPS;
 	drop Conservation_of_Blue_Electrons;
 	drop Conservation_of_Colored_Electrons;
-}
+} 
 
 
 # Maximum potential from resource-limited sources
 set RESOURCE_LIMITED_TECHNOLOGIES = setof{ t in TECHNOLOGIES: resource_limited[t] } (t);
-param max_potential_power { t in RESOURCE_LIMITED_TECHNOLOGIES, p in PERIODS } = 
-# Intermittent, resource-limited technologies
-	# New plants
-	sum{ (z, t, s, o) in PROJ_RESOURCE_LIMITED, h in TIMEPOINTS: 
-	     period[h] = p and intermittent[t]} (
-		(1-forced_outage_rate[t]) * max_capacity[z, t, s] * cap_factor[z, t, s, o, h] * hours_in_sample[h]
+param max_potential_power { f in FUELS, p in PERIODS };
+if ( enable_min_solar_production = 1 ) then {
+
+  for { f in FUELS, p in PERIODS } {
+  let max_potential_power[ f, p ] := 
+	sum{ t in RESOURCE_LIMITED_TECHNOLOGIES: fuel[t] = f and intermittent[t] } (
+	# Intermittent, resource-limited projects that are not located at sites where technologies are in competition
+		# New plants
+		sum{ (z, t, proj) in PROJ_RESOURCE_LIMITED, h in TIMEPOINTS: 
+			 period[h] = p and fuel[t] = f and not (location_id[z,t,proj] in LOCATIONS_WITH_COMPETING_TECHNOLOGIES)} (
+			(1-forced_outage_rate[t]) * capacity_limit_by_project[z, t, proj] * capacity_limit_conversion[z, t, proj] * cap_factor[z, t, proj, h] * hours_in_sample[h]
+		)
+		# Existing plants (assume they are operating)
+	  + sum { (z, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: 
+				 period[h] = p and ep_technology[z,e] = t and ep_fuel[z,e]=f} (
+			(1-ep_forced_outage_rate[z,e]) * eip_cap_factor[z, e, h]  * ep_size_mw[z, e] * hours_in_sample[h]
+		)
+	# New Intermittent, resource-limited projects that are not located at sites where technologies are in competition. 
+	# Pick the technology that if installed completely would provide the most power. 
+	# This assumes that competing technologies share the same fuel
+	  + sum{ l in LOCATIONS_WITH_COMPETING_TECHNOLOGIES } 
+		  max{(z, t, proj) in PROJ_RESOURCE_LIMITED, h in TIMEPOINTS: 
+			 period[h] = p and fuel[t] = f and location_id[z,t,proj] = l }
+			 (1-forced_outage_rate[t]) * capacity_limit_by_project[z, t, proj] * capacity_limit_conversion[z, t, proj] * cap_factor[z, t, proj, h] * hours_in_sample[h]
+	
+	# Baseload, resource-limited technologies (currently biomass & geothermal)
+		# New plants
+	  + sum { (z, t, proj, v, h) in NEW_BASELOAD_VINTAGE_HOURS:
+			  period[h] = p and fuel[t] = f } ( 
+			(1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * capacity_limit_by_project[z, t, proj] * capacity_limit_conversion[z, t, proj] * hours_in_sample[h]
+		)
+		# Existing plants (assume they are operating)
+	  + sum { (z, e, p) in EP_BASELOAD_PERIODS, h in TIMEPOINTS: 
+			  period[h] = p and ep_technology[z,e] = t and ep_fuel[z,e]=f} (
+			(1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e] * hours_in_sample[h]
+		)
+	# ToDo: add a part for dispatchable, resource-limited technologies when we add tech of that type
 	)
-	# Existing plants (assume they are operating)
-  + sum { (z, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: 
-             period[h] = p and intermittent[t] and ep_technology[z,e] = t } (
-        (1-ep_forced_outage_rate[z,e]) * eip_cap_factor[z, e, h]  * ep_size_mw[z, e] * hours_in_sample[h]
-    )    
-# Baseload, resource-limited technologies (currently biomass & geothermal)
-	# New plants
-  + sum { (z, t, s, o, v, h) in NEW_BASELOAD_VINTAGE_HOURS:
-	      period[h] = p } ( 
-    	(1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * max_capacity[z, t, s] * hours_in_sample[h]
-    )
-	# Existing plants (assume they are operating)
-  + sum { (z, e, p) in EP_BASELOAD_PERIODS, h in TIMEPOINTS: 
-          period[h] = p and ep_technology[z,e] = t} (
-    	(1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e] * hours_in_sample[h]
-    )
-# ToDo: add a part for dispatchable, resource-limited technologies when we add tech of that type
-;
+	;
+  }
+}
+check;

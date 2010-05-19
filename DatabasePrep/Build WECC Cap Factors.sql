@@ -1,8 +1,9 @@
--- GENERATOR COSTS---------------
+-- makes the switch input database from which data is thrown into ampl via 'get_switch_input_tables.sh'
+-- run at command line from the DatabasePrep directory:
+-- mysql -h switch-db1.erg.berkeley.edu -u jimmy -p < /Users/siah/src/Switch/HEAD_(or other directory)/DatabasePrep/Build\ WECC\ Cap\ Factors.sql
 
-
-create database if not exists switch_inputs_wecc_v2_1;
-use switch_inputs_wecc_v2_1;
+create database if not exists switch_inputs_wecc_v2_2;
+use switch_inputs_wecc_v2_2;
 
 -- LOAD AREA INFO	
 -- made in postgresql
@@ -28,37 +29,38 @@ alter table load_area_info add column scenario_id INT NOT NULL first;
 alter table load_area_info add index scenario_id (scenario_id);
 alter table load_area_info add column area_id int NOT NULL AUTO_INCREMENT primary key first;
 
-select if( max(scenario_id) + 1 is null, 1, max(scenario_id) + 1 ) into @load_area_scenario_id
-    from load_area_info;
+set @load_area_scenario_id := (select if( count(distinct scenario_id) = 0, 1, max(scenario_id)) from load_area_info);
 
 update load_area_info set scenario_id = @load_area_scenario_id;
 
 
 -- HOURS-------------------------
--- creates hours table from the CSP data because 3tier knows how to deal correctly in UTC, right now only for 2004-2005
--- omits the last day because we're using UTC and so records for the first day (Jan 1 2004) won't be complete.
+-- takes the timepoints table from the weather database, as the solar data is synced to this hournum scheme.  The load data has also been similarly synced.
+-- right now the hours only go through 2004-2005
+-- incomplete hours will be exculded below in 'Setup_Study_Hours.sql'
 drop table if exists hours;
 CREATE TABLE hours (
   datetime_utc datetime NOT NULL COMMENT 'date & time in Coordinated Universal Time, with Daylight Savings Time ignored',
-  hournum int NOT NULL,
+  hournum smallint unsigned NOT NULL COMMENT 'hournum = 0 is at datetime_utc = 2004-01-01 00:00:00, and counts up from there',
   UNIQUE KEY datetime_utc (datetime_utc),
   UNIQUE KEY hournum (hournum)
 );
 
-set @curhour = 0;
 insert into hours
-	select distinct(datetime_utc), (@curhour := @curhour+1)
-		FROM 3tier.csp_power_output
-		where datetime_utc between "2004-01-02 00:00" and "2005-12-31 23:59"
+select 	timepoint as datetime_utc,
+		timepoint_id as hournum
+	from weather.timepoints
+	where year( timepoint ) < 2006
 	order by datetime_utc;
 
 -- SYSTEM LOAD
 -- patched together from the old wecc loads...
 -- should be improved in the future from FERC data
+select 'Compiling Loads' as progress;
 drop table if exists _system_load;
 CREATE TABLE  _system_load (
   area_id int,
-  hour int,
+  hour smallint unsigned,
   power double,
   INDEX hour (hour ),
   INDEX area_id (area_id),
@@ -68,11 +70,13 @@ CREATE TABLE  _system_load (
 
 insert into _system_load 
 select 	area_id, 
-		hour,
+		hournum as hour,
 		sum( power * population_fraction) as power
 from 	loads_wecc.v1_wecc_load_areas_to_v2_wecc_load_areas,
-		wecc.system_load, load_area_info
-where	v1_load_area = wecc.system_load.load_area and v2_load_area = load_area_info.load_area
+		loads_wecc.system_load,
+		load_area_info
+where	v1_load_area = system_load.load_area
+and 	v2_load_area = load_area_info.load_area
 group by v2_load_area, hour;
 
 DROP VIEW IF EXISTS system_load;
@@ -80,299 +84,13 @@ CREATE VIEW system_load as
   SELECT area_id, load_area, hour, power FROM _system_load JOIN load_area_info USING (area_id);
 
 -- Study Hours----------------------
+select 'Setting Up Study Hours' as progress;
 source Setup_Study_Hours.sql;
-
-
--- Do NOT drop this table unless you want to do a reset of the whole inputs & results databases
-CREATE TABLE if not exists _project_ids (
-  project_id int NOT NULL PRIMARY KEY AUTO_INCREMENT,
-  project_type varchar(50) COMMENT "This can be 'proposed_renewable_sites', 'existing_plants', 'hydro', or 'proposed_generation' where proposed_generation refers to new traditional sites that could be built, information for which is in the generator_costs_regional table.",
-  label varchar(50) COMMENT "For proposed_renewable_sites, this references site. For existing_plants and hydro, plant_code. ",
-  UNIQUE info (project_type, label),
-  INDEX label (label)
-) ROW_FORMAT=FIXED;
-
-
-
--- RENEWABLE SITES--------------
--- imported from postgresql, this table has all distributed pv, trough, wind, geothermal and biomass sites
-drop table if exists proposed_renewable_sites;
-CREATE TABLE  proposed_renewable_sites (
-  project_id int PRIMARY KEY DEFAULT 0,
-  technology_id INT NOT NULL,
-  generator_type varchar(30),
-  load_area varchar(11),
-  site varchar(50) NOT NULL,
-  renewable_id bigint(20),
-  capacity_mw float,
-  connect_cost_per_mw float,
-  INDEX generator_type_renewable_id (generator_type,renewable_id),
-  INDEX technology_id (technology_id),
-  INDEX renewable_id (renewable_id),
-  UNIQUE (site),
-  FOREIGN KEY (technology_id) REFERENCES generator_info (technology_id)
-) ROW_FORMAT=FIXED;
-
-DELIMITER $$
-
-/*!50003 DROP TRIGGER IF EXISTS `trg_ren_proj_id` */$$
-
-/*!50003 CREATE TRIGGER `trg_ren_proj_id` BEFORE INSERT ON `proposed_renewable_sites` FOR EACH ROW BEGIN
-	INSERT IGNORE INTO _project_ids (project_type,label) VALUES ('proposed_renewable_sites', NEW.site);
-	SET NEW.project_id = (SELECT project_id from _project_ids where project_type = 'proposed_renewable_sites' and label = NEW.site);
-END */$$
-
-DELIMITER ;
-
-insert into proposed_renewable_sites (technology_id, generator_type, load_area, site, renewable_id, capacity_mw, connect_cost_per_mw )
-	select 	(select technology_id from generator_info.generator_costs where technology=generator_type),
-	        generator_type,
-			load_area,
-			site,
-			renewable_id,
-			capacity_mw,
-			connect_cost_per_mw
-	from generator_info.proposed_renewable_sites
-	order by 1,2,3;
-
-
--- CAP FACTOR-----------------
--- assembles the hourly power output for Distributed_PV, CSP_Trough, Wind and Offshore_Wind
-drop table if exists _cap_factor_proposed_renewable_sites;
-create table _cap_factor_proposed_renewable_sites(
-	project_id int NOT NULL,
-	configuration char(3),
-	hour int,
-	cap_factor float,
-	INDEX hour (hour),
-	INDEX configuration (configuration),
-	PRIMARY KEY (project_id, configuration, hour),
-	CONSTRAINT site_fk FOREIGN KEY project_id (project_id) REFERENCES proposed_renewable_sites (project_id)
-);
-
-select 'Compiling Distributed_PV' as progress;
-insert into _cap_factor_proposed_renewable_sites
-SELECT      proposed_renewable_sites.project_id,
-			suny.grid_hourlies.orientation as configuration,
-            hours.hournum as hour,
-            suny.grid_hourlies.cap_factor
-    from    suny.grid_hourlies       join
-            proposed_renewable_sites join
-            hours
-    where   generator_type = 'Distributed_PV'
-	and		suny.grid_hourlies.grid_id = proposed_renewable_sites.renewable_id
-    and     hours.datetime_utc = suny.grid_hourlies.datetime_utc;
- 
-select 'Compiling CSP_Trough' as progress;
-insert into _cap_factor_proposed_renewable_sites
-SELECT      proposed_renewable_sites.project_id,
-            'na' as configuration,
-            hours.hournum as hour,
-            3tier.csp_power_output.e_net_mw/100 as cap_factor
-    from    proposed_renewable_sites, 
-            3tier.csp_power_output,
-            hours
-    where   generator_type = 'CSP_Trough_6h_TES'
-    and     proposed_renewable_sites.renewable_id = 3tier.csp_power_output.siteid
-    and     hours.datetime_utc = 3tier.csp_power_output.datetime_utc;
-
-select 'Compiling Offshore_Wind' as progress;
-insert into _cap_factor_proposed_renewable_sites
-SELECT      proposed_renewable_sites.project_id,
-            'na' as configuration,
-            hours.hournum as hour,
-            3tier.wind_farm_power_output.cap_factor
-    from    proposed_renewable_sites, 
-            3tier.wind_farm_power_output,
-            hours
-    where   generator_type = 'Offshore_Wind'
-    and     proposed_renewable_sites.renewable_id = 3tier.wind_farm_power_output.wind_farm_id
-    and     hours.datetime_utc = 3tier.wind_farm_power_output.datetime_utc;
-
-select 'Compiling Wind' as progress;
-insert into _cap_factor_proposed_renewable_sites
-SELECT      proposed_renewable_sites.project_id,
-            'na' as configuration,
-            hours.hournum as hour,
-            3tier.wind_farm_power_output.cap_factor
-    from    proposed_renewable_sites, 
-            3tier.wind_farm_power_output,
-            hours
-    where   generator_type = 'Wind'
-    and     proposed_renewable_sites.renewable_id = 3tier.wind_farm_power_output.wind_farm_id
-    and     hours.datetime_utc = 3tier.wind_farm_power_output.datetime_utc;
-
-DROP VIEW IF EXISTS cap_factor_proposed_renewable_sites;
-CREATE VIEW cap_factor_proposed_renewable_sites as
-  SELECT cp.project_id, generator_type, load_area_info.area_id, load_area, site, configuration, hour, cap_factor
-    FROM _cap_factor_proposed_renewable_sites cp join proposed_renewable_sites using (project_id) join load_area_info using (area_id);
-
-
-
--- EXISTING PLANTS---------
--- made in 'build proposed plants table.sql'
-select 'Copying existing_plants' as progress;
-
-drop table if exists existing_plants;
-CREATE TABLE existing_plants (
-	project_id int PRIMARY KEY DEFAULT 0,
-	area_id int,
-	load_area varchar(11),
-	plant_code varchar(40),
-	gentype varchar(10),
-	aer_fuel varchar(20),
-	peak_mw double,
-	avg_mw double,
-	heat_rate double,
-	start_year year,
-	baseload boolean,
-	cogen boolean,
-	overnight_cost double,
-	fixed_o_m double,
-	variable_o_m double,
-	forced_outage_rate double,
-	scheduled_outage_rate double,
-	max_age double,
-	intermittent boolean,
-	technology varchar(30),
-	INDEX area_id (area_id),
-	FOREIGN KEY (area_id) REFERENCES load_area_info(area_id), 
-	INDEX load_area_plant_code (load_area, plant_code)
-) ROW_FORMAT=FIXED;
-
-DELIMITER $$
-
-/*!50003 DROP TRIGGER IF EXISTS `trg_ep_proj_id` */$$
-
-/*!50003 CREATE TRIGGER `trg_ep_proj_id` BEFORE INSERT ON `existing_plants` FOR EACH ROW BEGIN
-	INSERT IGNORE INTO _project_ids (project_type,label) VALUES ('existing_plants', NEW.plant_code);
-	SET NEW.project_id = (SELECT project_id from _project_ids where project_type = 'existing_plants' and label = NEW.plant_code);
-END */$$
-
-DELIMITER ;
-
-
-insert into existing_plants
-	select load_area_info.area_id, ep_agg.* from generator_info.existing_plants_agg ep_agg join load_area_info using(load_area);
-
--- existing windfarms added here
--- should find overnight costs of historical wind turbines
--- $2/W is used here ($2,000,000/MW)
--- fixed O+M,forced_outage_rate are from new wind
-insert into existing_plants
-		(area_id,
-		load_area,
-		plant_code,
-		gentype,
-		aer_fuel,
-		peak_mw,
-		avg_mw,
-		heat_rate,
-		start_year,
-		baseload,
-		cogen,
-		overnight_cost,
-		fixed_o_m,
-		variable_o_m,
-		forced_outage_rate,
-		scheduled_outage_rate,
-		max_age,
-		intermittent,
-		technology)
-select 	load_area_info.area_id, load_area,
-		concat('Wind', '_', load_area, '_', 3tier.windfarms_existing_info_wecc.windfarm_existing_id) as plant_code,
-		'Wind' as gentype,
-		'Wind' as aer_fuel,
-		capacity_mw as peak_mw,
-		avg(cap_factor) * capacity_mw as avg_mw,
-		0 as heat_rate,
-		year_online as start_year,
-		0 as baseload,
-		0 as cogen,
-		2000000 as overnight_cost,
-		30300 as fixed_o_m,
-		0 as variable_o_m,
-		0.015 as forced_outage_rate,
-		0.003 as scheduled_outage_rate,
-		30 as max_age,
-		1 as intermittent,
-		'Wind' as technology
-from 	3tier.windfarms_existing_info_wecc join 
-        load_area_info using(load_area) join 
-		3tier.windfarms_existing_cap_factor using(windfarm_existing_id)
-group by 3tier.windfarms_existing_info_wecc.windfarm_existing_id
-;
-
-
-drop table if exists _existing_intermittent_plant_cap_factor;
-create table _existing_intermittent_plant_cap_factor(
-		project_id int,
-		area_id int,
-		hour int,
-		cap_factor float,
-		INDEX eip_index (area_id, project_id, hour),
-		INDEX hour (hour),
-		INDEX project_id (project_id),
-		UNIQUE (project_id, hour),
-		CONSTRAINT plant_code_fk FOREIGN KEY project_id (project_id) REFERENCES existing_plants (project_id),
-		FOREIGN KEY (area_id) REFERENCES load_area_info(area_id)
-);
-
-
-insert into _existing_intermittent_plant_cap_factor
-SELECT      existing_plants.project_id,
-            existing_plants.area_id,
-            hours.hournum as hour,
-            3tier.windfarms_existing_cap_factor.cap_factor
-    from    existing_plants, 
-            3tier.windfarms_existing_cap_factor,
-            hours
-    where   technology = 'Wind'
-    and		concat('Wind', '_', load_area, '_', 3tier.windfarms_existing_cap_factor.windfarm_existing_id) = existing_plants.plant_code
-    and     hours.datetime_utc = 3tier.windfarms_existing_cap_factor.datetime_utc;
-
-DROP VIEW IF EXISTS existing_intermittent_plant_cap_factor;
-CREATE VIEW existing_intermittent_plant_cap_factor as
-  SELECT cp.project_id, plant_code, load_area, cp.area_id, hour, cap_factor
-    FROM _existing_intermittent_plant_cap_factor cp join load_area_info using (area_id) join existing_plants using (project_id);
-
-
--- HYDRO-------------------
--- made in 'build proposed plants table.sql'
-drop table if exists hydro_monthly_limits;
-CREATE TABLE hydro_monthly_limits (
-  project_id int PRIMARY KEY DEFAULT 0,
-  area_id int,
-  load_area varchar(20),
-  plntcode int,
-  plntname varchar(50),
-  primemover char(2),
-  year year,
-  month tinyint(4),
-  min_flow double,
-  max_flow double,
-  avg_flow double,
-  index ym (year,month),
-  FOREIGN KEY (area_id) REFERENCES load_area_info(area_id)
-) ROW_FORMAT=FIXED;
-insert into hydro_monthly_limits
-	select area_id, agg.* from generator_info.hydro_monthly_limits_agg agg join load_area_info using(load_area);
-
-DELIMITER $$
-
-/*!50003 DROP TRIGGER IF EXISTS `trg_hydro_proj_id` */$$
-
-/*!50003 CREATE TRIGGER `trg_hydro_proj_id` BEFORE INSERT ON `hydro_monthly_limits` FOR EACH ROW BEGIN
-	INSERT IGNORE INTO _project_ids (project_type,label) VALUES ('hydro', NEW.plant_code);
-	SET NEW.project_id = (SELECT project_id from _project_ids where project_type = 'hydro' and label = NEW.plant_code);
-END */$$
-
-DELIMITER ;
-
 
 
 -- TRANS LINES----------
 -- made in postgresql
+select 'Copying Trans Lines' as progress;
 drop table if exists transmission_lines;
 create table transmission_lines(
 	transmission_line_id int,
@@ -384,21 +102,34 @@ create table transmission_lines(
 );
 
 load data local infile
-	'/Volumes/1TB_RAID/Models/Switch\ Input\ Data/Transmission/wecc_trans_lines.csv'
+	'wecc_trans_lines.csv'
 	into table transmission_lines
 	fields terminated by	','
 	optionally enclosed by '"'
 	ignore 1 lines;
 	
+-- PROJECT IDS
+-- Create a master table of project ids
+-- Do NOT drop this table unless you want to do a reset of the whole inputs & results databases
+CREATE TABLE if not exists _project_ids (
+  project_id int NOT NULL PRIMARY KEY AUTO_INCREMENT,
+  project_type varchar(50) COMMENT "This can be 'proposed_projects', 'existing_plants', 'hydro', or 'proposed_generation' where proposed_generation refers to new traditional sites that could be built, information for which is in the generator_costs_regional table.",
+  label varchar(50) COMMENT "For proposed_projects, this references original_dataset_id. For existing_plants and hydro, plant_code. ",
+  UNIQUE info (project_type, label),
+  INDEX label (label)
+) ROW_FORMAT=FIXED;
 
 
------------------------------------------------------------------------
+
+
+-- ---------------------------------------------------------------------
 --        NON-REGIONAL GENERATOR INFO
------------------------------------------------------------------------
+-- ---------------------------------------------------------------------
+select 'Copying Generator and Fuel Info' as progress;
 
 DROP TABLE IF EXISTS generator_info;
 create table generator_info (
-	technology_id INT NOT NULL PRIMARY KEY,
+	technology_id tinyint unsigned NOT NULL PRIMARY KEY,
 	technology varchar(30) UNIQUE,
 	min_build_year year,
 	fuel varchar(30),
@@ -453,16 +184,16 @@ insert into generator_info
 	can_build_new
  from generator_info.generator_costs;
 
------------------------------------------------------------------------
+-- ---------------------------------------------------------------------
 --        REGION-SPECIFIC GENERATOR COSTS & AVAILIBILITY
------------------------------------------------------------------------
+-- ---------------------------------------------------------------------
 
 DROP TABLE if exists _generator_costs_regional;
 CREATE TABLE _generator_costs_regional(
   project_id int DEFAULT 0,
   scenario_id INT NOT NULL,
   area_id INT NOT NULL,
-  technology_id INT NOT NULL,
+  technology_id tinyint unsigned NOT NULL,
   price_and_dollar_year year(4),
   overnight_cost float,
   fixed_o_m float,
@@ -490,13 +221,13 @@ END */$$
 DELIMITER ;
 
 
--- This would find the next scenario id. 
--- select if( max(scenario_id) + 1 is null, 1, max(scenario_id) + 1 ) into @reg_generator_scenario_id from _generator_costs_regional;
+-- This would find the next scenario id, but we're going to set it manually.
+-- set @reg_generator_scenario_id := (select if( max(scenario_id) + 1 is null, 1, max(scenario_id) + 1 ) from _generator_costs_regional);
 set @reg_generator_scenario_id = 1;
 
--- The middle four lines in the select statment are prices that are affected by regional price differences
--- The rest of these variables aren't affected by region, but they're brought along here to make it easier in AMPL
--- technologies that Switch can't build yet but might in the future are eliminated in the last line
+-- The middle four lines in the select statment are prices that are affected by regional price differences.
+-- The rest of these variables aren't affected by region, but they're brought along here to make it easier in AMPL.
+-- Technologies that Switch can't build yet but might in the future are eliminated in the last line.
 insert into _generator_costs_regional
     (scenario_id, area_id, technology_id, price_and_dollar_year, overnight_cost, 
      fixed_o_m, variable_o_m, overnight_cost_change, connect_cost_per_mw_generic,  nonfuel_startup_cost)
@@ -513,8 +244,8 @@ insert into _generator_costs_regional
    			nonfuel_startup_cost * economic_multiplier as nonfuel_startup_cost
     from 	generator_info.generator_costs gen_costs,
 			load_area_info
-			where gen_costs.can_build_new
-	where 	load_area_info.scenario_id  = @load_area_scenario_id
+	where   gen_costs.can_build_new  = 1 and 
+	        load_area_info.scenario_id  = @load_area_scenario_id
  on duplicate key update
 	price_and_dollar_year       = gen_costs.price_and_dollar_year,
 	overnight_cost              = gen_costs.overnight_cost * economic_multiplier,
@@ -558,8 +289,7 @@ CREATE TABLE _fuel_prices_regional (
   CONSTRAINT area_id FOREIGN KEY area_id (area_id) REFERENCES load_area_info (area_id)
 );
 
-select if( max(scenario_id) + 1 is null, 1, max(scenario_id) + 1 ) into @this_scenario_id
-    from _fuel_prices_regional;
+set @this_scenario_id := (select if( max(scenario_id) + 1 is null, 1, max(scenario_id) + 1 ) from _fuel_prices_regional);
   
 insert into _fuel_prices_regional
 	select
@@ -622,3 +352,263 @@ insert into fuel_qualifies_for_rps
 			if(rps_fuel_category like 'renewable', 1, 0)
 		from fuel_info, load_area_info;
 
+
+-- HYDRO-------------------
+-- made in 'build proposed plants table.sql'
+select 'Copying Hydro' as progress;
+
+drop table if exists hydro_monthly_limits;
+CREATE TABLE hydro_monthly_limits (
+  project_id int,
+  area_id int,
+  load_area varchar(20),
+  site varchar(28),
+  year year,
+  month tinyint(4),
+  min_flow double,
+  max_flow double,
+  avg_flow double,
+  index ym (year,month),
+  index (area_id),
+  index (project_id),
+  PRIMARY KEY (site, month, year),
+  FOREIGN KEY (area_id) REFERENCES load_area_info(area_id)
+) ROW_FORMAT=FIXED;
+
+DELIMITER $$
+
+/*!50003 DROP TRIGGER IF EXISTS `trg_hydro_proj_id` */$$
+
+/*!50003 CREATE TRIGGER `trg_hydro_proj_id` BEFORE INSERT ON `hydro_monthly_limits` FOR EACH ROW BEGIN
+	INSERT IGNORE INTO _project_ids (project_type,label) VALUES ('hydro', NEW.site);
+	SET NEW.project_id = (SELECT project_id from _project_ids where project_type = 'hydro' and label = NEW.site);
+END */$$
+
+DELIMITER ;
+
+insert into hydro_monthly_limits (area_id, load_area, site, year, month, min_flow, max_flow, avg_flow )
+	select area_id, agg.load_area, site, year, month, min_flow, max_flow, avg_flow from generator_info.hydro_monthly_limits_agg agg join load_area_info using(load_area);
+
+
+-- EXISTING PLANTS---------
+-- made in 'build proposed plants table.sql'
+select 'Copying existing_plants' as progress;
+
+drop table if exists existing_plants;
+CREATE TABLE existing_plants (
+	project_id int PRIMARY KEY DEFAULT 0,
+	area_id int,
+	load_area varchar(11),
+	plant_code varchar(40),
+	gentype varchar(10),
+	aer_fuel varchar(20),
+	peak_mw double,
+	avg_mw double,
+	heat_rate double,
+	start_year year,
+	baseload boolean,
+	cogen boolean,
+	overnight_cost double,
+	fixed_o_m double,
+	variable_o_m double,
+	forced_outage_rate double,
+	scheduled_outage_rate double,
+	max_age double,
+	intermittent boolean,
+	technology varchar(30),
+	INDEX area_id (area_id),
+	FOREIGN KEY (area_id) REFERENCES load_area_info(area_id), 
+	INDEX load_area_plant_code (load_area, plant_code)
+) ROW_FORMAT=FIXED;
+
+DELIMITER $$
+
+/*!50003 DROP TRIGGER IF EXISTS `trg_ep_proj_id` */$$
+
+/*!50003 CREATE TRIGGER `trg_ep_proj_id` BEFORE INSERT ON `existing_plants` FOR EACH ROW BEGIN
+	INSERT IGNORE INTO _project_ids (project_type,label) VALUES ('existing_plants', NEW.plant_code);
+	SET NEW.project_id = (SELECT project_id from _project_ids where project_type = 'existing_plants' and label = NEW.plant_code);
+END */$$
+
+DELIMITER ;
+
+
+insert into existing_plants (area_id, load_area, plant_code, gentype, aer_fuel, peak_mw, avg_mw, heat_rate, start_year, baseload, cogen, overnight_cost, fixed_o_m, variable_o_m, forced_outage_rate, scheduled_outage_rate, max_age, intermittent, technology )
+	select 	load_area_info.area_id,
+			existing_plants_agg.*
+			from generator_info.existing_plants_agg
+			join load_area_info using(load_area);
+
+
+drop table if exists _existing_intermittent_plant_cap_factor;
+create table _existing_intermittent_plant_cap_factor(
+		project_id smallint unsigned,
+		area_id int,
+		hour smallint unsigned,
+		cap_factor float,
+		INDEX eip_index (area_id, project_id, hour),
+		INDEX hour (hour),
+		INDEX project_id (project_id),
+		PRIMARY KEY (project_id, hour),
+		FOREIGN KEY project_id (project_id) REFERENCES existing_plants (project_id),
+		FOREIGN KEY (area_id) REFERENCES load_area_info(area_id)
+);
+
+DROP VIEW IF EXISTS existing_intermittent_plant_cap_factor;
+CREATE VIEW existing_intermittent_plant_cap_factor as
+  SELECT cp.project_id, plant_code, load_area, cp.area_id, hour, cap_factor
+    FROM _existing_intermittent_plant_cap_factor cp join existing_plants using (project_id);
+
+
+insert into _existing_intermittent_plant_cap_factor
+SELECT      existing_plants.project_id,
+            existing_plants.area_id,
+            hours.hournum as hour,
+            3tier.windfarms_existing_cap_factor.cap_factor
+    from    existing_plants, 
+            3tier.windfarms_existing_cap_factor,
+            hours
+    where   technology = 'Wind_EP'
+    and		concat('Wind_EP', '_', load_area, '_', 3tier.windfarms_existing_cap_factor.windfarm_existing_id) = existing_plants.plant_code
+    and     hours.datetime_utc = 3tier.windfarms_existing_cap_factor.datetime_utc;
+
+
+-- RENEWABLE SITES--------------
+-- imported from postgresql, this table has all pv, csp, wind, geothermal, biomass and compressed air energy storage sites
+drop table if exists proposed_projects;
+CREATE TABLE proposed_projects (
+  project_id mediumint unsigned PRIMARY KEY,
+  technology_id tinyint unsigned NOT NULL,
+  technology varchar(30),
+  load_area varchar(11),
+  location_id INT,
+  original_dataset_id INT,
+  capacity_limit float,
+  capacity_limit_conversion float,
+  connect_cost_per_mw float,
+  INDEX technology_and_site (technology, location_id),
+  INDEX technology_id (technology_id),
+  INDEX location_id (location_id),
+  INDEX original_dataset_id (original_dataset_id),
+  INDEX original_dataset_id_tech_id (original_dataset_id, technology_id),
+  UNIQUE (technology_id, original_dataset_id, load_area),
+  UNIQUE (technology_id, location_id, load_area),
+  FOREIGN KEY (technology_id) REFERENCES generator_info (technology_id)
+) ROW_FORMAT=FIXED;
+
+insert into proposed_projects (project_id, technology_id, technology, load_area, location_id, original_dataset_id, capacity_limit, capacity_limit_conversion, connect_cost_per_mw )
+	select project_id,
+	        (select technology_id from generator_info.generator_costs info where info.technology=proposed.technology),
+	        technology,
+			load_area,
+			location_id,
+			original_dataset_id,
+			capacity_limit,
+			capacity_limit_conversion,
+			connect_cost_per_mw
+	from generator_info.proposed_projects proposed
+	WHERE technology != "Compressed_Air_Energy_Storage"
+	order by 1,2,4;
+
+
+-- CAP FACTOR-----------------
+-- assembles the hourly power output for wind and solar technologies
+drop table if exists _cap_factor_intermittent_sites;
+create table _cap_factor_intermittent_sites(
+	project_id mediumint unsigned,
+	hour smallint unsigned,
+	cap_factor float,
+	INDEX project_id (project_id),
+	INDEX hour (hour),
+	PRIMARY KEY (project_id, hour),
+	CONSTRAINT project_fk FOREIGN KEY project_id (project_id) REFERENCES proposed_projects (project_id)
+);
+
+
+DROP VIEW IF EXISTS cap_factor_intermittent_sites;
+CREATE VIEW cap_factor_intermittent_sites as
+  SELECT 	cp.project_id,
+  			technology,
+  			load_area_info.area_id,
+  			load_area,
+  			location_id,
+  			original_dataset_id,
+  			hour,
+  			cap_factor
+    FROM _cap_factor_intermittent_sites cp
+    join proposed_projects using (project_id)
+    join load_area_info using (load_area);
+    
+
+-- REMOVE when CSP_Trough_6h_Storage is finished in SAM
+select 'Compiling CSP_Trough_6h_Storage' as progress;
+insert into _cap_factor_intermittent_sites
+SELECT      proposed_projects.project_id,
+            timepoint_id as hour,
+            3tier.csp_power_output.e_net_mw/100 as cap_factor
+    from    proposed_projects, 
+            3tier.csp_power_output,
+            weather.timepoints
+    where   proposed_projects.technology = 'CSP_Trough_6h_Storage'
+    and		proposed_projects.original_dataset_id = 3tier.csp_power_output.siteid
+    and		3tier.csp_power_output.datetime_utc = weather.timepoints.timepoint;
+
+-- includes Residential_PV, Commercial_PV, Central_PV, CSP_Trough_No_Storage
+-- will soon include CSP_Trough_6h_Storage, but this is done above for now
+select 'Compiling Solar' as progress;
+insert into _cap_factor_intermittent_sites
+SELECT      proposed_projects.project_id,
+            hournum as hour,
+            cap_factor
+    from    proposed_projects,
+            suny.solar_farm_cap_factors
+    where   proposed_projects.original_dataset_id = solar_farm_cap_factors.solar_farm_id
+    and		proposed_projects.technology_id = solar_farm_cap_factors.technology_id;
+
+
+-- includes Wind and Offshore_Wind
+select 'Compiling Wind' as progress;
+insert into _cap_factor_intermittent_sites
+SELECT      proposed_projects.project_id,
+            3tier.wind_farm_power_output.hournum as hour,
+            3tier.wind_farm_power_output.cap_factor
+    from    proposed_projects, 
+            3tier.wind_farm_power_output
+    where   technology in ('Wind', 'Offshore_Wind')
+    and		proposed_projects.original_dataset_id = 3tier.wind_farm_power_output.wind_farm_id;
+
+
+
+-- check the integrity of the cap factors table
+drop table if exists number_of_cap_factor_hours_table;
+create table number_of_cap_factor_hours_table (
+	project_id int primary key,
+	number_of_cap_factor_hours int);
+
+insert into number_of_cap_factor_hours_table
+	select 	project_id,
+			count(hour) as number_of_cap_factor_hours
+		from _cap_factor_intermittent_sites
+		group by project_id
+		order by project_id;
+
+-- first, output the number of points with incomplete hours
+-- as many of the sites are missing the first few hours of output due to the change from local to utc time,
+-- we'll consider a site complete if it has cap factors for all hours from 2004-2005,
+-- so ( 366 days in 2004 + 365 days in 2005 - 1 day ) * 24 hours per day = 17520
+select 	proposed_projects.*,
+		number_of_cap_factor_hours
+	from 	number_of_cap_factor_hours_table,
+			proposed_projects
+	where number_of_cap_factor_hours < 17520
+	and	number_of_cap_factor_hours_table.project_id = proposed_projects.project_id
+	order by project_id;
+		
+-- also, make sure each intermittent site has cap factors
+select 	proposed_projects.*
+	from 	proposed_projects,
+			generator_info
+	where	proposed_projects.technology_id = generator_info.technology_id
+	and		generator_info.intermittent = 1
+	and		project_id not in (select project_id from number_of_cap_factor_hours_table where number_of_cap_factor_hours >= 17520)
+	order by project_id, generator_info.technology

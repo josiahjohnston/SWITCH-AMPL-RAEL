@@ -225,8 +225,32 @@ ALTER TABLE existing_plants MODIFY COLUMN cogen TINYINT;
 -- we assume all cogen plants have the same efficiency for electricity production (0.8),
 -- and that none of them will be retired during the study, so they can all be aggregated within each load zone.
 -- TODO: get a better efficiency estimate for cogen plants, maybe treat retirements better
-drop table if exists existing_plants_agg;
-create table existing_plants_agg
+
+
+CREATE TABLE  existing_plants_agg(
+  load_area varchar(11),
+  plant_code varchar(30),
+  gentype varchar(4),
+  aer_fuel varchar(20),
+  peak_mw double,
+  avg_mw double,
+  heat_rate double,
+  start_year year(4),
+  baseload int(11),
+  cogen int(1) NOT NULL default '0',
+  overnight_cost double,
+  fixed_o_m double,
+  variable_o_m double,
+  forced_outage_rate double,
+  scheduled_outage_rate double,
+  max_age double,
+  intermittent tinyint(1) default '0',
+  technology varchar(30)
+);
+
+
+
+insert into existing_plants_agg
   select load_area, concat(plntcode, "-", primemover) as plant_code, primemover as gentype, aer_fuel, 
     sum(peak_mw) as peak_mw, sum(avg_mw) as avg_mw, avg(heat_rate) as heat_rate, max(invsyear) as start_year,
     baseload, 0 as cogen
@@ -472,13 +496,68 @@ alter table existing_plants_agg add column intermittent boolean default 0;
 alter table existing_plants_agg add column technology varchar(30);
 update existing_plants_agg set technology = concat(aer_fuel, '_', gentype);
 
--- Update technology names
+-- Update technology names - make these above in the future
 update existing_plants_agg set technology = 'Coal_Steam_Turbine' where technology = 'Coal_ST';
 update existing_plants_agg set technology = 'Geothermal' where technology = 'Geothermal_ST';
 update existing_plants_agg set technology = 'Gas_Combustion_Turbine' where technology = 'Gas_GT' or technology = 'Gas_IC' ;
 update existing_plants_agg set technology = 'Gas_Steam_Turbine' where technology = 'Gas_ST';
 update existing_plants_agg set technology = 'CCGT' where technology = 'Gas_CC';
 update existing_plants_agg set technology = 'Nuclear' where technology = 'Uranium_ST';
+
+update existing_plants_agg set technology = 'Coal_Steam_Turbine_EP' where technology = 'Coal_ST';
+update existing_plants_agg set technology = 'Geothermal_EP' where technology in ('Geothermal_ST', 'Geothermal_BT');
+update existing_plants_agg set technology = 'Gas_Combustion_Turbine_EP' where technology in ('Gas_GT', 'Gas_IC');
+update existing_plants_agg set technology = 'Gas_Steam_Turbine_EP' where technology = 'Gas_ST';
+update existing_plants_agg set technology = 'CCGT_EP' where technology = 'Gas_CC';
+update existing_plants_agg set technology = 'Nuclear_EP' where technology = 'Uranium_ST';
+
+
+-- add in Wind existing plants
+-- existing windfarms added here
+-- should find overnight costs of historical wind turbines
+-- $2/W is used here ($2,000,000/MW)
+-- fixed O+M,forced_outage_rate are from new wind
+insert into existing_plants_agg
+		(load_area,
+		plant_code,
+		gentype,
+		aer_fuel,
+		peak_mw,
+		avg_mw,
+		heat_rate,
+		start_year,
+		baseload,
+		cogen,
+		overnight_cost,
+		fixed_o_m,
+		variable_o_m,
+		forced_outage_rate,
+		scheduled_outage_rate,
+		max_age,
+		intermittent,
+		technology)
+select 	load_area,
+		concat('Wind_EP', '_', load_area, '_', 3tier.windfarms_existing_info_wecc.windfarm_existing_id) as plant_code,
+		'Wind' as gentype,
+		'Wind' as aer_fuel,
+		capacity_mw as peak_mw,
+		avg(cap_factor) * capacity_mw as avg_mw,
+		0 as heat_rate,
+		year_online as start_year,
+		0 as baseload,
+		0 as cogen,
+		2000000 as overnight_cost,
+		30300 as fixed_o_m,
+		0 as variable_o_m,
+		0.015 as forced_outage_rate,
+		0.003 as scheduled_outage_rate,
+		30 as max_age,
+		1 as intermittent,
+		'Wind_EP' as technology
+from 	3tier.windfarms_existing_info_wecc join 
+		3tier.windfarms_existing_cap_factor using(windfarm_existing_id)
+group by 3tier.windfarms_existing_info_wecc.windfarm_existing_id
+;
 
 
 

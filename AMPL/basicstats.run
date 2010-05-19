@@ -4,8 +4,8 @@ printf "\nTax=%d: cost=$%3.2f/MWh ",
   # Power Cost
   (Power_Cost - (0
 		# Carbon cost adder for new dispatchable projects
-		+ sum {(z, t, s, o) in PROJ_DISPATCH, h in TIMEPOINTS}
-			DispatchGen[z, t, s, o, h] * (carbon_cost_per_mwh[t, h])
+		+ sum {(z, t, p) in PROJ_DISPATCH, h in TIMEPOINTS}
+			DispatchGen[z, t, p, h] * (carbon_cost_per_mwh[t, h])
 		# Carbon cost adder for existing baseload plants
 		+ sum {(z, e, p) in EP_BASELOAD_PERIODS, h in TIMEPOINTS: period[h]=p}
 			OperateEPDuringPeriod[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e]
@@ -22,12 +22,12 @@ for {p in PERIODS} {
 	printf "%.0d:\t", p;
 	let total_power_produced_by_period[p] := (
 		# Intermittent
-		sum {(z, t, s, o, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS: period[h]=p }
-		   (1-forced_outage_rate[t]) * cap_factor[z, t, s, o, h] * InstallGen[z, t, s, o, v] * hours_in_sample[h]
+		sum {(z, t, proj, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS: period[h]=p }
+		   (1-forced_outage_rate[t]) * cap_factor[z, t, proj, h] * InstallGen[z, t, proj, v] * hours_in_sample[h]
 		+
 		# New dispatchable projects
-		sum {(z, t, s, o) in PROJ_DISPATCH, h in TIMEPOINTS: period[h]=p } 
-		   DispatchGen[z, t, s, o, h] * hours_in_sample[h]
+		sum {(z, t, proj) in PROJ_DISPATCH, h in TIMEPOINTS: period[h]=p } 
+		   DispatchGen[z, t, proj, h] * hours_in_sample[h]
 		+
 		# Existing dispatchable plants
 		sum {(z, e, h) in EP_DISPATCH_HOURS: period[h]=p } 
@@ -38,8 +38,8 @@ for {p in PERIODS} {
 		   OperateEPDuringPeriod[z, e, period[h]] * ep_size_mw[z, e] * eip_cap_factor[z, e, h] * (1-ep_forced_outage_rate[z, e]) * hours_in_sample[h]
 		+
 		# New baseload plants
-		sum {(z, t, s, o, v, h) in NEW_BASELOAD_VINTAGE_HOURS: period[h]=p} 
-		   (1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[z, t, s, o, v] * hours_in_sample[h]
+		sum {(z, t, proj, v, h) in NEW_BASELOAD_VINTAGE_HOURS: period[h]=p} 
+		   (1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[z, t, proj, v] * hours_in_sample[h]
 		+ 
 		# existing baseload plants
 		sum {(z, e, p) in EP_BASELOAD_PERIODS, h in TIMEPOINTS: period[h]=p and p=p} 
@@ -58,12 +58,12 @@ for {p in PERIODS} {
 	  f, 
 	  100 * (
 		# Intermittent
-		sum {(z, t, s, o, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS: period[h]=p and fuel[t] = f}
-		   (1-forced_outage_rate[t]) * cap_factor[z, t, s, o, h] * InstallGen[z, t, s, o, v] * hours_in_sample[h]
+		sum {(z, t, proj, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS: period[h]=p and fuel[t] = f}
+		   (1-forced_outage_rate[t]) * cap_factor[z, t, proj, h] * InstallGen[z, t, proj, v] * hours_in_sample[h]
 		+
 		# New dispatchable projects
-		sum {(z, t, s, o) in PROJ_DISPATCH, h in TIMEPOINTS: period[h]=p and fuel[t] = f} 
-		   DispatchGen[z, t, s, o, h] * hours_in_sample[h]
+		sum {(z, t, proj) in PROJ_DISPATCH, h in TIMEPOINTS: period[h]=p and fuel[t] = f} 
+		   DispatchGen[z, t, proj, h] * hours_in_sample[h]
 		+
 		# Existing dispatchable plants
 		sum {(z, e, h) in EP_DISPATCH_HOURS: period[h]=p and ep_fuel[z,e] = f} 
@@ -74,8 +74,8 @@ for {p in PERIODS} {
 		   OperateEPDuringPeriod[z, e, period[h]] * ep_size_mw[z, e] * eip_cap_factor[z, e, h] * (1-ep_forced_outage_rate[z, e]) * hours_in_sample[h]
 		+
 		# New baseload plants
-		sum {(z, t, s, o, v, h) in NEW_BASELOAD_VINTAGE_HOURS: period[h]=p and fuel[t] = f} 
-		   (1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[z, t, s, o, v] * hours_in_sample[h]
+		sum {(z, t, proj, v, h) in NEW_BASELOAD_VINTAGE_HOURS: period[h]=p and fuel[t] = f} 
+		   (1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[z, t, proj, v] * hours_in_sample[h]
 		+ 
 		# existing baseload plants
 		sum {(z, e, p) in EP_BASELOAD_PERIODS, h in TIMEPOINTS: period[h]=p and p=p and ep_fuel[z,e] = f} 

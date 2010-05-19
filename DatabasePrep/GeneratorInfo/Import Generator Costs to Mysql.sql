@@ -6,8 +6,8 @@
 use generator_info;
 
 drop table if exists generator_costs;
-create table if not exists generator_costs (
-	technology_id INT NOT NULL PRIMARY KEY,
+create table generator_costs (
+	technology_id tinyint unsigned NOT NULL PRIMARY KEY,
 	technology varchar(30) UNIQUE,
 	price_and_dollar_year year,
 	min_build_year year,
@@ -38,7 +38,9 @@ create table if not exists generator_costs (
 	max_ramp_rate_mw_per_hour float,
 	startup_fuel_mbtu float,
 	nonfuel_startup_cost float, 
-	can_build_new TINYINT
+	can_build_new tinyint,
+	storage tinyint,
+	index techology_id_name (technology_id, technology)
 );
 
 -- import the data
