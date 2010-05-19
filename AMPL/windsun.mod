@@ -221,7 +221,11 @@ param resource_limited {TECHNOLOGIES} binary;
 # is this type of plant run in baseload mode?
 param new_baseload {TECHNOLOGIES} binary;
 
-# can this type of project only be installed in limited amounts?
+# does this type of project have a minimum feasable installation size?
+# only in place for Nuclear at the moment
+# other technologies such as Coal, CSP and CCGT that hit their minimum feasable/economical size at ~100-300MW
+# are left out of this constraint because the decrease in runtime is more important than added resolution on minimum install capacity,
+# especially considering that if a project is economical, normally Switch will build a few hundred MW per load area
 param min_build_capacity {TECHNOLOGIES} >= 0;
 
 # the minimum capacity in MW that a project can be dispatched due to operation constraints
