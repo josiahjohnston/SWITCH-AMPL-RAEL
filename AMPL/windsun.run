@@ -17,10 +17,12 @@ model windsun.mod;
 
 data windsun.dat;
 
-table study_hours IN: TIMEPOINTS <- [hour], period, date, hours_in_sample, month_of_year, hour_of_day;
+table study_hours IN: 
+  TIMEPOINTS <- [hour], period, date, hours_in_sample, month_of_year, hour_of_day;
 read table study_hours;
 
-table load_areas IN: LOAD_AREAS <- [load_area], load_area_id, economic_multiplier, rps_compliance_year, rps_compliance_percentage;
+table load_areas IN: 
+  LOAD_AREAS <- [load_area], load_area_id, economic_multiplier, rps_compliance_year, rps_compliance_percentage;
 read table load_areas;
 
 table transmission_lines IN: 
@@ -28,7 +30,8 @@ table transmission_lines IN:
   transmission_length_km, transmission_efficiency;
 read table transmission_lines;
 
-table system_load IN: [load_area, hour], system_load;
+table system_load IN: 
+  [load_area, hour], system_load;
 read table system_load;
 
 table existing_plants IN: 
@@ -147,8 +150,10 @@ if (enable_rps = 0) then {
 	drop Satisfy_RPS;
 	drop Conservation_of_Blue_Electrons;
 	drop Conservation_of_Colored_Electrons;
+	let LOAD_AREAS_AND_FUEL_CATEGORY := setof{l in LOAD_AREAS} (l,'na');
+	let {f in FUELS} rps_fuel_category[f] := 'na';
 } 
-
+redeclare param rps_fuel_category {FUELS} symbolic in RPS_FUEL_CATEGORY;
 
 # Maximum potential from resource-limited sources
 set RESOURCE_LIMITED_TECHNOLOGIES = setof{ t in TECHNOLOGIES: resource_limited[t] } (t);
