@@ -146,6 +146,7 @@ if enable_min_solar_production = 0 then {
 	drop Min_Gen_Fraction_From_Solar;
 }
 
+redeclare param rps_fuel_category {FUELS} symbolic;
 if (enable_rps = 0) then {
 	drop Satisfy_RPS;
 	drop Conservation_of_Blue_Electrons;
