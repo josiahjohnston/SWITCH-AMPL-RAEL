@@ -1,6 +1,6 @@
 -- makes the switch input database from which data is thrown into ampl via 'get_switch_input_tables.sh'
 -- run at command line from the DatabasePrep directory:
--- mysql -h switch-db1.erg.berkeley.edu -u jimmy -p < /Users/siah/src/Switch/HEAD_(or other directory)/DatabasePrep/Build\ WECC\ Cap\ Factors.sql
+-- mysql -h switch-db1.erg.berkeley.edu -u jimmy -p < /Users/siah/src/Switch/HEAD/DatabasePrep/Build\ WECC\ Cap\ Factors.sql
 
 create database if not exists switch_inputs_wecc_v2_2;
 use switch_inputs_wecc_v2_2;
@@ -27,7 +27,7 @@ load data local infile
 
 alter table load_area_info add column scenario_id INT NOT NULL first;
 alter table load_area_info add index scenario_id (scenario_id);
-alter table load_area_info add column area_id int NOT NULL AUTO_INCREMENT primary key first;
+alter table load_area_info add column area_id smallint unsigned NOT NULL AUTO_INCREMENT primary key first;
 
 set @load_area_scenario_id := (select if( count(distinct scenario_id) = 0, 1, max(scenario_id)) from load_area_info);
 
@@ -59,7 +59,7 @@ select 	timepoint as datetime_utc,
 select 'Compiling Loads' as progress;
 drop table if exists _system_load;
 CREATE TABLE  _system_load (
-  area_id int,
+  area_id smallint unsigned,
   hour smallint unsigned,
   power double,
   INDEX hour (hour ),
@@ -112,7 +112,7 @@ load data local infile
 -- Create a master table of project ids
 -- Do NOT drop this table unless you want to do a reset of the whole inputs & results databases
 CREATE TABLE if not exists _project_ids (
-  project_id int NOT NULL PRIMARY KEY AUTO_INCREMENT,
+  project_id mediumint unsigned NOT NULL PRIMARY KEY AUTO_INCREMENT,
   project_type varchar(50) COMMENT "This can be 'proposed_projects', 'existing_plants', 'hydro', or 'proposed_generation' where proposed_generation refers to new traditional sites that could be built, information for which is in the generator_costs_regional table.",
   label varchar(50) COMMENT "For proposed_projects, this references original_dataset_id. For existing_plants and hydro, plant_code. ",
   UNIQUE info (project_type, label),
@@ -188,99 +188,13 @@ insert into generator_info
 --        REGION-SPECIFIC GENERATOR COSTS & AVAILIBILITY
 -- ---------------------------------------------------------------------
 
-DROP TABLE if exists _generator_costs_regional;
-CREATE TABLE _generator_costs_regional(
-  project_id int DEFAULT 0,
-  scenario_id INT NOT NULL,
-  area_id INT NOT NULL,
-  technology_id tinyint unsigned NOT NULL,
-  price_and_dollar_year year(4),
-  overnight_cost float,
-  fixed_o_m float,
-  variable_o_m float,
-  overnight_cost_change float,
-  connect_cost_per_mw_generic float,
-  nonfuel_startup_cost float,
-  INDEX technology_id (technology_id),
-  INDEX area_id (area_id),
-  FOREIGN KEY (area_id) REFERENCES load_area_info(area_id), 
-  FOREIGN KEY (technology_id) REFERENCES generator_info(technology_id),
-  PRIMARY KEY (scenario_id, area_id, technology_id)
-);
-
-
-DELIMITER $$
-
-/*!50003 DROP TRIGGER IF EXISTS `trg_proposed_gen_proj_id` */$$
-
-/*!50003 CREATE TRIGGER `trg_proposed_gen_proj_id` BEFORE INSERT ON `_generator_costs_regional` FOR EACH ROW BEGIN
-	INSERT IGNORE INTO _project_ids (project_type,label) VALUES ('proposed_generation', concat(NEW.area_id, '_', NEW.technology_id));
-	SET NEW.project_id = (SELECT project_id from _project_ids where project_type = 'proposed_generation' and label = concat(NEW.area_id, '_', NEW.technology_id));
-END */$$
-
-DELIMITER ;
-
-
--- This would find the next scenario id, but we're going to set it manually.
--- set @reg_generator_scenario_id := (select if( max(scenario_id) + 1 is null, 1, max(scenario_id) + 1 ) from _generator_costs_regional);
-set @reg_generator_scenario_id = 1;
-
--- The middle four lines in the select statment are prices that are affected by regional price differences.
--- The rest of these variables aren't affected by region, but they're brought along here to make it easier in AMPL.
--- Technologies that Switch can't build yet but might in the future are eliminated in the last line.
-insert into _generator_costs_regional
-    (scenario_id, area_id, technology_id, price_and_dollar_year, overnight_cost, 
-     fixed_o_m, variable_o_m, overnight_cost_change, connect_cost_per_mw_generic,  nonfuel_startup_cost)
-
-    select 	@reg_generator_scenario_id as scenario_id, 
-    		area_id,
-    		technology_id,
-    		price_and_dollar_year,  
-   			overnight_cost * economic_multiplier as overnight_cost,
-    		fixed_o_m * economic_multiplier as fixed_o_m,
-    		variable_o_m * economic_multiplier as variable_o_m,
-   			overnight_cost_change,
-    		connect_cost_per_mw_generic * economic_multiplier as connect_cost_per_mw_generic,
-   			nonfuel_startup_cost * economic_multiplier as nonfuel_startup_cost
-    from 	generator_info.generator_costs gen_costs,
-			load_area_info
-	where   gen_costs.can_build_new  = 1 and 
-	        load_area_info.scenario_id  = @load_area_scenario_id
- on duplicate key update
-	price_and_dollar_year       = gen_costs.price_and_dollar_year,
-	overnight_cost              = gen_costs.overnight_cost * economic_multiplier,
-	fixed_o_m                   = gen_costs.fixed_o_m * economic_multiplier,
-	variable_o_m                = gen_costs.variable_o_m * economic_multiplier,
-	overnight_cost_change       = gen_costs.overnight_cost_change,
-	connect_cost_per_mw_generic = gen_costs.connect_cost_per_mw_generic * economic_multiplier,
-	nonfuel_startup_cost        = gen_costs.nonfuel_startup_cost * economic_multiplier
-;
-
-
--- regional generator restrictions
--- currently, the only restrictions are that Coal_ST and Nuclear can't be built in CA
-delete from _generator_costs_regional
- 	where 	(technology_id in (select technology_id from generator_info where fuel in ('Uranium', 'Coal')) and
-			area_id in (select area_id from load_area_info where primary_nerc_subregion like 'CA'));
-delete from _generator_costs_regional
- 	where 	(technology_id in (select technology_id from generator_info where fuel in ('Uranium')) and
-			area_id in (select area_id from load_area_info where primary_nerc_subregion like 'MX'));
-
-
--- Make a view that is more user-friendly
-DROP VIEW IF EXISTS generator_costs_regional;
-CREATE VIEW generator_costs_regional as
-  SELECT _generator_costs_regional.scenario_id, project_id, load_area, technology, price_and_dollar_year, overnight_cost, fixed_o_m, variable_o_m, overnight_cost_change, connect_cost_per_mw_generic,  nonfuel_startup_cost
-    FROM _generator_costs_regional join load_area_info using (area_id) join generator_info using (technology_id);
-
-
 -- FUEL PRICES-------------
 -- run 'v2 wecc fuel price import no elasticity.sql' first
 
 drop table if exists _fuel_prices_regional;
 CREATE TABLE _fuel_prices_regional (
   scenario_id INT NOT NULL,
-  area_id INT NOT NULL,
+  area_id smallint unsigned NOT NULL,
   fuel VARCHAR(30),
   year year,
   fuel_price FLOAT NOT NULL COMMENT 'Regional fuel prices for various types of fuel in $2007 per MMBtu',
@@ -336,7 +250,7 @@ insert into fuel_info (fuel, rps_fuel_category, carbon_content) values
 
 drop table if exists fuel_qualifies_for_rps;
 create table fuel_qualifies_for_rps(
-	area_id INT NOT NULL,
+	area_id smallint unsigned NOT NULL,
 	load_area varchar(11),
 	rps_fuel_category varchar(10),
 	qualifies boolean,
@@ -359,8 +273,8 @@ select 'Copying Hydro' as progress;
 
 drop table if exists hydro_monthly_limits;
 CREATE TABLE hydro_monthly_limits (
-  project_id int,
-  area_id int,
+  project_id mediumint unsigned,
+  area_id smallint unsigned,
   load_area varchar(20),
   site varchar(28),
   year year,
@@ -396,8 +310,8 @@ select 'Copying existing_plants' as progress;
 
 drop table if exists existing_plants;
 CREATE TABLE existing_plants (
-	project_id int PRIMARY KEY DEFAULT 0,
-	area_id int,
+	project_id mediumint unsigned PRIMARY KEY DEFAULT 0,
+	area_id smallint unsigned,
 	load_area varchar(11),
 	plant_code varchar(40),
 	gentype varchar(10),
@@ -440,10 +354,60 @@ insert into existing_plants (area_id, load_area, plant_code, gentype, aer_fuel, 
 			join load_area_info using(load_area);
 
 
+
+-- existing windfarms added here
+-- should find overnight costs of historical wind turbines
+-- $2/W is used here ($2,000,000/MW)
+-- fixed O+M,forced_outage_rate are from new wind
+insert into existing_plants
+		(area_id,
+		load_area,
+		plant_code,
+		gentype,
+		aer_fuel,
+		peak_mw,
+		avg_mw,
+		heat_rate,
+		start_year,
+		baseload,
+		cogen,
+		overnight_cost,
+		fixed_o_m,
+		variable_o_m,
+		forced_outage_rate,
+		scheduled_outage_rate,
+		max_age,
+		intermittent,
+		technology)
+select 	load_area_info.area_id, load_area,
+		concat('Wind', '_', load_area, '_', 3tier.windfarms_existing_info_wecc.windfarm_existing_id) as plant_code,
+		'Wind' as gentype,
+		'Wind' as aer_fuel,
+		capacity_mw as peak_mw,
+		avg(cap_factor) * capacity_mw as avg_mw,
+		0 as heat_rate,
+		year_online as start_year,
+		0 as baseload,
+		0 as cogen,
+		2000000 as overnight_cost,
+		30300 as fixed_o_m,
+		0 as variable_o_m,
+		0.015 as forced_outage_rate,
+		0.003 as scheduled_outage_rate,
+		30 as max_age,
+		1 as intermittent,
+		'Wind' as technology
+from 	3tier.windfarms_existing_info_wecc join 
+        load_area_info using(load_area) join 
+		3tier.windfarms_existing_cap_factor using(windfarm_existing_id)
+group by 3tier.windfarms_existing_info_wecc.windfarm_existing_id
+;
+
+
 drop table if exists _existing_intermittent_plant_cap_factor;
 create table _existing_intermittent_plant_cap_factor(
-		project_id smallint unsigned,
-		area_id int,
+		project_id mediumint unsigned,
+		area_id smallint unsigned,
 		hour smallint unsigned,
 		cap_factor float,
 		INDEX eip_index (area_id, project_id, hour),
@@ -473,44 +437,129 @@ SELECT      existing_plants.project_id,
     and     hours.datetime_utc = 3tier.windfarms_existing_cap_factor.datetime_utc;
 
 
+
+-- ---------------------------------------------------------------------
 -- RENEWABLE SITES--------------
 -- imported from postgresql, this table has all pv, csp, wind, geothermal, biomass and compressed air energy storage sites
-drop table if exists proposed_projects;
-CREATE TABLE proposed_projects (
-  project_id mediumint unsigned PRIMARY KEY,
+-- ---------------------------------------------------------------------
+drop table if exists _proposed_projects;
+CREATE TABLE _proposed_projects (
+  project_id mediumint unsigned PRIMARY KEY AUTO_INCREMENT,
   technology_id tinyint unsigned NOT NULL,
+  area_id smallint unsigned NOT NULL,
+  location_id INT DEFAULT NULL,
   technology varchar(30),
-  load_area varchar(11),
-  location_id INT,
-  original_dataset_id INT,
-  capacity_limit float,
-  capacity_limit_conversion float,
+  original_dataset_id INT DEFAULT NULL,
+  capacity_limit float DEFAULT NULL,
+  capacity_limit_conversion float DEFAULT 1,
   connect_cost_per_mw float,
-  INDEX technology_and_site (technology, location_id),
+  price_and_dollar_year year(4),
+  overnight_cost float,
+  fixed_o_m float,
+  variable_o_m float,
+  overnight_cost_change float,
+  nonfuel_startup_cost float,
+  INDEX area_id (area_id),
+  INDEX technology_and_location (technology, location_id),
   INDEX technology_id (technology_id),
   INDEX location_id (location_id),
   INDEX original_dataset_id (original_dataset_id),
   INDEX original_dataset_id_tech_id (original_dataset_id, technology_id),
-  UNIQUE (technology_id, original_dataset_id, load_area),
-  UNIQUE (technology_id, location_id, load_area),
+  UNIQUE (technology_id, original_dataset_id, area_id),
+  UNIQUE (technology_id, location_id, area_id),
+  FOREIGN KEY (area_id) REFERENCES load_area_info(area_id), 
   FOREIGN KEY (technology_id) REFERENCES generator_info (technology_id)
 ) ROW_FORMAT=FIXED;
 
-insert into proposed_projects (project_id, technology_id, technology, load_area, location_id, original_dataset_id, capacity_limit, capacity_limit_conversion, connect_cost_per_mw )
+insert into _proposed_projects (project_id, technology_id, technology, area_id, location_id, original_dataset_id, capacity_limit, capacity_limit_conversion, connect_cost_per_mw,
+  price_and_dollar_year,
+  overnight_cost,
+  fixed_o_m,
+  variable_o_m,
+  overnight_cost_change,
+  nonfuel_startup_cost
+)
 	select project_id,
-	        (select technology_id from generator_info.generator_costs info where info.technology=proposed.technology),
+	        technology_id,
 	        technology,
-			load_area,
+			area_id,
 			location_id,
 			original_dataset_id,
 			capacity_limit,
 			capacity_limit_conversion,
-			connect_cost_per_mw
-	from generator_info.proposed_projects proposed
+			(connect_cost_per_mw + connect_cost_per_mw_generic) * economic_multiplier  as connect_cost_per_mw,
+    		price_and_dollar_year,  
+   			overnight_cost * economic_multiplier       as overnight_cost,
+    		fixed_o_m * economic_multiplier            as fixed_o_m,
+    		variable_o_m * economic_multiplier         as variable_o_m,
+   			overnight_cost_change,
+   			nonfuel_startup_cost * economic_multiplier as nonfuel_startup_cost
+			
+	from generator_info.proposed_projects proposed join generator_info.generator_costs using (technology) join load_area_info using (load_area)
 	WHERE technology != "Compressed_Air_Energy_Storage"
 	order by 1,2,4;
 
+-- Insert "generic" projects that can be built almost anywhere. These used to be in the table  _generator_costs_regional.
+-- Note, project_id is automatically set here because it is an autoincrement column. The renewable proposed_projects with ids set a-priori need to be imported first to avoid unique id conflicts.
+insert into _proposed_projects (technology_id, technology, area_id, connect_cost_per_mw,
+  price_and_dollar_year,
+  overnight_cost,
+  fixed_o_m,
+  variable_o_m,
+  overnight_cost_change,
+  nonfuel_startup_cost
+)
+    select 	technology_id,
+    		technology,
+    		area_id,
+    		connect_cost_per_mw_generic * economic_multiplier as connect_cost_per_mw,
+    		price_and_dollar_year,  
+   			overnight_cost * economic_multiplier as overnight_cost,
+    		fixed_o_m * economic_multiplier as fixed_o_m,
+    		variable_o_m * economic_multiplier as variable_o_m,
+   			overnight_cost_change,
+   			nonfuel_startup_cost * economic_multiplier as nonfuel_startup_cost
+    from 	generator_info.generator_costs gen_costs,
+			load_area_info
+	where   gen_costs.can_build_new  = 1 and 
+	        load_area_info.scenario_id  = @load_area_scenario_id and
+	        gen_costs.resource_limited = 0
+	order by 1,3;
 
+-- regional generator restrictions
+-- Coal_ST and Nuclear can't be built in CA. Nuclear can't be built in Mexico.
+delete from _proposed_projects
+ 	where 	(technology_id in (select technology_id from generator_info where fuel in ('Uranium', 'Coal')) and
+			area_id in (select area_id from load_area_info where primary_nerc_subregion like 'CA'));
+delete from _proposed_projects
+ 	where 	(technology_id in (select technology_id from generator_info where fuel in ('Uranium')) and
+			area_id in (select area_id from load_area_info where primary_nerc_subregion like 'MX'));
+
+DROP VIEW IF EXISTS proposed_projects;
+CREATE VIEW proposed_projects as
+  SELECT 	project_id, 
+            technology_id, 
+            technology, 
+            area_id, 
+            load_area,
+            location_id, 
+            original_dataset_id, 
+            capacity_limit, 
+            capacity_limit_conversion, 
+            connect_cost_per_mw,
+            price_and_dollar_year,
+            overnight_cost,
+            fixed_o_m,
+            variable_o_m,
+            overnight_cost_change,
+            nonfuel_startup_cost
+    FROM _proposed_projects 
+    join load_area_info using (area_id);
+    
+
+
+
+-- ---------------------------------------------------------------------
 -- CAP FACTOR-----------------
 -- assembles the hourly power output for wind and solar technologies
 drop table if exists _cap_factor_intermittent_sites;
@@ -582,7 +631,7 @@ SELECT      proposed_projects.project_id,
 -- check the integrity of the cap factors table
 drop table if exists number_of_cap_factor_hours_table;
 create table number_of_cap_factor_hours_table (
-	project_id int primary key,
+	project_id mediumint unsigned primary key,
 	number_of_cap_factor_hours int);
 
 insert into number_of_cap_factor_hours_table
