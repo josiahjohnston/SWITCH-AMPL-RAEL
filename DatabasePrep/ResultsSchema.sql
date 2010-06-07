@@ -1,36 +1,16 @@
 CREATE DATABASE IF NOT EXISTS switch_results_wecc_v2_2;
 USE switch_results_wecc_v2_2;
 
-CREATE TABLE IF NOT EXISTS technologies (
-  technology_id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  technology varchar(30),
-  UNIQUE technology (technology)
-) ROW_FORMAT=FIXED;
-INSERT IGNORE INTO technologies (technology_id, technology)
-  SELECT technology_id, technology from switch_inputs_wecc_v2_2.generator_info gen_info;
-
-
-CREATE TABLE IF NOT EXISTS load_areas (
-  area_id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  load_area varchar(20),
-  UNIQUE load_area (load_area)
-) ROW_FORMAT=FIXED;
-INSERT IGNORE INTO load_areas (area_id, load_area)
-  SELECT area_id, load_area from switch_inputs_wecc_v2_2.load_area_info src;
-
-CREATE TABLE IF NOT EXISTS sites (
-  project_id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  site varchar(50),
-  INDEX site (site)
-) ROW_FORMAT=FIXED;
-INSERT IGNORE INTO sites (project_id, site)
-  SELECT project_id, location_id from switch_inputs_wecc_v2_2.proposed_projects;
-INSERT IGNORE INTO sites (project_id, site)
-  SELECT project_id, plant_code from switch_inputs_wecc_v2_2.existing_plants;
-INSERT IGNORE INTO sites (project_id, site)
+CREATE OR REPLACE VIEW technologies as 
+	select technology_id, technology from switch_inputs_wecc_v2_2.generator_info;
+CREATE OR REPLACE VIEW load_areas as 
+	select area_id, load_area from switch_inputs_wecc_v2_2.load_area_info;
+CREATE OR REPLACE VIEW load_areas as 
+	select area_id, load_area from switch_inputs_wecc_v2_2.load_area_info;
+CREATE OR REPLACE VIEW sites as 
+  SELECT project_id, location_id as site from switch_inputs_wecc_v2_2.proposed_projects UNION
+  SELECT project_id, plant_code as site from switch_inputs_wecc_v2_2.existing_plants UNION 
   SELECT distinct project_id, site from switch_inputs_wecc_v2_2.hydro_monthly_limits;
-INSERT IGNORE INTO sites (project_id, site)
-  SELECT project_id, concat(load_area,'-',technology) from switch_inputs_wecc_v2_2.generator_costs_regional;
 
 
 CREATE TABLE IF NOT EXISTS months (
@@ -160,7 +140,6 @@ CREATE TABLE IF NOT EXISTS _gen_hourly_summary (
   study_hour int,
   hours_in_sample int,
   month int,
-  quarter_of_day bigint,
   hour_of_day bigint,
   source varchar(35),
   power double,
@@ -172,7 +151,7 @@ CREATE TABLE IF NOT EXISTS _gen_hourly_summary (
   PRIMARY KEY (scenario_id, carbon_cost, study_hour, `source`)
 ) ROW_FORMAT=FIXED;
 CREATE OR REPLACE VIEW gen_hourly_summary as
-  SELECT scenario_id, carbon_cost, period, study_date, study_hour, hours_in_sample, month, month_name, quarter_of_day, hour_of_day, source, power
+  SELECT scenario_id, carbon_cost, period, study_date, study_hour, hours_in_sample, month, month_name, hour_of_day, source, power
     FROM _gen_hourly_summary join months on(month=month_id);
 
 
@@ -185,7 +164,6 @@ CREATE TABLE IF NOT EXISTS _gen_hourly_summary_la (
   study_hour int,
   hours_in_sample int,
   month int,
-  quarter_of_day bigint,
   hour_of_day bigint,
   source varchar(35),
   power double,
@@ -199,7 +177,7 @@ CREATE TABLE IF NOT EXISTS _gen_hourly_summary_la (
   PRIMARY KEY (scenario_id, carbon_cost, study_hour, area_id, `source`)
 ) ROW_FORMAT=FIXED;
 CREATE OR REPLACE VIEW gen_hourly_summary_la as
-  SELECT scenario_id, carbon_cost, period, load_area, study_date, study_hour, hours_in_sample, month, month_name, quarter_of_day, hour_of_day, source, power
+  SELECT scenario_id, carbon_cost, period, load_area, study_date, study_hour, hours_in_sample, month, month_name, hour_of_day, source, power
     FROM _gen_hourly_summary_la join load_areas using(area_id) join months on(month=month_id);
 
 
@@ -353,8 +331,8 @@ CREATE TABLE IF NOT EXISTS _trans_loss (
   PRIMARY KEY (scenario_id, carbon_cost, period, study_hour, area_id)
 ) ROW_FORMAT=FIXED;
 CREATE OR REPLACE VIEW trans_loss as
-  SELECT scenario_id, carbon_cost, period, load_area, study_date, study_hour, net_power, hours_in_sample 
-    FROM _trans_summary join load_areas using(area_id);
+  SELECT scenario_id, carbon_cost, period, load_area, study_date, study_hour, power, hours_in_sample 
+    FROM _trans_loss join load_areas using(area_id);
 
 CREATE TABLE IF NOT EXISTS _system_load (
   scenario_id int,
@@ -425,7 +403,7 @@ CREATE DEFINER=`siah`@`localhost` FUNCTION `get_gen_cap_query_source_as_col`(tar
 BEGIN
   
   return( select concat( 
-  "select * from (SELECT distinct scenario_id,carbon_cost, period, study_date,study_hour,hours_in_sample,month,month_name,quarter_of_day,hour_of_day FROM gen_hourly_summary WHERE scenario_id = ",target_scenario_id,") t ", 
+  "select * from (SELECT distinct scenario_id,carbon_cost, period, study_date,study_hour,hours_in_sample,month,month_name,hour_of_day FROM gen_hourly_summary WHERE scenario_id = ",target_scenario_id,") t ", 
   group_concat(
     concat(
       "join (select carbon_cost, study_hour, power as `",source,"` FROM gen_hourly_summary where source='",source,"' and scenario_id = ",target_scenario_id,") as `",source,"` using (carbon_cost, study_hour)"
