@@ -130,9 +130,9 @@ select 'Copying Generator and Fuel Info' as progress;
 DROP TABLE IF EXISTS generator_info;
 create table generator_info (
 	technology_id tinyint unsigned NOT NULL PRIMARY KEY,
-	technology varchar(30) UNIQUE,
+	technology varchar(64) UNIQUE,
 	min_build_year year,
-	fuel varchar(30),
+	fuel varchar(64),
 	heat_rate float,
 	construction_time_years float,
 	year_1_cost_fraction float,
@@ -195,7 +195,7 @@ drop table if exists _fuel_prices_regional;
 CREATE TABLE _fuel_prices_regional (
   scenario_id INT NOT NULL,
   area_id smallint unsigned NOT NULL,
-  fuel VARCHAR(30),
+  fuel VARCHAR(64),
   year year,
   fuel_price FLOAT NOT NULL COMMENT 'Regional fuel prices for various types of fuel in $2007 per MMBtu',
   INDEX scenario_id(scenario_id),
@@ -227,7 +227,7 @@ SELECT _fuel_prices_regional.scenario_id, load_area_info.area_id, load_area, fue
 -- RPS----------------------
 drop table if exists fuel_info;
 create table fuel_info(
-	fuel varchar(30),
+	fuel varchar(64),
 	rps_fuel_category varchar(10), 
 	carbon_content float COMMENT 'carbon content (tonnes CO2 per million Btu)'
 );
@@ -329,7 +329,7 @@ CREATE TABLE existing_plants (
 	scheduled_outage_rate double,
 	max_age double,
 	intermittent boolean,
-	technology varchar(30),
+	technology varchar(64),
 	INDEX area_id (area_id),
 	FOREIGN KEY (area_id) REFERENCES load_area_info(area_id), 
 	INDEX load_area_plant_code (load_area, plant_code)
@@ -448,7 +448,7 @@ CREATE TABLE _proposed_projects (
   technology_id tinyint unsigned NOT NULL,
   area_id smallint unsigned NOT NULL,
   location_id INT DEFAULT NULL,
-  technology varchar(30),
+  technology varchar(64),
   original_dataset_id INT DEFAULT NULL,
   capacity_limit float DEFAULT NULL,
   capacity_limit_conversion float DEFAULT 1,
