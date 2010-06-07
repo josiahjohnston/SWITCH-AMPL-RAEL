@@ -97,7 +97,7 @@ load data local infile
 -- Drop table if exists biomass_supply_curve_by_load_area;
 -- Create table biomass_supply_curve_by_load_area(
 -- 	load_area varchar(11),
--- 	fuel varchar(30),
+-- 	fuel varchar(64),
 -- 	price_dollars_per_Mbtu double,
 -- 	Mbtus_per_year double,
 -- 	INDEX la_bio_potential (load_area, fuel, price_dollars_per_Mbtu)
