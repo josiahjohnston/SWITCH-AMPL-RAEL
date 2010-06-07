@@ -4,11 +4,8 @@ param cost_solution_file symbolic;
 param cost_problem_file symbolic;
 param trans_problem_file symbolic;
 param trans_solution_file symbolic;
-param cost_solution_exists;
-param trans_solution_exists;
 param max_potential_solar_last_period;
 param num_result_files;
-
 
 if (enable_min_solar_production = 1) then {
 	let max_potential_solar_last_period := 
@@ -36,10 +33,10 @@ for {c in CARBON_COSTS} {
 
   # Determine if a cost solution already exists. 
   shell("if [ -f " & cost_solution_file & " ]; then echo 1 > sol_exists.txt; else echo 0 > sol_exists.txt; fi");
-  read cost_solution_exists < "sol_exists.txt";
+  read file_exists < "sol_exists.txt";
   close "sol_exists.txt";
   shell("rm sol_exists.txt");
-  if ( cost_solution_exists )
+  if ( file_exists )
   then {
     printf "\nLoading Cost solution from disk for a carbon cost of %d.\n", carbon_cost;
     solution (cost_solution_file);
@@ -47,12 +44,17 @@ for {c in CARBON_COSTS} {
     printf "\nCost solution not found on disk for a carbon cost of %d; solving optimization problem.\n", carbon_cost;
     write ("b" & cost_problem_file);
     solve;
-    printf "%d seconds to optimize for cost.", time() - curtime;
+    let cost_sol_time := time() - curtime;
+    printf "%d seconds to optimize for cost.", cost_sol_time;
     # Remove the transmission problem if it exists; It will need to be re-run from the new cost solution
-    if ( trans_solution_exists )
+	shell("if [ -f " & trans_solution_file & " ]; then echo 1 > sol_exists.txt; else echo 0 > sol_exists.txt; fi");
+	read file_exists < "sol_exists.txt";
+	close "sol_exists.txt";
+	shell("rm sol_exists.txt");
+    if ( file_exists )
     then {
       shell ("rm trans_problem_file trans_solution_file");
-      let trans_solution_exists := 0;
+      let file_exists := 0;
     }    
   }
 
@@ -80,7 +82,13 @@ for {c in CARBON_COSTS} {
   objective Transmission_Usage;
   option presolve_eps 1e-10;
 
-  if ( trans_solution_exists )
+  # Determine if the transmission solution already exists. 
+  shell("if [ -f " & trans_solution_file & " ]; then echo 1 > sol_exists.txt; else echo 0 > sol_exists.txt; fi");
+  read file_exists < "sol_exists.txt";
+  close "sol_exists.txt";
+  shell("rm sol_exists.txt");
+
+  if ( file_exists )
   then {
     printf "\nLoading Transmission solution from disk for a carbon cost of %d.\n", carbon_cost;
     solution (trans_solution_file);
@@ -94,8 +102,8 @@ for {c in CARBON_COSTS} {
     
     write ("b" & trans_problem_file);
     solve;
-
-    printf "\n%d seconds to optimize for transmission.\n", time() - curtime;
+    let trans_sol_time := time() - curtime;
+    printf "\n%d seconds to optimize for transmission.\n", trans_sol_time;
 
     # show some info about this run
     include basicstats.run;

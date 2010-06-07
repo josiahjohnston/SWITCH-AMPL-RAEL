@@ -159,24 +159,24 @@ echo ampl.tab 3 4 > hydro.tab
 mysql $connection_string -e "select load_area, project_id as hydro_project_id, study_date as date, site as site_id, avg_flow, min_flow, max_flow from hydro_monthly_limits l join study_dates_all d on l.year = year(d.date_utc) and l.month=month(d.date_utc) where $DATESAMPLE order by 1, 2, month, year;" >> hydro.tab
 
 echo '	proposed_projects.tab...'
-echo ampl.tab 3 4 > proposed_projects.tab
-mysql $connection_string -e "select load_area, technology, project_id, location_id, capacity_limit, capacity_limit_conversion, connect_cost_per_mw from proposed_projects;" >> proposed_projects.tab
+echo ampl.tab 3 10 > proposed_projects.tab
+mysql $connection_string -e "select project_id, load_area, technology, if(location_id is NULL, 0, location_id) as location_id, if(capacity_limit is NULL, 0, capacity_limit) as capacity_limit, capacity_limit_conversion, connect_cost_per_mw, price_and_dollar_year, overnight_cost, fixed_o_m, variable_o_m, overnight_cost_change, nonfuel_startup_cost from proposed_projects;" >> proposed_projects.tab
 
 echo '	competing_locations.tab...'
 echo ampl.tab 1 > competing_locations.tab
 mysql $connection_string -e "select distinct location_id from _proposed_projects p where (select count(*) from proposed_projects p2 where p.location_id = p2.location_id)>1 and location_id!=0 and technology_id in (SELECT technology_id FROM generator_info g where technology in ('Central_PV','CSP_Trough_No_Storage','CSP_Trough_6h_Storage'));" >> competing_locations.tab
+# If there aren't any competing locations, mysql won't print the column header, which in turn causes an error in AMPL. The following if statement will ensure the column header is present in the file as per AMPL's expectations.
+if [ `cat competing_locations.tab | wc -l | sed 's/ //g'` -eq 1 ]; then
+  echo location_id >> competing_locations.tab
+fi
 
 echo '	cap_factor.tab...'
 echo ampl.tab 4 1 > cap_factor.tab
-mysql $connection_string -e "select load_area, technology, project_id, study_hour as hour, cap_factor from cap_factor_intermittent_sites c join study_hours_all h on (h.hournum=c.hour) where $TIMESAMPLE;" >> cap_factor.tab
+mysql $connection_string -e "select project_id, load_area, technology, study_hour as hour, cap_factor from cap_factor_intermittent_sites c join study_hours_all h on (h.hournum=c.hour) where $TIMESAMPLE;" >> cap_factor.tab
 
 echo '	generator_info.tab...'
 echo ampl.tab 1 23 > generator_info.tab
 mysql $connection_string -e "select technology, technology_id, min_build_year, fuel, heat_rate, construction_time_years, year_1_cost_fraction, year_2_cost_fraction, year_3_cost_fraction, year_4_cost_fraction, year_5_cost_fraction, year_6_cost_fraction, max_age_years, forced_outage_rate, scheduled_outage_rate, intermittent, resource_limited, baseload, min_build_capacity, min_dispatch_fraction, min_runtime, min_downtime, max_ramp_rate_mw_per_hour, startup_fuel_mbtu from generator_info;" >> generator_info.tab
-
-echo '	generator_costs_regional.tab...'
-echo ampl.tab 2 8 > generator_costs_regional.tab
-mysql $connection_string -e "select load_area, technology, project_id as regional_project_id, price_and_dollar_year, overnight_cost, connect_cost_per_mw_generic, fixed_o_m, variable_o_m, overnight_cost_change, nonfuel_startup_cost from generator_costs_regional where scenario_id = $REGIONAL_GEN_PRICE_SCENARIO_ID;" >> generator_costs_regional.tab
 
 echo '	fuel_costs.tab...'
 echo ampl.tab 3 1 > fuel_costs.tab

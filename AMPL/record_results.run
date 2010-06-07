@@ -1,5 +1,21 @@
 let curtime := time();
 
+
+shell("if [ -f " & solution_times_path & " ]; then echo 1 > file_exists.txt; else echo 0 > file_exists.txt; fi");
+read file_exists < "file_exists.txt";
+close "file_exists.txt";
+shell("rm file_exists.txt");
+if ( file_exists == 0 )
+then {
+  printf "scenario_id	carbon_cost	cost_solution_seconds	trans_solution_seconds\n"
+  > (solution_times_path);
+}
+#######################
+# Store solution times
+printf "%s	%d	%d	%d\n", scenario_id, carbon_cost, cost_sol_time, trans_sol_time
+  >> (solution_times_path);
+
+
 #######################
 # store all hourly generation data in standardized, MW terms
 
@@ -16,138 +32,138 @@ close (outfile);
 # new dispatchable projects
 let outfile := sprintf( result_file_path_templates[output_section], carbon_cost );
 #"results/dispatch_" & carbon_cost & ".txt";
-printf {(z, t, p) in PROJ_DISPATCH, h in TIMEPOINTS} 
+printf {(pid, a, t) in PROJ_DISPATCH, h in TIMEPOINTS} 
   "%s	%.2f	%d	%d	%d	%s	%d	%d	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%d	%.2f	%.2f	%.2f	%.2f\n",
-  scenario_id, carbon_cost, period[h], regional_project_id[z, t], load_area_id[z], z, date[h], h, technology_id[t], t, location_unspecified, 1, 0, 0, fuel[t], 
-  DispatchGen[z, t, p, h], 
-  DispatchGen[z, t, p, h] * heat_rate[t] * carbon_content[fuel[t]],
+  scenario_id, carbon_cost, period[h], pid, load_area_id[a], a, date[h], h, technology_id[t], t, location_unspecified, 1, 0, 0, fuel[t], 
+  DispatchGen[pid, a, t, h], 
+  DispatchGen[pid, a, t, h] * heat_rate[t] * carbon_content[fuel[t]],
   hours_in_sample[h],
   heat_rate[t], 
-  DispatchGen[z, t, p, h] * heat_rate[t] * fuel_cost_hourly[z, fuel[t], h],
-  DispatchGen[z, t, p, h] * heat_rate[t] * carbon_content[fuel[t]] * carbon_cost,
-  DispatchGen[z, t, p, h] * variable_o_m[z,t]
+  DispatchGen[pid, a, t, h] * heat_rate[t] * fuel_cost_hourly[a, fuel[t], h],
+  DispatchGen[pid, a, t, h] * heat_rate[t] * carbon_content[fuel[t]] * carbon_cost,
+  DispatchGen[pid, a, t, h] * variable_o_m[pid, a, t]
   > (outfile);
 
 
 # new intermittent projects (all renewables, so no carbon emissions)
-printf {(z, t, p, h) in PROJ_INTERMITTENT_HOURS}
+printf {(pid, a, t, h) in PROJ_INTERMITTENT_HOURS}
   "%s	%.2f	%d	%d	%d	%s	%d	%d	%d	%s	%s	%d	%d	%d	%s	%.2f	%.0f	%d	%.0f	%.0f	%.0f	%.2f\n",
-  scenario_id, carbon_cost, period[h], p, load_area_id[z], z, date[h], h, technology_id[t], t, location_id[z, t, p], 1, 0, 0, fuel[t], 
-  (sum {(z, t, p, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS} 
-    (1-forced_outage_rate[t]) * cap_factor[z, t, p, h] * InstallGen[z, t, p, v]),
+  scenario_id, carbon_cost, period[h], pid, load_area_id[a], a, date[h], h, technology_id[t], t, project_location[pid, a, t], 1, 0, 0, fuel[t], 
+  (sum {(pid, a, t, install_yr, h) in PROJ_INTERMITTENT_VINTAGE_HOURS} 
+    (1-forced_outage_rate[t]) * cap_factor[pid, a, t, h] * InstallGen[pid, a, t, install_yr]),
   0,
   hours_in_sample[h],
   0, 
   0, 0,
-  (sum {(z, t, p, v, h) in PROJ_INTERMITTENT_VINTAGE_HOURS} 
-    (1-forced_outage_rate[t]) * cap_factor[z, t, p, h] * InstallGen[z, t, p, v]) * variable_o_m[z,t]
+  (sum {(pid, a, t, install_yr, h) in PROJ_INTERMITTENT_VINTAGE_HOURS} 
+    (1-forced_outage_rate[t]) * cap_factor[pid, a, t, h] * InstallGen[pid, a, t, install_yr]) * variable_o_m[pid, a, t]
   >> (outfile);
 
 # new baseload plants
 # 
-printf {(z, t, p) in setof{(z, t, p, v) in PROJECT_VINTAGES} (z, t, p), h in TIMEPOINTS}
+printf {(pid, a, t) in setof{(pid, a, t, install_yr) in PROJECT_VINTAGES} (pid, a, t), h in TIMEPOINTS}
   "%s	%.2f	%d	%d	%d	%s	%d	%d	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%d	%.2f	%.2f	%.2f	%.2f\n",
-  scenario_id, carbon_cost, period[h], regional_project_id[z, t], load_area_id[z], z, date[h], h, technology_id[t], t, location_unspecified, 1, new_baseload[t], 0, fuel[t],
-  (sum{(z, t, p, v, h) in NEW_BASELOAD_VINTAGE_HOURS} 
-    (1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[z, t, p, v]),
-  (sum{(z, t, p, v, h) in NEW_BASELOAD_VINTAGE_HOURS} 
-    (1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[z, t, p, v]) 
+  scenario_id, carbon_cost, period[h], pid, load_area_id[a], a, date[h], h, technology_id[t], t, location_unspecified, 1, new_baseload[t], 0, fuel[t],
+  (sum{(pid, a, t, install_yr, h) in NEW_BASELOAD_VINTAGE_HOURS} 
+    (1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[pid, a, t, install_yr]),
+  (sum{(pid, a, t, install_yr, h) in NEW_BASELOAD_VINTAGE_HOURS} 
+    (1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[pid, a, t, install_yr]) 
     * heat_rate[t] * carbon_content[fuel[t]],
   hours_in_sample[h],
   heat_rate[t], 
-  (sum{(z, t, p, v, h) in NEW_BASELOAD_VINTAGE_HOURS} 
-    (1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[z, t, p, v]) 
-    * heat_rate[t] * fuel_cost_hourly[z,fuel[t], h],
-  (sum{(z, t, p, v, h) in NEW_BASELOAD_VINTAGE_HOURS} 
-    (1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[z, t, p, v]) 
+  (sum{(pid, a, t, install_yr, h) in NEW_BASELOAD_VINTAGE_HOURS} 
+    (1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[pid, a, t, install_yr]) 
+    * heat_rate[t] * fuel_cost_hourly[a,fuel[t], h],
+  (sum{(pid, a, t, install_yr, h) in NEW_BASELOAD_VINTAGE_HOURS} 
+    (1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[pid, a, t, install_yr]) 
     * heat_rate[t] * carbon_content[fuel[t]] * carbon_cost,
-  (sum{(z, t, p, v, h) in NEW_BASELOAD_VINTAGE_HOURS} 
-    (1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[z, t, p, v])
-    * variable_o_m[z, t]
+  (sum{(pid, a, t, install_yr, h) in NEW_BASELOAD_VINTAGE_HOURS} 
+    (1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * InstallGen[pid, a, t, install_yr])
+    * variable_o_m[pid, a, t]
   >> (outfile);
 
 # Existing Intermittent plants
 # 
-printf {(z, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS, p in PERIODS: period[h]=p} 
+printf {(a, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS, p in PERIODS: period[h]=p} 
   "%s	%.2f	%d	%d	%d	%s	%d	%d	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%d	%.2f	%.2f	%.2f	%.2f\n",
-  scenario_id, carbon_cost, p, ep_project_id[z, e], load_area_id[z], z, date[h], h, technology_id[ep_technology[z,e]], ep_technology[z,e], e, 0, ep_baseload[z, e], ep_cogen[z, e], ep_fuel[z, e],
+  scenario_id, carbon_cost, p, ep_project_id[a, e], load_area_id[a], a, date[h], h, technology_id[ep_technology[a,e]], ep_technology[a,e], e, 0, ep_baseload[a, e], ep_cogen[a, e], ep_fuel[a, e],
   # Power
-  OperateEPDuringPeriod[z, e, p] * ep_size_mw[z, e] * eip_cap_factor[z, e, h] * (1-ep_forced_outage_rate[z, e]), 
+  OperateEPDuringPeriod[a, e, p] * ep_size_mw[a, e] * eip_cap_factor[a, e, h] * (1-ep_forced_outage_rate[a, e]), 
   # Co2 (tons)
-  OperateEPDuringPeriod[z, e, p] * ep_size_mw[z, e] * eip_cap_factor[z, e, h] * (1-ep_forced_outage_rate[z, e])
-    * ep_heat_rate[z, e] * carbon_content[ep_fuel[z, e]],
+  OperateEPDuringPeriod[a, e, p] * ep_size_mw[a, e] * eip_cap_factor[a, e, h] * (1-ep_forced_outage_rate[a, e])
+    * ep_heat_rate[a, e] * carbon_content[ep_fuel[a, e]],
   # hours_in_sample
   hours_in_sample[h],
   # heat_rate
-  ep_heat_rate[z, e], 
+  ep_heat_rate[a, e], 
   # fuel_cost_tot
-  OperateEPDuringPeriod[z, e, p] * ep_size_mw[z, e] * eip_cap_factor[z, e, h] * (1-ep_forced_outage_rate[z, e])
-    * ep_heat_rate[z, e] * fuel_cost_hourly[z,ep_fuel[z, e], h],
+  OperateEPDuringPeriod[a, e, p] * ep_size_mw[a, e] * eip_cap_factor[a, e, h] * (1-ep_forced_outage_rate[a, e])
+    * ep_heat_rate[a, e] * fuel_cost_hourly[a,ep_fuel[a, e], h],
   # carbon_cost_tot
-  OperateEPDuringPeriod[z, e, p] * ep_size_mw[z, e] * eip_cap_factor[z, e, h] * (1-ep_forced_outage_rate[z, e])
-    * ep_heat_rate[z, e] * carbon_content[ep_fuel[z, e]] * carbon_cost,
+  OperateEPDuringPeriod[a, e, p] * ep_size_mw[a, e] * eip_cap_factor[a, e, h] * (1-ep_forced_outage_rate[a, e])
+    * ep_heat_rate[a, e] * carbon_content[ep_fuel[a, e]] * carbon_cost,
   # variable_o_m_tot
-  OperateEPDuringPeriod[z, e, p] * ep_size_mw[z, e] * eip_cap_factor[z, e, h] * (1-ep_forced_outage_rate[z, e])
-    * ep_variable_o_m[z, e]
+  OperateEPDuringPeriod[a, e, p] * ep_size_mw[a, e] * eip_cap_factor[a, e, h] * (1-ep_forced_outage_rate[a, e])
+    * ep_variable_o_m[a, e]
   >> (outfile);
 
 
 # existing baseload plants
-printf {(z, e, p) in EP_BASELOAD_PERIODS, h in TIMEPOINTS: period[h]=p} 
+printf {(a, e, p) in EP_BASELOAD_PERIODS, h in TIMEPOINTS: period[h]=p} 
   "%s	%.2f	%d	%d	%d	%s	%d	%d	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%d	%.2f	%.2f	%.2f	%.2f\n",
-  scenario_id, carbon_cost, p, ep_project_id[z, e], load_area_id[z], z, date[h], h, technology_id[ep_technology[z,e]], ep_technology[z,e], e, 0, ep_baseload[z, e], ep_cogen[z, e], ep_fuel[z, e],
-  OperateEPDuringPeriod[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e],
-  OperateEPDuringPeriod[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e] 
-    * ep_heat_rate[z, e] * carbon_content[ep_fuel[z, e]],
+  scenario_id, carbon_cost, p, ep_project_id[a, e], load_area_id[a], a, date[h], h, technology_id[ep_technology[a,e]], ep_technology[a,e], e, 0, ep_baseload[a, e], ep_cogen[a, e], ep_fuel[a, e],
+  OperateEPDuringPeriod[a, e, p] * (1-ep_forced_outage_rate[a, e]) * (1-ep_scheduled_outage_rate[a, e]) * ep_size_mw[a, e],
+  OperateEPDuringPeriod[a, e, p] * (1-ep_forced_outage_rate[a, e]) * (1-ep_scheduled_outage_rate[a, e]) * ep_size_mw[a, e] 
+    * ep_heat_rate[a, e] * carbon_content[ep_fuel[a, e]],
   hours_in_sample[h],
-  ep_heat_rate[z, e], 
-  OperateEPDuringPeriod[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e] 
-    * ep_heat_rate[z, e] * fuel_cost_hourly[z,ep_fuel[z, e], h],
-  OperateEPDuringPeriod[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e] 
-    * ep_heat_rate[z, e] * carbon_content[ep_fuel[z, e]] * carbon_cost,
-  OperateEPDuringPeriod[z, e, p] * (1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e]
-    * ep_variable_o_m[z, e]
+  ep_heat_rate[a, e], 
+  OperateEPDuringPeriod[a, e, p] * (1-ep_forced_outage_rate[a, e]) * (1-ep_scheduled_outage_rate[a, e]) * ep_size_mw[a, e] 
+    * ep_heat_rate[a, e] * fuel_cost_hourly[a,ep_fuel[a, e], h],
+  OperateEPDuringPeriod[a, e, p] * (1-ep_forced_outage_rate[a, e]) * (1-ep_scheduled_outage_rate[a, e]) * ep_size_mw[a, e] 
+    * ep_heat_rate[a, e] * carbon_content[ep_fuel[a, e]] * carbon_cost,
+  OperateEPDuringPeriod[a, e, p] * (1-ep_forced_outage_rate[a, e]) * (1-ep_scheduled_outage_rate[a, e]) * ep_size_mw[a, e]
+    * ep_variable_o_m[a, e]
   >> (outfile);
 
 # existing dispatchable plants
-printf {(z, e, h) in EP_DISPATCH_HOURS, p in PERIODS: p=period[h]} 
+printf {(a, e, h) in EP_DISPATCH_HOURS, p in PERIODS: p=period[h]} 
   "%s	%.2f	%d	%d	%d	%s	%d	%d	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%d	%.2f	%.2f	%.2f	%.2f\n",
-  scenario_id, carbon_cost, p, ep_project_id[z, e], load_area_id[z], z, date[h], h, technology_id[ep_technology[z,e]], ep_technology[z,e], e, 0, ep_baseload[z, e], ep_cogen[z, e], ep_fuel[z, e],
-  DispatchEP[z, e, h],
-  DispatchEP[z, e, h] * ep_heat_rate[z, e] * carbon_content[ep_fuel[z, e]],
+  scenario_id, carbon_cost, p, ep_project_id[a, e], load_area_id[a], a, date[h], h, technology_id[ep_technology[a,e]], ep_technology[a,e], e, 0, ep_baseload[a, e], ep_cogen[a, e], ep_fuel[a, e],
+  DispatchEP[a, e, h],
+  DispatchEP[a, e, h] * ep_heat_rate[a, e] * carbon_content[ep_fuel[a, e]],
   hours_in_sample[h],
-  ep_heat_rate[z, e], 
-  DispatchEP[z, e, h]
-    * ep_heat_rate[z, e] * fuel_cost_hourly[z, ep_fuel[z, e], h],
-  DispatchEP[z, e, h]
-    * ep_heat_rate[z, e] * carbon_content[ep_fuel[z, e]] * carbon_cost,
-  DispatchEP[z, e, h]
-    * ep_variable_o_m[z, e]
+  ep_heat_rate[a, e], 
+  DispatchEP[a, e, h]
+    * ep_heat_rate[a, e] * fuel_cost_hourly[a, ep_fuel[a, e], h],
+  DispatchEP[a, e, h]
+    * ep_heat_rate[a, e] * carbon_content[ep_fuel[a, e]] * carbon_cost,
+  DispatchEP[a, e, h]
+    * ep_variable_o_m[a, e]
   >> (outfile);
 
 # Dispatch of non-pumped hydro. In the results database, Hydro has a hard-coded id of 15, and Hydro Pumping has 16 (see DatabasePrep/GeneratorInfo/generator_costs.csv)
-printf {(z, proj) in PROJ_NONPUMPED_HYDRO, h in TIMEPOINTS, p in PERIODS: period[h]=p} 
+printf {(a, proj) in PROJ_NONPUMPED_HYDRO, h in TIMEPOINTS, p in PERIODS: period[h]=p} 
   "%s	%.2f	%d	%d	%d	%s	%d	%d	%d	%s	%s	%d	%d	%d	%s	%.2f	%.0f	%d	%.0f	%.0f	%.0f	%.0f\n",
-  scenario_id, carbon_cost, p, proj, load_area_id[z], z, date[h], h, 15, "Hydro_NonPumped", hydro_site[z, proj, first(DATES)], 0, 0, 0,
-  fuel_hydro, (1 - forced_outage_rate_hydro) * DispatchHydro[z, proj, h],
+  scenario_id, carbon_cost, p, proj, load_area_id[a], a, date[h], h, 15, "Hydro_NonPumped", hydro_site[a, proj, first(DATES)], 0, 0, 0,
+  fuel_hydro, (1 - forced_outage_rate_hydro) * DispatchHydro[a, proj, h],
   0, hours_in_sample[h], 0, 
   0, 0, 0
   >> (outfile);
 
 # Dispatch of pumped hydro. 
-printf {(z, proj) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS, p in PERIODS: period[h]=p} 
+printf {(a, proj) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS, p in PERIODS: period[h]=p} 
   "%s	%.2f	%d	%d	%d	%s	%d	%d	%d	%s	%s	%d	%d	%d	%s	%.2f	%.0f	%d	%.0f	%.0f	%.0f	%.0f\n",
-  scenario_id, carbon_cost, p, proj, load_area_id[z], z, date[h], h, 16, "Hydro_Pumped", hydro_site[z, proj, first(DATES)], 0, 0, 0,
-  fuel_hydro, (1 - forced_outage_rate_hydro) * DispatchHydro[z, proj, h],
+  scenario_id, carbon_cost, p, proj, load_area_id[a], a, date[h], h, 16, "Hydro_Pumped", hydro_site[a, proj, first(DATES)], 0, 0, 0,
+  fuel_hydro, (1 - forced_outage_rate_hydro) * DispatchHydro[a, proj, h],
   0, hours_in_sample[h], 0, 
   0, 0, 0
   >> (outfile);
 
 # Storage of pumped hydro.
-printf {(z, proj) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS, p in PERIODS: period[h]=p} 
+printf {(a, proj) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS, p in PERIODS: period[h]=p} 
   "%s	%.2f	%d	%d	%d	%s	%d	%d	%d	%s	%s	%d	%d	%d	%s	%.2f	%.0f	%d	%.0f	%.0f	%.0f	%.0f\n",
-  scenario_id, carbon_cost, p, proj, load_area_id[z], z, date[h], h, 16, "Hydro_Pumped", hydro_site[z, proj, first(DATES)], 0, 0, 0, fuel_hydro,
-  -1 * (1 - forced_outage_rate_hydro) * (1/pumped_hydro_efficiency) * StorePumpedHydro[z, proj, h],
+  scenario_id, carbon_cost, p, proj, load_area_id[a], a, date[h], h, 16, "Hydro_Pumped", hydro_site[a, proj, first(DATES)], 0, 0, 0, fuel_hydro,
+  -1 * (1 - forced_outage_rate_hydro) * (1/pumped_hydro_efficiency) * StorePumpedHydro[a, proj, h],
   0, hours_in_sample[h], 0, 
   0, 0, 0
   >> (outfile);
@@ -164,9 +180,9 @@ printf "scenario_id	carbon_cost	period	load_area_id	load_area	date	hour	power	ho
   > (outfile);
 close (outfile);
 let outfile := sprintf( result_file_path_templates[output_section], carbon_cost );
-printf {z in LOAD_AREAS, h in TIMEPOINTS, p in PERIODS: period[h]=p} 
+printf {a in LOAD_AREAS, h in TIMEPOINTS, p in PERIODS: period[h]=p} 
   "%s	%.2f	%d	%d	%s	%d	%d	%.2f	%d\n",
-  scenario_id, carbon_cost, p, load_area_id[z], z, date[h], h, system_load[z, h], hours_in_sample[h]
+  scenario_id, carbon_cost, p, load_area_id[a], a, date[h], h, system_load[a, h], hours_in_sample[h]
   > (outfile);
 close (outfile);
 
@@ -205,60 +221,58 @@ close (outfile);
 
 let outfile := sprintf( result_file_path_templates[output_section], carbon_cost );
 # new projects INTERMITTENT
-printf {(z, t, proj) in PROJ_INTERMITTENT union PROJ_RESOURCE_LIMITED, p in PERIODS: (max {(z, t, proj, v) in PROJECT_VINTAGES} InstallGen[z, t, proj, v]) > 0}
+printf {(pid, a, t) in PROJ_INTERMITTENT union PROJ_RESOURCE_LIMITED, p in PERIODS: (max {(pid, a, t, install_yr) in PROJECT_VINTAGES} InstallGen[pid, a, t, install_yr]) > 0}
   "%s	%.2f	%d	%d	%d	%s	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f\n",
-  scenario_id, carbon_cost, p, proj, load_area_id[z], z, technology_id[t], t, location_id[z, t, proj], 1, new_baseload[t], 0, fuel[t],
-  sum {(z, t, proj, v) in PROJECT_VINTAGES: v <= p < project_end_year[t, v]} InstallGen[z, t, proj, v],
-  sum {(z, t, proj, v) in PROJECT_VINTAGES: v <= p < project_end_year[t, v]} InstallGen[z, t, proj, v]
-    * (capital_cost_annual_payment[z,t,proj,v] + fixed_o_m[z,t]) * (1-(1/(1+discount_rate)^(num_years_per_period)))/discount_rate
+  scenario_id, carbon_cost, p, pid, load_area_id[a], a, technology_id[t], t, project_location[pid, a, t], 1, new_baseload[t], 0, fuel[t],
+  sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= p < project_end_year[t, install_yr]} InstallGen[pid, a, t, install_yr],
+  sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= p < project_end_year[t, install_yr]} InstallGen[pid, a, t, install_yr]
+    * (capital_cost_annual_payment[pid, a, t,install_yr] + fixed_o_m[pid, a, t]) * (1-(1/(1+discount_rate)^(num_years_per_period)))/discount_rate
   > (outfile);
 
 # new projects DISPATCHABLE & BASELOAD
-printf {(z, t, proj) in PROJ_ANYWHERE, p in PERIODS: (max {(z, t, proj, v) in PROJECT_VINTAGES} InstallGen[z, t, proj, v]) > 0}
+printf {(pid, a, t) in PROJ_ANYWHERE, p in PERIODS: (max {(pid, a, t, install_yr) in PROJECT_VINTAGES} InstallGen[pid, a, t, install_yr]) > 0}
   "%s	%.2f	%d	%d	%d	%s	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f\n",
-  scenario_id, carbon_cost, p, regional_project_id[z, t], load_area_id[z], z, technology_id[t], t, location_unspecified, 1, new_baseload[t], 0, fuel[t],
-  sum {(z, t, proj, v) in PROJECT_VINTAGES: v <= p < project_end_year[t, v]} InstallGen[z, t, proj, v],
-  sum {(z, t, proj, v) in PROJECT_VINTAGES: v <= p < project_end_year[t, v]} InstallGen[z, t, proj, v]
-    * (capital_cost_annual_payment[z,t,proj,v] + fixed_o_m[z,t]) * (1-(1/(1+discount_rate)^(num_years_per_period)))/discount_rate
+  scenario_id, carbon_cost, p, pid, load_area_id[a], a, technology_id[t], t, location_unspecified, 1, new_baseload[t], 0, fuel[t],
+  sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= p < project_end_year[t, install_yr]} InstallGen[pid, a, t, install_yr],
+  sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= p < project_end_year[t, install_yr]} InstallGen[pid, a, t, install_yr]
+    * (capital_cost_annual_payment[pid, a, t,install_yr] + fixed_o_m[pid, a, t]) * (1-(1/(1+discount_rate)^(num_years_per_period)))/discount_rate
   > (outfile);
 
 
 # existing plants (either baseload or dispatchable)
 # note: they're only counted as "capacity" if they are operable during this period
-# and baseload plants are assumed to be operable only up to 1-ep_scheduled_outage_rate
-printf {(z, e, p) in EP_PERIODS}
+printf {(a, e, p) in EP_PERIODS}
   "%s	%.2f	%d	%d	%d	%s	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f\n",
-  scenario_id, carbon_cost, p, ep_project_id[z, e], load_area_id[z], z, technology_id[ep_technology[z,e]], ep_technology[z,e], e, 0, ep_baseload[z, e], ep_cogen[z, e], ep_fuel[z, e],
-  OperateEPDuringPeriod[z, e, p] * ep_size_mw[z, e] 
-    * if ep_baseload[z, e] then (1-ep_scheduled_outage_rate[z, e]) else 1,
-  OperateEPDuringPeriod[z, e, p] * ep_size_mw[z, e] * ep_fixed_cost[z, e, p] * (1+discount_rate)^(p-base_year)
-  + ep_size_mw[z, e] * ep_capital_cost_annual_payment[z, e] * (1-(1/(1+discount_rate)^(num_years_per_period)))/discount_rate
+  scenario_id, carbon_cost, p, ep_project_id[a, e], load_area_id[a], a, technology_id[ep_technology[a,e]], ep_technology[a,e], e, 0, ep_baseload[a, e], ep_cogen[a, e], ep_fuel[a, e],
+  OperateEPDuringPeriod[a, e, p] * ep_size_mw[a, e],
+  OperateEPDuringPeriod[a, e, p] * ep_size_mw[a, e] * ep_fixed_cost[a, e, p] * (1+discount_rate)^(p-base_year)
+  + ep_size_mw[a, e] * ep_capital_cost_annual_payment[a, e] * (1-(1/(1+discount_rate)^(num_years_per_period)))/discount_rate
   >> (outfile);
 
 # hydro plants (non-pumped)
 # note: capacity is defined as the maximum possible output on any date in the period
 # Fixed costs are based on the hydro_annual_payment_per_mw parameter that is set and explained in windsun.dat. It is reported in terms of re-occurring costs due at the beginning of each study period.
 # In the results database, Hydro has a hard-coded id of 15, and Hydro Pumping has 16 (see DatabasePrep/GeneratorInfo/generator_costs.csv)
-printf {(z, proj) in PROJ_NONPUMPED_HYDRO, p in PERIODS}
+printf {(a, proj) in PROJ_NONPUMPED_HYDRO, p in PERIODS}
   "%s	%.2f	%d	%d	%d	%s	%d	%s	%s	%d	%d	%d	%s	%.2f	%.0f\n",
-  scenario_id, carbon_cost, p, proj, load_area_id[z], z, 15, "Hydro_NonPumped", hydro_site[z, proj, first(DATES)], 0, 0, 0, fuel_hydro,
-  max {d in DATES, h in TIMEPOINTS: date[h] = d and period[h] = p} max_hydro_flow[z, proj, d],
+  scenario_id, carbon_cost, p, proj, load_area_id[a], a, 15, "Hydro_NonPumped", hydro_site[a, proj, first(DATES)], 0, 0, 0, fuel_hydro,
+  max {d in DATES, h in TIMEPOINTS: date[h] = d and period[h] = p} max_hydro_flow[a, proj, d],
   # Estimate of MW installed
-  (max {(z, proj, d) in PROJ_HYDRO_DATES} max_hydro_flow[z, proj, d])
+  (max {(a, proj, d) in PROJ_HYDRO_DATES} max_hydro_flow[a, proj, d])
   # Regional annual costs per MW
-  * hydro_annual_payment_per_mw * economic_multiplier[z]
+  * hydro_annual_payment_per_mw * economic_multiplier[a]
   # Converts annual payments over the study period to a single payment at the beginning of the study period
   * (1-(1/(1+discount_rate)^(num_years_per_period)))/discount_rate
   >> (outfile);
 # hydro plants (pumped)
-printf {(z, proj) in PROJ_PUMPED_HYDRO, p in PERIODS}
+printf {(a, proj) in PROJ_PUMPED_HYDRO, p in PERIODS}
   "%s	%.2f	%d	%d	%d	%s	%d	%s	%s	%d	%d	%d	%s	%.2f	%.0f\n",
-  scenario_id, carbon_cost, p, proj, load_area_id[z], z, 16, "Hydro_Pumped", hydro_site[z, proj, first(DATES)], 0, 0, 0, fuel_hydro,
-  max {d in DATES, h in TIMEPOINTS: date[h] = d and period[h] = p} max_hydro_flow[z, proj, d],
+  scenario_id, carbon_cost, p, proj, load_area_id[a], a, 16, "Hydro_Pumped", hydro_site[a, proj, first(DATES)], 0, 0, 0, fuel_hydro,
+  max {d in DATES, h in TIMEPOINTS: date[h] = d and period[h] = p} max_hydro_flow[a, proj, d],
   # Estimate of MW installed
-  (max {(z, proj, d) in PROJ_HYDRO_DATES} max_hydro_flow[z, proj, d])
+  (max {(a, proj, d) in PROJ_HYDRO_DATES} max_hydro_flow[a, proj, d])
   # Regional annual costs per MW
-  * hydro_annual_payment_per_mw * economic_multiplier[z]
+  * hydro_annual_payment_per_mw * economic_multiplier[a]
   # Converts annual payments over the study period to a single payment at the beginning of the study period
   * (1-(1/(1+discount_rate)^(num_years_per_period)))/discount_rate
   >> (outfile);
@@ -287,8 +301,8 @@ printf {(z1, z2) in TRANSMISSION_LINES, p in PERIODS}:
 printf {(z1, z2) in TRANSMISSION_LINES, p in PERIODS}:
   "%s	%.2f	%d	%d	%d	%s	%s	%d	%d	%.2f	%.2f\n",
   scenario_id, carbon_cost, p, load_area_id[z1], load_area_id[z2], z1, z2, transmission_line_id[z1, z2], 1, 
-  sum {v in PERIODS: v <= p < transmission_end_year[v]} InstallTrans[z1, z2, v],
-  (sum {v in PERIODS: v <= p < transmission_end_year[v]} InstallTrans[z1, z2, v] * transmission_annual_payment[z1, z2, v])
+  sum {install_yr in PERIODS: install_yr <= p < transmission_end_year[install_yr]} InstallTrans[z1, z2, install_yr],
+  (sum {install_yr in PERIODS: install_yr <= p < transmission_end_year[install_yr]} InstallTrans[z1, z2, install_yr] * transmission_annual_payment[z1, z2, install_yr])
      * (1-(1/(1+discount_rate)^(num_years_per_period)))/discount_rate
   >> (outfile);
 
@@ -303,11 +317,11 @@ printf "scenario_id	carbon_cost	period	load_area_id	load_area	local_td_mw	fixed_
 close (outfile);
 
 let outfile := sprintf( result_file_path_templates[output_section], carbon_cost );
-printf {p in PERIODS, z in LOAD_AREAS}:
+printf {p in PERIODS, a in LOAD_AREAS}:
   "%s	%.2f	%d	%d	%s	%.2f	%.2f\n",
-  scenario_id, carbon_cost, p, load_area_id[z], z, 
-  sum {v in PERIODS: v <= p < transmission_end_year[v]} InstallLocalTD[z, v],
-  (sum {v in PERIODS: v <= p < transmission_end_year[v]} InstallLocalTD[z, v])
+  scenario_id, carbon_cost, p, load_area_id[a], a, 
+  sum {install_yr in PERIODS: install_yr <= p < transmission_end_year[install_yr]} InstallLocalTD[a, install_yr],
+  (sum {install_yr in PERIODS: install_yr <= p < transmission_end_year[install_yr]} InstallLocalTD[a, install_yr])
     * local_td_annual_payment_per_mw * (1-(1/(1+discount_rate)^(num_years_per_period)))/discount_rate
   > (outfile);
 

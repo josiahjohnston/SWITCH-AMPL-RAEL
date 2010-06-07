@@ -9,11 +9,18 @@ option cplex_options 'lpdisplay=1 iisfind=1 mipdisplay=1';
 # Adding 'advance=2' might speed up solutions that work from a similar problem's solution
 option presolve 0;
 
-# parameter used to track execution times
+# parameter used to track execution times and other management stuff.
 param curtime;
-let curtime := time();
+param cost_sol_time;
+param trans_sol_time;
+param solution_times_path symbolic = "results/run_times.txt";
+param file_exists;
 
 model windsun.mod;
+set RESULT_FILES;
+param result_file_path_templates{RESULT_FILES} symbolic;
+param result_header_paths{RESULT_FILES} symbolic;
+param output_section symbolic;
 
 data windsun.dat;
 
@@ -53,19 +60,23 @@ table hydro IN:
 read table hydro;
 
 table proposed_projects IN: 
-  PROJ_RESOURCE_LIMITED <- [load_area, technology, project_id], location_id, capacity_limit_by_project ~ capacity_limit, capacity_limit_conversion, connect_cost_per_mw;
+  PROJECTS <- [project_id, load_area, technology], project_location ~ location_id, 
+    capacity_limit, capacity_limit_conversion, connect_cost_per_mw, price_and_dollar_year, 
+    overnight_cost, fixed_o_m, variable_o_m, overnight_cost_change, nonfuel_startup_cost;
 read table proposed_projects;
 
-for {(z,t,p) in PROJ_RESOURCE_LIMITED: location_id[z,t,p] == 0} {
-	let location_id[z,t,p] := location_unspecified;
+# If a project's location id is 0, it means that project hasn't been assigned a geographic location that is more specific than a load area.
+for {(pid, a, t) in PROJECTS: project_location[pid, a, t] == 0} {
+	let project_location[pid, a, t] := location_unspecified;
 }
 
 table competing_locations IN:
 	LOCATIONS_WITH_COMPETING_TECHNOLOGIES <- [location_id];
 read table competing_locations;
 
+
 table cap_factor IN: 
-  PROJ_INTERMITTENT_HOURS <- [load_area, technology, project_id, hour], cap_factor;
+  PROJ_INTERMITTENT_HOURS <- [project_id, load_area, technology, hour], cap_factor;
 read table cap_factor;
 
 table generator_info IN:  
@@ -82,11 +93,11 @@ for { t in SOLAR_CSP_TECHNOLOGIES } {
 }
 let technologies_compete_for_space['Central_PV'] := 1;
 
-table generator_costs_regional IN:  
-	REGIONAL_TECHNOLOGIES <- [load_area, technology], regional_project_id, price_and_dollar_year, overnight_cost,
-	connect_cost_per_mw_generic, fixed_o_m, variable_o_m, overnight_cost_change,
-	nonfuel_startup_cost;
-read table generator_costs_regional;
+#table generator_costs_regional IN:  
+#	REGIONAL_TECHNOLOGIES <- [load_area, technology], regional_project_id, price_and_dollar_year, overnight_cost,
+#	connect_cost_per_mw_generic, fixed_o_m, variable_o_m, overnight_cost_change,
+#	nonfuel_startup_cost;
+#read table generator_costs_regional;
 
 table fuel_costs IN:
 	[load_area, fuel, year], fuel_price;
@@ -121,7 +132,7 @@ set ZONAL_REPORTING_HOURS ordered = {h in TIMEPOINTS: period[h] in ZONAL_REPORTI
 
 # parameters to report transmission and generation from various sources, in each load zone
 set TECHNOLOGIES_INTERMITTENT = setof {t in TECHNOLOGIES: intermittent[t]} (t);
-set TECHNOLOGIES_DISPATCH = setof {(z, t, proj) in PROJ_DISPATCH} (t);
+set TECHNOLOGIES_DISPATCH = setof {(pid, a, t) in PROJ_DISPATCH} (t);
 param total_gen {LOAD_AREAS, TECHNOLOGIES, STUDY_YEARS} default 0;
 param surplus_gen {LOAD_AREAS, TECHNOLOGIES_INTERMITTENT, STUDY_YEARS} default 0;
 param intermittent_surplus_fraction {LOAD_AREAS, TIMEPOINTS} default 0;
@@ -138,6 +149,7 @@ param outfile symbolic;
 
 # Parameters for basicstats.run
 param total_power_produced_by_period {PERIODS};
+param transmission_losses_by_period {PERIODS};
 
 
 # Enable or disable policy constraints as needed. 
@@ -158,41 +170,41 @@ redeclare param rps_fuel_category {FUELS} symbolic in RPS_FUEL_CATEGORY;
 
 # Maximum potential from resource-limited sources
 set RESOURCE_LIMITED_TECHNOLOGIES = setof{ t in TECHNOLOGIES: resource_limited[t] } (t);
-param max_potential_power { f in FUELS, p in PERIODS };
+param max_potential_power {FUELS, PERIODS };
 if ( enable_min_solar_production = 1 ) then {
 
-  for { f in FUELS, p in PERIODS } {
-  let max_potential_power[ f, p ] := 
+  for { f in FUELS, yr in PERIODS } {
+  let max_potential_power[ f, yr ] := 
 	sum{ t in RESOURCE_LIMITED_TECHNOLOGIES: fuel[t] = f and intermittent[t] } (
 	# Intermittent, resource-limited projects that are not located at sites where technologies are in competition
 		# New plants
-		sum{ (z, t, proj) in PROJ_RESOURCE_LIMITED, h in TIMEPOINTS: 
-			 period[h] = p and fuel[t] = f and not (location_id[z,t,proj] in LOCATIONS_WITH_COMPETING_TECHNOLOGIES)} (
-			(1-forced_outage_rate[t]) * capacity_limit_by_project[z, t, proj] * capacity_limit_conversion[z, t, proj] * cap_factor[z, t, proj, h] * hours_in_sample[h]
+		sum{ (pid, a, t) in PROJ_RESOURCE_LIMITED, h in TIMEPOINTS: 
+			 period[h] = yr and fuel[t] = f and not (project_location[pid, a, t] in LOCATIONS_WITH_COMPETING_TECHNOLOGIES)} (
+			(1-forced_outage_rate[t]) * capacity_limit[pid, a, t] * capacity_limit_conversion[pid, a, t] * cap_factor[pid, a, t, h] * hours_in_sample[h]
 		)
 		# Existing plants (assume they are operating)
-	  + sum { (z, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: 
-				 period[h] = p and ep_technology[z,e] = t and ep_fuel[z,e]=f} (
-			(1-ep_forced_outage_rate[z,e]) * eip_cap_factor[z, e, h]  * ep_size_mw[z, e] * hours_in_sample[h]
+	  + sum { (a, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: 
+				 period[h] = yr and ep_technology[a,e] = t and ep_fuel[a,e]=f} (
+			(1-ep_forced_outage_rate[a,e]) * eip_cap_factor[a, e, h]  * ep_size_mw[a, e] * hours_in_sample[h]
 		)
-	# New Intermittent, resource-limited projects that are not located at sites where technologies are in competition. 
+	# New Intermittent, resource-limited projects that are located at sites with competing technologies. 
 	# Pick the technology that if installed completely would provide the most power. 
 	# This assumes that competing technologies share the same fuel
 	  + sum{ l in LOCATIONS_WITH_COMPETING_TECHNOLOGIES } 
-		  max{(z, t, proj) in PROJ_RESOURCE_LIMITED, h in TIMEPOINTS: 
-			 period[h] = p and fuel[t] = f and location_id[z,t,proj] = l }
-			 (1-forced_outage_rate[t]) * capacity_limit_by_project[z, t, proj] * capacity_limit_conversion[z, t, proj] * cap_factor[z, t, proj, h] * hours_in_sample[h]
+		  max{(pid, a, t) in PROJ_RESOURCE_LIMITED, h in TIMEPOINTS: 
+			 period[h] = yr and fuel[t] = f and project_location[pid, a, t] = l }
+			 (1-forced_outage_rate[t]) * capacity_limit[pid, a, t] * capacity_limit_conversion[pid, a, t] * cap_factor[pid, a, t, h] * hours_in_sample[h]
 	
 	# Baseload, resource-limited technologies (currently biomass & geothermal)
 		# New plants
-	  + sum { (z, t, proj, v, h) in NEW_BASELOAD_VINTAGE_HOURS:
-			  period[h] = p and fuel[t] = f } ( 
-			(1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * capacity_limit_by_project[z, t, proj] * capacity_limit_conversion[z, t, proj] * hours_in_sample[h]
+	  + sum { (pid, a, t, v, h) in NEW_BASELOAD_VINTAGE_HOURS:
+			  period[h] = yr and fuel[t] = f } ( 
+			(1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * capacity_limit[pid, a, t] * capacity_limit_conversion[pid, a, t] * hours_in_sample[h]
 		)
 		# Existing plants (assume they are operating)
-	  + sum { (z, e, p) in EP_BASELOAD_PERIODS, h in TIMEPOINTS: 
-			  period[h] = p and ep_technology[z,e] = t and ep_fuel[z,e]=f} (
-			(1-ep_forced_outage_rate[z, e]) * (1-ep_scheduled_outage_rate[z, e]) * ep_size_mw[z, e] * hours_in_sample[h]
+	  + sum { (a, e, yr) in EP_BASELOAD_PERIODS, h in TIMEPOINTS: 
+			  period[h] = yr and ep_technology[a,e] = t and ep_fuel[a,e]=f} (
+			(1-ep_forced_outage_rate[a, e]) * (1-ep_scheduled_outage_rate[a, e]) * ep_size_mw[a, e] * hours_in_sample[h]
 		)
 	# ToDo: add a part for dispatchable, resource-limited technologies when we add tech of that type
 	)
@@ -201,22 +213,3 @@ if ( enable_min_solar_production = 1 ) then {
 }
 check;
 
-set RESULT_FILES;
-param result_file_path_templates{RESULT_FILES} symbolic;
-param result_header_paths{RESULT_FILES} symbolic;
-param output_section symbolic;
-
-let RESULT_FILES := { 'dispatch', 'system_load', 'transmission', 'generation_capacity', 'transmission_capacity', 'local_trans_and_distribution_capacity' };
-let result_file_path_templates['dispatch']                              := 'results/dispatch_%d.txt';
-let result_file_path_templates['system_load']                           := 'results/sys_load_%d.txt';
-let result_file_path_templates['transmission']                          := 'results/transmission_%d.txt';
-let result_file_path_templates['generation_capacity']                   := 'results/gen_cap_%d.txt';
-let result_file_path_templates['transmission_capacity']                 := 'results/trans_cap_%d.txt';
-let result_file_path_templates['local_trans_and_distribution_capacity'] := 'results/local_td_cap_%d.txt';
-
-let result_header_paths['dispatch']                              := 'results/dispatch_columns.txt';
-let result_header_paths['system_load']                           := 'results/sys_load_columns.txt';
-let result_header_paths['transmission']                          := 'results/transmission_columns.txt';
-let result_header_paths['generation_capacity']                   := 'results/gen_cap_columns.txt';
-let result_header_paths['transmission_capacity']                 := 'results/trans_cap_columns.txt';
-let result_header_paths['local_trans_and_distribution_capacity'] := 'results/local_td_cap_columns.txt';

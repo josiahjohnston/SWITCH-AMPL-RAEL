@@ -77,6 +77,13 @@ param location_unspecified := 0;
 # cost of carbon emissions ($/tonneCO2)
 param carbon_cost;
 # Set this to more than one value if you want to run the carbon curve scripty thing
-# Leave the following line at the end of the file, or you'll get syntax errors.
-#let CARBON_COSTS := {0, 500};
-let CARBON_COSTS := {0, 20, 40, 60};
+set CARBON_COSTS := {0, 20, 60};
+
+param: 
+RESULT_FILES:                        result_file_path_templates    result_header_paths :=
+dispatch                              'results/dispatch_%d.txt'     'results/dispatch_columns.txt'
+system_load                           'results/system_load_%d.txt'  'results/system_load_columns.txt' 
+transmission                          'results/transmission_%d.txt' 'results/transmission_columns.txt' 
+generation_capacity                   'results/gen_cap_%d.txt'      'results/gen_cap_columns.txt' 
+transmission_capacity                 'results/trans_cap_%d.txt'    'results/trans_cap_columns.txt' 
+local_trans_and_distribution_capacity 'results/local_td_cap_%d.txt' 'results/local_td_cap_columns.txt';
