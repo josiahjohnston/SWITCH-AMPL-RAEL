@@ -8,10 +8,10 @@ use generator_info;
 drop table if exists generator_costs;
 create table generator_costs (
 	technology_id tinyint unsigned NOT NULL PRIMARY KEY,
-	technology varchar(30) UNIQUE,
+	technology varchar(64) UNIQUE,
 	price_and_dollar_year year,
 	min_build_year year,
-	fuel varchar(30),
+	fuel varchar(64),
 	overnight_cost float,
 	fixed_o_m float,
 	variable_o_m float,
