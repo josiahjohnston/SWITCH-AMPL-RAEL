@@ -245,7 +245,7 @@ CREATE TABLE  existing_plants_agg(
   scheduled_outage_rate double,
   max_age double,
   intermittent tinyint(1) default '0',
-  technology varchar(30)
+  technology varchar(64)
 );
 
 
@@ -493,16 +493,10 @@ update existing_plants_agg set aer_fuel = 'Coal' where aer_fuel like 'COL';
 update existing_plants_agg set aer_fuel = 'Geothermal' where aer_fuel like 'GEO';
 
 alter table existing_plants_agg add column intermittent boolean default 0;
-alter table existing_plants_agg add column technology varchar(30);
+alter table existing_plants_agg add column technology varchar(64);
 update existing_plants_agg set technology = concat(aer_fuel, '_', gentype);
 
 -- Update technology names - make these above in the future
-update existing_plants_agg set technology = 'Coal_Steam_Turbine' where technology = 'Coal_ST';
-update existing_plants_agg set technology = 'Geothermal' where technology = 'Geothermal_ST';
-update existing_plants_agg set technology = 'Gas_Combustion_Turbine' where technology = 'Gas_GT' or technology = 'Gas_IC' ;
-update existing_plants_agg set technology = 'Gas_Steam_Turbine' where technology = 'Gas_ST';
-update existing_plants_agg set technology = 'CCGT' where technology = 'Gas_CC';
-update existing_plants_agg set technology = 'Nuclear' where technology = 'Uranium_ST';
 
 update existing_plants_agg set technology = 'Coal_Steam_Turbine_EP' where technology = 'Coal_ST';
 update existing_plants_agg set technology = 'Geothermal_EP' where technology in ('Geothermal_ST', 'Geothermal_BT');
@@ -510,7 +504,7 @@ update existing_plants_agg set technology = 'Gas_Combustion_Turbine_EP' where te
 update existing_plants_agg set technology = 'Gas_Steam_Turbine_EP' where technology = 'Gas_ST';
 update existing_plants_agg set technology = 'CCGT_EP' where technology = 'Gas_CC';
 update existing_plants_agg set technology = 'Nuclear_EP' where technology = 'Uranium_ST';
-
+update existing_plants_agg set technology = replace(technology, "_EP", "_Cogen_EP") where cogen;
 
 -- add in Wind existing plants
 -- existing windfarms added here
@@ -562,7 +556,6 @@ group by 3tier.windfarms_existing_info_wecc.windfarm_existing_id
 
 
 -- HYDRO----------
-use generator_info;
 
 -- a few plants have different summer and winter capacities listed in grid.eia860gen07_US
 -- but these are likely due to generator outages/repairs rather than any operational constraint
