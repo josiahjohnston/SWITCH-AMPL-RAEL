@@ -2,7 +2,7 @@ CREATE DATABASE IF NOT EXISTS switch_results_wecc_v2_2;
 USE switch_results_wecc_v2_2;
 
 CREATE OR REPLACE VIEW technologies as 
-	select technology_id, technology from switch_inputs_wecc_v2_2.generator_info;
+	select technology_id, technology, fuel, can_build_new from switch_inputs_wecc_v2_2.generator_info;
 CREATE OR REPLACE VIEW load_areas as 
 	select area_id, load_area from switch_inputs_wecc_v2_2.load_area_info;
 CREATE OR REPLACE VIEW load_areas as 
@@ -24,7 +24,8 @@ INSERT IGNORE INTO months (month_name)
 
 CREATE TABLE IF NOT EXISTS co2_cc (
   scenario_id int,
-  carbon_cost double,
+  carbon_cost smallint,
+  period year,
   co2_tons double,
   co2_tons_reduced double,
   co2_share_reduced double,
@@ -37,24 +38,24 @@ CREATE TABLE IF NOT EXISTS co2_cc (
 
 CREATE TABLE IF NOT EXISTS _dispatch (
   scenario_id int,
-  carbon_cost double,
+  carbon_cost smallint,
   period year,
-  area_id int NOT NULL, 
+  project_id mediumint NOT NULL,
+  area_id smallint NOT NULL, 
   study_date int,
   study_hour int,
-  technology_id int NOT NULL, 
-  project_id int NOT NULL,
+  technology_id tinyint unsigned NOT NULL, 
   new boolean,
   baseload boolean,
   cogen boolean,
-  fuel varchar(20),
+  fuel varchar(64),
   power double,
   co2_tons double,
   hours_in_sample int,
   heat_rate double, 
-  fuel_cost_tot double,
-  carbon_cost_tot double,
-  variable_o_m_tot double,
+  fuel_cost double,
+  carbon_cost_incurred double,
+  variable_o_m_cost double,
   INDEX scenario_id (scenario_id),
   INDEX period (period),
   INDEX carbon_cost (carbon_cost),
@@ -68,20 +69,20 @@ CREATE TABLE IF NOT EXISTS _dispatch (
   FOREIGN KEY (project_id) REFERENCES sites(project_id)
 ) ROW_FORMAT=FIXED;
 CREATE OR REPLACE VIEW dispatch as
-  SELECT scenario_id, carbon_cost, period, load_area, study_date, study_hour, technology, site, new, baseload, cogen, fuel, power, co2_tons, hours_in_sample, heat_rate, fuel_cost_tot, carbon_cost_tot, variable_o_m_tot
+  SELECT scenario_id, carbon_cost, period, load_area, study_date, study_hour, technology, site, new, baseload, cogen, fuel, power, co2_tons, hours_in_sample, heat_rate, fuel_cost, carbon_cost_incurred, variable_o_m_cost
     FROM _dispatch join load_areas using(area_id) join technologies using(technology_id) join sites using (project_id);
 
 CREATE TABLE IF NOT EXISTS _gen_cap (
   scenario_id int,
-  carbon_cost DOUBLE,
-  period YEAR,
-  area_id int NOT NULL, 
-  technology_id int NOT NULL, 
-  project_id int NOT NULL,
+  carbon_cost smallint,
+  period year,
+  area_id smallint NOT NULL, 
+  technology_id tinyint unsigned NOT NULL, 
+  project_id mediumint NOT NULL,
   new BOOLEAN,
   baseload BOOLEAN,
   cogen BOOLEAN,
-  fuel VARCHAR(20),
+  fuel VARCHAR(64),
   capacity DOUBLE,
   fixed_cost DOUBLE,
   INDEX scenario_id (scenario_id),
@@ -100,125 +101,139 @@ CREATE OR REPLACE VIEW gen_cap as
     FROM _gen_cap join load_areas using(area_id) join technologies using(technology_id) join sites using (project_id);
 
 
-CREATE TABLE IF NOT EXISTS gen_cap_summary (
+CREATE TABLE IF NOT EXISTS _gen_cap_summary (
   scenario_id int,
-  carbon_cost double,
+  carbon_cost smallint,
   period year,
-  source varchar(35),
+  technology_id tinyint unsigned NOT NULL,
   capacity double,
   INDEX scenario_id (scenario_id),
   INDEX carbon_cost (carbon_cost),
   INDEX period (period),
-  INDEX `source` (`source`),
-  PRIMARY KEY (scenario_id, carbon_cost, period, `source`)
+  INDEX technology_id (technology_id),
+  PRIMARY KEY (scenario_id, carbon_cost, period, technology_id)
 ) ROW_FORMAT=FIXED;
+CREATE OR REPLACE VIEW gen_cap_summary as
+  SELECT scenario_id, carbon_cost, period, technology, capacity
+    FROM _gen_cap_summary technologies using(technology_id);
 
 CREATE TABLE IF NOT EXISTS _gen_cap_summary_la (
   scenario_id int,
-  carbon_cost double,
+  carbon_cost smallint,
   period year,
-  area_id int NOT NULL, 
-  source varchar(35),
+  area_id smallint NOT NULL, 
+  technology_id tinyint unsigned NOT NULL,
   capacity double,
   INDEX scenario_id (scenario_id),
   INDEX carbon_cost (carbon_cost),
   INDEX period (period),
   INDEX area_id (area_id),
   FOREIGN KEY (area_id) REFERENCES load_areas(area_id), 
-  INDEX `source` (`source`),
-  PRIMARY KEY (scenario_id, carbon_cost, period, area_id, `source`)
+  FOREIGN KEY (technology_id) REFERENCES technologies(technology_id),
+  INDEX technology_id (technology_id),
+  PRIMARY KEY (scenario_id, carbon_cost, period, area_id, technology_id)
 ) ROW_FORMAT=FIXED;
 CREATE OR REPLACE VIEW gen_cap_summary_la as
-  SELECT scenario_id, carbon_cost, period, load_area, source, capacity
-    FROM _gen_cap_summary_la join load_areas using(area_id);
+  SELECT scenario_id, carbon_cost, period, load_area, technology, capacity
+    FROM _gen_cap_summary_la join load_areas using(area_id) join technologies using (technology_id);
 
 CREATE TABLE IF NOT EXISTS _gen_hourly_summary (
   scenario_id int,
-  carbon_cost double,
+  carbon_cost smallint,
   period year,
   study_date int,
   study_hour int,
   hours_in_sample int,
   month int,
   hour_of_day bigint,
-  source varchar(35),
+  technology_id tinyint unsigned NOT NULL,
   power double,
   INDEX scenario_id (scenario_id),
   INDEX carbon_cost (carbon_cost),
   INDEX period (period),
   INDEX study_hour (study_hour),
-  INDEX `source` (`source`),
-  PRIMARY KEY (scenario_id, carbon_cost, study_hour, `source`)
+  INDEX technology_id (technology_id),
+  FOREIGN KEY (technology_id) REFERENCES technologies(technology_id),
+  PRIMARY KEY (scenario_id, carbon_cost, study_hour, technology_id)
 ) ROW_FORMAT=FIXED;
 CREATE OR REPLACE VIEW gen_hourly_summary as
-  SELECT scenario_id, carbon_cost, period, study_date, study_hour, hours_in_sample, month, month_name, hour_of_day, source, power
-    FROM _gen_hourly_summary join months on(month=month_id);
+  SELECT scenario_id, carbon_cost, period, study_date, study_hour, hours_in_sample, month, month_name, hour_of_day, technology, power
+    FROM _gen_hourly_summary join months on(month = month_id) join technologies using (technology_id);
 
 
 CREATE TABLE IF NOT EXISTS _gen_hourly_summary_la (
   scenario_id int,
-  carbon_cost double,
+  carbon_cost smallint,
   period year,
-  area_id int NOT NULL, 
+  area_id smallint NOT NULL, 
   study_date int,
   study_hour int,
   hours_in_sample int,
   month int,
-  hour_of_day bigint,
-  source varchar(35),
+  hour_of_day int,
+  technology_id tinyint unsigned NOT NULL,
+  variable_o_m_cost double,
+  fuel_cost double,
+  carbon_cost_incurred double,
+  co2_tons double,
   power double,
   INDEX scenario_id (scenario_id),
   INDEX carbon_cost (carbon_cost),
   INDEX period (period),
   INDEX study_hour (study_hour),
-  INDEX `source` (`source`),
+  INDEX technology_id (technology_id),
   INDEX area_id (area_id),
   FOREIGN KEY (area_id) REFERENCES load_areas(area_id), 
-  PRIMARY KEY (scenario_id, carbon_cost, study_hour, area_id, `source`)
+  FOREIGN KEY (technology_id) REFERENCES technologies(technology_id),
+  PRIMARY KEY (scenario_id, carbon_cost, study_hour, area_id, technology_id)
 ) ROW_FORMAT=FIXED;
 CREATE OR REPLACE VIEW gen_hourly_summary_la as
-  SELECT scenario_id, carbon_cost, period, load_area, study_date, study_hour, hours_in_sample, month, month_name, hour_of_day, source, power
-    FROM _gen_hourly_summary_la join load_areas using(area_id) join months on(month=month_id);
+  SELECT scenario_id, carbon_cost, period, load_area, study_date, study_hour, hours_in_sample, month, month_name, hour_of_day, technology, variable_o_m_cost, fuel_cost, carbon_cost_incurred, co2_tons, power
+    FROM _gen_hourly_summary_la join load_areas using(area_id) join months on(month=month_id) join technologies using (technology_id);
 
 
-CREATE TABLE IF NOT EXISTS gen_summary (
+CREATE TABLE IF NOT EXISTS _gen_summary (
   scenario_id int,
-  carbon_cost double,
+  carbon_cost smallint,
   period year,
-  source varchar(35),
+  technology_id tinyint unsigned NOT NULL,
   avg_power double,
   INDEX scenario_id (scenario_id),
   INDEX carbon_cost (carbon_cost),
   INDEX period (period),
-  INDEX `source` (`source`),
-  PRIMARY KEY (scenario_id, carbon_cost, period, `source`)
+  INDEX technology_id (technology_id),
+  PRIMARY KEY (scenario_id, carbon_cost, period, technology_id)
 ) ROW_FORMAT=FIXED;
+CREATE OR REPLACE VIEW gen_summary as
+  SELECT scenario_id, carbon_cost, period, technology, avg_power
+    FROM _gen_summary join technologies using (technology_id);
 
 CREATE TABLE IF NOT EXISTS _gen_summary_la (
   scenario_id int,
-  carbon_cost double,
+  carbon_cost smallint,
   period year,
-  area_id int NOT NULL, 
-  source varchar(35),
+  area_id smallint NOT NULL, 
+  technology_id tinyint unsigned NOT NULL,
   avg_power double,
   INDEX scenario_id (scenario_id),
   INDEX carbon_cost (carbon_cost),
   INDEX period (period),
   INDEX area_id (area_id),
   FOREIGN KEY (area_id) REFERENCES load_areas(area_id), 
-  INDEX `source` (`source`),
-  PRIMARY KEY (scenario_id, carbon_cost, period, area_id, `source`)
+  FOREIGN KEY (technology_id) REFERENCES technologies(technology_id),
+  INDEX technology_id (technology_id),
+  PRIMARY KEY (scenario_id, carbon_cost, period, area_id, technology_id)
 ) ROW_FORMAT=FIXED;
 CREATE OR REPLACE VIEW gen_summary_la as
-  SELECT scenario_id, carbon_cost, period, load_area, source, avg_power
-    FROM _gen_summary_la join load_areas using(area_id);
+  SELECT scenario_id, carbon_cost, period, load_area, technology, avg_power
+    FROM _gen_summary_la join load_areas using(area_id) join technologies using (technology_id);
 
 
 CREATE TABLE IF NOT EXISTS _local_td_cap (
   scenario_id int,
-  carbon_cost double,
+  carbon_cost smallint,
   period year,
-  area_id int NOT NULL, 
+  area_id smallint NOT NULL, 
   local_td_mw double,
   fixed_cost double, 
   INDEX scenario_id (scenario_id),
@@ -235,15 +250,15 @@ CREATE OR REPLACE VIEW local_td_cap as
 
 CREATE TABLE IF NOT EXISTS power_cost (
   scenario_id int,
-  carbon_cost double,
+  carbon_cost smallint,
   period year,
-  load_mwh double,
-  fixed_cost_gen double,
-  fixed_cost_trans double,
-  fixed_cost_local_td double,
+  load_in_period_mwh double,
+  local_td_cost double,
+  transmission_cost double,
+  generator_capital_and_fixed_cost double,
+  generator_variable_o_m_cost double,
   fuel_cost double,
-  carbon_cost_tot double,
-  variable_o_m double,
+  carbon_cost_total double,
   total_cost double,
   cost_per_mwh double,
   INDEX scenario_id (scenario_id),
@@ -254,10 +269,10 @@ CREATE TABLE IF NOT EXISTS power_cost (
 
 CREATE TABLE IF NOT EXISTS _trans_cap (
   scenario_id int,
-  carbon_cost double,
+  carbon_cost smallint,
   period year,
-  start_id int,
-  end_id int,
+  start_id smallint,
+  end_id smallint,
   tid int,
   new boolean,
   trans_mw double,
@@ -271,18 +286,20 @@ CREATE OR REPLACE VIEW trans_cap as
   SELECT scenario_id, carbon_cost, period, start.load_area as start, end.load_area as end, tid, new, trans_mw, fixed_cost 
     FROM _trans_cap join load_areas start on(start_id=start.area_id) join load_areas end on(end_id=end.area_id) ;
 
-CREATE TABLE IF NOT EXISTS _transmission (
+CREATE TABLE IF NOT EXISTS _transmission_dispatch (
   scenario_id int,
-  carbon_cost double,
-  period int,
-  receive_id int,
-  send_id int,
+  carbon_cost smallint,
+  period year,
+  receive_id smallint,
+  send_id smallint,
   study_date int,
   study_hour int,
+  month int,
+  hour_of_day int,
+  hours_in_sample int,
   rps_fuel_category varchar(20),
   power_sent double,
   power_received double,
-  hours_in_sample int,
   INDEX scenario_id (scenario_id),
   INDEX carbon_cost (carbon_cost),
   INDEX period (period),
@@ -292,19 +309,21 @@ CREATE TABLE IF NOT EXISTS _transmission (
   INDEX rps_fuel_category (rps_fuel_category),
   PRIMARY KEY (scenario_id, carbon_cost, period, study_hour, receive_id, send_id, rps_fuel_category)
 ) ROW_FORMAT=FIXED;
-CREATE OR REPLACE VIEW transmission as
-  SELECT scenario_id, carbon_cost, period, start.load_area as load_area_receive, end.load_area as load_area_from, study_date, study_hour, rps_fuel_category, power_sent, power_received, hours_in_sample 
-    FROM _transmission join load_areas start on(receive_id=start.area_id) join load_areas end on(send_id=end.area_id);
+CREATE OR REPLACE VIEW transmission_dispatch as
+  SELECT scenario_id, carbon_cost, period, start.load_area as load_area_receive, end.load_area as load_area_from, study_date, study_hour, month, hour_of_day, hours_in_sample, rps_fuel_category, power_sent, power_received  
+    FROM _transmission_dispatch join load_areas start on(receive_id=start.area_id) join load_areas end on(send_id=end.area_id);
 
 CREATE TABLE IF NOT EXISTS _trans_summary (
   scenario_id int,
-  carbon_cost double,
-  period int,
-  area_id int,
+  carbon_cost smallint,
+  period year,
+  area_id smallint,
   study_date int,
   study_hour int,
-  net_power double,
+  month int,
+  hour_of_day int,
   hours_in_sample int,
+  net_power double,
   INDEX carbon_cost (carbon_cost),
   INDEX period (period),
   INDEX study_hour (study_hour),
@@ -312,18 +331,20 @@ CREATE TABLE IF NOT EXISTS _trans_summary (
   PRIMARY KEY (scenario_id, carbon_cost, period, study_hour, area_id)
 ) ROW_FORMAT=FIXED;
 CREATE OR REPLACE VIEW trans_summary as
-  SELECT scenario_id, carbon_cost, period, load_area, study_date, study_hour, net_power, hours_in_sample 
+  SELECT scenario_id, carbon_cost, period, load_area, study_date, study_hour, month, hour_of_day, hours_in_sample, net_power 
     FROM _trans_summary join load_areas using(area_id);
 
 CREATE TABLE IF NOT EXISTS _trans_loss (
   scenario_id int,
-  carbon_cost double,
-  period int,
-  area_id int comment "Losses are assigned to areas that transmit power, rather than areas that receive.",
+  carbon_cost smallint,
+  period year,
+  area_id smallint comment "Losses are assigned to areas that transmit power, rather than areas that receive.",
   study_date int,
   study_hour int,
-  power double,
+  month int,
+  hour_of_day int,
   hours_in_sample int,
+  power double,
   INDEX carbon_cost (carbon_cost),
   INDEX period (period),
   INDEX study_hour (study_hour),
@@ -331,18 +352,20 @@ CREATE TABLE IF NOT EXISTS _trans_loss (
   PRIMARY KEY (scenario_id, carbon_cost, period, study_hour, area_id)
 ) ROW_FORMAT=FIXED;
 CREATE OR REPLACE VIEW trans_loss as
-  SELECT scenario_id, carbon_cost, period, load_area, study_date, study_hour, power, hours_in_sample 
+  SELECT scenario_id, carbon_cost, period, load_area, study_date, study_hour, month, hour_of_day, hours_in_sample, power
     FROM _trans_loss join load_areas using(area_id);
 
 CREATE TABLE IF NOT EXISTS _system_load (
   scenario_id int,
-  carbon_cost double,
-  period int,
-  area_id int,
+  carbon_cost smallint,
+  period year,
+  area_id smallint,
   study_date int,
   study_hour int,
-  power double,
+  month int,
+  hour_of_day int,
   hours_in_sample int,
+  power double,
   INDEX carbon_cost (carbon_cost),
   INDEX period (period),
   INDEX study_hour (study_hour),
@@ -350,14 +373,23 @@ CREATE TABLE IF NOT EXISTS _system_load (
   PRIMARY KEY (scenario_id, carbon_cost, period, study_hour, area_id)
 ) ROW_FORMAT=FIXED;
 CREATE OR REPLACE VIEW system_load as
-  SELECT scenario_id, carbon_cost, period, load_area, study_date, study_hour, power, hours_in_sample 
+  SELECT scenario_id, carbon_cost, period, load_area, study_date, study_hour, month, hour_of_day, hours_in_sample, power 
     FROM _system_load join load_areas using(area_id);
 
+CREATE TABLE IF NOT EXISTS system_load_summary (
+  scenario_id int,
+  carbon_cost smallint,
+  period year,
+  system_load double,
+  INDEX carbon_cost (carbon_cost),
+  INDEX period (period),
+  PRIMARY KEY (scenario_id, carbon_cost, period)
+) ROW_FORMAT=FIXED;
 
 
 CREATE TABLE IF NOT EXISTS run_times (
   scenario_id int,
-  carbon_cost double,
+  carbon_cost year,
   cost_optimization_run_time float COMMENT 'Time to optimize for cost (in seconds).',
   trans_optimization_run_time float COMMENT 'Time to optimize for transmission (in seconds).',
   INDEX scenario_id (scenario_id),
@@ -376,7 +408,7 @@ BEGIN
   DELETE FROM co2_cc WHERE scenario_id = target_scenario_id;
   DELETE FROM _dispatch WHERE scenario_id = target_scenario_id;
   DELETE FROM _gen_cap WHERE scenario_id = target_scenario_id;
-  DELETE FROM gen_cap_summary WHERE scenario_id = target_scenario_id;
+  DELETE FROM _gen_cap_summary WHERE scenario_id = target_scenario_id;
   DELETE FROM _gen_cap_summary_la WHERE scenario_id = target_scenario_id;
   DELETE FROM _gen_hourly_summary WHERE scenario_id = target_scenario_id;
   DELETE FROM _gen_hourly_summary_la WHERE scenario_id = target_scenario_id;
@@ -385,33 +417,13 @@ BEGIN
   DELETE FROM _local_td_cap WHERE scenario_id = target_scenario_id;
   DELETE FROM power_cost WHERE scenario_id = target_scenario_id;
   DELETE FROM _trans_cap WHERE scenario_id = target_scenario_id;
-  DELETE FROM _transmission WHERE scenario_id = target_scenario_id;
+  DELETE FROM _transmission_dispatch WHERE scenario_id = target_scenario_id;
   DELETE FROM _trans_summary WHERE scenario_id = target_scenario_id;
   DELETE FROM _trans_loss WHERE scenario_id = target_scenario_id;
   DELETE FROM _system_load WHERE scenario_id = target_scenario_id;
+  DELETE FROM system_load_summary WHERE scenario_id = target_scenario_id;
   DELETE FROM run_times WHERE scenario_id = target_scenario_id;
   
   RETURN 1;
-END
-$$
-
-DELIMITER ;
-
-DROP FUNCTION IF EXISTS `get_gen_cap_query_source_as_col`;
-DELIMITER $$
-CREATE DEFINER=`siah`@`localhost` FUNCTION `get_gen_cap_query_source_as_col`(target_scenario_id int) RETURNS varchar(16384)
-BEGIN
-  
-  return( select concat( 
-  "select * from (SELECT distinct scenario_id,carbon_cost, period, study_date,study_hour,hours_in_sample,month,month_name,hour_of_day FROM gen_hourly_summary WHERE scenario_id = ",target_scenario_id,") t ", 
-  group_concat(
-    concat(
-      "join (select carbon_cost, study_hour, power as `",source,"` FROM gen_hourly_summary where source='",source,"' and scenario_id = ",target_scenario_id,") as `",source,"` using (carbon_cost, study_hour)"
-      )
-    SEPARATOR ' '
-  ),
-  " order by carbon_cost, period, month, hour_of_day;") as column_oriented_query 
-from (select distinct source from gen_hourly_summary where target_scenario_id = target_scenario_id ) as a );
-
 END
 $$
