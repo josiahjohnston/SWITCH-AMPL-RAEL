@@ -152,6 +152,17 @@ param total_power_produced_by_period {PERIODS};
 param transmission_losses_by_period {PERIODS};
 
 
+# "carrying cost" for hydro and pumped hydro facilities ($/MWp/year)
+# The source for these cost number is Black and Veach / NREL ReEDS
+# this is calculated as:
+	#   $2042/kW * 1000 kW/MW * crf (capital recovery factor for a 70-year project at 7% interest)
+let hydro_capital := 2042000 * discount_rate / (1-(1+discount_rate)^(-70));
+	#   + 12.42/kW * 1000 kW/MW (fixed O&M per MW)
+let hydro_fixed_o_m := 12420 * discount_rate;
+	#   + 2.21/MWh * 8760 * 0.38 h/y (variable O&M and approx. capacity factor for hydro projects is about 38% according to our hydro monthly limit data)
+let hydro_var_o_m := 2.21 * 8760 * 0.38;
+
+
 # Enable or disable policy constraints as needed. 
 # This might be implemented better as named problems.
 if enable_min_solar_production = 0 then {

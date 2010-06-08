@@ -370,7 +370,10 @@ param pumped_hydro_efficiency >= 0;
 # annual cost for existing hydro plants (see notes in windsun.dat)
 # it would be better to calculate this from the capital cost, fixed and variable O&M,
 # but that introduces messy new parameters and doesn't add anything to the analysis
-param hydro_annual_payment_per_mw >= 0;
+param hydro_capital >= 0;
+param hydro_fixed_o_m >= 0;
+param hydro_var_o_m >= 0;
+param hydro_annual_payment_per_mw = hydro_capital + hydro_fixed_o_m + hydro_var_o_m;
 
 # indexing sets for hydro data (read in along with data tables)
 # (this should probably be monthly data, but this has equivalent effect,

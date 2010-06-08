@@ -46,18 +46,6 @@ param forced_outage_rate_hydro := 0.02;
 # Black and Veach / NREL ReEDS has this number at 0.87
 param pumped_hydro_efficiency := 0.87;
 
-# "carrying cost" for hydro and pumped hydro facilities ($/MWp/year)
-# this is calculated as 
-#   $1500/kW * 1000 kW/MW * 0.061 (capital recovery factor for a 70-year project at 6% interest)
-#   + 13/kW * 1000 kW/MW (fixed O&M per MW)
-#   + 3.3/MWh * 8760 * 0.3 h/y (variable O&M and approx. capacity factor for CA hydro projects [0.26 for all projects, 0.35 for simple hydro])
-# (this works out to about $43/MWh)
-# TODO: calculate hydro costs endogenously 
-#   (that will require some neat way of getting hydro plant and cost data into ampl, 
-#   maybe via existing_plants.tab; that will also require adding a flag to prevent 
-#   the model from trying to dispatch these plants along with the gas and coal ones) 
-param hydro_annual_payment_per_mw := 113172;
-
 # Names of intermittent and resource-limited technologies. 
 param tech_ccgt := "CCGT";
 param tech_gas_combustion_turbine := "Gas_Combustion_Turbine";
@@ -77,7 +65,7 @@ param location_unspecified := 0;
 # cost of carbon emissions ($/tonneCO2)
 param carbon_cost;
 # Set this to more than one value if you want to run the carbon curve scripty thing
-set CARBON_COSTS := {0, 20, 60};
+set CARBON_COSTS := 0 20 60;
 
 param: 
 RESULT_FILES:                        result_file_path_templates    result_header_paths :=
