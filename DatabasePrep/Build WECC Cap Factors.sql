@@ -1,6 +1,6 @@
 -- makes the switch input database from which data is thrown into ampl via 'get_switch_input_tables.sh'
 -- run at command line from the DatabasePrep directory:
--- mysql -h switch-db1.erg.berkeley.edu -u jimmy -p < /Users/siah/src/Switch/HEAD/DatabasePrep/Build\ WECC\ Cap\ Factors.sql
+-- mysql -h switch-db1.erg.berkeley.edu -u jimmy -p < /Volumes/1TB_RAID/Models/Switch\ Runs/WECCv2_2/122/DatabasePrep/Build\ WECC\ Cap\ Factors.sql
 
 create database if not exists switch_inputs_wecc_v2_2;
 use switch_inputs_wecc_v2_2;
@@ -62,7 +62,7 @@ CREATE TABLE  _system_load (
   area_id smallint unsigned,
   hour smallint unsigned,
   power double,
-  INDEX hour (hour ),
+  INDEX hour ( hour ),
   INDEX area_id (area_id),
   FOREIGN KEY (area_id) REFERENCES load_area_info(area_id), 
   UNIQUE KEY hour_load_area (hour, area_id)
@@ -82,6 +82,79 @@ group by v2_load_area, hour;
 DROP VIEW IF EXISTS system_load;
 CREATE VIEW system_load as 
   SELECT area_id, load_area, hour, power FROM _system_load JOIN load_area_info USING (area_id);
+
+-- now add a column for projected peak 2010 load in each load area, as
+-- the amount of new local T&D needed in each load area will be referenced to this number
+alter table load_area_info add column max_load_mw float;
+update load_area_info,
+			(select _system_load.area_id,
+					datetime_utc,
+					max_load
+				from _system_load,
+					hours,
+					(SELECT area_id, max(power) as max_load FROM _system_load group by 1) as max_load_table
+				where _system_load.power = max_load_table.max_load
+				and _system_load.area_id = max_load_table.area_id
+				and hours.hournum = _system_load.hour) as max_load_hour_table
+set max_load_mw = max_load * power(1.010, 2010 - year( datetime_utc ) )
+where load_area_info.area_id = max_load_hour_table.area_id;
+
+-- add a column for projected total MWh 2010 load in each load area, as
+-- the sunk costs of local t&d and transmission will be based off these costs
+alter table load_area_info add column total_yearly_load_mwh float;
+update 	load_area_info,
+		(select area_id,
+				total_load_mwh / ( number_of_load_hours / 8766 ) as total_yearly_load_mwh
+			from
+			(select area_id,
+					count(hour) as number_of_load_hours,
+					sum( power * power( 1.010, 2010 - year( datetime_utc ) ) ) as total_load_mwh
+				from _system_load, hours
+				where _system_load.hour = hours.hournum
+				group by 1) as mwh_table
+		) as avg_load_table
+set load_area_info.total_yearly_load_mwh = avg_load_table.total_yearly_load_mwh
+where load_area_info.area_id = avg_load_table.area_id;
+
+-- also add the local_td_new_annual_payment_per_mw ($2007/MW), which comes from EIA AEO data
+-- and is complied in /Volumes/1TB_RAID/Models/Switch\ Input\ Data/Transmission/Sunk\ Costs/Calc_trans_dist_sunk_costs_WECC.xlsx
+-- these already have a version of an economic multiplier built in, so we won't multiply by the regional economic multiplier here
+-- Canada is assumed to be similar to NWPP and Mexico Baja CA is assumed to be similar to AZNMSNV
+alter table load_area_info add column local_td_new_annual_payment_per_mw float;
+update load_area_info set local_td_new_annual_payment_per_mw = 
+	CASE 	WHEN primary_nerc_subregion = 'NWPP' THEN 66406.47311
+			WHEN primary_nerc_subregion = 'NWPP Can' THEN 66406.47311
+			WHEN primary_nerc_subregion = 'CA' THEN 128039.8671
+			WHEN primary_nerc_subregion = 'AZNMSNV' THEN 61663.36634
+			WHEN primary_nerc_subregion = 'RMPA' THEN 61663.36634
+			WHEN primary_nerc_subregion = 'MX' THEN 61663.36634
+	END;
+
+-- add yearly costs for maintaining the existing distribution system
+-- the cost per MWh is multiplied by the total_yearly_load_mwh to get the full cost per load area 
+alter table load_area_info add column local_td_sunk_annual_payment float;
+update load_area_info set local_td_sunk_annual_payment = 
+	total_yearly_load_mwh *
+	CASE 	WHEN primary_nerc_subregion = 'NWPP' THEN 19.2
+			WHEN primary_nerc_subregion = 'NWPP Can' THEN 19.2
+			WHEN primary_nerc_subregion = 'CA' THEN 45.12
+			WHEN primary_nerc_subregion = 'AZNMSNV' THEN 20.16
+			WHEN primary_nerc_subregion = 'RMPA' THEN 20.16
+			WHEN primary_nerc_subregion = 'MX' THEN 20.16
+	END;
+
+-- similar to above, add yearly costs for maintaining the existing transmission system
+alter table load_area_info add column transmission_sunk_annual_payment float;
+update load_area_info set transmission_sunk_annual_payment = 
+	total_yearly_load_mwh *
+	CASE 	WHEN primary_nerc_subregion = 'NWPP' THEN 8.64
+			WHEN primary_nerc_subregion = 'NWPP Can' THEN 8.64
+			WHEN primary_nerc_subregion = 'CA' THEN 6.72
+			WHEN primary_nerc_subregion = 'AZNMSNV' THEN 6.72
+			WHEN primary_nerc_subregion = 'RMPA' THEN 6.72
+			WHEN primary_nerc_subregion = 'MX' THEN 6.72
+	END;
+
 
 -- Study Hours----------------------
 select 'Setting Up Study Hours' as progress;
@@ -108,19 +181,6 @@ load data local infile
 	optionally enclosed by '"'
 	ignore 1 lines;
 	
--- PROJECT IDS
--- Create a master table of project ids
--- Do NOT drop this table unless you want to do a reset of the whole inputs & results databases
-CREATE TABLE if not exists _project_ids (
-  project_id mediumint unsigned NOT NULL PRIMARY KEY AUTO_INCREMENT,
-  project_type varchar(50) COMMENT "This can be 'proposed_projects', 'existing_plants', 'hydro', or 'proposed_generation' where proposed_generation refers to new traditional sites that could be built, information for which is in the generator_costs_regional table.",
-  label varchar(50) COMMENT "For proposed_projects, this references original_dataset_id. For existing_plants and hydro, plant_code. ",
-  UNIQUE info (project_type, label),
-  INDEX label (label)
-) ROW_FORMAT=FIXED;
-
-
-
 
 -- ---------------------------------------------------------------------
 --        NON-REGIONAL GENERATOR INFO
@@ -273,36 +333,35 @@ select 'Copying Hydro' as progress;
 
 drop table if exists hydro_monthly_limits;
 CREATE TABLE hydro_monthly_limits (
-  project_id mediumint unsigned,
+  project_id int unsigned,
+  hydro_id mediumint unsigned,
   area_id smallint unsigned,
   load_area varchar(20),
-  site varchar(28),
+  technology varchar(64), 
+  technology_id tinyint unsigned NOT NULL,
   year year,
   month tinyint(4),
-  min_flow double,
-  max_flow double,
-  avg_flow double,
-  index ym (year,month),
-  index (area_id),
-  index (project_id),
-  PRIMARY KEY (site, month, year),
+  capacity_mw double,
+  avg_output double,
+  INDEX ym (year,month),
+  INDEX (area_id),
+  INDEX (project_id),
+  INDEX (technology),
+  PRIMARY KEY (project_id, year, month),
+  UNIQUE (area_id, technology_id, year, month),
   FOREIGN KEY (area_id) REFERENCES load_area_info(area_id)
 ) ROW_FORMAT=FIXED;
 
-DELIMITER $$
-
-/*!50003 DROP TRIGGER IF EXISTS `trg_hydro_proj_id` */$$
-
-/*!50003 CREATE TRIGGER `trg_hydro_proj_id` BEFORE INSERT ON `hydro_monthly_limits` FOR EACH ROW BEGIN
-	INSERT IGNORE INTO _project_ids (project_type,label) VALUES ('hydro', NEW.site);
-	SET NEW.project_id = (SELECT project_id from _project_ids where project_type = 'hydro' and label = NEW.site);
-END */$$
-
-DELIMITER ;
-
-insert into hydro_monthly_limits (area_id, load_area, site, year, month, min_flow, max_flow, avg_flow )
-	select area_id, agg.load_area, site, year, month, min_flow, max_flow, avg_flow from generator_info.hydro_monthly_limits_agg agg join load_area_info using(load_area);
-
+-- The << operation moves the numeric form of the letter "H" (for hydro) over by 3 bytes, effectively making its value into the most significant digits.
+insert into hydro_monthly_limits (project_id, hydro_id, area_id, load_area, technology, technology_id, year, month, capacity_mw, avg_output )
+	select 
+	  agg.hydro_id + (ascii( 'H' ) << 8*3),
+	  agg.hydro_id, area_id, agg.load_area,
+	  technology, technology_id,
+	  year, month, capacity_mw, avg_output
+	from generator_info, generator_info.hydro_monthly_limits_agg agg join load_area_info using(load_area)
+	where generator_info.technology = 	CASE WHEN agg.primemover = 'HY' THEN 'Hydro_NonPumped'
+										WHEN agg.primemover = 'PS' THEN 'Hydro_Pumped' END;
 
 -- EXISTING PLANTS---------
 -- made in 'build proposed plants table.sql'
@@ -310,7 +369,8 @@ select 'Copying existing_plants' as progress;
 
 drop table if exists existing_plants;
 CREATE TABLE existing_plants (
-	project_id mediumint unsigned PRIMARY KEY DEFAULT 0,
+    project_id int unsigned PRIMARY KEY,
+    ep_id mediumint unsigned,
 	area_id smallint unsigned,
 	load_area varchar(11),
 	plant_code varchar(40),
@@ -335,78 +395,17 @@ CREATE TABLE existing_plants (
 	INDEX load_area_plant_code (load_area, plant_code)
 ) ROW_FORMAT=FIXED;
 
-DELIMITER $$
-
-/*!50003 DROP TRIGGER IF EXISTS `trg_ep_proj_id` */$$
-
-/*!50003 CREATE TRIGGER `trg_ep_proj_id` BEFORE INSERT ON `existing_plants` FOR EACH ROW BEGIN
-	INSERT IGNORE INTO _project_ids (project_type,label) VALUES ('existing_plants', NEW.plant_code);
-	SET NEW.project_id = (SELECT project_id from _project_ids where project_type = 'existing_plants' and label = NEW.plant_code);
-END */$$
-
-DELIMITER ;
-
-
-insert into existing_plants (area_id, load_area, plant_code, gentype, aer_fuel, peak_mw, avg_mw, heat_rate, start_year, baseload, cogen, overnight_cost, fixed_o_m, variable_o_m, forced_outage_rate, scheduled_outage_rate, max_age, intermittent, technology )
-	select 	load_area_info.area_id,
+insert into existing_plants (project_id, area_id, ep_id, load_area, plant_code, gentype, aer_fuel, peak_mw, avg_mw, heat_rate, start_year, baseload, cogen, overnight_cost, fixed_o_m, variable_o_m, forced_outage_rate, scheduled_outage_rate, max_age, intermittent, technology )
+	select 	existing_plants_agg.ep_id + (ascii( 'E' ) << 8*3), -- The << operation moves the numeric form of the letter "E" (for existing plants) over by 3 bytes, effectively making its value into the most significant digits.
+			load_area_info.area_id,
 			existing_plants_agg.*
 			from generator_info.existing_plants_agg
 			join load_area_info using(load_area);
 
 
-
--- existing windfarms added here
--- should find overnight costs of historical wind turbines
--- $2/W is used here ($2,000,000/MW)
--- fixed O+M,forced_outage_rate are from new wind
-insert into existing_plants
-		(area_id,
-		load_area,
-		plant_code,
-		gentype,
-		aer_fuel,
-		peak_mw,
-		avg_mw,
-		heat_rate,
-		start_year,
-		baseload,
-		cogen,
-		overnight_cost,
-		fixed_o_m,
-		variable_o_m,
-		forced_outage_rate,
-		scheduled_outage_rate,
-		max_age,
-		intermittent,
-		technology)
-select 	load_area_info.area_id, load_area,
-		concat('Wind', '_', load_area, '_', 3tier.windfarms_existing_info_wecc.windfarm_existing_id) as plant_code,
-		'Wind' as gentype,
-		'Wind' as aer_fuel,
-		capacity_mw as peak_mw,
-		avg(cap_factor) * capacity_mw as avg_mw,
-		0 as heat_rate,
-		year_online as start_year,
-		0 as baseload,
-		0 as cogen,
-		2000000 as overnight_cost,
-		30300 as fixed_o_m,
-		0 as variable_o_m,
-		0.015 as forced_outage_rate,
-		0.003 as scheduled_outage_rate,
-		30 as max_age,
-		1 as intermittent,
-		'Wind' as technology
-from 	3tier.windfarms_existing_info_wecc join 
-        load_area_info using(load_area) join 
-		3tier.windfarms_existing_cap_factor using(windfarm_existing_id)
-group by 3tier.windfarms_existing_info_wecc.windfarm_existing_id
-;
-
-
 drop table if exists _existing_intermittent_plant_cap_factor;
 create table _existing_intermittent_plant_cap_factor(
-		project_id mediumint unsigned,
+		project_id int unsigned,
 		area_id smallint unsigned,
 		hour smallint unsigned,
 		cap_factor float,
@@ -427,14 +426,12 @@ CREATE VIEW existing_intermittent_plant_cap_factor as
 insert into _existing_intermittent_plant_cap_factor
 SELECT      existing_plants.project_id,
             existing_plants.area_id,
-            hours.hournum as hour,
+            hournum as hour,
             3tier.windfarms_existing_cap_factor.cap_factor
     from    existing_plants, 
-            3tier.windfarms_existing_cap_factor,
-            hours
+            3tier.windfarms_existing_cap_factor
     where   technology = 'Wind_EP'
-    and		concat('Wind_EP', '_', load_area, '_', 3tier.windfarms_existing_cap_factor.windfarm_existing_id) = existing_plants.plant_code
-    and     hours.datetime_utc = 3tier.windfarms_existing_cap_factor.datetime_utc;
+    and		concat('Wind_EP', '_', load_area, '_', 3tier.windfarms_existing_cap_factor.windfarm_existing_id) = existing_plants.plant_code;
 
 
 
@@ -444,7 +441,8 @@ SELECT      existing_plants.project_id,
 -- ---------------------------------------------------------------------
 drop table if exists _proposed_projects;
 CREATE TABLE _proposed_projects (
-  project_id mediumint unsigned PRIMARY KEY AUTO_INCREMENT,
+  project_id int unsigned default NULL,
+  gen_info_project_id mediumint unsigned PRIMARY KEY AUTO_INCREMENT,
   technology_id tinyint unsigned NOT NULL,
   area_id smallint unsigned NOT NULL,
   location_id INT DEFAULT NULL,
@@ -459,6 +457,7 @@ CREATE TABLE _proposed_projects (
   variable_o_m float,
   overnight_cost_change float,
   nonfuel_startup_cost float,
+  INDEX project_id (project_id),
   INDEX area_id (area_id),
   INDEX technology_and_location (technology, location_id),
   INDEX technology_id (technology_id),
@@ -471,7 +470,7 @@ CREATE TABLE _proposed_projects (
   FOREIGN KEY (technology_id) REFERENCES generator_info (technology_id)
 ) ROW_FORMAT=FIXED;
 
-insert into _proposed_projects (project_id, technology_id, technology, area_id, location_id, original_dataset_id, capacity_limit, capacity_limit_conversion, connect_cost_per_mw,
+insert into _proposed_projects (project_id, gen_info_project_id, technology_id, technology, area_id, location_id, original_dataset_id, capacity_limit, capacity_limit_conversion, connect_cost_per_mw,
   price_and_dollar_year,
   overnight_cost,
   fixed_o_m,
@@ -479,7 +478,8 @@ insert into _proposed_projects (project_id, technology_id, technology, area_id, 
   overnight_cost_change,
   nonfuel_startup_cost
 )
-	select project_id,
+	select  project_id + (ascii( 'P' ) << 8*3), -- The << operation moves the numeric form of the letter "P" (for proposed projects) over by 3 bytes, effectively making its value into the most significant digits.
+	        project_id,
 	        technology_id,
 	        technology,
 			area_id,
@@ -497,7 +497,7 @@ insert into _proposed_projects (project_id, technology_id, technology, area_id, 
 			
 	from generator_info.proposed_projects proposed join generator_info.generator_costs using (technology) join load_area_info using (load_area)
 	WHERE technology != "Compressed_Air_Energy_Storage"
-	order by 1,2,4;
+	order by 2;
 
 -- Insert "generic" projects that can be built almost anywhere. These used to be in the table  _generator_costs_regional.
 -- Note, project_id is automatically set here because it is an autoincrement column. The renewable proposed_projects with ids set a-priori need to be imported first to avoid unique id conflicts.
@@ -525,6 +525,8 @@ insert into _proposed_projects (technology_id, technology, area_id, connect_cost
 	        load_area_info.scenario_id  = @load_area_scenario_id and
 	        gen_costs.resource_limited = 0
 	order by 1,3;
+UPDATE _proposed_projects SET project_id = gen_info_project_id + (ascii( 'G' ) << 8*3); -- The << operation moves the numeric form of the letter "G" (for generic projects) over by 3 bytes, effectively making its value into the most significant digits.
+
 
 -- regional generator restrictions
 -- Coal_ST and Nuclear can't be built in CA. Nuclear can't be built in Mexico.
@@ -538,6 +540,7 @@ delete from _proposed_projects
 DROP VIEW IF EXISTS proposed_projects;
 CREATE VIEW proposed_projects as
   SELECT 	project_id, 
+            gen_info_project_id,
             technology_id, 
             technology, 
             area_id, 
@@ -564,7 +567,7 @@ CREATE VIEW proposed_projects as
 -- assembles the hourly power output for wind and solar technologies
 drop table if exists _cap_factor_intermittent_sites;
 create table _cap_factor_intermittent_sites(
-	project_id mediumint unsigned,
+	project_id int unsigned,
 	hour smallint unsigned,
 	cap_factor float,
 	INDEX project_id (project_id),
@@ -629,9 +632,11 @@ SELECT      proposed_projects.project_id,
 
 
 -- check the integrity of the cap factors table
+select 'Checking Cap Factors' as progress;
+
 drop table if exists number_of_cap_factor_hours_table;
 create table number_of_cap_factor_hours_table (
-	project_id mediumint unsigned primary key,
+	project_id int unsigned primary key,
 	number_of_cap_factor_hours int);
 
 insert into number_of_cap_factor_hours_table
@@ -660,4 +665,4 @@ select 	proposed_projects.*
 	where	proposed_projects.technology_id = generator_info.technology_id
 	and		generator_info.intermittent = 1
 	and		project_id not in (select project_id from number_of_cap_factor_hours_table where number_of_cap_factor_hours >= 17520)
-	order by project_id, generator_info.technology
+	order by project_id, generator_info.technology;
