@@ -20,7 +20,7 @@ set @training_set_notes := 'For each month, the day with peak load and a represe
 -- drop temporary table if exists tperiods;
 create table if not exists tperiods (periodnum int PRIMARY KEY);
 insert IGNORE into tperiods (periodnum) values (0), (1), (2), (3);
-select count( periodnum ) into @num_periods from tperiods;
+set @num_periods := (select count( periodnum ) from tperiods);
 -- drop temporary table if exists tmonths;
 create table if not exists tmonths (month_of_year tinyint PRIMARY KEY, days_in_month double);
 insert IGNORE into tmonths values 
@@ -31,7 +31,7 @@ insert IGNORE into tmonths values
 -- Make a table of study hours
 CREATE TABLE IF NOT EXISTS study_hours_all (
   training_set_id INT NOT NULL,
-  period BIGINT,
+  period year,
   study_date INT,
   study_hour INT,
   date_utc DATE, 
@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS study_hours_all (
 -- makes a table of study dates
 CREATE TABLE IF NOT EXISTS study_dates_all(
   training_set_id INT NOT NULL,
-  period BIGINT,
+  period year,
   study_date INT,
   date_utc DATE, 
   month_of_year INT,
@@ -196,7 +196,7 @@ INSERT INTO study_dates_all ( training_set_id, period, study_date, date_utc, mon
     date_utc, d.month_of_year, 
     @years_per_period as hours_in_sample
     from tperiods p join tdates d 
-    where rank = 1 
+    where rank = periodnum+1 
       order by period, month_of_year, date_utc;
 
 -- create the final list of study hours
