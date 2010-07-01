@@ -19,7 +19,7 @@ create table load_area_info(
 ) ROW_FORMAT=FIXED;
 
 load data local infile
-	'/Volumes/1TB_RAID/Models/GIS/wecc_load_area_info.csv'
+	'wecc_load_area_info.csv'
 	into table load_area_info
 	fields terminated by	','
 	optionally enclosed by '"'
@@ -33,6 +33,29 @@ set @load_area_scenario_id := (select if( count(distinct scenario_id) = 0, 1, ma
 
 update load_area_info set scenario_id = @load_area_scenario_id;
 
+
+-- RPS COMPLIANCE INFO
+drop table if exists rps_load_area_targets;
+create table rps_load_area_targets(
+	load_area character varying(11),
+	compliance_year year,
+	compliance_fraction float,
+	PRIMARY KEY (load_area, compliance_year),
+	INDEX compliance_year (compliance_year)
+	);
+
+load data local infile
+	'load_area_yearly_rps_complaince_fractions.csv'
+	into table rps_load_area_targets
+	fields terminated by	','
+	optionally enclosed by '"'
+	ignore 1 lines;
+
+alter table rps_load_area_targets add column area_id smallint unsigned first;
+alter table rps_load_area_targets add unique index (area_id, compliance_year);
+update rps_load_area_targets, load_area_info set rps_load_area_targets.area_id = load_area_info.area_id
+where rps_load_area_targets.load_area = load_area_info.load_area;
+	
 
 -- HOURS-------------------------
 -- takes the timepoints table from the weather database, as the solar data is synced to this hournum scheme.  The load data has also been similarly synced.
@@ -328,7 +351,7 @@ insert into fuel_qualifies_for_rps
 
 
 -- HYDRO-------------------
--- made in 'build proposed plants table.sql'
+-- made in 'build existing plants table.sql'
 select 'Copying Hydro' as progress;
 
 drop table if exists hydro_monthly_limits;
@@ -364,7 +387,7 @@ insert into hydro_monthly_limits (project_id, hydro_id, area_id, load_area, tech
 										WHEN agg.primemover = 'PS' THEN 'Hydro_Pumped' END;
 
 -- EXISTING PLANTS---------
--- made in 'build proposed plants table.sql'
+-- made in 'build existing plants table.sql'
 select 'Copying existing_plants' as progress;
 
 drop table if exists existing_plants;
@@ -436,7 +459,7 @@ SELECT      existing_plants.project_id,
 
 
 -- ---------------------------------------------------------------------
--- RENEWABLE SITES--------------
+-- PROPOSED PROJECTS--------------
 -- imported from postgresql, this table has all pv, csp, wind, geothermal, biomass and compressed air energy storage sites
 -- ---------------------------------------------------------------------
 drop table if exists _proposed_projects;
@@ -470,6 +493,9 @@ CREATE TABLE _proposed_projects (
   FOREIGN KEY (technology_id) REFERENCES generator_info (technology_id)
 ) ROW_FORMAT=FIXED;
 
+
+-- the capacity limit is either in MW if the capacity_limit_conversion is 1, or in other units if the capacity_limit_conversion is nonzero
+-- so for CSP and central PV the limit is expressed in land area, not MW
 insert into _proposed_projects (project_id, gen_info_project_id, technology_id, technology, area_id, location_id, original_dataset_id, capacity_limit, capacity_limit_conversion, connect_cost_per_mw,
   price_and_dollar_year,
   overnight_cost,
@@ -498,6 +524,21 @@ insert into _proposed_projects (project_id, gen_info_project_id, technology_id, 
 	from generator_info.proposed_projects proposed join generator_info.generator_costs using (technology) join load_area_info using (load_area)
 	WHERE technology != "Compressed_Air_Energy_Storage"
 	order by 2;
+
+-- to go backwards to aperture from mw_per_km2 (capacity_limit_conversion), use this:
+-- ( pow( (sqrt( ( 1000000 * 100 ) / capacity_limit_conversion ) - 15 ), 2 ) - 15625 ) / ( 1.06315118 * 3 )
+-- see proposed_projects.sql in the GIS directory for more info.
+
+-- the cost of a solar thermal trough plant as a function of field area with a constant MW is $420/m^2 * (1 + 0.247),
+-- as the indirect costs are 24.7% of the direct field costs
+-- the costs in the database for CSP Trough are for sample 100MW plants,
+-- with areas of 600000m^2 for CSP_Trough_No_Storage and 800000m^2 for CSP_Trough_6h_Storage,
+-- so to calculate the correct cost as a function of field area, 
+
+-- FIX!!!
+-- update _proposed_projects set overnight_cost = 
+-- 420 * (1 + 0.247) * ( pow( (sqrt( ( 1000000 * 100 ) / capacity_limit_conversion ) - 15 ), 2 ) - 15625 ) / ( 1.06315118 * 3 )
+-- where technology in ('CSP_Trough_No_Storage', 'CSP_Trough_6h_Storage')
 
 -- Insert "generic" projects that can be built almost anywhere. These used to be in the table  _generator_costs_regional.
 -- Note, project_id is automatically set here because it is an autoincrement column. The renewable proposed_projects with ids set a-priori need to be imported first to avoid unique id conflicts.
@@ -591,33 +632,7 @@ CREATE VIEW cap_factor_intermittent_sites as
     join proposed_projects using (project_id)
     join load_area_info using (load_area);
     
-
--- REMOVE when CSP_Trough_6h_Storage is finished in SAM
-select 'Compiling CSP_Trough_6h_Storage' as progress;
-insert into _cap_factor_intermittent_sites
-SELECT      proposed_projects.project_id,
-            timepoint_id as hour,
-            3tier.csp_power_output.e_net_mw/100 as cap_factor
-    from    proposed_projects, 
-            3tier.csp_power_output,
-            weather.timepoints
-    where   proposed_projects.technology = 'CSP_Trough_6h_Storage'
-    and		proposed_projects.original_dataset_id = 3tier.csp_power_output.siteid
-    and		3tier.csp_power_output.datetime_utc = weather.timepoints.timepoint;
-
--- includes Residential_PV, Commercial_PV, Central_PV, CSP_Trough_No_Storage
--- will soon include CSP_Trough_6h_Storage, but this is done above for now
-select 'Compiling Solar' as progress;
-insert into _cap_factor_intermittent_sites
-SELECT      proposed_projects.project_id,
-            hournum as hour,
-            cap_factor
-    from    proposed_projects,
-            suny.solar_farm_cap_factors
-    where   proposed_projects.original_dataset_id = solar_farm_cap_factors.solar_farm_id
-    and		proposed_projects.technology_id = solar_farm_cap_factors.technology_id;
-
-
+    
 -- includes Wind and Offshore_Wind
 select 'Compiling Wind' as progress;
 insert into _cap_factor_intermittent_sites
@@ -628,6 +643,17 @@ SELECT      proposed_projects.project_id,
             3tier.wind_farm_power_output
     where   technology in ('Wind', 'Offshore_Wind')
     and		proposed_projects.original_dataset_id = 3tier.wind_farm_power_output.wind_farm_id;
+
+-- includes Residential_PV, Commercial_PV, Central_PV, CSP_Trough_No_Storage and CSP_Trough_6h_Storage
+select 'Compiling Solar' as progress;
+insert into _cap_factor_intermittent_sites
+SELECT      proposed_projects.project_id,
+            hournum as hour,
+            cap_factor
+    from    proposed_projects,
+            suny.solar_farm_cap_factors
+    where   proposed_projects.original_dataset_id = solar_farm_cap_factors.solar_farm_id
+    and		proposed_projects.technology_id = solar_farm_cap_factors.technology_id;
 
 
 
@@ -666,3 +692,18 @@ select 	proposed_projects.*
 	and		generator_info.intermittent = 1
 	and		project_id not in (select project_id from number_of_cap_factor_hours_table where number_of_cap_factor_hours >= 17520)
 	order by project_id, generator_info.technology;
+	
+-- delete the projects that don't have cap factors
+-- for the WECC, if nothing is messed up, this means Central_PV on the eastern border of Colorado that contains
+-- a few grid points didn't get simulated because they were too far east... only 16 total solar farms out of thousands
+-- create temporary table project_ids_to_delete as 
+-- 	select 	_proposed_projects.project_id
+-- 		from 	_proposed_projects,
+-- 				generator_info
+-- 		where	_proposed_projects.technology_id = generator_info.technology_id
+-- 		and		generator_info.intermittent = 1
+-- 		and		project_id not in (select project_id from number_of_cap_factor_hours_table where number_of_cap_factor_hours >= 17520)
+-- 		order by project_id, generator_info.technology;
+-- 		
+-- delete from _proposed_projects where project_id in (select project_id from project_ids_to_delete);
+-- 
