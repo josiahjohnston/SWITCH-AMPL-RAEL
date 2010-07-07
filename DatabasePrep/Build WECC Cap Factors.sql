@@ -108,7 +108,7 @@ CREATE VIEW system_load as
 
 -- now add a column for projected peak 2010 load in each load area, as
 -- the amount of new local T&D needed in each load area will be referenced to this number
-alter table load_area_info add column max_load_mw float;
+alter table load_area_info add column max_coincident_load_for_local_td float;
 update load_area_info,
 			(select _system_load.area_id,
 					datetime_utc,
@@ -119,7 +119,7 @@ update load_area_info,
 				where _system_load.power = max_load_table.max_load
 				and _system_load.area_id = max_load_table.area_id
 				and hours.hournum = _system_load.hour) as max_load_hour_table
-set max_load_mw = max_load * power(1.010, 2010 - year( datetime_utc ) )
+set max_coincident_load_for_local_td = max_load * power(1.010, 2010 - year( datetime_utc ) )
 where load_area_info.area_id = max_load_hour_table.area_id;
 
 -- add a column for projected total MWh 2010 load in each load area, as
@@ -524,6 +524,9 @@ insert into _proposed_projects (project_id, gen_info_project_id, technology_id, 
 	from generator_info.proposed_projects proposed join generator_info.generator_costs using (technology) join load_area_info using (load_area)
 	WHERE technology != "Compressed_Air_Energy_Storage"
 	order by 2;
+
+-- CSP_Trough_6h_Storage is out for the moment. Solar Advisor Model is acting screwy with CSP when storage is included, regularly yielding power outputs that are in excess of the turbine capacity factors. 
+delete from _proposed_projects WHERE technology = 'CSP_Trough_6h_Storage';
 
 -- to go backwards to aperture from mw_per_km2 (capacity_limit_conversion), use this:
 -- ( pow( (sqrt( ( 1000000 * 100 ) / capacity_limit_conversion ) - 15 ), 2 ) - 15625 ) / ( 1.06315118 * 3 )

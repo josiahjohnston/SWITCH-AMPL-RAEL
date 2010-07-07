@@ -6,78 +6,164 @@ set @first_period  := (select min( period) from gen_cap where scenario_id=@scena
 set @second_period := (select min(period) from gen_cap where period != @first_period and scenario_id=@scenario_id);
 set @period_length := (@second_period - @first_period);
 set @last_period := (select max(period) from gen_cap where scenario_id=@scenario_id);
-set @sum_hourly_weights_per_period = ( SELECT sum(hours_in_sample)
-    from _dispatch 
-    where
-      scenario_id=@scenario_id and
-      project_id = (select project_id from _dispatch where scenario_id=@scenario_id limit 1) and 
-      carbon_cost = (select carbon_cost from _dispatch where scenario_id=@scenario_id limit 1) and 
-      area_id = (select area_id from _dispatch where scenario_id=@scenario_id limit 1) and 
-      period = (select period from _dispatch where scenario_id=@scenario_id limit 1)
-    );
 
+-- -------------------------------------
 
 -- GENERATION SUMMARIES--------
 select 'Creating generation summaries' as progress;
 -- total generation each hour by carbon cost, technology and load area
 -- this table will be used extensively below to create summaries dependent on generator dispatch
-replace into _gen_hourly_summary_la
+replace into _gen_hourly_summary_tech_la
 		(scenario_id, carbon_cost, period, area_id, study_date, study_hour, hours_in_sample, technology_id,
 			variable_o_m_cost, fuel_cost, carbon_cost_incurred, co2_tons, power)
 	select 	scenario_id, carbon_cost, period, area_id, study_date, study_hour, hours_in_sample, technology_id,
 			sum(variable_o_m_cost), sum(fuel_cost), sum(carbon_cost_incurred), sum(co2_tons), sum(power)
     	from _dispatch
     	where scenario_id = @scenario_id
-    	group by 2, 3, 4, 5, 6, 7, 8;
-  
+    group by 2, 3, 4, 5, 6, 7, 8
+    order by 2, 3, 4, 5, 6, 7, 8;
+
 -- add month and hour_of_day. 
-update _gen_hourly_summary_la
+update _gen_hourly_summary_tech_la
 set	month = mod(floor(study_hour/100000),100),
 	hour_of_day = mod(floor(study_hour/1000),100)
 	where scenario_id = @scenario_id;
 
 
+-- total generation each hour by carbon cost and technology
+replace into _gen_hourly_summary_tech
+	select scenario_id, carbon_cost, period, study_date, study_hour, hours_in_sample, month, hour_of_day, technology_id, sum(power) as power
+		from _gen_hourly_summary_tech_la
+		where scenario_id = @scenario_id
+		group by 2, 3, 4, 5, 6, 7, 8, 9
+		order by 2, 3, 4, 5, 6, 7, 8, 9;
+
+-- find the total number of hours represented by each period for use in weighting hourly generation
+set @sum_hourly_weights_per_period :=
+	(SELECT sum( hours_in_sample ) from
+		(select distinct study_hour, hours_in_sample
+				from _gen_hourly_summary_tech
+ 			where 	scenario_id=@scenario_id and
+					carbon_cost = (select carbon_cost from _gen_hourly_summary_tech where scenario_id=@scenario_id limit 1) and 
+					period = (select period from _gen_hourly_summary_tech where scenario_id=@scenario_id limit 1)
+		) as  distinct_hours_in_sample_table);
+
 -- total generation each period by carbon cost, technology and load area
-replace into _gen_summary_la
+replace into _gen_summary_tech_la
   select scenario_id, carbon_cost, period, area_id, technology_id,
     	sum(power * hours_in_sample) / @sum_hourly_weights_per_period as avg_power
-		from _gen_hourly_summary_la
+		from _gen_hourly_summary_tech_la
     	where scenario_id = @scenario_id
-    	group by 2, 3, 4, 5;
-
--- total generation each hour by carbon cost and technology
-replace into _gen_hourly_summary
-	select scenario_id, carbon_cost, period, study_date, study_hour, hours_in_sample, month, hour_of_day, technology_id, sum(power) as power
-		from _gen_hourly_summary_la
-		where scenario_id = @scenario_id
-		group by 2, 3, 4, 5, 6, 7, 8, 9;
+    	group by 2, 3, 4, 5
+    	order by 2, 3, 4, 5;
 
 -- total generation each period by carbon cost and technology
-replace into _gen_summary
-	select scenario_id, carbon_cost, period, technology_id,	
-    sum(power * hours_in_sample) / @sum_hourly_weights_per_period as avg_power
-    from _gen_hourly_summary join technologies using (technology_id)
+replace into _gen_summary_tech
+	select scenario_id, carbon_cost, period, technology_id,	sum(avg_power) as avg_power
+    from _gen_summary_tech_la
     where scenario_id = @scenario_id
-    group by 2, 3, 4;
+    group by 2, 3, 4
+    order by 2, 3, 4;
+
+
+-- generation by fuel----------
+
+-- total generation each hour by carbon cost, fuel and load area
+replace into _gen_hourly_summary_fuel_la
+	select scenario_id, carbon_cost, period, area_id, study_date, study_hour, hours_in_sample, month, hour_of_day, fuel, sum(power) as power
+		from _gen_hourly_summary_tech_la join technologies using (technology_id)
+		where scenario_id = @scenario_id
+		group by 2, 3, 4, 5, 6, 7, 8, 9, 10
+		order by 2, 3, 4, 5, 6, 7, 8, 9, 10;
+
+-- total generation each hour by carbon cost and fuel
+replace into _gen_hourly_summary_fuel
+	select scenario_id, carbon_cost, period, study_date, study_hour, hours_in_sample, month, hour_of_day, fuel, sum(power) as power
+		from _gen_hourly_summary_fuel_la
+		where scenario_id = @scenario_id
+		group by 2, 3, 4, 5, 6, 7, 8, 9
+		order by 2, 3, 4, 5, 6, 7, 8, 9;
+	
+-- total generation each period by carbon cost, fuel and load area
+replace into _gen_summary_fuel_la
+  select scenario_id, carbon_cost, period, area_id, fuel,
+    	sum(power * hours_in_sample) / @sum_hourly_weights_per_period as avg_power
+		from _gen_hourly_summary_fuel_la
+    	where scenario_id = @scenario_id
+    	group by 2, 3, 4, 5
+    	order by 2, 3, 4, 5;
+
+-- total generation each period by carbon cost and fuel
+replace into gen_summary_fuel
+	select scenario_id, carbon_cost, period, fuel, sum(avg_power) as avg_power
+    from _gen_summary_fuel_la
+    where scenario_id = @scenario_id
+    group by 2, 3, 4
+    order by 2, 3, 4;
+
 
 
 -- GENERATOR CAPACITY--------------
 
 -- capacity each period by load area
-replace into _gen_cap_summary_la
-  select scenario_id, carbon_cost, period, area_id, technology_id, sum(capacity) as capacity
-    from _gen_cap
+replace into _gen_cap_summary_tech_la (scenario_id, carbon_cost, period, area_id, technology_id, capacity, capital_cost, fixed_o_m_cost)
+  select 	scenario_id, carbon_cost, period, area_id, technology_id,
+  			sum(capacity) as capacity, sum(capital_cost) as capital_cost, sum(fixed_o_m_cost) as fixed_o_m_cost
+	from _gen_cap 
     where scenario_id = @scenario_id
-    group by 2, 3, 4, 5;
+    group by 2, 3, 4, 5
+    order by 2, 3, 4, 5;
 
+drop temporary table if exists tfuel_carbon_sum_table;
+create temporary table tfuel_carbon_sum_table
+	select		scenario_id, carbon_cost, period, area_id, technology_id,
+				sum(variable_o_m_cost * hours_in_sample) as variable_o_m_cost,		
+				sum(fuel_cost * hours_in_sample) as fuel_cost,
+				sum(carbon_cost_incurred * hours_in_sample) as carbon_cost_total
+			from _gen_hourly_summary_tech_la
+		    where scenario_id = @scenario_id
+		    group by 2, 3, 4, 5;
+alter table tfuel_carbon_sum_table add index fcst_idx (scenario_id, carbon_cost, period, area_id, technology_id);
+		   
+update 	_gen_cap_summary_tech_la s, tfuel_carbon_sum_table t
+set 	s.variable_o_m_cost = t.variable_o_m_cost,
+		s.fuel_cost 		= t.fuel_cost,
+		s.carbon_cost_total = t.carbon_cost_total
+where 	s.scenario_id 		= t.scenario_id
+and 	s.carbon_cost 		= t.carbon_cost
+and 	s.period 			= t.period
+and 	s.area_id 			= t.area_id
+and 	s.technology_id 	= t.technology_id;
 
 -- capacity each period
-replace into _gen_cap_summary
+replace into _gen_cap_summary_tech
   select scenario_id, carbon_cost, period, technology_id,
-    sum(capacity) as capacity
-    from _gen_cap_summary_la  join technologies using (technology_id)
+    sum(capacity) as capacity, sum(capital_cost), sum(fixed_o_m_cost + variable_o_m_cost) as o_m_cost_total, sum(fuel_cost), sum(carbon_cost_total)
+    from _gen_cap_summary_tech_la join technologies using (technology_id)
     where scenario_id = @scenario_id
-    group by 2, 3, 4;
+    group by 2, 3, 4
+    order by 2, 3, 4;
+
+
+-- now aggregated on a fuel basis
+replace into _gen_cap_summary_fuel_la 
+  select 	scenario_id, carbon_cost, period, area_id, fuel,
+  			sum(capacity) as capacity, sum(capital_cost) as capital_cost, sum(fixed_o_m_cost) as fixed_o_m_cost,
+  			sum(variable_o_m_cost) as variable_o_m_cost, sum(fuel_cost) as fuel_cost, sum(carbon_cost_total) as carbon_cost_total
+	from _gen_cap_summary_tech_la join technologies using (technology_id)
+    where scenario_id = @scenario_id
+    group by 2, 3, 4, 5
+    order by 2, 3, 4, 5;
+
+-- capacity each period
+replace into gen_cap_summary_fuel
+  select scenario_id, carbon_cost, period, fuel,
+    sum(capacity) as capacity, sum(capital_cost), sum(fixed_o_m_cost + variable_o_m_cost) as o_m_cost_total, sum(fuel_cost), sum(carbon_cost_total)
+    from _gen_cap_summary_fuel_la
+    where scenario_id = @scenario_id
+    group by 2, 3, 4
+    order by 2, 3, 4;
+
 
 
 -- TRANSMISSION ----------------
@@ -105,7 +191,8 @@ replace into _trans_summary (scenario_id, carbon_cost, period, area_id, study_da
 	 		sum(power_received)
     from _transmission_dispatch
     where scenario_id = @scenario_id
-    group by 1, 2, 3, 4, 5, 6, 7, 8, 9;
+    group by 1, 2, 3, 4, 5, 6, 7, 8, 9
+    order by 1, 2, 3, 4, 5, 6, 7, 8, 9;
 insert into _trans_summary (scenario_id, carbon_cost, period, area_id, study_date, study_hour, month, hour_of_day, hours_in_sample, net_power)
   select 	scenario_id,
   			carbon_cost,
@@ -120,6 +207,7 @@ insert into _trans_summary (scenario_id, carbon_cost, period, area_id, study_dat
     from _transmission_dispatch
     where scenario_id = @scenario_id
     group by 1, 2, 3, 4, 5, 6, 7, 8, 9
+    order by 1, 2, 3, 4, 5, 6, 7, 8, 9
   on duplicate key update net_power = net_power + VALUES(net_power);
 
 -- Tally transmission losses using a similar method
@@ -136,7 +224,106 @@ replace into _trans_loss (scenario_id, carbon_cost, period, area_id, study_date,
   			sum(power_sent - power_received) as power
     from _transmission_dispatch
     where scenario_id = @scenario_id
-    group by 1, 2, 3, 4, 5, 6, 7, 8, 9;
+    group by 1, 2, 3, 4, 5, 6, 7, 8, 9
+    order by 1, 2, 3, 4, 5, 6, 7, 8, 9;
+
+
+-- directed transmission 
+-- TODO: make some indexed temp tables to speed up these queries
+-- the sum is still needed in the trans_direction_table as there could be different fuel types transmitted
+replace into _transmission_directed_hourly
+select 	@scenario_id,
+		carbon_cost,
+		period,
+		study_hour,
+		transmission_line_id,
+		send_id,
+		receive_id,
+		round( directed_trans_avg ) as directed_trans_avg
+from	transmission_lines tl,
+
+	(select distinct carbon_cost,
+			period,
+			study_hour,
+			if(average_transmission > 0, send_id, receive_id) as send_id,
+			if(average_transmission > 0, receive_id, send_id) as receive_id,
+			abs(average_transmission) as directed_trans_avg
+		from
+			(select carbon_cost,
+					period,
+					study_hour,
+					send_id,
+					receive_id,
+					sum(average_transmission) as average_transmission
+				from 
+					(select carbon_cost,
+							period,
+							study_hour,
+							send_id,
+							receive_id,
+							sum( ( power_sent + power_received ) / 2 ) as average_transmission
+						from _transmission_dispatch where scenario_id = @scenario_id
+						UNION
+					select 	carbon_cost,
+							period,
+							study_hour,
+							receive_id as send_id,
+							send_id as receive_id,
+							sum( -1 * ( power_sent + power_received ) / 2 ) as average_transmission
+						from _transmission_dispatch where scenario_id = @scenario_id
+					) as trans_direction_table
+				group by 1,2,3,4,5) as avg_trans_table
+		) as directed_trans_table
+
+where 	directed_trans_table.send_id = tl.start_id
+and		directed_trans_table.receive_id = tl.end_id
+order by 2,3,5,6,7;
+
+
+-- now do the same as above, but aggregated
+-- TODO: could speed this up by referencing the above table
+replace into _transmission_avg_directed
+select 	@scenario_id,
+		carbon_cost,
+		period,
+		transmission_line_id,
+		send_id,
+		receive_id,
+		round( directed_trans_avg ) as directed_trans_avg
+from	transmission_lines tl,
+
+	(select distinct carbon_cost,
+			period,
+			if(average_transmission > 0, send_id, receive_id) as send_id,
+			if(average_transmission > 0, receive_id, send_id) as receive_id,
+			abs(average_transmission) as directed_trans_avg
+		from
+			(select carbon_cost,
+					period,
+					send_id,
+					receive_id,
+					sum(average_transmission) as average_transmission
+				from 
+					(select carbon_cost,
+							period,
+							send_id,
+							receive_id,
+							sum( hours_in_sample * ( ( power_sent + power_received ) / 2 ) ) / @sum_hourly_weights_per_period as average_transmission
+						from _transmission_dispatch where scenario_id = @scenario_id group by 1,2,3,4
+						UNION
+					select 	carbon_cost,
+							period,
+							receive_id as send_id,
+							send_id as receive_id,
+							-1 * sum( hours_in_sample * ( ( power_sent + power_received ) / 2 ) ) / @sum_hourly_weights_per_period as average_transmission
+						from _transmission_dispatch where scenario_id = @scenario_id group by 1,2,3,4
+					) as trans_direction_table
+				group by 1,2,3,4) as avg_trans_table
+		) as directed_trans_table
+
+where 	directed_trans_table.send_id = tl.start_id
+and		directed_trans_table.receive_id = tl.end_id
+order by 2,3,5,6;
 
 
 -- CO2 Emissions --------------------
@@ -175,22 +362,23 @@ set @co2_tons_1990 := 313831809;
 replace into co2_cc 
 	select 	scenario_id,
 			carbon_cost,
-			_gen_hourly_summary_la.period,
+			_gen_hourly_summary_tech_la.period,
 			sum( co2_tons * hours_in_sample ) / @period_length as co2_tons, 
     		base_co2_tons - sum( co2_tons * hours_in_sample ) / @period_length as co2_tons_reduced, 
    			1 - sum( co2_tons * hours_in_sample ) / @period_length / base_co2_tons as co2_share_reduced, 
     		@co2_tons_1990 - sum( co2_tons * hours_in_sample ) / @period_length as co2_tons_reduced_1990,
     		1 - sum( co2_tons * hours_in_sample ) / @period_length / @co2_tons_1990 as co2_share_reduced_1990
-  	from 	_gen_hourly_summary_la,
+  	from 	_gen_hourly_summary_tech_la,
   			(select period,
 					sum(co2_tons * hours_in_sample) / @period_length as base_co2_tons
-				from _gen_hourly_summary_la
-				where carbon_cost = (select min(carbon_cost) from _gen_hourly_summary_la where scenario_id = @scenario_id)
+				from _gen_hourly_summary_tech_la
+				where carbon_cost = (select min(carbon_cost) from _gen_hourly_summary_tech_la where scenario_id = @scenario_id)
 				and scenario_id = @scenario_id
 				group by 1) as base_co2_tons_table
   	where 	scenario_id = @scenario_id
-  	and		base_co2_tons_table.period = _gen_hourly_summary_la.period
-  	group by 2, 3;
+  	and		base_co2_tons_table.period = _gen_hourly_summary_tech_la.period
+  	group by 2, 3
+  	order by 2, 3;
 
 
 -- SYSTEM COSTS ---------------
@@ -207,84 +395,118 @@ update _system_load
 		hour_of_day = mod(floor(study_hour/1000),100)
 	where scenario_id = @scenario_id;
 
-insert into system_load_summary
-	select 	@scenario_id,
+replace into system_load_summary
+	select 	scenario_id,
 			carbon_cost,
 			period,
-			sum( hours_in_sample * power ) / ( 8760 * @period_length ) as system_load
+			sum( hours_in_sample * power ) / ( @sum_hourly_weights_per_period ) as system_load
 	from _system_load
 	where scenario_id = @scenario_id
-	group by 2, 3;
+	group by 2, 3
+	order by 2, 3;
 
--- now actually calculate costs
-drop table if exists tloads;
-create temporary table tloads
-  select 	carbon_cost,
+replace into power_cost (scenario_id, carbon_cost, period, load_in_period_mwh )
+  select 	scenario_id,
+  			carbon_cost,
   			period,
-  			system_load as load_in_period_mwh
+  			system_load * ( @sum_hourly_weights_per_period ) as load_in_period_mwh
   from system_load_summary
-  where scenario_id = @scenario_id;
-alter table tloads add index pc (period, carbon_cost);
+  where scenario_id = @scenario_id
+  order by 1,2,3;
+  
+-- now calculated a bunch of costs
 
-drop table if exists tgenerator_capital_and_fixed_cost;
-create temporary table tgenerator_capital_and_fixed_cost
-  select 	carbon_cost,
-  			period,
-  			sum(fixed_cost) as generator_capital_and_fixed_cost
-    from gen_cap
-    where scenario_id = @scenario_id
-    group by 1, 2;
-alter table tgenerator_capital_and_fixed_cost add index pc (period, carbon_cost);
+-- local_td costs
+update power_cost set existing_local_td_cost =
+	(select sum(fixed_cost) from _local_td_cap t
+		where t.scenario_id = @scenario_id and t.scenario_id = power_cost.scenario_id
+		and t.carbon_cost = power_cost.carbon_cost and t.period = power_cost.period and 
+		new = 0 );
 
-drop table if exists ttransmission_cost;
-create temporary table ttransmission_cost
-  select 	carbon_cost,
-  			period,
-  			sum(fixed_cost) as transmission_cost
-    from trans_cap
-    where scenario_id = @scenario_id
-    group by 1, 2;
-alter table ttransmission_cost add index pc (period, carbon_cost);
+update power_cost set new_local_td_cost =
+	(select sum(fixed_cost) from _local_td_cap t
+		where t.scenario_id = @scenario_id and t.scenario_id = power_cost.scenario_id
+		and t.carbon_cost = power_cost.carbon_cost and t.period = power_cost.period and 
+		new = 1 );
 
-drop table if exists tlocal_td_cost;
-create temporary table tlocal_td_cost
-  select 	period,
-  			carbon_cost,
-  			sum(fixed_cost) as local_td_cost
-    from local_td_cap
-    where scenario_id = @scenario_id
-    group by 1, 2;
-alter table tlocal_td_cost add index pc (period, carbon_cost);
+-- transmission costs
+update power_cost set existing_transmission_cost =
+	(select sum(fixed_cost) from _existing_trans_cost t
+		where t.scenario_id = @scenario_id and t.scenario_id = power_cost.scenario_id
+		and t.carbon_cost = power_cost.carbon_cost and t.period = power_cost.period );
 
-drop table if exists tvariable_costs;
-create temporary table tvariable_costs
-  select 	period,
-  			carbon_cost,
-  			sum(fuel_cost * hours_in_sample) as fuel_cost, 
-    		sum(carbon_cost_incurred * hours_in_sample) as carbon_cost_total,
-    		sum(variable_o_m_cost * hours_in_sample) as generator_variable_o_m_cost
-    from _gen_hourly_summary_la
-    where scenario_id = @scenario_id
-    group by 1, 2;
-alter table tvariable_costs add index pc (period, carbon_cost);
+update power_cost set new_transmission_cost =
+	(select sum(fixed_cost) from _trans_cap t
+		where t.scenario_id = @scenario_id and t.scenario_id = power_cost.scenario_id
+		and t.carbon_cost = power_cost.carbon_cost and t.period = power_cost.period and 
+		new = 1 );
 
-replace into power_cost (scenario_id, carbon_cost, period, load_in_period_mwh, local_td_cost, transmission_cost, generator_capital_and_fixed_cost, generator_variable_o_m_cost, fuel_cost, carbon_cost_total, total_cost )
-  select 	@scenario_id,
-  			l.carbon_cost,
-  			l.period,
-  			load_in_period_mwh, 
-    		local_td_cost,
-    		transmission_cost,
-    		generator_capital_and_fixed_cost,
-     		generator_variable_o_m_cost,
-	   		fuel_cost,
-    		carbon_cost_total,
-    		local_td_cost + transmission_cost + generator_capital_and_fixed_cost + generator_variable_o_m_cost + fuel_cost + carbon_cost_total as total_cost
-  from tloads l 
-    join tgenerator_capital_and_fixed_cost using (period, carbon_cost)
-    join ttransmission_cost using (period, carbon_cost)
-    join tlocal_td_cost using (period, carbon_cost)
-    join tvariable_costs using (period, carbon_cost);
-update power_cost set cost_per_mwh = total_cost/load_in_period_mwh where scenario_id=@scenario_id;
+-- generation costs
+update power_cost set existing_plant_sunk_cost =
+	(select sum(capital_cost) from _gen_cap_summary_tech g
+		where g.scenario_id = @scenario_id and g.scenario_id = power_cost.scenario_id
+		and g.carbon_cost = power_cost.carbon_cost and g.period = power_cost.period and 
+		technology_id	in (select technology_id from technologies where can_build_new = 0) );
 
+update power_cost set existing_plant_operational_cost =
+	(select sum(o_m_cost_total) from _gen_cap_summary_tech g
+		where g.scenario_id = @scenario_id and g.scenario_id = power_cost.scenario_id
+		and g.carbon_cost = power_cost.carbon_cost and g.period = power_cost.period and 
+		technology_id	in (select technology_id from technologies where can_build_new = 0) );
 
+update power_cost set new_coal_nonfuel_cost =
+	(select sum(capital_cost) + sum(o_m_cost_total) from _gen_cap_summary_tech g
+		where g.scenario_id = @scenario_id and g.scenario_id = power_cost.scenario_id
+		and g.carbon_cost = power_cost.carbon_cost and g.period = power_cost.period and 
+		technology_id	in (select technology_id from technologies where fuel = 'Coal' and can_build_new = 1) );
+
+update power_cost set coal_fuel_cost =
+	(select sum(fuel_cost) from _gen_cap_summary_tech g
+		where g.scenario_id = @scenario_id and g.scenario_id = power_cost.scenario_id
+		and g.carbon_cost = power_cost.carbon_cost and g.period = power_cost.period and 
+		technology_id	in (select technology_id from technologies where fuel = 'Coal') );
+
+update power_cost set new_gas_nonfuel_cost =
+	(select sum(capital_cost) + sum(o_m_cost_total) from _gen_cap_summary_tech g
+		where g.scenario_id = @scenario_id and g.scenario_id = power_cost.scenario_id
+		and g.carbon_cost = power_cost.carbon_cost and g.period = power_cost.period and 
+		technology_id	in (select technology_id from technologies where fuel = 'Gas' and can_build_new = 1) );
+
+update power_cost set gas_fuel_cost =
+	(select sum(fuel_cost) from _gen_cap_summary_tech g
+		where g.scenario_id = @scenario_id and g.scenario_id = power_cost.scenario_id
+		and g.carbon_cost = power_cost.carbon_cost and g.period = power_cost.period and 
+		technology_id	in (select technology_id from technologies where fuel = 'Gas') );
+
+update power_cost set new_nuclear_nonfuel_cost =
+	(select sum(capital_cost) + sum(o_m_cost_total) from _gen_cap_summary_tech g
+		where g.scenario_id = @scenario_id and g.scenario_id = power_cost.scenario_id
+		and g.carbon_cost = power_cost.carbon_cost and g.period = power_cost.period and 
+		technology_id	in (select technology_id from technologies where fuel = 'Uranium' and can_build_new = 1) );
+
+update power_cost set nuclear_fuel_cost =
+	(select sum(fuel_cost) from _gen_cap_summary_tech g
+		where g.scenario_id = @scenario_id and g.scenario_id = power_cost.scenario_id
+		and g.carbon_cost = power_cost.carbon_cost and g.period = power_cost.period and 
+		technology_id	in (select technology_id from technologies where fuel = 'Uranium') );
+
+update power_cost set new_renewable_cost =
+	(select sum(capital_cost) + sum(o_m_cost_total) + sum(fuel_cost) from _gen_cap_summary_tech g
+		where g.scenario_id = @scenario_id and g.scenario_id = power_cost.scenario_id
+		and g.carbon_cost = power_cost.carbon_cost and g.period = power_cost.period and 
+		technology_id	in (select technology_id from technologies where fuel not in ('Gas', 'Uranium', 'Coal') and can_build_new = 1 ) );
+
+update power_cost set carbon_cost_total =
+	(select sum(carbon_cost_total) from _gen_cap_summary_tech g
+		where g.scenario_id = @scenario_id and g.scenario_id = power_cost.scenario_id
+		and g.carbon_cost = power_cost.carbon_cost and g.period = power_cost.period );
+
+update power_cost set total_cost =
+	existing_local_td_cost + new_local_td_cost + existing_transmission_cost + new_transmission_cost
+	+ existing_plant_sunk_cost + existing_plant_operational_cost + new_coal_nonfuel_cost + coal_fuel_cost
+	+ new_gas_nonfuel_cost + gas_fuel_cost + new_nuclear_nonfuel_cost + nuclear_fuel_cost
+	+ new_renewable_cost + carbon_cost_total
+	where scenario_id = @scenario_id;
+
+update power_cost set cost_per_mwh = total_cost / load_in_period_mwh
+	where scenario_id = @scenario_id;

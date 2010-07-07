@@ -5,21 +5,22 @@ param base_year := 2007;
 # when there are no forced outages
 param planning_reserve_margin := 0.15;
 
+# Minimum amount of electricity that solar must produce
+param enable_min_solar_production := 0;
+param min_solar_production := 0.0030;
+
 # discount rate
 # a 7% real discount rate was chosen as per the recommendations of the Office of Managment and Budget
 # see http://www.whitehouse.gov/omb/rewrite/circulars/a094/a094.html#8 or subsequent revisions
 # (inflation is not included in a real discount rate so we're discounting constant year dollars here)
 param discount_rate := 0.07;
 
-# Minimum amount of electricity that solar must produce
-param min_solar_production := 0.0030;
-param enable_min_solar_production := 0;
-
 # required rates of return (real) for generators and transmission lines
+# same rationale as above... Matthias had these as different variables... could remove at some point
 param finance_rate := 0.07;
 param transmission_finance_rate := 0.07;
 
-# retirement age for transmission lines
+# financial age for transmission lines - from the 2009 WREZ transmission model transmission data
 param transmission_max_age_years := 20;
 
 # $ cost per mw-km for transmission lines
@@ -28,23 +29,28 @@ param transmission_max_age_years := 20;
 # of what it would cost to install each line.. $1000 per mw per km / 2
 param transmission_cost_per_mw_km := 500;
 
+# should also at some point include costs for transmission maintenance: 
+# which is quoted as 3% of the installation cost in the 2009 WREZ transmission model transmission data
+# param transmission_annual_payment_per_mw_km := 0.03 * transmission_cost_per_mw_km;
+
 # forced outage rate for transmission lines, used for probabilistic dispatch(!)
 param transmission_forced_outage_rate := 0.01;
 
 # parameters for intra-zone transmission and distribution
-# MID has a demand charge of $8.80/kW each month; this works out to $105,600/MW-year
-# TODO: find a better source than this (start with E3 2004)
-param local_td_annual_payment_per_mw := 100000;
 param local_td_max_age_years := 20;
 
 # forced outage rate for hydroelectric dams
 # this is used to de-rate the planned power production
-# TODO: get a better number for this (0.02 is made up)
-param forced_outage_rate_hydro := 0.02;
+# Source: Black and Veach / NREL ReEDS
+param forced_outage_rate_hydro := 0.05;
 
 # round-trip efficiency for storing power via a pumped hydro system
-# Black and Veach / NREL ReEDS has this number at 0.87
-param pumped_hydro_efficiency := 0.87;
+# NREL ReEDS/Black and Veach gives this number at 87%, but everywhere else says lower...
+# http://www.electricitystorage.org/site/technologies/pumped_hydro/ says 70-85%.. we'll assume 80%
+# note: this number is also used in the hydro part of build_existing_plants.sql,
+# so if you change it here, change it there too and propagate the changes down
+# TODO: find plant-specific pumping efficiencies
+param pumped_hydro_efficiency := 0.8;
 
 # Names of intermittent and resource-limited technologies. 
 param tech_ccgt := "CCGT";
@@ -65,13 +71,15 @@ param location_unspecified := 0;
 # cost of carbon emissions ($/tonneCO2)
 param carbon_cost;
 # Set this to more than one value if you want to run the carbon curve scripty thing
-set CARBON_COSTS := 0 20 60;
+set CARBON_COSTS := 0 60;
 
 param: 
-RESULT_FILES:                        result_file_path_templates    result_header_paths :=
-dispatch                              'results/dispatch_%d.txt'     'results/dispatch_columns.txt'
-system_load                           'results/system_load_%d.txt'  'results/system_load_columns.txt' 
-transmission                          'results/transmission_%d.txt' 'results/transmission_columns.txt' 
-generation_capacity                   'results/gen_cap_%d.txt'      'results/gen_cap_columns.txt' 
-transmission_capacity                 'results/trans_cap_%d.txt'    'results/trans_cap_columns.txt' 
-local_trans_and_distribution_capacity 'results/local_td_cap_%d.txt' 'results/local_td_cap_columns.txt';
+RESULT_FILES:                        result_file_path_templates :=
+dispatch                              'results/dispatch_%d.txt'
+system_load                           'results/system_load_%d.txt'
+transmission_dispatch                 'results/transmission_dispatch_%d.txt'
+storage_dispatch                	  'results/storage_dispatch_%d.txt'
+generation_capacity                   'results/gen_cap_%d.txt'
+transmission_capacity                 'results/trans_cap_%d.txt'
+existing_trans_cost                   'results/existing_trans_cost_%d.txt'
+local_td_capacity					  'results/local_td_cap_%d.txt';

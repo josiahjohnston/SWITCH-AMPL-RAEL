@@ -26,6 +26,13 @@ use generator_info;
 -- gets all of the plants in wecc, as assigned in grid.eia860gen07_us from postgresql
 -- we appear to lose one very small (net_generation__mwh=1077) NG plant (plntcode = 56508) because it doesn't appear in grid.eia860gen07_us... don't think this should be a problem.
 -- note: does not remove retired or out of service generators yet.  This will be done when summing up the generation and fuel consumption because some plants have parts that are operational and some that aren't.
+
+-- a few generators are left out of the load area identifiation because they're in the ocean, most importantly a 2GW nuke near San Diego.
+-- this updates their load_areas...
+update eia860plant07_postgresql set load_area = 'CA_SCE_S' where plntcode = 56051;
+update eia860plant07_postgresql set load_area = 'CA_SDGE' where plntcode = 360;
+
+	
 drop table if exists weccplants;
 create table weccplants
 	select 	distinct(eia860plant07_postgresql.plntcode),
@@ -106,7 +113,7 @@ update 	maxgen,
 				aer_fuel_type_code,
 				sum(elec_fuel_consumption_mmbtus) as elec_fuel_consumption_mmbtus,
 				sum(net_generation_megawatthours) as net_generation_megawatthours
-		FROM grid.eia906_07_us
+		FROM grid.eia906_07_US
 		group by 1,2,3) as fuel_consumption_generation
 set maxgen.elec_fuel_consumption_mmbtus = fuel_consumption_generation.elec_fuel_consumption_mmbtus,
 maxgen.net_generation_megawatthours = fuel_consumption_generation.net_generation_megawatthours
@@ -124,7 +131,7 @@ update maxgen set avg_gen_mw = net_generation_megawatthours/8760;
 alter table maxgen add column nameplate_mw double;
 
 update maxgen, 
-		(select plntcode, primemover, sum(nameplate) as nameplate_mw from grid.eia860gen07_us where status not like 're' and status not like 'os' group by plntcode, primemover) as calcnameplate
+		(select plntcode, primemover, sum(nameplate) as nameplate_mw from grid.eia860gen07_US where status not like 're' and status not like 'os' group by plntcode, primemover) as calcnameplate
 set maxgen.nameplate_mw = calcnameplate.nameplate_mw
 where maxgen.plntcode = calcnameplate.plntcode
 and maxgen.primemover = calcnameplate.primemover;
@@ -147,7 +154,7 @@ alter table maxgen add column eia_sector_number int;
 alter table maxgen add column cogen char(1);
 
 update maxgen,
-	(select plntcode, primemover, eia_sector_number, combined_heat_and_power_plant as cogen from grid.eia906_07_us group by 1, 2) as sector_cogen
+	(select plntcode, primemover, eia_sector_number, combined_heat_and_power_plant as cogen from grid.eia906_07_US group by 1, 2) as sector_cogen
 set maxgen.eia_sector_number = sector_cogen.eia_sector_number,
 maxgen.cogen = sector_cogen.cogen
 where sector_cogen.plntcode = maxgen.plntcode
@@ -226,8 +233,9 @@ ALTER TABLE existing_plants MODIFY COLUMN cogen TINYINT;
 -- and that none of them will be retired during the study, so they can all be aggregated within each load zone.
 -- TODO: get a better efficiency estimate for cogen plants, maybe treat retirements better
 
-
+drop table if exists existing_plants_agg;
 CREATE TABLE  existing_plants_agg(
+  ep_id mediumint unsigned PRIMARY KEY AUTO_INCREMENT,
   load_area varchar(11),
   plant_code varchar(30),
   gentype varchar(4),
@@ -250,14 +258,14 @@ CREATE TABLE  existing_plants_agg(
 
 
 
-insert into existing_plants_agg
+insert into existing_plants_agg (load_area, plant_code, gentype, aer_fuel, peak_mw, avg_mw, heat_rate, start_year, baseload, cogen)
   select load_area, concat(plntcode, "-", primemover) as plant_code, primemover as gentype, aer_fuel, 
     sum(peak_mw) as peak_mw, sum(avg_mw) as avg_mw, avg(heat_rate) as heat_rate, max(invsyear) as start_year,
     baseload, 0 as cogen
     from existing_plants where cogen = 0
 	group by plntcode, gentype;
 
-insert into existing_plants_agg
+insert into existing_plants_agg (load_area, plant_code, gentype, aer_fuel, peak_mw, avg_mw, heat_rate, start_year, baseload, cogen)
   select load_area, concat("cogen-", plntcode, "-", primemover, "-", aer_fuel) as plant_code, primemover as gentype, aer_fuel, 
     sum(peak_mw) as peak_mw, sum(avg_mw) as avg_mw, 3.412 / 0.8 as heat_rate, max(invsyear) as start_year,
     1 as baseload, 1 as cogen 
@@ -422,7 +430,7 @@ update canmexgen
 set start_year = 2002
 where name like 'IslndCgn';
 
-insert into existing_plants_agg
+insert into existing_plants_agg (load_area, plant_code, gentype, aer_fuel, peak_mw, avg_mw, heat_rate, start_year, baseload, cogen)
   select load_area, concat(replace(name, ' ',''), aer_fuel) as plant_code, primemover as gentype, aer_fuel, 
   peak_mw, avg_mw, heatrate, start_year, baseload, cogen 
   from canmexgen
@@ -431,10 +439,19 @@ insert into existing_plants_agg
 
 
 ------------------------------------------------------------
--- add costs, tabulated externally
+-- add costs, tabluated from the ReEDS input assumptions/ Black and Veatch for REFutures (12-02-09 update)
+-- took the cost in 2000 (in $2007), as we don't have earlier data on plant costs.
+-- took CoalOldScr costs, Gas ST = OGS = Oil Gas Steam 
+-- set existing nuke lifetime to 60 years (was 30 in ReEDS) 
+-- http://www.eia.doe.gov/oiaf/aeo/nuclear_power.html, but should consider making nukes pay for 40 year upgrades when we expand east.
+
+-- also, Geothermal lifetimes were very short at 20 years in ReEDS.. they are about 45 years in actuality.  Couldn't quickly find a better reference than below.
+-- http://energyexperts.org/EnergySolutionsDatabase/ResourceDetail.aspx?id=2354
+
 -- note: we assume that cogen plants have 3/4 of the capital cost of a pure-electric plant
 -- (to reflect shared infrastructure for cogen), but the same operating costs.
 -- TODO: find better costs for cogen plants
+-- all units in MW, MWh and MBtu terms
 drop table if exists epcosts;
 create table epcosts (
   gentype char(2),
@@ -444,22 +461,21 @@ create table epcosts (
   variable_o_m double,
   fuel varchar(20),
   forced_outage_rate double,
-  max_age double);
-  
-load data local infile "/Volumes/1TB_RAID/Models/Switch\ Input\ Data/Generators/Generator\ Costs/Existing\ Plant\ Cost\ Estimates_corrected.csv"
-  into table epcosts
-  fields terminated by "," optionally enclosed by '"'
-  lines terminated by "\r"
-  ignore 1 lines;
-  
-alter table epcosts add index (gentype, aer_fuel);
-alter table existing_plants_agg add column (
-  overnight_cost double,
-  fixed_o_m double,
-  variable_o_m double,
-  forced_outage_rate double, 
   scheduled_outage_rate double,
-  max_age double);
+  max_age double,
+  index (gentype, aer_fuel)
+  );
+
+insert into epcosts values
+	('BT','GEO',3397000,261269,0,'Geothermal',0.075,0.0241,45),
+	('CC','NG',955000,11322,3.35,'Gas',0.04,0.06,30),
+	('GT','NG',652000,11322,3.35,'Gas',0.03,0.05,30),
+	('IC','NG',652000,30000,1,'Gas',0.03,0.05,30),
+	('ST','COL',1322000,25703,3.73,'Coal',0.06,0.10,60),
+	('ST','GEO',3397000,261269,0,'Geothermal',0.075,0.0241,45),
+	('ST','NG',435000,27730,3.47,'Gas',0.10,0.026, 45),
+	('ST','NUC',3319000,90034,0.49,'Nuclear',0.04,0.06,60);
+
 
 update existing_plants_agg e join epcosts c using (gentype, aer_fuel)
   set e.overnight_cost=if(cogen, 0.75, 1)*c.overnight_cost,
@@ -467,23 +483,12 @@ update existing_plants_agg e join epcosts c using (gentype, aer_fuel)
     e.variable_o_m = c.variable_o_m,
     e.aer_fuel = c.aer_fuel,
     e.forced_outage_rate = c.forced_outage_rate,
-    e.scheduled_outage_rate = 0,
+    e.scheduled_outage_rate = c.scheduled_outage_rate,
     e.max_age = c.max_age;
 -- fix a few that have higher production than theoretically possible
 update existing_plants_agg
   set peak_mw = avg_mw / (1-forced_outage_rate) where avg_mw > peak_mw * (1-forced_outage_rate);
 
--- set the scheduled outage rate for baseload plants just high enough to yield the 
--- average output that has occurred historically
---NOTE: This calculation deserves revisitation because it delivers anomalously high scheduled outage rates for newer BT geothermal plants, coal plants and somewhat for nuclear plants
-update existing_plants_agg
-  set scheduled_outage_rate = 1 - (avg_mw / ((1-forced_outage_rate) * peak_mw))
-  where baseload = 1;
-
--- for the reason noted above, this adjustment caps the scheduled outage rate (planned and routine maintainence) at no more than 10% 
-update existing_plants_agg
-  set scheduled_outage_rate = 0.10
-  where baseload and scheduled_outage_rate >=0.10;
 
 ALTER TABLE existing_plants_agg MODIFY COLUMN aer_fuel Varchar(20);
 
@@ -492,8 +497,6 @@ update existing_plants_agg set aer_fuel = 'Uranium' where aer_fuel like 'NUC';
 update existing_plants_agg set aer_fuel = 'Coal' where aer_fuel like 'COL';
 update existing_plants_agg set aer_fuel = 'Geothermal' where aer_fuel like 'GEO';
 
-alter table existing_plants_agg add column intermittent boolean default 0;
-alter table existing_plants_agg add column technology varchar(64);
 update existing_plants_agg set technology = concat(aer_fuel, '_', gentype);
 
 -- Update technology names - make these above in the future
@@ -508,8 +511,8 @@ update existing_plants_agg set technology = replace(technology, "_EP", "_Cogen_E
 
 -- add in Wind existing plants
 -- existing windfarms added here
--- should find overnight costs of historical wind turbines
--- $2/W is used here ($2,000,000/MW)
+-- costs from from the ReEDS input assumptions/ Black and Veatch for REFutures (12-02-09 update)
+-- max age from base input spreadsheet for switch
 -- fixed O+M,forced_outage_rate are from new wind
 insert into existing_plants_agg
 		(load_area,
@@ -540,8 +543,8 @@ select 	load_area,
 		year_online as start_year,
 		0 as baseload,
 		0 as cogen,
-		2000000 as overnight_cost,
-		30300 as fixed_o_m,
+		1724000 as overnight_cost,
+		57790 as fixed_o_m,
 		0 as variable_o_m,
 		0.015 as forced_outage_rate,
 		0.003 as scheduled_outage_rate,
@@ -561,20 +564,19 @@ group by 3tier.windfarms_existing_info_wecc.windfarm_existing_id
 -- but these are likely due to generator outages/repairs rather than any operational constraint
 -- as these dams do generate electricity in summer and winter...
 -- if the two capacities are different then this sets the capacity to the greater of the two
-drop table if exists plantcap;
-create table plantcap
+drop table if exists hydro_plantcap;
+create table hydro_plantcap
   	select 	g.plntcode,
   			g.plntname,
   			primemover,
   			p.load_area,
-    		sum( if( summcap > wintcap, summcap, wintcap ) ) as capacity_mw,
-    		count(*) as numgen 
+    		sum( if( summcap > wintcap, summcap, wintcap ) ) as capacity_mw
  		from grid.eia860gen07_US g join generator_info.eia860plant07_postgresql p using (plntcode)
   		where primemover in ("HY", "PS")
   		and status like 'OP'
   		and p.load_area not like ''
-  		group by 1, 2, 3;
-	
+  		group by 1, 2, 3, 4;
+alter table hydro_plantcap add primary key (plntcode, primemover);
 
 -- for now, we assume:
 -- maximum flow is equal to the plant capacity (summer or winter, ignoring discrepancy from nameplate)
@@ -582,7 +584,7 @@ create table plantcap
 -- TODO: find better estimates of minimum flow, e.g., by looking through remarks in the USGS datasheets, or looking
 --   at the lowest daily average flow in each month.
 -- daily average is equal to net historical production of power
--- note: the fancy date math below just figures out how many days there are in each month
+-- look here for a good program that can download water flow data: http://www.hec.usace.army.mil/software/hec-dss/hecdssvue-download.htm
 -- TODO: find a better estimate of pumping capacity, rather than just the negative of the PS generating capacity
 -- TODO: estimate net daily energy balance in the reservoir, not via netgen. i.e., avg_flow should be based on the
 --   total flow of water (and its potential energy), not the net power generation, which includes losses from 
@@ -592,6 +594,9 @@ create table plantcap
 --   data and the USGS monthly water flow data, for pumped storage facilities. This model may be improved by looking up
 --   the head height for each dam, to link water flows directly to power.
 
+-- NOTE: Jimmy converted 'flow' to 'output' and 'input' below, as right now all data comes from EIA 906 data, which is in terms of MWh instead of water units
+-- as said above, it would be much better to get USGS data on dams and water flows to make these quantities in water stocks and flows
+
 drop table if exists hydro_gen;
 create table hydro_gen(
   plntcode int,
@@ -599,63 +604,78 @@ create table hydro_gen(
   primemover char(2),
   year year,
   month tinyint,
-  netgen double,
+  netgen_mwh double,
+  input_electricity_mwh double,
   INDEX pm (plntcode, primemover),
   INDEX ym (year, month)
 );
 
-insert into hydro_gen select plntcode, plntname, primemover, year, 1, netgen_jan from grid.eia906_04_to_07_us where primemover in ("PS", "HY") and year between 2004 and 2006;
-insert into hydro_gen select plntcode, plntname, primemover, year, 2, netgen_feb from grid.eia906_04_to_07_us where primemover in ("PS", "HY") and year between 2004 and 2006;
-insert into hydro_gen select plntcode, plntname, primemover, year, 3, netgen_mar from grid.eia906_04_to_07_us where primemover in ("PS", "HY") and year between 2004 and 2006;
-insert into hydro_gen select plntcode, plntname, primemover, year, 4, netgen_apr from grid.eia906_04_to_07_us where primemover in ("PS", "HY") and year between 2004 and 2006;
-insert into hydro_gen select plntcode, plntname, primemover, year, 5, netgen_may from grid.eia906_04_to_07_us where primemover in ("PS", "HY") and year between 2004 and 2006;
-insert into hydro_gen select plntcode, plntname, primemover, year, 6, netgen_jun from grid.eia906_04_to_07_us where primemover in ("PS", "HY") and year between 2004 and 2006;
-insert into hydro_gen select plntcode, plntname, primemover, year, 7, netgen_jul from grid.eia906_04_to_07_us where primemover in ("PS", "HY") and year between 2004 and 2006;
-insert into hydro_gen select plntcode, plntname, primemover, year, 8, netgen_aug from grid.eia906_04_to_07_us where primemover in ("PS", "HY") and year between 2004 and 2006;
-insert into hydro_gen select plntcode, plntname, primemover, year, 9, netgen_sep from grid.eia906_04_to_07_us where primemover in ("PS", "HY") and year between 2004 and 2006;
-insert into hydro_gen select plntcode, plntname, primemover, year, 10, netgen_oct from grid.eia906_04_to_07_us where primemover in ("PS", "HY") and year between 2004 and 2006;
-insert into hydro_gen select plntcode, plntname, primemover, year, 11, netgen_nov from grid.eia906_04_to_07_us where primemover in ("PS", "HY") and year between 2004 and 2006;
-insert into hydro_gen select plntcode, plntname, primemover, year, 12, netgen_dec from grid.eia906_04_to_07_us where primemover in ("PS", "HY") and year between 2004 and 2006;
+insert into hydro_gen select plntcode, plntname, primemover, year, 1, netgen_jan, elec_quantity_jan from grid.eia906_04_to_07_us where primemover in ("PS", "HY") and year between 2004 and 2006;
+insert into hydro_gen select plntcode, plntname, primemover, year, 2, netgen_feb, elec_quantity_feb from grid.eia906_04_to_07_us where primemover in ("PS", "HY") and year between 2004 and 2006;
+insert into hydro_gen select plntcode, plntname, primemover, year, 3, netgen_mar, elec_quantity_mar from grid.eia906_04_to_07_us where primemover in ("PS", "HY") and year between 2004 and 2006;
+insert into hydro_gen select plntcode, plntname, primemover, year, 4, netgen_apr, elec_quantity_apr from grid.eia906_04_to_07_us where primemover in ("PS", "HY") and year between 2004 and 2006;
+insert into hydro_gen select plntcode, plntname, primemover, year, 5, netgen_may, elec_quantity_may from grid.eia906_04_to_07_us where primemover in ("PS", "HY") and year between 2004 and 2006;
+insert into hydro_gen select plntcode, plntname, primemover, year, 6, netgen_jun, elec_quantity_jun from grid.eia906_04_to_07_us where primemover in ("PS", "HY") and year between 2004 and 2006;
+insert into hydro_gen select plntcode, plntname, primemover, year, 7, netgen_jul, elec_quantity_jul from grid.eia906_04_to_07_us where primemover in ("PS", "HY") and year between 2004 and 2006;
+insert into hydro_gen select plntcode, plntname, primemover, year, 8, netgen_aug, elec_quantity_aug from grid.eia906_04_to_07_us where primemover in ("PS", "HY") and year between 2004 and 2006;
+insert into hydro_gen select plntcode, plntname, primemover, year, 9, netgen_sep, elec_quantity_sep from grid.eia906_04_to_07_us where primemover in ("PS", "HY") and year between 2004 and 2006;
+insert into hydro_gen select plntcode, plntname, primemover, year, 10, netgen_oct, elec_quantity_oct from grid.eia906_04_to_07_us where primemover in ("PS", "HY") and year between 2004 and 2006;
+insert into hydro_gen select plntcode, plntname, primemover, year, 11, netgen_nov, elec_quantity_nov from grid.eia906_04_to_07_us where primemover in ("PS", "HY") and year between 2004 and 2006;
+insert into hydro_gen select plntcode, plntname, primemover, year, 12, netgen_dec, elec_quantity_dec from grid.eia906_04_to_07_us where primemover in ("PS", "HY") and year between 2004 and 2006;
+
+-- as we're not going to use the input_electricity_mwh for non-pumped hydro, delete it here
+-- (could do in an if clause on elec_quanity_(month) above, but this is more simple
+update hydro_gen set input_electricity_mwh = 0 where primemover = 'HY';
+
+-- to determine the net stream flow of pumped hydro projects,
+-- three approximations must be made, as the EIA does not give enough data to determine this number directly
+-- first, that the total stock of water doesn't change from year to year, i.e. stockH20(Jan2004)=stockH20(Jan2005) and so on
+-- this could be verified/modified with USGS water data.
+-- second, that the efficiency of pumped hydro projects is known
+-- Black and Veach gives this number at 87%, but everywhere else says lower...
+-- http://www.electricitystorage.org/site/technologies/pumped_hydro/ says 70-85%.. we'll assume 80%
+-- third, that the release profile over a year for pumped hydro is similar to that of nonpumped hydro plants in the same load area
+
+-- using the above assumptions, over a year,
+-- stream_flow_mwh = sum( netgen_mwh + input_electricity_mwh * ( 1 - pumped_hydro_efficiency ) )
+-- the last term represents the pumping losses
+
+drop table if exists hydro_pumped_yearly_stream_flow;
+create table hydro_pumped_yearly_stream_flow as
+select	plntcode,
+		load_area,
+		year,
+		sum( netgen_mwh + input_electricity_mwh * ( 1 - 0.80 ) ) as avg_yearly_stream_flow_mwh
+from hydro_gen join hydro_plantcap using (plntcode, primemover)
+where hydro_gen.primemover = 'PS'
+group by 1,2,3;
+	
+-- some of these values come out a bit negative, meaning that either the total amount of water in the resevoir has changed or
+-- the actual efficiency is less than the assumed efficiency, or a combination of both
+-- we'll assume that it's predominantly efficiency, so zero out these negative values
+update hydro_pumped_yearly_stream_flow set avg_yearly_stream_flow_mwh = 0 where avg_yearly_stream_flow_mwh < 0;
 
 
 -- first do on a plant level, then aggregate below
+-- note: the fancy date math just figures out how many days there are in each month
+-- also, the avg_output for pumped hydro plants will be updated below
 drop table if exists hydro_monthly_limits;
 create table hydro_monthly_limits
-  select 	plantcap.load_area,
-			plantcap.plntcode,
-			plantcap.plntname,
-			plantcap.primemover,
+  select 	hydro_plantcap.load_area,
+			hydro_plantcap.plntcode,
+			hydro_plantcap.plntname,
+			hydro_plantcap.primemover,
 			year,
     		month,
-    		if( plantcap.primemover = 'PS', -capacity_mw, null ) as min_flow,
-    		capacity_mw as max_flow,
-		    sum(netgen / 
+    		capacity_mw,
+		    sum(netgen_mwh / 
       			(24 * datediff(
         			date_add(concat(year, "-", month, "-01"), interval 1 month), concat(year, "-", month, "-01")
-      				))) as avg_flow
-    from hydro_gen, plantcap
-    where 	hydro_gen.plntcode = plantcap.plntcode
-    and		hydro_gen.primemover = plantcap.primemover
-    group by 1, 2, 3, 4, 5, 6;
+      				))) as avg_output
+    from hydro_gen join hydro_plantcap using (plntcode, primemover)
+    group by 1, 2, 3, 4, 5, 6, 7;
 
 alter table hydro_monthly_limits add index ym (year, month);
-
--- calculate the minimum flow for simple hydro plants.
--- we assume that they must release at least 25% of the monthly average flow 
--- in every hour, to maintain instream flows below the dam.
--- this isn't as clear for pumped storage... should undergo a revision later
--- TODO: find a better estimate of minimum allowed flow
--- here min flow is null for simple hydro only, so this only updates simple hydro
-update hydro_monthly_limits
-set min_flow = 0.25 * avg_flow
-where min_flow is null;
-
-
--- some of the plants come in with average production or pumping 
--- that is beyond their rated capacities; we just scale these back.
-update hydro_monthly_limits set avg_flow=max_flow where avg_flow > max_flow;
-update hydro_monthly_limits set avg_flow=min_flow where avg_flow < min_flow;
-
 
 -- drop the sites that have too few months of data (i.e., started or stopped running in this period)
 -- should check how many plants this is
@@ -666,11 +686,49 @@ select plntcode, primemover, count(*) as n from hydro_monthly_limits group by 1 
 delete l.* from hydro_monthly_limits l join toofew f using (plntcode, primemover);
 
 
+-- make a table of hydro sites with an auto-increment unique identifier
+drop table if exists hydro_sites;
+CREATE TABLE IF NOT EXISTS hydro_sites (
+  hydro_id mediumint unsigned PRIMARY KEY AUTO_INCREMENT,
+  load_area varchar(11) default NULL,
+  primemover char(2),
+  UNIQUE (load_area, primemover)
+);
+insert into hydro_sites ( load_area, primemover )
+	SELECT 	distinct load_area,
+			primemover
+		from hydro_monthly_limits;
+
+drop table if exists hydro_monthly_limits_agg;
+CREATE TABLE IF NOT EXISTS hydro_monthly_limits_agg (
+  hydro_id mediumint unsigned,
+  primemover char(2) NOT NULL,
+  load_area varchar(11) NOT NULL,	 
+  year year(4) NOT NULL,
+  month tinyint(4) NOT NULL,
+  capacity_mw double NOT NULL,
+  avg_output double NOT NULL,
+  FOREIGN KEY (hydro_id) REFERENCES hydro_sites(hydro_id)  
+);
+
+insert into hydro_monthly_limits_agg ( hydro_id, primemover, load_area, year, month, capacity_mw, avg_output )
+	SELECT 	hydro_id, 
+			primemover,
+			load_area,
+			year,
+			month,
+			sum(capacity_mw) as capacity_mw,
+			sum(avg_output) as avg_output 
+		from hydro_monthly_limits join hydro_sites using (load_area, primemover)
+		group by 1,2,3,4,5;
+
+
 -- now aggregate and add Canadian Hydro...
+-- TODO: buy and download provience level montly Canadian Hydro data from CANSIM
 
 -- Canadian Hydro
--- takes flow constraints from Washington state hydro
--- becasue we don't yet have data on Canadian hydro flows and Washington is the closest to British Columbia,
+-- takes output constraints from Washington state hydro
+-- becasue we don't yet have data on Canadian hydro output and Washington is the closest to British Columbia,
 -- where almost all the WECC Canadian hydro resides
 -- uses the total capacity for each province in a hydro aggregate
 
@@ -683,55 +741,95 @@ delete l.* from hydro_monthly_limits l join toofew f using (plntcode, primemover
 -- and statustype like 'Operating'
 -- group by 1;
 
-drop table if exists hydro_monthly_limits_agg;
-create table hydro_monthly_limits_agg as
-	SELECT 	load_area,
-			CASE
-				WHEN primemover = 'PS' THEN concat(load_area, '_', 'Pumped_Hydro_Agg')
-				WHEN primemover = 'HY' THEN concat(load_area, '_', 'Hydro_Agg')
-			END as site,
+insert into hydro_sites ( load_area, primemover ) VALUES ( 'CAN_BC', 'HY' ), ('CAN_ALB', 'HY');
+
+insert into hydro_monthly_limits_agg ( hydro_id, primemover, load_area, year, month, capacity_mw, avg_output )
+	SELECT 	(select hydro_id from hydro_sites WHERE primemover = 'HY' and hydro_sites.load_area = 'CAN_BC'), 
+			'HY',
+			'CAN_BC',
 			year,
 			month,
-			sum(min_flow) as min_flow,
-			sum(max_flow) as max_flow, 
-			sum(avg_flow) as avg_flow
-		from hydro_monthly_limits
-		group by 1,2,3,4
-UNION
-	SELECT 	'CAN_BC',
-			'CAN_BC_Hydro',
-			year,
-			month,
-			min_flow_fraction * 11870 as min_flow,
-			11870 as max_flow,
-			avg_flow_fraction * 11870 as avg_flow
+			11870 as capacity_mw,
+			avg_output_fraction * 11870 as avg_output
 	FROM
 		(SELECT year,
 				month,
-				sum(min_flow)/sum(max_flow) as min_flow_fraction,
-				sum(max_flow)/sum(max_flow) as max_flow,
-				sum(avg_flow)/sum(max_flow) as avg_flow_fraction
+				sum(avg_output)/sum(capacity_mw) as avg_output_fraction
 		FROM hydro_monthly_limits
 		where load_area like 'WA%'
 		and primemover like 'HY'
-		group by year, month) as washington_hydro_flow_table
-UNION
-	SELECT 	'CAN_ALB',
-			'CAN_ALB_Hydro',
+		group by year, month) as washington_hydro_output_table;
+insert into hydro_monthly_limits_agg ( hydro_id, primemover, load_area, year, month, capacity_mw, avg_output )
+	SELECT 	(select hydro_id from hydro_sites WHERE primemover = 'HY' and hydro_sites.load_area = 'CAN_ALB'), 
+			'HY',
+			'CAN_ALB',
 			year,
 			month,
-			min_flow_fraction * 911 as min_flow,
-			911 as max_flow,
-			avg_flow_fraction * 911 as avg_flow
+			911 as capacity_mw,
+			avg_output_fraction * 911 as avg_output
 	FROM
 		(SELECT year,
 				month,
-				sum(min_flow)/sum(max_flow) as min_flow_fraction,
-				sum(max_flow)/sum(max_flow) as max_flow,
-				sum(avg_flow)/sum(max_flow) as avg_flow_fraction
+				sum(avg_output)/sum(capacity_mw) as avg_output_fraction
 		FROM hydro_monthly_limits
 		where load_area like 'WA%'
 		and primemover like 'HY'
-		group by year, month) as washington_hydro_flow_table
+		group by year, month) as washington_hydro_output_table
 ;
+
+
+-- now update the avg_output for pumped hydro
+-- using the generation profile from nonpumped hydro in the same load area for each month
+
+-- aggregate pumped yearly flows to a load area basis and parse out the yearly MWh flows to each month
+update 	hydro_monthly_limits_agg,
+		(select load_area,
+				year,
+				sum(avg_yearly_stream_flow_mwh) as pumped_yearly_stream_flow_mwh
+			from hydro_pumped_yearly_stream_flow
+			group by 1,2
+		) as pumped_yearly_stream_flow_table,
+		(select	agg.load_area,
+				month,
+				agg.year,
+				avg_output / yearly_output_nonpumped as nonpumped_monthly_profile
+			from 	hydro_monthly_limits_agg agg,
+					(select load_area,
+							year,
+							sum(avg_output) as yearly_output_nonpumped
+						from hydro_monthly_limits_agg
+						where primemover = 'HY'
+						group by 1,2
+					) as yearly_output_nonpumped_table
+			where 	agg.load_area = yearly_output_nonpumped_table.load_area
+			and		agg.year = yearly_output_nonpumped_table.year
+			and		agg.primemover = 'HY'
+		) as nonpumped_monthly_profile_table
+set 	hydro_monthly_limits_agg.avg_output = ( nonpumped_monthly_profile * pumped_yearly_stream_flow_mwh )
+				/ 
+ 				(24 * datediff(
+        			date_add(concat(hydro_monthly_limits_agg.year, "-", hydro_monthly_limits_agg.month, "-01"), interval 1 month),
+        				concat(hydro_monthly_limits_agg.year, "-", hydro_monthly_limits_agg.month, "-01")
+      				))
+where 	hydro_monthly_limits_agg.primemover = 'PS'
+and 	hydro_monthly_limits_agg.load_area  = nonpumped_monthly_profile_table.load_area
+and 	hydro_monthly_limits_agg.month		= nonpumped_monthly_profile_table.month
+and 	hydro_monthly_limits_agg.year 		= nonpumped_monthly_profile_table.year
+and 	hydro_monthly_limits_agg.load_area 	= pumped_yearly_stream_flow_table.load_area
+and 	hydro_monthly_limits_agg.year 		= pumped_yearly_stream_flow_table.year;
+
+
+-- also, any dam that is ouputing past capacity is scaled back to it's rated capacity.
+-- this is generally less than 10% and for only a handful of dam-months
+update hydro_monthly_limits_agg set avg_output = capacity_mw where avg_output > capacity_mw;
+
+
+
+
+-- drop some temp tables... kept around above for debugging
+drop table if exists hydro_plantcap;
+drop table if exists hydro_gen;
+drop table if exists hydro_pumped_yearly_stream_flow;
+drop table if exists hydro_monthly_limits;
+
 

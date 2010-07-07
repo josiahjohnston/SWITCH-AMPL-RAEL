@@ -58,10 +58,6 @@ for {c in CARBON_COSTS} {
     }    
   }
 
-  # show some info about this run
-#  include basicstats.run;
-
-
 
   ###############################
   # Transmission optimization
@@ -75,10 +71,14 @@ for {c in CARBON_COSTS} {
   fix InstallTrans;
   fix DispatchTransFromXToY_Reserve;
   fix InstallLocalTD;
-  fix StorePumpedHydro;
-  fix DispatchHydro;
-  fix StorePumpedHydro_Reserve;
-  fix DispatchHydro_Reserve;
+  fix Dispatch_NonPumped_Hydro;
+  fix Dispatch_Pumped_Hydro_Watershed_Electrons;
+  fix Dispatch_Pumped_Hydro_Storage;
+  fix Store_Pumped_Hydro;
+  fix Dispatch_NonPumped_Hydro_Reserve;
+  fix Dispatch_Pumped_Hydro_Storage;
+  fix Dispatch_Pumped_Hydro_Watershed_Electrons_Reserve;
+  fix Store_Pumped_Hydro_Reserve;
   objective Transmission_Usage;
   option presolve_eps 1e-10;
 
@@ -121,10 +121,14 @@ for {c in CARBON_COSTS} {
   unfix InstallTrans;
   unfix DispatchTransFromXToY_Reserve;
   unfix InstallLocalTD;
-  unfix StorePumpedHydro;
-  unfix DispatchHydro;
-  unfix StorePumpedHydro_Reserve;
-  unfix DispatchHydro_Reserve;
+  unfix Dispatch_NonPumped_Hydro;
+  unfix Dispatch_Pumped_Hydro_Watershed_Electrons;
+  unfix Dispatch_Pumped_Hydro_Storage;
+  unfix Store_Pumped_Hydro;
+  unfix Dispatch_NonPumped_Hydro_Reserve;
+  unfix Dispatch_Pumped_Hydro_Storage;
+  unfix Dispatch_Pumped_Hydro_Watershed_Electrons_Reserve;
+  unfix Store_Pumped_Hydro_Reserve;
   objective Power_Cost;
 
 

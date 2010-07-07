@@ -1,8 +1,5 @@
-# Export SWITCH input data from the Switch_inputs database into text files that will be read in by AMPL
-# This script assumes that SetUpStudyHours.sql and 'build cap factors.sql' have both been called
-# If you need to call those, copy the following commands into a terminal and wait 20 minutes or so. 
-# mysql < 'build cap factors.sql'
-# mysql < 'SetUpStudyHours.sql'
+# Export SWITCH input data from the Switch inputs database into text files that will be read in by AMPL
+# This script assumes that the input database has already been built by the script 'Build WECC Cap Factors.sql'
 
 export write_to_path='.'
 
@@ -113,12 +110,6 @@ export STUDY_END_YEAR=`mysql $connection_string --column-names=false -e "select 
 
 cd  $write_to_path
 
-# note: the CAISO load aggregation/calculation areas are called 
-# load_zone in the ampl model
-# but load_area in the mysql solar database
-# this is confusing, but necessary to avoid messing up the older solar model,
-# which used local load zones (called load_zone in mysql)
-
 # The general format for the following files is for the first line to be:
 #	ampl.tab [number of key columns] [number of non-key columns]
 # col1_name col2_name ...
@@ -134,17 +125,21 @@ echo '	enable_rps.txt...'
 echo $ENABLE_RPS > enable_rps.txt
 
 echo '	load_areas.tab...'
-echo ampl.tab 1 4 > load_areas.tab
-mysql $connection_string -e "select load_area, area_id as load_area_id, economic_multiplier, rps_compliance_year, rps_compliance_percentage from load_area_info;" >> load_areas.tab
+echo ampl.tab 1 6 > load_areas.tab
+mysql $connection_string -e "select load_area, area_id as load_area_id, economic_multiplier, max_coincident_load_for_local_td, local_td_new_annual_payment_per_mw, local_td_sunk_annual_payment, transmission_sunk_annual_payment from load_area_info;" >> load_areas.tab
+
+echo '	rps_load_area_targets.tab...'
+echo ampl.tab 2 1 > rps_load_area_targets.tab
+mysql $connection_string -e "select load_area, compliance_year as rps_compliance_year, compliance_fraction as rps_compliance_fraction from rps_load_area_targets where compliance_year >= $STUDY_START_YEAR and compliance_year <= $STUDY_END_YEAR;" >> rps_load_area_targets.tab
 
 echo '	transmission_lines.tab...'
 echo ampl.tab 2 4 > transmission_lines.tab
 mysql $connection_string -e "select load_area_start, load_area_end, existing_transfer_capacity_mw, transmission_line_id, transmission_length_km, 0.95 as transmission_efficiency from transmission_lines where (existing_transfer_capacity_mw > 0 or load_areas_border_each_other like 't');" >> transmission_lines.tab
 
-# TODO: adopt better load forecasts; this assumes a simple 1.6%/year increase
+# TODO: adopt better load forecasts; this assumes a simple 1.0%/year increase - the amount projected for all of WECC from 2010 to 2018 by the EIA AEO 2008
 echo '	system_load.tab...'
 echo ampl.tab 2 1 > system_load.tab
-mysql $connection_string -e "select load_area, study_hour as hour, power(1.016, period-year(datetime_utc))*power as system_load from system_load l join study_hours_all h on (h.hournum=l.hour) where $TIMESAMPLE order by study_hour, load_area;" >> system_load.tab
+mysql $connection_string -e "select load_area, study_hour as hour, power(1.01, period-year(datetime_utc))*power as system_load from system_load l join study_hours_all h on (h.hournum=l.hour) where $TIMESAMPLE order by study_hour, load_area;" >> system_load.tab
 
 echo '	existing_plants.tab...'
 echo ampl.tab 2 15 > existing_plants.tab
@@ -156,7 +151,7 @@ mysql $connection_string -e "select load_area, plant_code, study_hour as hour, c
 
 echo '	hydro.tab...'
 echo ampl.tab 3 4 > hydro.tab
-mysql $connection_string -e "select load_area, project_id as hydro_project_id, study_date as date, site as site_id, avg_flow, min_flow, max_flow from hydro_monthly_limits l join study_dates_all d on l.year = year(d.date_utc) and l.month=month(d.date_utc) where $DATESAMPLE order by 1, 2, month, year;" >> hydro.tab
+mysql $connection_string -e "select load_area, project_id as hydro_project_id, study_date as date, technology, technology_id, capacity_mw, avg_output from hydro_monthly_limits l join study_dates_all d on l.year = year(d.date_utc) and l.month=month(d.date_utc) where $DATESAMPLE order by 1, 2, month, year;" >> hydro.tab
 
 echo '	proposed_projects.tab...'
 echo ampl.tab 3 10 > proposed_projects.tab

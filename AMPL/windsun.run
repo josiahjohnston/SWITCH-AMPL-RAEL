@@ -11,8 +11,8 @@ option presolve 0;
 
 # parameter used to track execution times and other management stuff.
 param curtime;
-param cost_sol_time;
-param trans_sol_time;
+param cost_sol_time default -1;
+param trans_sol_time default -1;
 param solution_times_path symbolic = "results/run_times.txt";
 param file_exists;
 
@@ -29,8 +29,13 @@ table study_hours IN:
 read table study_hours;
 
 table load_areas IN: 
-  LOAD_AREAS <- [load_area], load_area_id, economic_multiplier, rps_compliance_year, rps_compliance_percentage;
+  LOAD_AREAS <- [load_area], load_area_id, economic_multiplier, 
+  	max_coincident_load_for_local_td, local_td_new_annual_payment_per_mw, local_td_sunk_annual_payment, transmission_sunk_annual_payment;
 read table load_areas;
+
+table rps_load_area_targets IN: 
+  [load_area, rps_compliance_year], rps_compliance_fraction;
+read table rps_load_area_targets;
 
 table transmission_lines IN: 
   TRANSMISSION_LINES <- [load_area_start, load_area_end], existing_transfer_capacity_mw, transmission_line_id, 
@@ -55,8 +60,8 @@ table existing_intermittent_plant_cap_factor IN:
 read table existing_intermittent_plant_cap_factor;
 
 table hydro IN: 
-  PROJ_HYDRO_DATES <- [load_area, hydro_project_id, date], hydro_site ~ site_id, 
-  avg_hydro_flow ~ avg_flow, min_hydro_flow ~ min_flow, max_hydro_flow ~ max_flow;
+  PROJ_HYDRO_DATES <- [load_area, hydro_project_id, date], hydro_technology ~ technology, hydro_technology_id ~ technology_id, 
+  hydro_capacity_mw ~ capacity_mw, avg_hydro_output ~ avg_output;
 read table hydro;
 
 table proposed_projects IN: 
@@ -150,17 +155,7 @@ param outfile symbolic;
 # Parameters for basicstats.run
 param total_power_produced_by_period {PERIODS};
 param transmission_losses_by_period {PERIODS};
-
-
-# "carrying cost" for hydro and pumped hydro facilities ($/MWp/year)
-# The source for these cost number is Black and Veach / NREL ReEDS
-# this is calculated as:
-	#   $2042/kW * 1000 kW/MW * crf (capital recovery factor for a 70-year project at 7% interest)
-let hydro_capital := 2042000 * discount_rate / (1-(1+discount_rate)^(-70));
-	#   + 12.42/kW * 1000 kW/MW (fixed O&M per MW)
-let hydro_fixed_o_m := 12420 * discount_rate;
-	#   + 2.21/MWh * 8760 * 0.38 h/y (variable O&M and approx. capacity factor for hydro projects is about 38% according to our hydro monthly limit data)
-let hydro_var_o_m := 2.21 * 8760 * 0.38;
+param storage_losses_by_period {PERIODS};
 
 
 # Enable or disable policy constraints as needed. 
@@ -172,9 +167,8 @@ if enable_min_solar_production = 0 then {
 redeclare param rps_fuel_category {FUELS} symbolic;
 if (enable_rps = 0) then {
 	drop Satisfy_RPS;
-	drop Conservation_of_Blue_Electrons;
 	drop Conservation_of_Colored_Electrons;
-	let LOAD_AREAS_AND_FUEL_CATEGORY := setof{l in LOAD_AREAS} (l,'na');
+	let LOAD_AREAS_AND_FUEL_CATEGORY := setof{a in LOAD_AREAS} (a,'na');
 	let {f in FUELS} rps_fuel_category[f] := 'na';
 } 
 redeclare param rps_fuel_category {FUELS} symbolic in RPS_FUEL_CATEGORY;
