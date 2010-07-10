@@ -98,7 +98,7 @@ printf {(a, e, h) in EP_DISPATCH_HOURS, p in PERIODS: p=period[h] and DispatchEP
     * ep_variable_o_m[a, e]
   >> (outfile);
 
-# Existing Intermittent plants
+# existing intermittent plants
 printf {(a, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS, p in PERIODS: period[h]=p and OperateEPDuringPeriod[a, e, p] != 0 and eip_cap_factor[a, e, h] != 0} 
   "%s	%.2f	%d	%d	%d	%s	%d	%d	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%d	%.2f	%.2f	%.2f	%.2f\n",
   scenario_id, carbon_cost, p, ep_project_id[a, e], load_area_id[a], a, date[h], h, technology_id[ep_technology[a,e]], ep_technology[a,e], e, 0, ep_baseload[a, e], ep_cogen[a, e], ep_fuel[a, e],
@@ -206,8 +206,8 @@ printf {(pid, a, t) in PROJ_INTERMITTENT union PROJ_RESOURCE_LIMITED, p in PERIO
   "%s	%.2f	%d	%d	%d	%s	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%.2f\n",
   scenario_id, carbon_cost, p, pid, load_area_id[a], a, technology_id[t], t, project_location[pid, a, t], 1, new_baseload[t], 0, fuel[t],
   sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= p < project_end_year[t, install_yr]} InstallGen[pid, a, t, install_yr],
-  sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= p < project_end_year[t, install_yr]} InstallGen[pid, a, t, install_yr]
-    * (capital_cost_annual_payment[pid, a, t,install_yr]) * (1-(1/(1+discount_rate)^(num_years_per_period)))/discount_rate,
+  sum {(pid, a, t, install_yr) in PROJECT_VINTAGES, yr in YEAR_OF_CONSTRUCTION: install_yr <= p < project_end_year[t, install_yr]} InstallGen[pid, a, t, install_yr]
+    * (capital_cost_annual_payment[pid, a, t,install_yr, yr]) * (1-(1/(1+discount_rate)^(num_years_per_period)))/discount_rate,
   sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= p < project_end_year[t, install_yr]} InstallGen[pid, a, t, install_yr]
     * (fixed_o_m[pid, a, t]) * (1-(1/(1+discount_rate)^(num_years_per_period)))/discount_rate
   >> (outfile);
@@ -217,8 +217,8 @@ printf {(pid, a, t) in PROJ_ANYWHERE, p in PERIODS: (max {(pid, a, t, install_yr
   "%s	%.2f	%d	%d	%d	%s	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%.2f\n",
   scenario_id, carbon_cost, p, pid, load_area_id[a], a, technology_id[t], t, location_unspecified, 1, new_baseload[t], 0, fuel[t],
   sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= p < project_end_year[t, install_yr]} InstallGen[pid, a, t, install_yr],
-  sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= p < project_end_year[t, install_yr]} InstallGen[pid, a, t, install_yr]
-    * (capital_cost_annual_payment[pid, a, t,install_yr]) * (1-(1/(1+discount_rate)^(num_years_per_period)))/discount_rate,
+  sum {(pid, a, t, install_yr) in PROJECT_VINTAGES, yr in YEAR_OF_CONSTRUCTION: install_yr <= p < project_end_year[t, install_yr]} InstallGen[pid, a, t, install_yr]
+    * (capital_cost_annual_payment[pid, a, t,install_yr, yr]) * (1-(1/(1+discount_rate)^(num_years_per_period)))/discount_rate,
   sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= p < project_end_year[t, install_yr]} InstallGen[pid, a, t, install_yr]
     * (fixed_o_m[pid, a, t]) * (1-(1/(1+discount_rate)^(num_years_per_period)))/discount_rate
   >> (outfile);
@@ -232,7 +232,8 @@ printf {(a, e, p) in EP_PERIODS: p < ep_end_year[a, e] }
   scenario_id, carbon_cost, p, ep_project_id[a, e], load_area_id[a], a, technology_id[ep_technology[a,e]], ep_technology[a,e], e, 0, ep_baseload[a, e], ep_cogen[a, e], ep_fuel[a, e],
   OperateEPDuringPeriod[a, e, p] * ep_size_mw[a, e],
   # Capital costs
-  ep_size_mw[a, e] * ep_capital_cost_annual_payment[a, e] *
+  sum {yr in YEAR_OF_CONSTRUCTION}
+  ep_size_mw[a, e] * ep_capital_cost_annual_payment[a, e, yr] *
     (1-(1/(1+discount_rate)^(num_years_per_period)))/discount_rate,
   # Fixed O & M
   OperateEPDuringPeriod[a, e, p] * ep_size_mw[a, e] * ep_fixed_o_m[a, e] * economic_multiplier[a] *
@@ -246,7 +247,8 @@ printf { (a, e, p) in EP_PERIODS: ep_cogen[a, e] and p >= ep_end_year[a, e] }
   scenario_id, carbon_cost, p, ep_project_id[a, e], load_area_id[a], a, technology_id[ep_technology[a,e]], ep_technology[a,e], e, 0, ep_baseload[a, e], ep_cogen[a, e], ep_fuel[a, e],
   OperateEPDuringPeriod[a, e, p] * ep_size_mw[a, e],
   # Capital costs
-  OperateEPDuringPeriod[a, e, p] * ep_size_mw[a, e] * ep_capital_cost_annual_payment[a, e] *
+  sum {yr in YEAR_OF_CONSTRUCTION}
+  OperateEPDuringPeriod[a, e, p] * ep_size_mw[a, e] * ep_capital_cost_annual_payment[a, e, yr] *
     (1-(1/(1+discount_rate)^(num_years_per_period)))/discount_rate,
   # Fixed O & M
   OperateEPDuringPeriod[a, e, p] * ep_size_mw[a, e] * ep_fixed_o_m[a, e] * economic_multiplier[a] *

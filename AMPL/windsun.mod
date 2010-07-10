@@ -512,41 +512,70 @@ param local_td_sunk_annual_payment {LOAD_AREAS} >= 0;
 # first, the capital cost of the plant and any 
 # interconnecting lines and grid upgrades
 # (all costs are in $/MW)
-param capital_cost_proj {(pid, a, t) in PROJECTS, yr in PERIODS} = 
-  ( overnight_cost[pid, a, t] * (1+overnight_cost_change[pid, a, t])^(yr - construction_time_years[t] - price_and_dollar_year[pid, a, t])
-    + connect_cost_per_mw[pid, a, t]
-  )
+
+# calculate fraction of capital cost incurred in each year of the construction period based on declination schedule
+
+set YEAR_OF_CONSTRUCTION;
+
+param cost_fraction {t in TECHNOLOGIES, yr in YEAR_OF_CONSTRUCTION};
+
+param capital_cost_fraction_proj {(pid, a, t) in PROJECTS, p in PERIODS, yr in YEAR_OF_CONSTRUCTION} = 
+  ( cost_fraction[t, yr] * overnight_cost[pid, a, t] * (1+overnight_cost_change[pid, a, t])^(p - construction_time_years[t] - price_and_dollar_year[pid, a, t])
+    )
 ; 
 
-# annual revenue that will be needed to cover the capital cost
-param capital_cost_annual_payment {(pid, a, t) in PROJECTS, yr in PERIODS} = 
-  finance_rate * (1 + 1/((1+finance_rate)^(max_age_years[t] + construction_time_years[t])-1)) * capital_cost_proj[pid, a, t, yr];
+# annual revenue that will be needed to cover the capital cost for each cost fraction
+param capital_cost_annual_payment {(pid, a, t) in PROJECTS, p in PERIODS, yr in YEAR_OF_CONSTRUCTION} = 
+  finance_rate * (1 + 1/((1+finance_rate)^(max_age_years[t] + construction_time_years[t]-yr)-1)) 
+  * capital_cost_fraction_proj[pid, a, t, p, yr]
+;
+
+# annual revenue that will be needed to cover the connect cost
+# connect cost assumed to be incurred in the year before operation starts
+param connect_cost_annual_payment {(pid, a, t) in PROJECTS} =
+  finance_rate * (1 + 1/((1+finance_rate)^(max_age_years[t] + 1)-1))
+  * connect_cost_per_mw[pid, a, t]
+;
 
 # date when a plant of each type and vintage will stop being included in the simulation
 # note: if it would be expected to retire between study periods,
 # it is kept running (and annual payments continue to be made) 
 # until the end of that period. This avoids having artificial gaps
 # between retirements and starting new plants.
-param project_end_year {t in TECHNOLOGIES, yr in PERIODS} =
-  min(end_year, yr+ceil(max_age_years[t]/num_years_per_period)*num_years_per_period);
+param project_end_year {t in TECHNOLOGIES, p in PERIODS} =
+  min(end_year, p+ceil(max_age_years[t]/num_years_per_period)*num_years_per_period)
+;
 
-# finally, take the stream of capital & fixed costs over the duration of the project,
+# finally, take the stream of capital & fixed costs over the duration of the project for each annual payment stream
 # and discount to a lump-sum value at the start of the project,
 # then discount from there to the base_year.
-param fixed_cost {(pid, a, t) in PROJECTS, yr in PERIODS} = 
+
+# project-vintage combinations that can be installed
+# moved here from section with reduced sets for decision variables and constraints
+set PROJECT_VINTAGES = { (pid, a, t) in PROJECTS, yr in PERIODS: yr >= min_build_year[t] + construction_time_years[t]};
+
+
+param fixed_cost {(pid, a, t, p) in PROJECT_VINTAGES} = 
+sum{ yr in YEAR_OF_CONSTRUCTION }
   # Capital payments that are paid from when construction starts till the plant is retired (or the study period ends)
-  capital_cost_annual_payment[pid, a, t, yr]
+  capital_cost_annual_payment[pid, a, t, p, yr]
     # A factor to convert Uniform annual capital payments to "Present value" in the construction year - a lump sum at the beginning of the payments. This considers the time from when construction began to the end year
-    * (1-(1+discount_rate)^(-1*(project_end_year[t,yr] - yr + construction_time_years[t])))/discount_rate
+    * (1-((1+discount_rate)^((-1) * (project_end_year[t,p] - p + construction_time_years[t] - yr ))))/discount_rate
     # Future value (in the construction year) to Present value (in the base year)
-    * 1/(1+discount_rate)^(yr-construction_time_years[t]-base_year)
+    * 1/(1+discount_rate)^(p-construction_time_years[t]+yr-base_year)
++
+  connect_cost_annual_payment[pid, a, t]
+    # A factor to convert Uniform annual capital payments to "Present value" in the construction year - a lump sum at the beginning of the payments. This considers the time from when construction began to the end year
+    * (1-((1+discount_rate)^((-1) * (project_end_year[t,p] - p + 1))))/discount_rate
+    # Future value (in the construction year) to Present value (in the base year)
+    * 1/(1+discount_rate)^(p-1-base_year)
 +
   # Fixed annual costs that are paid while the plant is operating (up to the end of the study period)
   fixed_o_m[pid, a, t]
     # U to P, from the time the plant comes online to the end year
-    * (1-(1/(1+discount_rate)^(project_end_year[t,yr]-yr)))/discount_rate
+    * (1-(1/(1+discount_rate)^(project_end_year[t,p]-p)))/discount_rate
     # F to P, from the time the plant comes online to the base year
-    * 1/(1+discount_rate)^(yr-base_year);
+    * 1/(1+discount_rate)^(p-base_year);
 
 # all variable costs ($/MWh) for generating a MWh of electricity in some
 # future hour, using a particular technology and vintage, 
@@ -577,18 +606,28 @@ param carbon_cost_per_mwh {t in TECHNOLOGIES, h in TIMEPOINTS} =
 param ep_end_year {(a, e) in EXISTING_PLANTS} =
   min(end_year, start_year+ceil((ep_vintage[a, e]+ep_max_age_years[a, e]-start_year)/num_years_per_period)*num_years_per_period);
 
+# calculate construction cost fractions in $ for existing plants
+param ep_capital_cost_fraction_proj {(a, e) in EXISTING_PLANTS, yr in YEAR_OF_CONSTRUCTION} = 
+  ( cost_fraction[ep_technology[a, e], yr] * ep_overnight_cost[a, e] * economic_multiplier[a]
+    )
+; 
+
 # annual revenue that is needed to cover the capital cost (per MW)
+# added construction time for existing plants in capital cost discounting calculations
 # TODO: Move the regional cost adjustment into the database. 
-param ep_capital_cost_annual_payment {(a, e) in EXISTING_PLANTS} = 
-  finance_rate * (1 + 1/((1+finance_rate)^ep_max_age_years[a, e]-1)) * ep_overnight_cost[a, e] * economic_multiplier[a];
+param ep_capital_cost_annual_payment {(a, e) in EXISTING_PLANTS, yr in YEAR_OF_CONSTRUCTION} = 
+  finance_rate * (1 + 1/((1+finance_rate)^(ep_max_age_years[a, e]+construction_time_years[ep_technology[a, e]]-yr)-1))
+  * ep_capital_cost_fraction_proj[a, e, yr];
+
 
 # Calculate capital costs for all cogen plants that are operated beyond their expected retirement. 
 # This can be thought of as making payments into a capital replacement fund
 param ep_capital_cost_payment_per_period_to_extend_operation
 	{(a, e) in EXISTING_PLANTS, p in PERIODS: ep_cogen[a, e] and p >= ep_end_year[a, e]} =
-		ep_capital_cost_annual_payment[a, e]
+sum{ yr in YEAR_OF_CONSTRUCTION }
+		ep_capital_cost_annual_payment[a, e, yr]
     # A factor to convert all of the uniform annual payments that occur in a study period to the start of a study period
-		* (1-(1/(1+discount_rate)^(num_years_per_period)))/discount_rate
+		* (1-((1+discount_rate)^(-1)*(num_years_per_period)))/discount_rate
     # Future value (at the start of the study) to Present value (in the base year)
 		* 1/(1+discount_rate)^(p-base_year);
 
@@ -599,12 +638,15 @@ param ep_capital_cost_payment_per_period_to_extend_operation
 # so if you work through the math, variable costs are multiplied by period_length.
 # A better treatment of this would be to pull period_length out of hours_in_sample and calculate the fixed & costs
 # as the sum of annual payments that occur in a given investment year.
-param ep_capital_cost {(a, e) in EXISTING_PLANTS} =
-  ep_capital_cost_annual_payment[a, e]
-    # A factor to convert Uniform annual capital payments from the start of the study until the plant is retired.
-    * (1-(1/(1+discount_rate)^(ep_end_year[a, e]-start_year)))/discount_rate
+param ep_capital_cost {(a, e) in EXISTING_PLANTS: start_year < ep_end_year[a, e]} =
+sum{ yr in YEAR_OF_CONSTRUCTION }
+  ep_capital_cost_annual_payment[a, e, yr]
+    # A factor to convert Uniform annual capital payments from the start of the study until the plant is retired
+    # to a lump sum value at the start of the study
+    * (1-((1+discount_rate)^((-1 ) * (ep_end_year[a, e]-start_year))))/discount_rate
     # Future value (at the start of the study) to Present value (in the base year)
     * 1/(1+discount_rate)^(start_year-base_year);
+
 
 # cost per MW to operate a plant in any future period, discounted to start of study
 param ep_fixed_o_m_cost {(a, e) in EXISTING_PLANTS, p in PERIODS} =
@@ -703,9 +745,6 @@ param system_load_discounted =
 
 ##################
 # reduced sets for decision variables and constraints
-
-# project-vintage combinations that can be installed
-set PROJECT_VINTAGES = { (pid, a, t) in PROJECTS, yr in PERIODS: yr >= min_build_year[t] + construction_time_years[t]};
 
 # project-vintage combinations that have a minimum size constraint.
 set PROJ_MIN_BUILD_VINTAGES = {(pid, a, t, yr) in PROJECT_VINTAGES: min_build_capacity[t] > 0};
@@ -838,7 +877,7 @@ minimize Power_Cost:
 	#############################
 	#    EXISTING PLANTS
   # Calculate capital costs for all existing plants. This number is not affected by any of the decision variables because it is a sunk cost.
-  + sum {(a, e) in EXISTING_PLANTS}
+  + sum {(a, e) in EXISTING_PLANTS: start_year < ep_end_year[a, e]}
       ep_size_mw[a, e] * ep_capital_cost[a, e]
   # Calculate capital costs for all cogen plants that are operated beyond their expected retirement. 
   # This can be thought of as making payments into a capital replacement fund

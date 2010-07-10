@@ -218,3 +218,14 @@ if ( enable_min_solar_production = 1 ) then {
 }
 check;
 
+# create cost fraction parameter for cost calculations and discounting for new and existing plants
+# param cost_fraction { t in TECHNOLOGIES, yr in YEAR_OF_CONSTRUCTION };
+for { t in TECHNOLOGIES } {
+	let cost_fraction[t,0] := year_1_cost_fraction[t];
+	let cost_fraction[t,1] := year_2_cost_fraction[t];
+	let cost_fraction[t,2] := year_3_cost_fraction[t];
+	let cost_fraction[t,3] := year_4_cost_fraction[t];
+	let cost_fraction[t,4] := year_5_cost_fraction[t];
+	let cost_fraction[t,5] := year_6_cost_fraction[t];
+}
+;

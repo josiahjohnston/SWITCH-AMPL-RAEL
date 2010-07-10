@@ -68,10 +68,19 @@ set SOLAR_DIST_PV_TECHNOLOGIES := Residential_PV Commercial_PV;
 # default values for projects that don't have a specific location assigned beyond the load area
 param location_unspecified := 0;
 
+
+# capital cost fractions during construction period and resulting annual payment streams
+# YEAR_OF_CONSTRUCTION set used to calculate time between first payment on each cost fraction and
+# the project end-year or the model base
+# this number is subtracted from the construction time in the discounting process
+
+set YEAR_OF_CONSTRUCTION :=  0, 1, 2, 3, 4, 5 ;
+
+
 # cost of carbon emissions ($/tonneCO2)
 param carbon_cost;
 # Set this to more than one value if you want to run the carbon curve scripty thing
-set CARBON_COSTS := 0 60;
+set CARBON_COSTS := 0;
 
 param: 
 RESULT_FILES:                        result_file_path_templates :=
@@ -83,3 +92,5 @@ generation_capacity                   'results/gen_cap_%d.txt'
 transmission_capacity                 'results/trans_cap_%d.txt'
 existing_trans_cost                   'results/existing_trans_cost_%d.txt'
 local_td_capacity					  'results/local_td_cap_%d.txt';
+
+
