@@ -206,7 +206,7 @@ load data local infile
 
 -- calculate losses as 1 percent losses per 100 miles or 1 percent per 160.9344 km (reference from ReEDS)
 alter table transmission_lines add column transmission_efficiency float;
-update transmission_lines set transmission_efficiency = 0.99 / 160.9344 * transmission_length_km;
+update transmission_lines set transmission_efficiency = 1 - (0.01 / 160.9344 * transmission_length_km);
 
 
 
