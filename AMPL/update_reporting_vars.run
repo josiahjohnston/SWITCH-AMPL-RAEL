@@ -1,0 +1,98 @@
+
+############################################################
+# Parameters for basicstats.run
+for {p in PERIODS} {
+  let Gross_Power_by_Period[p]  := 
+	sum{ a in LOAD_AREAS, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY: period[h] = p } 
+		Gross_Power[a, h, fc] * hours_in_sample[h];
+  let Transmission_Losses_by_Period[p] := 
+    sum {(a1, a2) in TRANSMISSION_LINES, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY: period[h]==p}
+      DispatchTransFromXToY[a1, a2, h, fc] * (1-transmission_efficiency[a1, a2] ) * hours_in_sample[h];
+  let Storage_Losses_by_Period[p] :=
+	sum {(a, pid) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY: period[h]==p}
+		Store_Pumped_Hydro[a, pid, h, fc] * (1-pumped_hydro_efficiency) * hours_in_sample[h];
+}
+
+############################################################
+# Parameters for reporting results.
+
+# Fixed Cash flows for each possible project for every period in the study.
+for { (pid, a, t) in PROJECTS, p in PERIODS } {
+  let Capital_Payments_by_Plant_and_Period[pid, a, t, p] :=
+	sum {(pid, a, t, online_yr) in PROJECT_VINTAGES, yr in YEARS: 
+          online_yr - construction_time_years[t] <= p + num_years_per_period and
+          p < project_end_year[t, online_yr] and
+          p <= yr < p + num_years_per_period } 
+	 InstallGen[pid, a, t, online_yr] 
+	 * project_vintage_overnight_costs[pid, a, t, online_yr] 
+	 * annually_adjusted_CRF[ t, online_yr, yr]
+	 * 1/(1+discount_rate)^(yr-p);
+  let Fixed_OM_by_Plant_and_Period[pid, a, t, p] :=
+	Installed_To_Date_by_Period[pid, a, t, p ]
+    * fixed_o_m[pid, a, t] 
+    * (1 - (1+discount_rate)^(-1*(num_years_per_period)))/discount_rate;
+}
+# Fixed Cash flows for each existing plant for every period in the study.
+for { (a, e, p) in EP_PERIODS } {
+  let EP_Capital_Payments_by_Plant_and_Period[a, e, p] := 
+	(if ep_could_be_operating_past_expected_lifetime[a,e,p]
+	 then OperateEPDuringPeriod[a, e, p] # Only pay for plants operated beyond their expected lifetime if they are in operation
+	 else 1 # Always pay for existing plants until their end-of-life
+	) * ep_size_mw[a, e] * ep_capital_cost_annual_payment[a, e] *
+	  (1 - (1+discount_rate)^(-1 * num_years_per_period))/discount_rate;
+  let EP_Fixed_OM_by_Plant_and_Period[a, e, p] := 
+	OperateEPDuringPeriod[a, e, p] * ep_size_mw[a, e] * ep_fixed_o_m_cost[a, e, p] * economic_multiplier[a] *
+	  (1-(1/(1+discount_rate)^(num_years_per_period)))/discount_rate;
+}
+for { (pid, a, t) in PROJECTS, h in TIMEPOINTS } {
+  let Carbon_Emissions[ pid, a, t, h ] := 
+	Power_Produced[pid, a, t, h] * heat_rate[t] * carbon_content[fuel[t]];
+  let Carbon_Cost_Incurred_Hourly[ pid, a, t, h ] := 
+	Power_Produced[pid, a, t, h] * heat_rate[t] * carbon_content[fuel[t]] * carbon_cost;
+  let Fuel_Cost_Incurred_Hourly[ pid, a, t, h ] := 
+	Power_Produced[pid, a, t, h] * heat_rate[t] * fuel_cost_hourly[a, fuel[t], h];
+  let Variable_Cost_Incurred_Hourly[ pid, a, t, h ] := 
+	Power_Produced[pid, a, t, h] * variable_o_m[pid, a, t];
+}
+for { (a, e, h) in EP_AVAILABLE_HOURS } {
+  let EP_Carbon_Emissions[a, e, h] := 
+	EP_Power_Produced[a, e, h] * ep_heat_rate[a, e] * carbon_content[ep_fuel[a, e]];
+  let EP_Carbon_Cost_Incurred_Hourly[a, e, h] := 
+	EP_Power_Produced[a, e, h] * ep_heat_rate[a, e] * carbon_content[ep_fuel[a, e]] * carbon_cost;
+  let EP_Fuel_Cost_Incurred_Hourly[a, e, h] := 
+	EP_Power_Produced[a, e, h] * ep_heat_rate[a, e] * fuel_cost_hourly[a, ep_fuel[a, e], h];
+  let EP_Variable_Cost_Incurred_Hourly[a, e, h] := 
+	EP_Power_Produced[a, e, h] * ep_variable_o_m[a, e];
+}
+
+
+for {p in PERIODS} {
+  let Power_Cost_Per_Period[p] :=
+	( # Cash flow in the given period, discounted to the start of the period.
+	  sum { (pid, a, t) in PROJECTS } (
+		Capital_Payments_by_Plant_and_Period[pid, a, t, p] +
+		Fixed_OM_by_Plant_and_Period[pid, a, t, p] +
+		sum { h in TIMEPOINTS: period[h] = p } (
+		  Carbon_Cost_Incurred_Hourly[pid, a, t, h] * hours_in_sample[h] +
+		  Fuel_Cost_Incurred_Hourly[pid, a, t, h] * hours_in_sample[h] +
+		  Variable_Cost_Incurred_Hourly[pid, a, t, h] * hours_in_sample[h] 
+		)
+	  ) +
+	  sum { (a, e, p) in EP_PERIODS } (
+		EP_Capital_Payments_by_Plant_and_Period[a, e, p] +
+		EP_Fixed_OM_by_Plant_and_Period[a, e, p] +
+		sum { h in TIMEPOINTS: period[h] = p } (
+		  EP_Carbon_Cost_Incurred_Hourly[a, e, h] * hours_in_sample[h] +
+		  EP_Fuel_Cost_Incurred_Hourly[a, e, h] * hours_in_sample[h] +
+		  EP_Variable_Cost_Incurred_Hourly[a, e, h] * hours_in_sample[h] )
+	  )
+	) / total_loads_by_period_weighted[p];
+  
+  let Carbon_Costs_Per_Period_per_MWh[p] :=
+	( # Cash flow in the given period, discounted to the start of the period.
+	  sum { (pid, a, t) in PROJECTS, h in TIMEPOINTS: period[h] = p }
+		Carbon_Cost_Incurred_Hourly[pid, a, t, h] * hours_in_sample[h]
+	  + sum { (a, e, h) in EP_AVAILABLE_HOURS } 
+		EP_Carbon_Cost_Incurred_Hourly[a, e, h] * hours_in_sample[h]
+	) / total_loads_by_period_weighted[p];
+}

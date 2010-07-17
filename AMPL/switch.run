@@ -1,36 +1,29 @@
 include windsun.run;
+include min_solar_production_check.run;
 
-param cost_solution_file symbolic;
 param cost_problem_file symbolic;
+param cost_solution_file symbolic;
 param trans_problem_file symbolic;
 param trans_solution_file symbolic;
-param max_potential_solar_last_period;
 param num_result_files;
 
-if (enable_min_solar_production = 1) then {
-	let max_potential_solar_last_period := 
-		max_potential_power[ 'Solar', last(PERIODS) ] / total_loads_by_period_weighted[ last( PERIODS ) ];
 
-	if ( max_potential_solar_last_period < min_solar_production ) then {
-		printf "Warning! Policy goal of %2d\% solar in %.0d exceeds maximum potential of %2.2f\%, making the problem infeasible. Adjust the value of min_solar_production before proceeding.\n", 
-			min_solar_production * 100, last(PERIODS), max_potential_solar_last_period * 100;
-		exit;
-	}
-} 
+problem Cost_Minimization;
+# Add policy constraints as needed.
+if (enable_rps = 1                 ) then { restore Satisfy_RPS; };
+if (enable_min_solar_production = 1) then { restore Min_Gen_Fraction_From_Solar; };
 
 for {c in CARBON_COSTS} {
   let carbon_cost := c;
-  let curtime := time();
 
-  let cost_problem_file := "results/sol" & carbon_cost & "cost";
+  let cost_problem_file := results_path & "sol" & carbon_cost & "cost";
   let cost_solution_file := cost_problem_file & ".sol";
-  let trans_problem_file := "results/sol" & carbon_cost & "trans";
+  let trans_problem_file := results_path & "sol" & carbon_cost & "trans";
   let trans_solution_file := trans_problem_file & ".sol";
 
 
   ###############################
   # Cost optimization
-
   # Determine if a cost solution already exists. 
   shell("if [ -f " & cost_solution_file & " ]; then echo 1 > sol_exists.txt; else echo 0 > sol_exists.txt; fi");
   read file_exists < "sol_exists.txt";
@@ -39,13 +32,19 @@ for {c in CARBON_COSTS} {
   if ( file_exists )
   then {
     printf "\nLoading Cost solution from disk for a carbon cost of %d.\n", carbon_cost;
+    let curtime := time();
     solution (cost_solution_file);
+    printf "%d seconds to create a problem instance and load a solution from disk.\n", (time() - curtime);
   } else {
     printf "\nCost solution not found on disk for a carbon cost of %d; solving optimization problem.\n", carbon_cost;
+    let curtime := time();
     write ("b" & cost_problem_file);
+    let cost_compile_time := time() - curtime;
+    printf "%d seconds to compile and write the problem file.\n", cost_compile_time;
+    let curtime := time();
     solve;
     let cost_sol_time := time() - curtime;
-    printf "%d seconds to optimize for cost.", cost_sol_time;
+    printf "%d seconds to optimize for cost.\n", cost_sol_time;
     # Remove the transmission problem if it exists; It will need to be re-run from the new cost solution
 	shell("if [ -f " & trans_solution_file & " ]; then echo 1 > sol_exists.txt; else echo 0 > sol_exists.txt; fi");
 	read file_exists < "sol_exists.txt";
@@ -63,24 +62,7 @@ for {c in CARBON_COSTS} {
   # Transmission optimization
   # All decision variables except DispatchTransFromXToY are fixed for the transmission usage objective function
 
-  fix InstallGen;
-  fix BuildGenOrNot;
-  fix DispatchGen;
-  fix OperateEPDuringPeriod;
-  fix DispatchEP;
-  fix InstallTrans;
-  fix DispatchTransFromXToY_Reserve;
-  fix InstallLocalTD;
-  fix Dispatch_NonPumped_Hydro;
-  fix Dispatch_Pumped_Hydro_Watershed_Electrons;
-  fix Dispatch_Pumped_Hydro_Storage;
-  fix Store_Pumped_Hydro;
-  fix Dispatch_NonPumped_Hydro_Reserve;
-  fix Dispatch_Pumped_Hydro_Storage;
-  fix Dispatch_Pumped_Hydro_Watershed_Electrons_Reserve;
-  fix Store_Pumped_Hydro_Reserve;
-  objective Transmission_Usage;
-  option presolve_eps 1e-10;
+  problem Transmission_Minimization;
 
   # Determine if the transmission solution already exists. 
   shell("if [ -f " & trans_solution_file & " ]; then echo 1 > sol_exists.txt; else echo 0 > sol_exists.txt; fi");
@@ -91,48 +73,38 @@ for {c in CARBON_COSTS} {
   if ( file_exists )
   then {
     printf "\nLoading Transmission solution from disk for a carbon cost of %d.\n", carbon_cost;
+    let curtime := time();
     solution (trans_solution_file);
-    # show some info about this run
-    include basicstats.run;
+    printf "%d seconds to create a problem instance and load a solution from disk.\n", (time() - curtime);
 
   } else {
 
     printf "\nTransmission solution not found on disk for a carbon cost of %d; solving optimization problem.\n", carbon_cost;
     let curtime := time();
-    
     write ("b" & trans_problem_file);
+    printf "\n%d seconds to compile and write the problem file.\n", (time() - curtime);
     solve;
     let trans_sol_time := time() - curtime;
     printf "\n%d seconds to optimize for transmission.\n", trans_sol_time;
 
-    # show some info about this run
-    include basicstats.run;
-
   }
+
+  include update_reporting_vars.run;
+  
+  # show some info about this run
+  include basicstats.run;
 
   # export the results to csv files and the like if they haven't already been exported
   include record_results.run;
 
-  unfix InstallGen;
-  unfix BuildGenOrNot;
-  unfix DispatchGen;
-  unfix OperateEPDuringPeriod;
-  unfix DispatchEP;
-  unfix InstallTrans;
-  unfix DispatchTransFromXToY_Reserve;
-  unfix InstallLocalTD;
-  unfix Dispatch_NonPumped_Hydro;
-  unfix Dispatch_Pumped_Hydro_Watershed_Electrons;
-  unfix Dispatch_Pumped_Hydro_Storage;
-  unfix Store_Pumped_Hydro;
-  unfix Dispatch_NonPumped_Hydro_Reserve;
-  unfix Dispatch_Pumped_Hydro_Storage;
-  unfix Dispatch_Pumped_Hydro_Watershed_Electrons_Reserve;
-  unfix Store_Pumped_Hydro_Reserve;
-  objective Power_Cost;
-
-
+  
   # restore the cost solution
+  problem Cost_Minimization;
+  # Add policy constraints as needed.
+  if (enable_rps = 1                 ) then { restore Satisfy_RPS; };
+  if (enable_min_solar_production = 1) then { restore Min_Gen_Fraction_From_Solar; };
+  let curtime := time();
   solution (cost_solution_file);
+  printf "%d seconds to reload the cost solution from disk.\n", (time() - curtime);
 
 }

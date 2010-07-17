@@ -1,23 +1,11 @@
-use generator_info;
-
---########################
 -- build a table of data on existing plants
 -- Assumptions:
 -- eia_sector = 3, 5, or 7 for cogen plants; others are electricity-only
 -- dispatchable plants are eia_sector 1, 2, 6 with the main fuel = "NG" (gas)
 -- baseload plants are all others, if fuel is "COL", "GEO", "NUC"
 
--- Cogen plants are 80% efficient (i.e., produce 0.8 units of electricity 
--- for every extra unit of heat they use, compared to a steam-only plant or mode)
-
--- efficiency of non-cogen plants is based on net_gen_mwh and elec_fuel_mbtu
+-- efficiency of plants is based on net_gen_mwh and elec_fuel_mbtu
 -- efficiency and fuel are based on the predominant fuel and the sum of all primemovers at each plant
-
--- From Matthias... check at some point:
--- capacity factor (i.e., forced outage rate for baseload plants) is based on all fuels and all primemovers
-
-
--- cost for each primemover-fuel combination is as follows:
 
 
 -- first, get data (aggregated to plant-primemover level) from eia906 database
@@ -26,6 +14,10 @@ use generator_info;
 -- gets all of the plants in wecc, as assigned in grid.eia860gen07_us from postgresql
 -- we appear to lose one very small (net_generation__mwh=1077) NG plant (plntcode = 56508) because it doesn't appear in grid.eia860gen07_us... don't think this should be a problem.
 -- note: does not remove retired or out of service generators yet.  This will be done when summing up the generation and fuel consumption because some plants have parts that are operational and some that aren't.
+
+--########################
+
+use generator_info;
 
 -- a few generators are left out of the load area identifiation because they're in the ocean, most importantly a 2GW nuke near San Diego.
 -- this updates their load_areas...
@@ -190,38 +182,24 @@ drop table if exists existing_plants;
 create table existing_plants
 select 	maxgen.plntcode,
 		maxgen.primemover,
-		maxgen.aer_fuel_type_code as aer_fuel,
+		maxgen.aer_fuel_type_code as fuel,
 		maxgen.net_generation_megawatthours as net_gen_mwh,
 		maxgen.elec_fuel_consumption_mmbtus as fuel_consumption,
 		maxgen.eia_sector_number,
 		maxgen.cogen,
 		maxgen.load_area,
 		sum(eia860gen07.nameplate) as nameplate,
-		(sum(eia860gen07.nameplate)/maxgen.nameplate_mw)*maxgen.avg_gen_mw as avg_mw,
 		sum((eia860gen07.Summer_Capacity+eia860gen07.Winter_Capacity)/2) as peak_mw,
-		max(eia860gen07.Operating_Year) as invsyear
+		max(eia860gen07.Operating_Year) as start_year
 from maxgen, eia860gen07
 where maxgen.plntcode = eia860gen07.plntcode
 and (maxgen.primemover = eia860gen07.primemover
 	or (maxgen.primemover like 'CC' and eia860gen07.primemover in ('CA', 'CT', 'CS') and maxgen.plntcode = eia860gen07.plntcode))
 group by eia860gen07.plntcode, eia860gen07.primemover;
 
-
--- add heat rates
-alter table existing_plants add column heat_rate double;
-update existing_plants, (SELECT plntcode, primemover, sum(fuel_consumption)/sum(net_gen_mwh) as heat_rate FROM existing_plants group by plntcode, primemover) as heat_rate_calc
-set existing_plants.heat_rate = heat_rate_calc.heat_rate
-where existing_plants.plntcode = heat_rate_calc.plntcode
-and existing_plants.primemover = heat_rate_calc.primemover;
-
--- two GTs have heat_rates of ~1000, not the ~10000 that they should have..
--- I'm assuming that this is because someone (not me... I checked) messed up a decimal point somewhere
--- I therefore multiply their heat rates by 10, which returns a normal heat rate for GTs
-update existing_plants set heat_rate = 10 * heat_rate where heat_rate < 2;
-
 -- fill in baseload (as described at top of file)
 alter table existing_plants add column baseload int;
-update existing_plants set baseload = if(eia_sector_number in (1, 2, 6) and aer_fuel="NG", 0, 1);
+update existing_plants set baseload = if(eia_sector_number in (1, 2, 6) and fuel="NG", 0, 1);
 
 -- fill in cogen
 update existing_plants set cogen = if(cogen like 'Y', 1, 0);
@@ -229,65 +207,106 @@ ALTER TABLE existing_plants MODIFY COLUMN cogen TINYINT;
 
 
 -- aggregate the plants as much as possible.
--- we assume all cogen plants have the same efficiency for electricity production (0.8),
--- and that none of them will be retired during the study, so they can all be aggregated within each load zone.
--- TODO: get a better efficiency estimate for cogen plants, maybe treat retirements better
-
 drop table if exists existing_plants_agg;
-CREATE TABLE  existing_plants_agg(
+CREATE TABLE existing_plants_agg(
   ep_id mediumint unsigned PRIMARY KEY AUTO_INCREMENT,
   load_area varchar(11),
-  plant_code varchar(30),
-  gentype varchar(4),
-  aer_fuel varchar(20),
+  plant_code varchar(40),
+  primemover varchar(4),
+  fuel varchar(20),
   peak_mw double,
-  avg_mw double,
   heat_rate double,
   start_year year(4),
-  baseload int(11),
-  cogen int(1) NOT NULL default '0',
+  baseload boolean,
+  cogen boolean NOT NULL default 0,
   overnight_cost double,
   fixed_o_m double,
   variable_o_m double,
   forced_outage_rate double,
   scheduled_outage_rate double,
   max_age double,
-  intermittent tinyint(1) default '0',
+  intermittent boolean default 0,
   technology varchar(64)
 );
 
 
+insert into existing_plants_agg (load_area, plant_code, primemover, fuel, peak_mw, heat_rate, start_year, baseload, cogen)
+  select 	load_area,
+  			if(cogen = 0,
+  				concat(fuel, "_", primemover, "_", plntcode),
+  				concat(fuel, "_", primemover, "_", plntcode, "_cogen")
+  			) as plant_code,
+  			existing_plants.primemover,
+  			existing_plants.fuel, 
+			sum(peak_mw) as peak_mw,
+			avg(heat_rate) as heat_rate,
+			existing_plants.start_year,
+    		baseload,
+    		cogen
+    from existing_plants,
+		    (SELECT plntcode as plntcode_hr,
+ 					primemover as primemover_hr,
+ 					fuel as fuel_hr,
+ 					start_year as start_year_hr,
+ 					sum(fuel_consumption)/sum(net_gen_mwh) as heat_rate
+ 			FROM existing_plants
+ 			group by plntcode, primemover, fuel, start_year
+ 			) as heat_rate_calc_table
+ 		where 	plntcode = plntcode_hr
+ 		and		primemover = primemover_hr
+ 		and		fuel = fuel_hr
+ 		and		start_year = start_year_hr
+    	
+	group by plntcode, fuel, primemover, start_year;
 
-insert into existing_plants_agg (load_area, plant_code, gentype, aer_fuel, peak_mw, avg_mw, heat_rate, start_year, baseload, cogen)
-  select load_area, concat(plntcode, "-", primemover) as plant_code, primemover as gentype, aer_fuel, 
-    sum(peak_mw) as peak_mw, sum(avg_mw) as avg_mw, avg(heat_rate) as heat_rate, max(invsyear) as start_year,
-    baseload, 0 as cogen
-    from existing_plants where cogen = 0
-	group by plntcode, gentype;
-
-insert into existing_plants_agg (load_area, plant_code, gentype, aer_fuel, peak_mw, avg_mw, heat_rate, start_year, baseload, cogen)
-  select load_area, concat("cogen-", plntcode, "-", primemover, "-", aer_fuel) as plant_code, primemover as gentype, aer_fuel, 
-    sum(peak_mw) as peak_mw, sum(avg_mw) as avg_mw, 3.412 / 0.8 as heat_rate, max(invsyear) as start_year,
-    1 as baseload, 1 as cogen 
-    from existing_plants where cogen = 1
-    group by 1, 2, 3, 4;
-
--- a few plants have a bit of extra average capacity over peak, so we set the peak capacity to the average.
-update existing_plants_agg set peak_mw = avg_mw where avg_mw > peak_mw;
+-- two GTs have heat_rates of ~1000, not the ~10000 that they should have..
+-- I'm assuming that this is because someone (not me... I checked) messed up a decimal point somewhere
+-- I therefore multiply their heat rates by 10, which returns a normal heat rate for GTs
+update existing_plants_agg set heat_rate = 10 * heat_rate where heat_rate < 2;
 
 
+-- add existing windfarms
+insert into existing_plants_agg
+		(load_area,
+		plant_code,
+		primemover,
+		fuel,
+		peak_mw,
+		heat_rate,
+		start_year,
+		baseload,
+		cogen,
+		intermittent,
+		technology)
+select 	load_area,
+		concat('Wind_EP', '_', 3tier.windfarms_existing_info_wecc.windfarm_existing_id) as plant_code,
+		'WND' as primemover,
+		'WND' as fuel,
+		capacity_mw as peak_mw,
+		0 as heat_rate,
+		year_online as start_year,
+		0 as baseload,
+		0 as cogen,
+		1 as intermittent,
+		'Wind_EP' as technology
+from 	3tier.windfarms_existing_info_wecc join 
+		3tier.windfarms_existing_cap_factor using(windfarm_existing_id)
+group by 3tier.windfarms_existing_info_wecc.windfarm_existing_id
+;
 
 
 
 ----------------------------------------------------------------
--- this code was run before the above code, which takes v1 WECC l
-
 -- CANADA and MEXICO
+
+-- for Canada, should use
+-- http://www.statcan.gc.ca/cgi-bin/imdb/p2SV.pl?Function=getSurvey&SurvId=2193&SurvVer=0&InstaId=14395&InstaVer=6&SDDS=2193&lang=en&db=IMDB&adm=8&dis=2
 
 -- now we bring in nonhydro Canadian and Mexican generators from the TEPPC data.
 
 -- selects out generators that we want.
 -- we took out SynCrude plants... they are a few hundred MW of generation in Alberta but we don't have time to deal with them at the moment... should be put in at some point
+-- some generators strangly have min and max cap switched... this means that avg_mw > peak_mw
 drop table if exists canmexgen;
 create table canmexgen
 SELECT 	name,
@@ -295,81 +314,56 @@ SELECT 	name,
 		categoryname,
 		upper(left(categoryname, 2)) as primemover,
 		year(commissiondate) as start_year,
-		mincap as min_mw,
-		(mincap+maxcap)/2 as avg_mw,
-		maxcap as peak_mw,
+		if(mincap > maxcap, mincap, maxcap) as peak_mw,
 		heatrate
 FROM grid.TEPPC_Generators
-where (area like 'cfe' or area like 'bctc' or area like 'aeso')
-and categoryname not like 'canceled'
-and categoryname not like '% Future'
-and categoryname not like 'conventional hydro'
-and categoryname not like 'wind'
+where area in ('cfe', 'bctc', 'aeso')
+and categoryname not in ('canceled', 'conventional hydro', 'wind', 'Other Steam', 'Synthetic Crude', 'CT Old Oil')
 and categoryname not like '%RPS'
-and categoryname not like 'Other Steam'
-and categoryname not like 'Synthetic Crude'
-and categoryname not like 'CT Old Oil'
+and categoryname not like '%Future'
 and year(commissionDate) < 2010
-and year(retirementdate) > 2010;
+and year(retirementdate) > 2010
+order by categoryname
 
 -- switches v1 WECC load areas to v2 WECC load areas
 update canmexgen set load_area = 'MEX_BAJA' where load_area = 'cfe';
 update canmexgen set load_area = 'CAN_BC' where load_area = 'bctc';
 update canmexgen set load_area = 'CAN_ALB' where load_area = 'aeso';
 
--- some generators strangly have min and max cap switched... this means that avg_mw > peak_mw
-update canmexgen
-set peak_mw = min_mw,
-min_mw = peak_mw
-where min_mw > peak_mw;
-
 -- get the correct heat rates from the TEPPC_Generator_Categories table
 update canmexgen, grid.TEPPC_Generator_Categories
 set canmexgen.heatrate = grid.TEPPC_Generator_Categories.heatrate
 where canmexgen.categoryname = grid.TEPPC_Generator_Categories.name;
 
--- get the fuels from the categoryname.. not ideal but not too bad either.
-alter table canmexgen add column aer_fuel varchar(10);
-update canmexgen set aer_fuel = 'GEO' where categoryname like 'Geothermal';
-update canmexgen set aer_fuel = 'COL' where primemover like 'CO';
-update canmexgen set aer_fuel = 'NG' where aer_fuel is null;
+-- get fuels
+alter table canmexgen add column fuel varchar(10);
+update canmexgen set fuel = 'GEO' where categoryname like 'Geothermal';
+update canmexgen set fuel = 'COL' where primemover like 'CO';
+update canmexgen set fuel = 'NG' where fuel is null;
 
 -- change a few primemovers to look like the US existing plants 'CT' to 'CC'
 -- need to find if the Mexican Geothermal plants are 'ST' or 'BT'... put them as ST here.
-update canmexgen set primemover = 'CC' where primemover like 'CT';
+update canmexgen set primemover = 'CC' where categoryname like 'CC%';
 update canmexgen set primemover = 'ST' where primemover like 'CO';
 update canmexgen set primemover = 'ST' where primemover like 'GE';
+update canmexgen set primemover = 'GT' where primemover like 'CT';
 
 
-alter table canmexgen add column baseload int;
-alter table canmexgen add column cogen int;
+alter table canmexgen add column baseload boolean;
+alter table canmexgen add column cogen boolean default 0;
 
 -- this sets the baseload and cogen values based on our regretably limited knowledge of especially the latter in Canada and Mexico now
-update canmexgen set baseload = '1' where aer_fuel in ('GEO', 'COL');
-update canmexgen set baseload = '0' where aer_fuel not in ('GEO', 'COL');
-update canmexgen set cogen = '0';
+update canmexgen set baseload = '1' where fuel in ('GEO', 'COL');
+update canmexgen set baseload = '0' where fuel not in ('GEO', 'COL');
 
 -- the following fixes some zero and null values in the TEPPC dataset by digging into other TEPPC tables
--- the four coded out below we don't think are real, so we're not going to include them.
+-- the two coded out below we don't think are real, so we're not going to include them.
 -- update canmexgen set peak_mw = '280' where name like 'CCGT%'; 
--- update canmexgen set avg_mw = '165' where name like 'CCGT%';
 -- update canmexgen set peak_mw = '48' where name like 'G-L_CG%';
--- update canmexgen set avg_mw = '36.5' where name like 'G-L_CG%';
 update canmexgen set peak_mw = '46' where name like 'PANCAN 9_2';
-update canmexgen set avg_mw = (0.4005*peak_mw + peak_mw)/2 where name like 'PANCAN 9_2';
 update canmexgen set peak_mw = '48' where name like 'NEXENG%';
-update canmexgen set avg_mw = (0.48*peak_mw + peak_mw)/2 where name like 'NEXENG%';
 update canmexgen set peak_mw = '48' where name like 'MEGENER2'; 
-update canmexgen set avg_mw = (0.48*peak_mw + peak_mw)/2 where name like 'MEGENER2';
 update canmexgen set peak_mw = '128' where name like 'VancIsland1'; 
-update canmexgen set avg_mw = (0.5582*peak_mw + peak_mw)/2 where name like 'VancIsland1';
-update canmexgen set avg_mw = (0.481*peak_mw + peak_mw)/2 where name like 'BAJA-SL';
-update canmexgen set avg_mw = (0.481*peak_mw + peak_mw)/2 where name like 'PJX 3_1';
-update canmexgen set avg_mw = (0.4175*peak_mw + peak_mw)/2 where name like 'LaRosit1';
-update canmexgen set avg_mw = (0.4175*peak_mw + peak_mw)/2 where name like 'NovaJffr%';
-update canmexgen set avg_mw = (0.3623*peak_mw + peak_mw)/2 where name like 'Wabamun4';
-
-
  
 -- looked up cogen status of a bunch of canmex generators.  References on following lines.
 -- couldn't find any info about Mexican cogen.
@@ -378,6 +372,9 @@ update canmexgen set avg_mw = (0.3623*peak_mw + peak_mw)/2 where name like 'Waba
 -- BC Cogen that I could find
 -- http://www.kelsonenergy.com/html_08/ke_can_island.html
 -- other plants that are cogen from the name (GTC = gas turbine cogen)
+
+-- also here is very nice
+-- http://www2.cieedac.sfu.ca/media/publications/Cogeneration%20Report%202010%20Final.pdf
 update canmexgen
 set cogen = 1,
 baseload = 1
@@ -412,31 +409,63 @@ or name like 'PANCAN%'
 or name like 'NEXENG%'
 or name like 'MEGEN%'
 or name like 'VancIsland1'
+or name like 'WstCstn1'
+or name like 'WstCstn2'
+or name like 'Cancarb1'
+or name like 'Redwater'
+or name like 'BrrrdTh5'
+or name like 'Weldwood1'
+or name like 'Weldwood2'
 or categoryname like 'gtc';
+
+-- investment year of at least one BC plant is incorrect... see above reference
+update canmexgen set start_year = 2002 where name = 'IslndCgn';
+
+-- http://www.intergen.com/global/larosita.php... start year 2003
+update canmexgen set start_year = 2003 where name = 'LaRosit1'
 
 -- a few plants have made it through the process thusfar that probably aren't real (they have generic names)
 -- these plants get deleted here
 delete from canmexgen where peak_mw = 0;
+delete from canmexgen where name = 'Gen @'; 
 
--- the geothermal plants don't have a heat rate, so we just use the avergae US one, which is 21017.
-update canmexgen set canmexgen.heatrate = 21.017 where aer_fuel like 'GEO' ;
+-- the geothermal and cogen plants don't have heat rates,
+-- so we just use the average US ones for each primemover-fuel-cogen combination.
+-- if the average US cogen heat rate comes in higher than the heat rate listed in the TEPPC database,
+-- take the TEPPC heat rate instead
+update 	canmexgen,
+		(select primemover,
+				fuel,
+				cogen,
+				avg(heat_rate) as avg_heat_rate
+			from existing_plants_agg
+			group by 1,2,3
+		) as avg_heat_rate_table
+set heatrate =  if(heatrate = 0 or heatrate = null, avg_heat_rate,
+					if(heatrate > avg_heat_rate, avg_heat_rate, heatrate)
+				)
+where 	canmexgen.primemover = avg_heat_rate_table.primemover
+and		canmexgen.fuel = avg_heat_rate_table.fuel
+and		canmexgen.cogen = avg_heat_rate_table.cogen
+and		(canmexgen.cogen = 1 or canmexgen.fuel = 'GEO')
+;
 
-update canmexgen set canmexgen.heatrate = 3.412 / 0.8 where cogen = 1;
-
-delete from canmexgen where name like 'Gen @'; 
-
--- investment year of at least one BC plant is incorrect... see above reference
-update canmexgen
-set start_year = 2002
-where name like 'IslndCgn';
-
-insert into existing_plants_agg (load_area, plant_code, gentype, aer_fuel, peak_mw, avg_mw, heat_rate, start_year, baseload, cogen)
-  select load_area, concat(replace(name, ' ',''), aer_fuel) as plant_code, primemover as gentype, aer_fuel, 
-  peak_mw, avg_mw, heatrate, start_year, baseload, cogen 
+insert into existing_plants_agg (load_area, plant_code, primemover, fuel, peak_mw, heat_rate, start_year, baseload, cogen)
+  select 	load_area,
+  			if( cogen = 0,
+  				concat(replace(name, ' ','_'), "_", fuel, "_", primemover),
+  				concat(replace(name, ' ','_'), "_", fuel, "_", primemover, "_cogen")
+  				) as plant_code,
+  			primemover,
+  			fuel,
+  			peak_mw,
+  			heatrate,
+  			start_year,
+  			baseload,
+  			cogen 
   from canmexgen
     group by 1, 2, 3, 4;
     
-
 
 ------------------------------------------------------------
 -- add costs, tabluated from the ReEDS input assumptions/ Black and Veatch for REFutures (12-02-09 update)
@@ -444,6 +473,11 @@ insert into existing_plants_agg (load_area, plant_code, gentype, aer_fuel, peak_
 -- took CoalOldScr costs, Gas ST = OGS = Oil Gas Steam 
 -- set existing nuke lifetime to 60 years (was 30 in ReEDS) 
 -- http://www.eia.doe.gov/oiaf/aeo/nuclear_power.html, but should consider making nukes pay for 40 year upgrades when we expand east.
+
+-- WIND: costs from from the ReEDS input assumptions/ Black and Veatch for REFutures (12-02-09 update)
+-- max age from base input spreadsheet for switch
+-- fixed O+M,forced_outage_rate are from new wind
+
 
 -- also, Geothermal lifetimes were very short at 20 years in ReEDS.. they are about 45 years in actuality.  Couldn't quickly find a better reference than below.
 -- http://energyexperts.org/EnergySolutionsDatabase/ResourceDetail.aspx?id=2354
@@ -454,53 +488,50 @@ insert into existing_plants_agg (load_area, plant_code, gentype, aer_fuel, peak_
 -- all units in MW, MWh and MBtu terms
 drop table if exists epcosts;
 create table epcosts (
-  gentype char(2),
-  aer_fuel char(3),
+  primemover varchar(4),
+  fuel varchar(3),
   overnight_cost double,
   fixed_o_m double,
   variable_o_m double,
-  fuel varchar(20),
   forced_outage_rate double,
   scheduled_outage_rate double,
   max_age double,
-  index (gentype, aer_fuel)
+  index (primemover, fuel)
   );
 
 insert into epcosts values
-	('BT','GEO',3397000,261269,0,'Geothermal',0.075,0.0241,45),
-	('CC','NG',955000,11322,3.35,'Gas',0.04,0.06,30),
-	('GT','NG',652000,11322,3.35,'Gas',0.03,0.05,30),
-	('IC','NG',652000,30000,1,'Gas',0.03,0.05,30),
-	('ST','COL',1322000,25703,3.73,'Coal',0.06,0.10,60),
-	('ST','GEO',3397000,261269,0,'Geothermal',0.075,0.0241,45),
-	('ST','NG',435000,27730,3.47,'Gas',0.10,0.026, 45),
-	('ST','NUC',3319000,90034,0.49,'Nuclear',0.04,0.06,60);
+	('BT','GEO',3397000,261269,0,0.075,0.0241,45),
+	('CC','NG',955000,11322,3.35,0.04,0.06,30),
+	('GT','NG',652000,11322,3.35,0.03,0.05,30),
+	('IC','NG',652000,30000,1,0.03,0.05,30),
+	('ST','COL',1322000,25703,3.73,0.06,0.10,60),
+	('ST','GEO',3397000,261269,0,0.075,0.0241,45),
+	('ST','NG',435000,27730,3.47,0.10,0.026,45),
+	('ST','NUC',3319000,90034,0.49,0.04,0.06,60),
+	('WND','WND',1724000,57790,0,0.015,0.003,30);
 
 
-update existing_plants_agg e join epcosts c using (gentype, aer_fuel)
+update existing_plants_agg e join epcosts c using (primemover, fuel)
   set e.overnight_cost=if(cogen, 0.75, 1)*c.overnight_cost,
     e.fixed_o_m=c.fixed_o_m,
     e.variable_o_m = c.variable_o_m,
-    e.aer_fuel = c.aer_fuel,
+    e.fuel = c.fuel,
     e.forced_outage_rate = c.forced_outage_rate,
     e.scheduled_outage_rate = c.scheduled_outage_rate,
     e.max_age = c.max_age;
--- fix a few that have higher production than theoretically possible
-update existing_plants_agg
-  set peak_mw = avg_mw / (1-forced_outage_rate) where avg_mw > peak_mw * (1-forced_outage_rate);
+
+-- make EIA (aer) fuels into SWITCH fuels
+update existing_plants_agg set fuel = 'Gas' where fuel like 'NG';
+update existing_plants_agg set fuel = 'Uranium' where fuel like 'NUC';
+update existing_plants_agg set fuel = 'Coal' where fuel like 'COL';
+update existing_plants_agg set fuel = 'Geothermal' where fuel like 'GEO';
+update existing_plants_agg set fuel = 'Wind' where fuel like 'WND';
 
 
-ALTER TABLE existing_plants_agg MODIFY COLUMN aer_fuel Varchar(20);
-
-update existing_plants_agg set aer_fuel = 'Gas' where aer_fuel like 'NG';
-update existing_plants_agg set aer_fuel = 'Uranium' where aer_fuel like 'NUC';
-update existing_plants_agg set aer_fuel = 'Coal' where aer_fuel like 'COL';
-update existing_plants_agg set aer_fuel = 'Geothermal' where aer_fuel like 'GEO';
-
-update existing_plants_agg set technology = concat(aer_fuel, '_', gentype);
+update existing_plants_agg set technology = concat(fuel, '_', primemover)
+where fuel <> 'Wind';
 
 -- Update technology names - make these above in the future
-
 update existing_plants_agg set technology = 'Coal_Steam_Turbine_EP' where technology = 'Coal_ST';
 update existing_plants_agg set technology = 'Geothermal_EP' where technology in ('Geothermal_ST', 'Geothermal_BT');
 update existing_plants_agg set technology = 'Gas_Combustion_Turbine_EP' where technology in ('Gas_GT', 'Gas_IC');
@@ -508,53 +539,6 @@ update existing_plants_agg set technology = 'Gas_Steam_Turbine_EP' where technol
 update existing_plants_agg set technology = 'CCGT_EP' where technology = 'Gas_CC';
 update existing_plants_agg set technology = 'Nuclear_EP' where technology = 'Uranium_ST';
 update existing_plants_agg set technology = replace(technology, "_EP", "_Cogen_EP") where cogen;
-
--- add in Wind existing plants
--- existing windfarms added here
--- costs from from the ReEDS input assumptions/ Black and Veatch for REFutures (12-02-09 update)
--- max age from base input spreadsheet for switch
--- fixed O+M,forced_outage_rate are from new wind
-insert into existing_plants_agg
-		(load_area,
-		plant_code,
-		gentype,
-		aer_fuel,
-		peak_mw,
-		avg_mw,
-		heat_rate,
-		start_year,
-		baseload,
-		cogen,
-		overnight_cost,
-		fixed_o_m,
-		variable_o_m,
-		forced_outage_rate,
-		scheduled_outage_rate,
-		max_age,
-		intermittent,
-		technology)
-select 	load_area,
-		concat('Wind_EP', '_', load_area, '_', 3tier.windfarms_existing_info_wecc.windfarm_existing_id) as plant_code,
-		'Wind' as gentype,
-		'Wind' as aer_fuel,
-		capacity_mw as peak_mw,
-		avg(cap_factor) * capacity_mw as avg_mw,
-		0 as heat_rate,
-		year_online as start_year,
-		0 as baseload,
-		0 as cogen,
-		1724000 as overnight_cost,
-		57790 as fixed_o_m,
-		0 as variable_o_m,
-		0.015 as forced_outage_rate,
-		0.003 as scheduled_outage_rate,
-		30 as max_age,
-		1 as intermittent,
-		'Wind_EP' as technology
-from 	3tier.windfarms_existing_info_wecc join 
-		3tier.windfarms_existing_cap_factor using(windfarm_existing_id)
-group by 3tier.windfarms_existing_info_wecc.windfarm_existing_id
-;
 
 
 

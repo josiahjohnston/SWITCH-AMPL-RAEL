@@ -3,26 +3,98 @@
 
 reset;
 option solver cplexamp;
-option cplex_options 'lpdisplay=1 iisfind=1 mipdisplay=1';
+option cplex_options 'lpdisplay=1 iisfind=1 mipdisplay=1 presolve=1 prestats=1';
 # Other options
 # Add 'threads=8' for multi-threaded execution.
 # Adding 'advance=2' might speed up solutions that work from a similar problem's solution
 option presolve 0;
+option presolve_eps 1e-10;
+# Options to enable automatic substitution of variables without making the program non-linear
+option linelim 1;
+option substout 1;
 
 # parameter used to track execution times and other management stuff.
 param curtime;
+param cost_compile_time default -1;
 param cost_sol_time default -1;
 param trans_sol_time default -1;
 param solution_times_path symbolic = "results/run_times.txt";
 param file_exists;
+param results_path symbolic := 'results/';
+# Make the results directory if it doesn't exist.
+shell("if [ ! -d " & results_path & " ]; then mkdir " & results_path & "; fi");
 
 model windsun.mod;
 set RESULT_FILES;
 param result_file_path_templates{RESULT_FILES} symbolic;
 param result_header_paths{RESULT_FILES} symbolic;
 param output_section symbolic;
-
 data windsun.dat;
+param outfile symbolic;
+
+#########################
+# Define two "Problems": Investment optimization (with dispatch considerations) and Transmission minimization.
+problem Cost_Minimization: 
+  # Objective function 
+	Power_Cost, 
+
+  # Consumption Decisions (used for RPS)
+	ConsumePower, 
+  # Consumption Constraints
+	Conservation_Of_Energy, Satisfy_Load, 
+
+  # Investment Decisions
+	InstallGen, BuildGenOrNot, InstallTrans, InstallLocalTD, 
+  # Installation Constraints
+	Maximum_Resource_Competing_Tech, Maximum_Resource_Location_Unspecified, Minimum_GenSize, BuildGenOrNot_Constraint, SymetricalTrans, Minimum_LocalTD, 
+
+  # Dispatch Decisions
+	DispatchGen, OperateEPDuringPeriod, DispatchEP, DispatchTransFromXToY, Dispatch_NonPumped_Hydro, Dispatch_Pumped_Hydro_Watershed_Electrons, Dispatch_Pumped_Hydro_Storage, Store_Pumped_Hydro,
+  # Dispatch Constraints
+	Maximum_DispatchGen, EP_Maximum_DispatchGen, Maximum_DispatchTransFromXToY, Maximum_DispatchTransFromXToY_Reserve, 
+	Maximum_Dispatch_NonPumped_Hydro, Average_NonPumped_Hydro_Output,        Minimum_Dispatch_NonPumped_Hydro, 
+	Maximum_Dispatch_Pumped_Hydro,    Average_Pumped_Hydro_Watershed_Output, Maximum_Store_Pumped_Hydro,
+	Conservation_Of_Stored_Pumped_Hydro_Electrons, 
+
+  # Derived variables and the constraints that define them
+	Installed_To_Date, Installed_To_Date_by_Period, 
+	Power_Produced, EP_Power_Produced, Gross_Power, Net_Power, 
+	   Power_From_Dispatchable_Plants,    Power_From_Intermittent_Plants,    Power_From_Baseload_Plants, 
+	EP_Power_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Baseload_Plants, 
+
+  # Contigency Planning Variables (to ensure that a dispatch plan exists that can meet reserve margins)
+	DispatchTransFromXToY_Reserve, Dispatch_NonPumped_Hydro_Reserve, Dispatch_Pumped_Hydro_Watershed_Electrons_Reserve, Dispatch_Pumped_Hydro_Storage_Reserve, Store_Pumped_Hydro_Reserve, 
+  # Contigency Planning constraints
+	Satisfy_Load_Reserve, 
+	Maximum_Dispatch_NonPumped_Hydro_Reserve, Average_NonPumped_Hydro_Output_Reserve,        Minimum_Dispatch_NonPumped_Hydro_Reserve, 
+	Maximum_Dispatch_Pumped_Hydro_Reserve,    Average_Pumped_Hydro_Watershed_Output_Reserve, Maximum_Store_Pumped_Hydro_Reserve,
+	Conservation_Of_Stored_Pumped_Hydro_Electrons_Reserve
+;
+
+problem Transmission_Minimization: 
+  # Objective
+	Transmission_Usage, 
+  # Transmission Dispatch Decisions
+	DispatchTransFromXToY, 
+  # Consumption Constraints
+	Conservation_Of_Energy, Satisfy_Load, 
+  # Installation Constraints
+	Maximum_Resource_Competing_Tech, Maximum_Resource_Location_Unspecified, Minimum_GenSize, BuildGenOrNot_Constraint, SymetricalTrans, Minimum_LocalTD, 
+  # Dispatch Constraints
+	Maximum_DispatchGen, EP_Maximum_DispatchGen, Maximum_DispatchTransFromXToY, Maximum_DispatchTransFromXToY_Reserve, 
+	Maximum_Dispatch_NonPumped_Hydro, Average_NonPumped_Hydro_Output, Minimum_Dispatch_NonPumped_Hydro, 
+	Maximum_Dispatch_Pumped_Hydro,    Average_Pumped_Hydro_Watershed_Output, 
+	Maximum_Store_Pumped_Hydro,       Conservation_Of_Stored_Pumped_Hydro_Electrons, 
+  # Constraints that define derived variables
+	   Power_From_Dispatchable_Plants,    Power_From_Intermittent_Plants,    Power_From_Baseload_Plants, 
+	EP_Power_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Baseload_Plants, 
+  # Contigency Planning constraints
+	Satisfy_Load_Reserve, 
+	Maximum_Dispatch_NonPumped_Hydro_Reserve, Average_NonPumped_Hydro_Output_Reserve,        Minimum_Dispatch_NonPumped_Hydro_Reserve, 
+	Maximum_Dispatch_Pumped_Hydro_Reserve,    Average_Pumped_Hydro_Watershed_Output_Reserve, 
+	Maximum_Store_Pumped_Hydro_Reserve,       Conservation_Of_Stored_Pumped_Hydro_Electrons_Reserve
+;
+
 
 table study_hours IN: 
   TIMEPOINTS <- [hour], period, date, hours_in_sample, month_of_year, hour_of_day;
@@ -98,12 +170,6 @@ for { t in SOLAR_CSP_TECHNOLOGIES } {
 }
 let technologies_compete_for_space['Central_PV'] := 1;
 
-#table generator_costs_regional IN:  
-#	REGIONAL_TECHNOLOGIES <- [load_area, technology], regional_project_id, price_and_dollar_year, overnight_cost,
-#	connect_cost_per_mw_generic, fixed_o_m, variable_o_m, overnight_cost_change,
-#	nonfuel_startup_cost;
-#read table generator_costs_regional;
-
 table fuel_costs IN:
 	[load_area, fuel, year], fuel_price;
 read table fuel_costs;
@@ -126,96 +192,15 @@ read scenario_id <scenario_id.txt;
 # Whether or not to consider Renewable Portfolio Standards
 read enable_rps < enable_rps.txt;
 
-# years and hours to report
-set STUDY_YEARS ordered = PERIODS;
-param last_hour_of_year {y in STUDY_YEARS} = max {h in TIMEPOINTS: period[h]= y} h;
-param first_hour_of_year {y in STUDY_YEARS} = min {h in TIMEPOINTS: period[h] = y} h;
-param samples_in_year {y in STUDY_YEARS} = 
-  card({h in TIMEPOINTS: period[h]=y});
-set ZONAL_REPORTING_YEARS ordered = {last(STUDY_YEARS)};
-set ZONAL_REPORTING_HOURS ordered = {h in TIMEPOINTS: period[h] in ZONAL_REPORTING_YEARS};
-
-# parameters to report transmission and generation from various sources, in each load zone
-set TECHNOLOGIES_INTERMITTENT = setof {t in TECHNOLOGIES: intermittent[t]} (t);
-set TECHNOLOGIES_DISPATCH = setof {(pid, a, t) in PROJ_DISPATCH} (t);
-param total_gen {LOAD_AREAS, TECHNOLOGIES, STUDY_YEARS} default 0;
-param surplus_gen {LOAD_AREAS, TECHNOLOGIES_INTERMITTENT, STUDY_YEARS} default 0;
-param intermittent_surplus_fraction {LOAD_AREAS, TIMEPOINTS} default 0;
-param total_gen_installed {t in TECHNOLOGIES, y in STUDY_YEARS};
-param total_trans {TRANSMISSION_LINES, STUDY_YEARS} default 0;
-param avg_gen_by_zone {LOAD_AREAS, TECHNOLOGIES} default 0, >= 0;
-param avg_surp_by_zone {LOAD_AREAS, TECHNOLOGIES_INTERMITTENT} default 0, >= 0;
-param avg_load_by_zone {LOAD_AREAS} default 0, >= 0;
-param avg_gen_by_year {STUDY_YEARS, TECHNOLOGIES} default 0, >= 0;
-param avg_surp_by_year {STUDY_YEARS, TECHNOLOGIES_INTERMITTENT} default 0, >= 0;
-param avg_load_by_year {STUDY_YEARS} default 0, >= 0;
-param power_cost_by_year {STUDY_YEARS} >= 0;
-param outfile symbolic;
-
-# Parameters for basicstats.run
-param total_power_produced_by_period {PERIODS};
-param transmission_losses_by_period {PERIODS};
-param storage_losses_by_period {PERIODS};
-
-
-# Enable or disable policy constraints as needed. 
-# This might be implemented better as named problems.
-if enable_min_solar_production = 0 then {
-	drop Min_Gen_Fraction_From_Solar;
-}
-
 redeclare param rps_fuel_category {FUELS} symbolic;
 if (enable_rps = 0) then {
 	drop Satisfy_RPS;
-	drop Conservation_of_Colored_Electrons;
 	let LOAD_AREAS_AND_FUEL_CATEGORY := setof{a in LOAD_AREAS} (a,'na');
 	let {f in FUELS} rps_fuel_category[f] := 'na';
 } 
 redeclare param rps_fuel_category {FUELS} symbolic in RPS_FUEL_CATEGORY;
 
-# Maximum potential from resource-limited sources
-set RESOURCE_LIMITED_TECHNOLOGIES = setof{ t in TECHNOLOGIES: resource_limited[t] } (t);
-param max_potential_power {FUELS, PERIODS };
-if ( enable_min_solar_production = 1 ) then {
 
-  for { f in FUELS, yr in PERIODS } {
-  let max_potential_power[ f, yr ] := 
-	sum{ t in RESOURCE_LIMITED_TECHNOLOGIES: fuel[t] = f and intermittent[t] } (
-	# Intermittent, resource-limited projects that are not located at sites where technologies are in competition
-		# New plants
-		sum{ (pid, a, t) in PROJ_RESOURCE_LIMITED, h in TIMEPOINTS: 
-			 period[h] = yr and fuel[t] = f and not (project_location[pid, a, t] in LOCATIONS_WITH_COMPETING_TECHNOLOGIES)} (
-			(1-forced_outage_rate[t]) * capacity_limit[pid, a, t] * capacity_limit_conversion[pid, a, t] * cap_factor[pid, a, t, h] * hours_in_sample[h]
-		)
-		# Existing plants (assume they are operating)
-	  + sum { (a, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: 
-				 period[h] = yr and ep_technology[a,e] = t and ep_fuel[a,e]=f} (
-			(1-ep_forced_outage_rate[a,e]) * eip_cap_factor[a, e, h]  * ep_size_mw[a, e] * hours_in_sample[h]
-		)
-	# New Intermittent, resource-limited projects that are located at sites with competing technologies. 
-	# Pick the technology that if installed completely would provide the most power. 
-	# This assumes that competing technologies share the same fuel
-	  + sum{ l in LOCATIONS_WITH_COMPETING_TECHNOLOGIES } 
-		  max{(pid, a, t) in PROJ_RESOURCE_LIMITED, h in TIMEPOINTS: 
-			 period[h] = yr and fuel[t] = f and project_location[pid, a, t] = l }
-			 (1-forced_outage_rate[t]) * capacity_limit[pid, a, t] * capacity_limit_conversion[pid, a, t] * cap_factor[pid, a, t, h] * hours_in_sample[h]
-	
-	# Baseload, resource-limited technologies (currently biomass & geothermal)
-		# New plants
-	  + sum { (pid, a, t, v, h) in NEW_BASELOAD_VINTAGE_HOURS:
-			  period[h] = yr and fuel[t] = f } ( 
-			(1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * capacity_limit[pid, a, t] * capacity_limit_conversion[pid, a, t] * hours_in_sample[h]
-		)
-		# Existing plants (assume they are operating)
-	  + sum { (a, e, yr) in EP_BASELOAD_PERIODS, h in TIMEPOINTS: 
-			  period[h] = yr and ep_technology[a,e] = t and ep_fuel[a,e]=f} (
-			(1-ep_forced_outage_rate[a, e]) * (1-ep_scheduled_outage_rate[a, e]) * ep_size_mw[a, e] * hours_in_sample[h]
-		)
-	# ToDo: add a part for dispatchable, resource-limited technologies when we add tech of that type
-	)
-	;
-  }
-}
 check;
 
 # create cost fraction parameter for cost calculations and discounting for new and existing plants
@@ -229,3 +214,21 @@ for { t in TECHNOLOGIES } {
 	let cost_fraction[t,5] := year_6_cost_fraction[t];
 }
 ;
+
+param Gross_Power_by_Period {p in PERIODS}; 
+param Transmission_Losses_by_Period {p in PERIODS};
+param Storage_Losses_by_Period {p in PERIODS}; 
+param Capital_Payments_by_Plant_and_Period { (pid, a, t) in PROJECTS, p in PERIODS }; 
+param EP_Capital_Payments_by_Plant_and_Period { (a, e, p) in EP_PERIODS }; 
+param Fixed_OM_by_Plant_and_Period { (pid, a, t) in PROJECTS, p in PERIODS }; 
+param EP_Fixed_OM_by_Plant_and_Period { (a, e, p) in EP_PERIODS }; 
+param Carbon_Emissions { (pid, a, t) in PROJECTS, h in TIMEPOINTS }; 
+param EP_Carbon_Emissions { (a, e, h) in EP_AVAILABLE_HOURS }; 
+param Carbon_Cost_Incurred_Hourly { (pid, a, t) in PROJECTS, h in TIMEPOINTS }; 
+param EP_Carbon_Cost_Incurred_Hourly { (a, e, h) in EP_AVAILABLE_HOURS }; 
+param Fuel_Cost_Incurred_Hourly { (pid, a, t) in PROJECTS, h in TIMEPOINTS }; 
+param EP_Fuel_Cost_Incurred_Hourly { (a, e, h) in EP_AVAILABLE_HOURS }; 
+param Variable_Cost_Incurred_Hourly { (pid, a, t) in PROJECTS, h in TIMEPOINTS }; 
+param EP_Variable_Cost_Incurred_Hourly { (a, e, h) in EP_AVAILABLE_HOURS }; 
+param Power_Cost_Per_Period {p in PERIODS};
+param Carbon_Costs_Per_Period_per_MWh {p in PERIODS};

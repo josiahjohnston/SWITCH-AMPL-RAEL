@@ -17,11 +17,6 @@ if [ ! -d $results_graphing_dir ]; then
 	mkdir $results_graphing_dir
 fi 
 results_dir="results"
-# check if results_for_graphing directory exists and make it if it does not
-if [ ! -d $results_dir ]; then
-	echo "Making Results Directory"
-	mkdir $results_dir
-fi 
 
 ###################################################
 # Detect optional command-line arguments

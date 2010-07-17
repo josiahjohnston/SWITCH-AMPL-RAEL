@@ -1,0 +1,52 @@
+# Error check to see if minimum solar production goals can be met.
+
+# Maximum potential from resource-limited sources
+param max_potential_power {FUELS, PERIODS };
+param max_potential_solar_last_period;
+if ( enable_min_solar_production = 1 ) then {
+  for { f in FUELS, p in PERIODS } {
+	let max_potential_power[ f, p ] := 
+	  sum{ t in TECHNOLOGIES: resource_limited[t] and fuel[t] = f } (
+	  # Intermittent, resource-limited projects that are not located at sites where technologies are in competition
+		  # New plants
+		  sum{ (pid, a, t) in PROJ_RESOURCE_LIMITED, h in TIMEPOINTS: 
+			   period[h] = p and fuel[t] = f and not (project_location[pid, a, t] in LOCATIONS_WITH_COMPETING_TECHNOLOGIES) and intermittent[t]} (
+			  (1-forced_outage_rate[t]) * capacity_limit[pid, a, t] * capacity_limit_conversion[pid, a, t] * cap_factor[pid, a, t, h] * hours_in_sample[h]
+		  )
+	  # New Intermittent, resource-limited projects that are located at sites with competing technologies. 
+	  # Pick the technology that if installed completely would provide the most power. 
+	  # This assumes that competing technologies share the same fuel
+		+ sum{ l in LOCATIONS_WITH_COMPETING_TECHNOLOGIES } 
+			max{(pid, a, t) in PROJ_RESOURCE_LIMITED, h in TIMEPOINTS: 
+			   period[h] = p and fuel[t] = f and project_location[pid, a, t] = l and intermittent[t] }
+			   (1-forced_outage_rate[t]) * capacity_limit[pid, a, t] * capacity_limit_conversion[pid, a, t] * cap_factor[pid, a, t, h] * hours_in_sample[h]
+	  # Baseload, resource-limited technologies (currently biomass & geothermal)
+		  # New plants
+		+ sum { (pid, a, t, v, h) in NEW_BASELOAD_VINTAGE_HOURS:
+				period[h] = p and fuel[t] = f } ( 
+			  (1-forced_outage_rate[t]) * (1-scheduled_outage_rate[t]) * capacity_limit[pid, a, t] * capacity_limit_conversion[pid, a, t] * hours_in_sample[h]
+		  )
+	  # Existing plants (assume they are operating)
+		+ sum { (a, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: 
+				   period[h] = p and ep_technology[a,e] = t and ep_fuel[a,e]=f} (
+			  (1-ep_forced_outage_rate[a,e]) * eip_cap_factor[a, e, h]  * ep_size_mw[a, e] * hours_in_sample[h]
+		  )
+		+ sum { (a, e, p) in EP_BASELOAD_PERIODS, h in TIMEPOINTS: 
+				period[h] = p and ep_technology[a,e] = t and ep_fuel[a,e]=f} (
+			  (1-ep_forced_outage_rate[a, e]) * (1-ep_scheduled_outage_rate[a, e]) * ep_size_mw[a, e] * hours_in_sample[h]
+		  )
+	  # ToDo: add a part for dispatchable, resource-limited technologies when we add tech of that type
+	  )
+	  ;
+  }
+
+  let max_potential_solar_last_period := 
+	  max_potential_power[ 'Solar', last(PERIODS) ] / total_loads_by_period_weighted[ last( PERIODS ) ];
+  
+  if ( max_potential_solar_last_period < min_solar_production ) then {
+	  printf "Warning! Policy goal of %2d\% solar in %.0d exceeds maximum potential of %2.2f\%, making the problem infeasible. Adjust the value of min_solar_production before proceeding.\n", 
+		  min_solar_production * 100, last(PERIODS), max_potential_solar_last_period * 100;
+	  exit;
+  }
+
+}

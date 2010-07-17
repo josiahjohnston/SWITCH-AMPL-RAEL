@@ -80,17 +80,15 @@ set YEAR_OF_CONSTRUCTION :=  0, 1, 2, 3, 4, 5 ;
 # cost of carbon emissions ($/tonneCO2)
 param carbon_cost;
 # Set this to more than one value if you want to run the carbon curve scripty thing
-set CARBON_COSTS := 0;
+set CARBON_COSTS := 0 60;
 
 param: 
 RESULT_FILES:                        result_file_path_templates :=
-dispatch                              'results/dispatch_%d.txt'
-system_load                           'results/system_load_%d.txt'
-transmission_dispatch                 'results/transmission_dispatch_%d.txt'
-storage_dispatch                	  'results/storage_dispatch_%d.txt'
-generation_capacity                   'results/gen_cap_%d.txt'
-transmission_capacity                 'results/trans_cap_%d.txt'
-existing_trans_cost                   'results/existing_trans_cost_%d.txt'
-local_td_capacity					  'results/local_td_cap_%d.txt';
-
-
+dispatch                              'dispatch_%d.txt'
+system_load                           'system_load_%d.txt'
+transmission_dispatch                 'transmission_dispatch_%d.txt'
+storage_dispatch                	  'storage_dispatch_%d.txt'
+generation_capacity                   'gen_cap_%d.txt'
+transmission_capacity                 'trans_cap_%d.txt'
+existing_trans_cost                   'existing_trans_cost_%d.txt'
+local_td_capacity					  'local_td_cap_%d.txt';

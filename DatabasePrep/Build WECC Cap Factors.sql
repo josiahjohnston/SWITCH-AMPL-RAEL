@@ -402,10 +402,9 @@ CREATE TABLE existing_plants (
 	area_id smallint unsigned,
 	load_area varchar(11),
 	plant_code varchar(40),
-	gentype varchar(10),
-	aer_fuel varchar(20),
+	primemover varchar(10),
+	fuel varchar(20),
 	peak_mw double,
-	avg_mw double,
 	heat_rate double,
 	start_year year,
 	baseload boolean,
@@ -423,8 +422,9 @@ CREATE TABLE existing_plants (
 	INDEX load_area_plant_code (load_area, plant_code)
 ) ROW_FORMAT=FIXED;
 
-insert into existing_plants (project_id, area_id, ep_id, load_area, plant_code, gentype, aer_fuel, peak_mw, avg_mw, heat_rate, start_year, baseload, cogen, overnight_cost, fixed_o_m, variable_o_m, forced_outage_rate, scheduled_outage_rate, max_age, intermittent, technology )
-	select 	existing_plants_agg.ep_id + (ascii( 'E' ) << 8*3), -- The << operation moves the numeric form of the letter "E" (for existing plants) over by 3 bytes, effectively making its value into the most significant digits.
+ -- The << operation moves the numeric form of the letter "E" (for existing plants) over by 3 bytes, effectively making its value into the most significant digits.
+insert into existing_plants (project_id, area_id, ep_id, load_area, plant_code, primemover, fuel, peak_mw, heat_rate, start_year, baseload, cogen, overnight_cost, fixed_o_m, variable_o_m, forced_outage_rate, scheduled_outage_rate, max_age, intermittent, technology )
+	select 	existing_plants_agg.ep_id + (ascii( 'E' ) << 8*3),
 			load_area_info.area_id,
 			existing_plants_agg.*
 			from generator_info.existing_plants_agg
@@ -459,7 +459,7 @@ SELECT      existing_plants.project_id,
     from    existing_plants, 
             3tier.windfarms_existing_cap_factor
     where   technology = 'Wind_EP'
-    and		concat('Wind_EP', '_', load_area, '_', 3tier.windfarms_existing_cap_factor.windfarm_existing_id) = existing_plants.plant_code;
+    and		concat('Wind_EP', '_', 3tier.windfarms_existing_cap_factor.windfarm_existing_id) = existing_plants.plant_code;
 
 
 
@@ -501,6 +501,7 @@ CREATE TABLE _proposed_projects (
 
 -- the capacity limit is either in MW if the capacity_limit_conversion is 1, or in other units if the capacity_limit_conversion is nonzero
 -- so for CSP and central PV the limit is expressed in land area, not MW
+-- The << operation moves the numeric form of the letter "P" (for proposed projects) over by 3 bytes, effectively making its value into the most significant digits.
 insert into _proposed_projects (project_id, gen_info_project_id, technology_id, technology, area_id, location_id, original_dataset_id, capacity_limit, capacity_limit_conversion, connect_cost_per_mw,
   price_and_dollar_year,
   overnight_cost,
@@ -509,7 +510,7 @@ insert into _proposed_projects (project_id, gen_info_project_id, technology_id, 
   overnight_cost_change,
   nonfuel_startup_cost
 )
-	select  project_id + (ascii( 'P' ) << 8*3), -- The << operation moves the numeric form of the letter "P" (for proposed projects) over by 3 bytes, effectively making its value into the most significant digits.
+	select  project_id + (ascii( 'P' ) << 8*3),
 	        project_id,
 	        technology_id,
 	        technology,
@@ -550,6 +551,7 @@ delete from _proposed_projects WHERE technology = 'CSP_Trough_6h_Storage';
 
 -- Insert "generic" projects that can be built almost anywhere. These used to be in the table  _generator_costs_regional.
 -- Note, project_id is automatically set here because it is an autoincrement column. The renewable proposed_projects with ids set a-priori need to be imported first to avoid unique id conflicts.
+ -- The << operation moves the numeric form of the letter "G" (for generic projects) over by 3 bytes, effectively making its value into the most significant digits.
 insert into _proposed_projects (technology_id, technology, area_id, connect_cost_per_mw,
   price_and_dollar_year,
   overnight_cost,
@@ -574,8 +576,7 @@ insert into _proposed_projects (technology_id, technology, area_id, connect_cost
 	        load_area_info.scenario_id  = @load_area_scenario_id and
 	        gen_costs.resource_limited = 0
 	order by 1,3;
-UPDATE _proposed_projects SET project_id = gen_info_project_id + (ascii( 'G' ) << 8*3); -- The << operation moves the numeric form of the letter "G" (for generic projects) over by 3 bytes, effectively making its value into the most significant digits.
-
+UPDATE _proposed_projects SET project_id = gen_info_project_id + (ascii( 'G' ) << 8*3);
 
 -- regional generator restrictions
 -- Coal_ST and Nuclear can't be built in CA. Nuclear can't be built in Mexico.
