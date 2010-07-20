@@ -134,7 +134,7 @@ mysql $connection_string -e "select load_area, compliance_year as rps_compliance
 
 echo '	transmission_lines.tab...'
 echo ampl.tab 2 4 > transmission_lines.tab
-mysql $connection_string -e "select load_area_start, load_area_end, existing_transfer_capacity_mw, transmission_line_id, transmission_length_km, 0.95 as transmission_efficiency from transmission_lines where (existing_transfer_capacity_mw > 0 or load_areas_border_each_other like 't');" >> transmission_lines.tab
+mysql $connection_string -e "select load_area_start, load_area_end, existing_transfer_capacity_mw, transmission_line_id, transmission_length_km, transmission_efficiency from transmission_lines where (existing_transfer_capacity_mw > 0 or load_areas_border_each_other like 't');" >> transmission_lines.tab
 
 # TODO: adopt better load forecasts; this assumes a simple 1.0%/year increase - the amount projected for all of WECC from 2010 to 2018 by the EIA AEO 2008
 echo '	system_load.tab...'
@@ -143,7 +143,7 @@ mysql $connection_string -e "select load_area, study_hour as hour, power(1.01, p
 
 echo '	existing_plants.tab...'
 echo ampl.tab 2 15 > existing_plants.tab
-mysql $connection_string -e "select load_area, plant_code, project_id as ep_project_id, peak_mw as size_mw, technology, aer_fuel as fuel, heat_rate, start_year, max_age, overnight_cost, fixed_o_m, variable_o_m, forced_outage_rate, scheduled_outage_rate, baseload, cogen, intermittent from existing_plants order by 1, 2;" >> existing_plants.tab
+mysql $connection_string -e "select load_area, plant_code, project_id as ep_project_id, peak_mw as size_mw, technology, fuel, heat_rate, start_year, max_age, overnight_cost, fixed_o_m, variable_o_m, forced_outage_rate, scheduled_outage_rate, baseload, cogen, intermittent from existing_plants order by 1, 2;" >> existing_plants.tab
 
 echo '	existing_intermittent_plant_cap_factor.tab...'
 echo ampl.tab 3 1 > existing_intermittent_plant_cap_factor.tab
@@ -155,7 +155,7 @@ mysql $connection_string -e "select load_area, project_id as hydro_project_id, s
 
 echo '	proposed_projects.tab...'
 echo ampl.tab 3 10 > proposed_projects.tab
-mysql $connection_string -e "select project_id, load_area, technology, if(location_id is NULL, 0, location_id) as location_id, if(capacity_limit is NULL, 0, capacity_limit) as capacity_limit, capacity_limit_conversion, connect_cost_per_mw, price_and_dollar_year, overnight_cost, fixed_o_m, variable_o_m, overnight_cost_change, nonfuel_startup_cost from proposed_projects;" >> proposed_projects.tab
+mysql $connection_string -e "select project_id, load_area, technology, if(location_id is NULL, 0, location_id) as location_id, if(capacity_limit is NULL, 0, capacity_limit) as capacity_limit, capacity_limit_conversion, connect_cost_per_mw, price_and_dollar_year, overnight_cost, fixed_o_m, variable_o_m, overnight_cost_change, nonfuel_startup_cost from proposed_projects where (avg_cap_factor_percentile_by_intermittent_tech > $TOY or avg_cap_factor_percentile_by_intermittent_tech is null);" >> proposed_projects.tab
 
 echo '	competing_locations.tab...'
 echo ampl.tab 1 > competing_locations.tab
@@ -167,7 +167,7 @@ fi
 
 echo '	cap_factor.tab...'
 echo ampl.tab 4 1 > cap_factor.tab
-mysql $connection_string -e "select project_id, load_area, technology, study_hour as hour, cap_factor from cap_factor_intermittent_sites c join study_hours_all h on (h.hournum=c.hour) where $TIMESAMPLE;" >> cap_factor.tab
+mysql $connection_string -e "select project_id, proposed_projects.load_area, proposed_projects.technology, study_hour as hour, cap_factor from _cap_factor_intermittent_sites c join study_hours_all h on (h.hournum=c.hour) join proposed_projects using (project_id) where avg_cap_factor_percentile_by_intermittent_tech > $TOY and $TIMESAMPLE;" >> cap_factor.tab
 
 echo '	generator_info.tab...'
 echo ampl.tab 1 23 > generator_info.tab
