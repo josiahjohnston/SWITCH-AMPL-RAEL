@@ -37,6 +37,10 @@ case $1 in
     db_server=$2
     shift 2
   ;;
+  --toy)
+    TOY=$2
+    shift 2
+  ;;
   -TOY)
     TOY=$2
     shift 2
@@ -60,6 +64,7 @@ then
   echo "  -u [DB Username]"
   echo "  -p [DB Password]"
   echo "  -D [DB name]"
+  echo "  --toy [percentile of projects in each technology above which to include, as ordered by cap factor]"
   echo "  -P/--port [port number]"
   echo "  -h [DB server]"
   echo "All arguments are optional. "
