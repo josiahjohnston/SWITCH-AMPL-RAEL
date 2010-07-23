@@ -45,12 +45,21 @@ param local_td_max_age_years := 20;
 param forced_outage_rate_hydro := 0.05;
 
 # round-trip efficiency for storing power via a pumped hydro system
-# NREL ReEDS/Black and Veach gives this number at 87%, but everywhere else says lower...
-# http://www.electricitystorage.org/site/technologies/pumped_hydro/ says 70-85%.. we'll assume 80%
-# note: this number is also used in the hydro part of build_existing_plants.sql,
-# so if you change it here, change it there too and propagate the changes down
-# TODO: find plant-specific pumping efficiencies
-param pumped_hydro_efficiency := 0.8;
+# from Samir Succar and Robert H. Williams: Compressed Air Energy Storage: Theory, Resources, And Applications For Wind Power, p. 39
+param pumped_hydro_efficiency := 0.74;
+
+
+# CAES
+# Round-trip efficiency for compressed air energy storage
+param round_trip_efficiency_caes := 1.4;
+
+# The storage efficiency of the the storage phase of compressed air energy storage
+# from Samir Succar and Robert H. Williams: Compressed Air Energy Storage: Theory, Resources, And Applications For Wind Power, p. 39
+param storage_efficiency_caes := 0.817;
+
+# Max store rate for compressed energy storage relative to turbine size
+param max_store_rate_caes := 1.2;
+
 
 # Names of intermittent and resource-limited technologies. 
 param tech_ccgt := "CCGT";
@@ -80,15 +89,14 @@ set YEAR_OF_CONSTRUCTION :=  0, 1, 2, 3, 4, 5 ;
 # cost of carbon emissions ($/tonneCO2)
 param carbon_cost;
 # Set this to more than one value if you want to run the carbon curve scripty thing
-set CARBON_COSTS := 0 60;
+set CARBON_COSTS := 60;
 
 param: 
 RESULT_FILES:                        result_file_path_templates :=
-dispatch                              'dispatch_%d.txt'
-system_load                           'system_load_%d.txt'
-transmission_dispatch                 'transmission_dispatch_%d.txt'
-storage_dispatch                	  'storage_dispatch_%d.txt'
-generation_capacity                   'gen_cap_%d.txt'
-transmission_capacity                 'trans_cap_%d.txt'
-existing_trans_cost                   'existing_trans_cost_%d.txt'
-local_td_capacity					  'local_td_cap_%d.txt';
+generator_and_storage_dispatch				'generator_and_storage_dispatch_%d.txt'
+system_load									'system_load_%d.txt'
+transmission_dispatch						'transmission_dispatch_%d.txt'
+generation_capacity							'gen_cap_%d.txt'
+transmission_capacity						'trans_cap_%d.txt'
+existing_trans_cost_and_rps_reduced_cost	'existing_trans_cost_and_rps_reduced_cost_%d.txt'
+local_td_capacity							'local_td_cap_%d.txt';

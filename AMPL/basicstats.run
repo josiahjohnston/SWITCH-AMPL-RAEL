@@ -1,14 +1,178 @@
+############################################################
+# Update parameters for reporting results.  These are used to display basic stats below, as well as in record_results.run
+
+# Fixed Cash flows for each possible project for every period in the study.
+for { (pid, a, t) in PROJECTS, p in PERIODS } {
+  let Capital_Payments_by_Plant_and_Period[pid, a, t, p] :=
+	sum {(pid, a, t, online_yr) in PROJECT_VINTAGES: online_yr <= p < project_end_year[t, online_yr] } (
+	  InstallGen[pid, a, t, online_yr]
+      * overnight_cost_levelized_over_operation [pid, a, t, online_yr]
+	  # CRF to convert uniform annual payments to a lump sum in the year before the period begins
+	  * ( 1 - ( 1 + discount_rate )^( -1 * num_years_per_period ) ) / discount_rate
+	  # Convert the value from the year before the period starts to the value in the first year of the period.
+	  * ( 1 + discount_rate )
+	);
+  let Fixed_OM_by_Plant_and_Period[pid, a, t, p] :=
+	Installed_To_Date_by_Period[pid, a, t, p ]
+    * fixed_o_m[pid, a, t] 
+    * ( 1 - ( 1 + discount_rate )^( -1 * num_years_per_period ) ) / discount_rate
+	# Convert the value from the year before the period starts to the value in the first year of the period.
+	* ( 1 + discount_rate );
+}
+# Fixed Cash flows for each existing plant for every period in the study.
+for { (a, e, p) in EP_PERIODS } {
+  let EP_Capital_Payments_by_Plant_and_Period[a, e, p] := 
+	ep_size_mw[a, e] * ep_capital_cost_annual_payment[a, e] 
+	# Don't pay for plants that aren't operated beyond their expected lifetime
+	* (if ep_could_be_operating_past_expected_lifetime[a,e,p]
+	   then OperateEPDuringPeriod[a, e, p] # A decision variable with the values 0 or 1
+	   else 1
+	  ) 
+	# CRF to convert uniform annual payments to a lump sum in the year before the period begins
+	* (1 - (1+discount_rate)^(-1 * num_years_per_period))/discount_rate
+	# Convert the value from the year before the period starts to the value in the first year of the period.
+	* (1+discount_rate);
+  let EP_Fixed_OM_by_Plant_and_Period[a, e, p] := 
+	OperateEPDuringPeriod[a, e, p] * ep_size_mw[a, e] * ep_fixed_o_m_cost[a, e, p] * economic_multiplier[a] 
+	# CRF to convert uniform annual payments to a lump sum in the year before the period begins
+	* (1-(1/(1+discount_rate)^(num_years_per_period)))/discount_rate
+	# Convert the value from the year before the period starts to the value in the first year of the period.
+	* (1+discount_rate);
+}
+for { (pid, a, t) in PROJECTS, h in TIMEPOINTS } {
+  let Carbon_Emissions[ pid, a, t, h ] := 
+	Power_Produced[pid, a, t, h] * heat_rate[t] * carbon_content[fuel[t]];
+  let Carbon_Cost_Incurred_Hourly[ pid, a, t, h ] := 
+	Power_Produced[pid, a, t, h] * heat_rate[t] * carbon_content[fuel[t]] * carbon_cost;
+  let Fuel_Cost_Incurred_Hourly[ pid, a, t, h ] := 
+	Power_Produced[pid, a, t, h] * heat_rate[t] * fuel_cost_hourly[a, fuel[t], h];
+  let Variable_Cost_Incurred_Hourly[ pid, a, t, h ] := 
+	Power_Produced[pid, a, t, h] * variable_o_m[pid, a, t];
+}
+# costs for storage are currently assumed to be incurred at dispatch only, not during the storage phase
+for { (pid, a, t) in PROJ_STORAGE, h in TIMEPOINTS } {
+  let Storage_Variable_Cost_Incurred_Hourly[ pid, a, t, h ] := 
+	sum {fc in RPS_FUEL_CATEGORY} ReleaseEnergy[pid, a, t, h, fc] * variable_o_m[pid, a, t];
+}
+for { (a, e, h) in EP_AVAILABLE_HOURS } {
+  let EP_Carbon_Emissions[a, e, h] := 
+	EP_Power_Produced[a, e, h] * ep_heat_rate[a, e] * carbon_content[ep_fuel[a, e]];
+  let EP_Carbon_Cost_Incurred_Hourly[a, e, h] := 
+	EP_Power_Produced[a, e, h] * ep_heat_rate[a, e] * carbon_content[ep_fuel[a, e]] * carbon_cost;
+  let EP_Fuel_Cost_Incurred_Hourly[a, e, h] := 
+	EP_Power_Produced[a, e, h] * ep_heat_rate[a, e] * fuel_cost_hourly[a, ep_fuel[a, e], h];
+  let EP_Variable_Cost_Incurred_Hourly[a, e, h] := 
+	EP_Power_Produced[a, e, h] * ep_variable_o_m[a, e];
+}
+# costs for existing local T&D
+for { a in LOAD_AREAS, p in PERIODS } {
+  let Local_TD_Existing_Cost_Per_Period[a, p] :=
+	local_td_sunk_annual_payment[a]
+	# CRF to convert uniform annual payments to a lump sum in the year before the period begins
+    * ( 1 - ( 1 + discount_rate )^( -1 * num_years_per_period ) ) / discount_rate
+	# Convert the value from the year before the period starts to the value in the first year of the period.
+	* ( 1 + discount_rate );
+# costs for new local T&D
+  let Local_TD_New_Cost_Per_Period[a, p] := 
+	sum { install_yr in PERIODS: install_yr <= p < local_td_end_year[install_yr] }
+	local_td_new_annual_payment_per_mw[a] * InstallLocalTD[a, install_yr]
+	# CRF to convert uniform annual payments to a lump sum in the year before the period begins
+    * ( 1 - ( 1 + discount_rate )^( -1 * num_years_per_period ) ) / discount_rate
+	# Convert the value from the year before the period starts to the value in the first year of the period.
+	* ( 1 + discount_rate );
+# costs for existing transmission
+  let Transmission_Existing_Cost_Per_Period[a, p] :=
+	transmission_sunk_annual_payment[a]
+	# CRF to convert uniform annual payments to a lump sum in the year before the period begins
+    * ( 1 - ( 1 + discount_rate )^( -1 * num_years_per_period ) ) / discount_rate
+	# Convert the value from the year before the period starts to the value in the first year of the period.
+	* ( 1 + discount_rate );
+}
+
+for { (a1, a2) in TRANSMISSION_LINES, p in PERIODS } {
+  let Transmission_New_Cost_Per_Period[a1, a2, p] :=
+	sum { install_yr in PERIODS: install_yr <= p < transmission_end_year[install_yr] }
+	transmission_annual_payment[a1, a2, install_yr] * InstallTrans[a1, a2, install_yr] 
+    * ( 1 - ( 1 + discount_rate )^( -1 * num_years_per_period ) ) / discount_rate
+	# Convert the value from the year before the period starts to the value in the first year of the period.
+	* ( 1 + discount_rate );
+}
+
+
+
+############################################################
+# Basic Stats - print out results for quick inspection of runs
+
+for {p in PERIODS} {
+  let Power_Cost_Per_Period[p] :=
+	( # Cash flow in the given period, discounted to the start of the period.
+	  sum { (pid, a, t) in PROJECTS } (
+		Capital_Payments_by_Plant_and_Period[pid, a, t, p] +
+		Fixed_OM_by_Plant_and_Period[pid, a, t, p] +
+		sum { h in TIMEPOINTS: period[h] = p } (
+		  Carbon_Cost_Incurred_Hourly[pid, a, t, h] * hours_in_sample[h] +
+		  Fuel_Cost_Incurred_Hourly[pid, a, t, h] * hours_in_sample[h] +
+		  Variable_Cost_Incurred_Hourly[pid, a, t, h] * hours_in_sample[h]
+		)
+	  ) +
+	  sum { (pid, a, t) in PROJ_STORAGE, h in TIMEPOINTS: period[h] = p } (
+		  Storage_Variable_Cost_Incurred_Hourly[ pid, a, t, h ]
+	  ) +
+	  sum { (a, e, p) in EP_PERIODS } (
+		EP_Capital_Payments_by_Plant_and_Period[a, e, p] +
+		EP_Fixed_OM_by_Plant_and_Period[a, e, p] +
+		sum { h in TIMEPOINTS: period[h] = p } (
+		  EP_Carbon_Cost_Incurred_Hourly[a, e, h] * hours_in_sample[h] +
+		  EP_Fuel_Cost_Incurred_Hourly[a, e, h] * hours_in_sample[h] +
+		  EP_Variable_Cost_Incurred_Hourly[a, e, h] * hours_in_sample[h] )
+	  ) + 
+	  sum { a in LOAD_AREAS } (
+	    Local_TD_Existing_Cost_Per_Period[a, p] + 
+	    Local_TD_New_Cost_Per_Period[a, p] + 
+	    Transmission_Existing_Cost_Per_Period[a, p]
+	  ) +
+	  sum { (a1, a2) in TRANSMISSION_LINES } (
+		Transmission_New_Cost_Per_Period[a1, a2, p]
+	  )
+	)
+	/ total_loads_by_period_weighted[p];
+  
+  let Carbon_Costs_Per_Period_per_MWh[p] :=
+	( # Cash flow in the given period, discounted to the start of the period.
+	  sum { (pid, a, t) in PROJECTS, h in TIMEPOINTS: period[h] = p }
+		Carbon_Cost_Incurred_Hourly[pid, a, t, h] * hours_in_sample[h]
+	  + sum { (a, e, h) in EP_AVAILABLE_HOURS } 
+		EP_Carbon_Cost_Incurred_Hourly[a, e, h] * hours_in_sample[h]
+	) / total_loads_by_period_weighted[p];
+	
+  let Gross_Power_by_Period[p]  := 
+	sum{ a in LOAD_AREAS, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY: period[h] = p } 
+		Gross_Power[a, h, fc] * hours_in_sample[h];
+
+  let Transmission_Losses_by_Period[p] := 
+    sum {(a1, a2) in TRANSMISSION_LINES, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY: period[h] = p}
+      DispatchTransFromXToY[a1, a2, h, fc] * ( 1 - transmission_efficiency[a1, a2] ) * hours_in_sample[h];
+
+  let Storage_Losses_by_Period[p] :=
+	sum {(a, pid) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY: period[h] = p}
+		( Store_Pumped_Hydro[a, pid, h, fc] * ( 1 - pumped_hydro_efficiency ) * hours_in_sample[h] )
+	+ sum {(pid, a, t) in PROJ_STORAGE, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY: period[h] = p}
+		( StoreEnergy[pid, a, t, h, fc] * ( 1 - storage_efficiency_caes ) * hours_in_sample[h] );
+}
+
+######
+# "discounted" system load, for use in calculating levelized cost of power.
+  let system_load_discounted := 
+	sum { a in LOAD_AREAS, h in TIMEPOINTS } 
+	hours_in_sample[h] * system_load[a,h] /
+	( ( 1 + discount_rate )^( period[h] - base_year ) );
+
+# now print out results to the screen
 printf "\nTax=%d: Levelized Cost=$%3.2f/MWh ", 
   # Carbon Cost
   carbon_cost,
   # Power Cost
-  (Power_Cost - 
-  # Carbon Cost
-   - sum {(pid, a, t) in PROJECTS, h in TIMEPOINTS}
-		Carbon_Cost_Incurred_Hourly[pid, a, t, h]
-   - sum {(a, e, h) in EP_AVAILABLE_HOURS}
-		EP_Carbon_Cost_Incurred_Hourly[a, e, h]
-  ) / system_load_discounted;
+  Power_Cost / system_load_discounted;
 
 printf "\nPercentage of power produced by each fuel in the given investment periods, expressed as a fraction of total power produced.\n";
 
@@ -19,16 +183,16 @@ for {p in PERIODS} {
 	  f, 
 	  100 * (
 		#    Power from new plants
-		sum {(pid, a, t) in PROJECTS, h in TIMEPOINTS: period[h] = p and fuel[t] = f} 
-			Power_Produced[pid, a, t, h] * hours_in_sample[h]
+		( sum { (pid, a, t) in PROJECTS, h in TIMEPOINTS: period[h] = p and fuel[t] = f } 
+			Power_Produced[pid, a, t, h] * hours_in_sample[h] )
 		# Power from existing plants
 		+ sum { (a,e,h) in EP_AVAILABLE_HOURS: period[h] = p and ep_fuel[a, e] = f }
 			EP_Power_Produced[a,e,h] * hours_in_sample[h]
 		# Hydro - doesn't include storage and dispatch of stored electrons because this sum is for generation only
-		+ ( sum {(a, pid) in PROJ_NONPUMPED_HYDRO, h in TIMEPOINTS: period[h]=p and fuel_hydro = f}
+		+ ( sum {(a, pid) in PROJ_NONPUMPED_HYDRO, h in TIMEPOINTS: period[h]=p and fuel_hydro = f }
 				Dispatch_NonPumped_Hydro[a, pid, h] * hours_in_sample[h] )
 			# pumped hydro dispatch of water from upstream
-		+ ( sum {(a, pid) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS: period[h]=p and fuel_hydro = f}
+		+ ( sum {(a, pid) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS: period[h]=p and fuel_hydro = f }
 				Dispatch_Pumped_Hydro_Watershed_Electrons[a, pid, h] * hours_in_sample[h] )
 	  )
 	  / Gross_Power_by_Period[p]

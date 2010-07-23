@@ -467,6 +467,26 @@ insert into existing_plants_agg (load_area, plant_code, primemover, fuel, peak_m
     group by 1, 2, 3, 4;
     
 
+
+-- -------------------
+-- a few plants have the same plant-primemovers but with different start years
+-- the problem is that the plant code needs to be unique, so if this is the case, a number is added after the plant code
+update 	existing_plants_agg,
+			(select ep_id,
+					ep_id - min_ep_id + 1 as auto_num
+				from existing_plants_agg,
+					(select plant_code,
+							min(ep_id) as min_ep_id,
+							count(*) as num_plant_codes
+						from existing_plants_agg
+						group by plant_code
+					) as min_ep_id_table
+				where num_plant_codes > 1
+				and existing_plants_agg.plant_code = min_ep_id_table.plant_code
+			) as auto_num_table
+set plant_code = concat(plant_code, "_", auto_num)
+where existing_plants_agg.ep_id = auto_num_table.ep_id;
+
 ------------------------------------------------------------
 -- add costs, tabluated from the ReEDS input assumptions/ Black and Veatch for REFutures (12-02-09 update)
 -- took the cost in 2000 (in $2007), as we don't have earlier data on plant costs.
@@ -616,8 +636,7 @@ update hydro_gen set input_electricity_mwh = 0 where primemover = 'HY';
 -- first, that the total stock of water doesn't change from year to year, i.e. stockH20(Jan2004)=stockH20(Jan2005) and so on
 -- this could be verified/modified with USGS water data.
 -- second, that the efficiency of pumped hydro projects is known
--- Black and Veach gives this number at 87%, but everywhere else says lower...
--- http://www.electricitystorage.org/site/technologies/pumped_hydro/ says 70-85%.. we'll assume 80%
+-- 74%, from Samir Succar and Robert H. Williams: Compressed Air Energy Storage: Theory, Resources, And Applications For Wind Power, p. 39
 -- third, that the release profile over a year for pumped hydro is similar to that of nonpumped hydro plants in the same load area
 
 -- using the above assumptions, over a year,
@@ -629,7 +648,7 @@ create table hydro_pumped_yearly_stream_flow as
 select	plntcode,
 		load_area,
 		year,
-		sum( netgen_mwh + input_electricity_mwh * ( 1 - 0.80 ) ) as avg_yearly_stream_flow_mwh
+		sum( netgen_mwh + input_electricity_mwh * ( 1 - 0.74 ) ) as avg_yearly_stream_flow_mwh
 from hydro_gen join hydro_plantcap using (plntcode, primemover)
 where hydro_gen.primemover = 'PS'
 group by 1,2,3;

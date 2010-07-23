@@ -49,12 +49,14 @@ problem Cost_Minimization:
 	Maximum_Resource_Competing_Tech, Maximum_Resource_Location_Unspecified, Minimum_GenSize, BuildGenOrNot_Constraint, SymetricalTrans, Minimum_LocalTD, 
 
   # Dispatch Decisions
-	DispatchGen, OperateEPDuringPeriod, DispatchEP, DispatchTransFromXToY, Dispatch_NonPumped_Hydro, Dispatch_Pumped_Hydro_Watershed_Electrons, Dispatch_Pumped_Hydro_Storage, Store_Pumped_Hydro,
+	DispatchGen, OperateEPDuringPeriod, DispatchEP, DispatchTransFromXToY, StoreEnergy, ReleaseEnergy,
+	Dispatch_NonPumped_Hydro, Dispatch_Pumped_Hydro_Watershed_Electrons, Dispatch_Pumped_Hydro_Storage, Store_Pumped_Hydro,
   # Dispatch Constraints
 	Maximum_DispatchGen, EP_Maximum_DispatchGen, Maximum_DispatchTransFromXToY, Maximum_DispatchTransFromXToY_Reserve, 
 	Maximum_Dispatch_NonPumped_Hydro, Average_NonPumped_Hydro_Output,        Minimum_Dispatch_NonPumped_Hydro, 
-	Maximum_Dispatch_Pumped_Hydro,    Average_Pumped_Hydro_Watershed_Output, Maximum_Store_Pumped_Hydro,
-	Conservation_Of_Stored_Pumped_Hydro_Electrons, 
+	Maximum_Dispatch_Pumped_Hydro,    Average_Pumped_Hydro_Watershed_Output,
+	Maximum_Store_Pumped_Hydro, Conservation_Of_Stored_Pumped_Hydro_Electrons,
+	Maximum_Store_CAES, Maximum_Dispatch_CAES, Storage_Projects_Energy_Balance, CAES_Combined_Dispatch, 
 
   # Derived variables and the constraints that define them
 	Installed_To_Date, Installed_To_Date_by_Period, 
@@ -63,13 +65,16 @@ problem Cost_Minimization:
 	EP_Power_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Baseload_Plants, 
 
   # Contigency Planning Variables (to ensure that a dispatch plan exists that can meet reserve margins)
-	DispatchTransFromXToY_Reserve, Dispatch_NonPumped_Hydro_Reserve, Dispatch_Pumped_Hydro_Watershed_Electrons_Reserve, Dispatch_Pumped_Hydro_Storage_Reserve, Store_Pumped_Hydro_Reserve, 
+	DispatchTransFromXToY_Reserve, StoreEnergyReserve, ReleaseEnergyReserve, 
+	Dispatch_NonPumped_Hydro_Reserve, Dispatch_Pumped_Hydro_Watershed_Electrons_Reserve, Dispatch_Pumped_Hydro_Storage_Reserve, Store_Pumped_Hydro_Reserve, 
   # Contigency Planning constraints
 	Satisfy_Load_Reserve, 
 	Maximum_Dispatch_NonPumped_Hydro_Reserve, Average_NonPumped_Hydro_Output_Reserve,        Minimum_Dispatch_NonPumped_Hydro_Reserve, 
-	Maximum_Dispatch_Pumped_Hydro_Reserve,    Average_Pumped_Hydro_Watershed_Output_Reserve, Maximum_Store_Pumped_Hydro_Reserve,
-	Conservation_Of_Stored_Pumped_Hydro_Electrons_Reserve
+	Maximum_Dispatch_Pumped_Hydro_Reserve,    Average_Pumped_Hydro_Watershed_Output_Reserve,
+	Maximum_Store_Pumped_Hydro_Reserve, Conservation_Of_Stored_Pumped_Hydro_Electrons_Reserve,
+	Maximum_Store_CAES_Reserve, Maximum_Dispatch_CAES_Reserve, Storage_Projects_Energy_Balance_Reserve
 ;
+
 
 problem Transmission_Minimization: 
   # Objective
@@ -83,8 +88,9 @@ problem Transmission_Minimization:
   # Dispatch Constraints
 	Maximum_DispatchGen, EP_Maximum_DispatchGen, Maximum_DispatchTransFromXToY, Maximum_DispatchTransFromXToY_Reserve, 
 	Maximum_Dispatch_NonPumped_Hydro, Average_NonPumped_Hydro_Output, Minimum_Dispatch_NonPumped_Hydro, 
-	Maximum_Dispatch_Pumped_Hydro,    Average_Pumped_Hydro_Watershed_Output, 
-	Maximum_Store_Pumped_Hydro,       Conservation_Of_Stored_Pumped_Hydro_Electrons, 
+	Maximum_Dispatch_Pumped_Hydro,    Average_Pumped_Hydro_Watershed_Output,
+	Maximum_Store_Pumped_Hydro, Conservation_Of_Stored_Pumped_Hydro_Electrons,
+	Maximum_Store_CAES, Maximum_Dispatch_CAES, Storage_Projects_Energy_Balance, CAES_Combined_Dispatch, 
   # Constraints that define derived variables
 	   Power_From_Dispatchable_Plants,    Power_From_Intermittent_Plants,    Power_From_Baseload_Plants, 
 	EP_Power_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Baseload_Plants, 
@@ -92,7 +98,8 @@ problem Transmission_Minimization:
 	Satisfy_Load_Reserve, 
 	Maximum_Dispatch_NonPumped_Hydro_Reserve, Average_NonPumped_Hydro_Output_Reserve,        Minimum_Dispatch_NonPumped_Hydro_Reserve, 
 	Maximum_Dispatch_Pumped_Hydro_Reserve,    Average_Pumped_Hydro_Watershed_Output_Reserve, 
-	Maximum_Store_Pumped_Hydro_Reserve,       Conservation_Of_Stored_Pumped_Hydro_Electrons_Reserve
+	Maximum_Store_Pumped_Hydro_Reserve,       Conservation_Of_Stored_Pumped_Hydro_Electrons_Reserve,
+	Maximum_Store_CAES_Reserve, Maximum_Dispatch_CAES_Reserve, Storage_Projects_Energy_Balance_Reserve
 ;
 
 
@@ -161,7 +168,8 @@ table generator_info IN:
  	year_1_cost_fraction, year_2_cost_fraction, year_3_cost_fraction, year_4_cost_fraction, year_5_cost_fraction, year_6_cost_fraction,
 	max_age_years, forced_outage_rate, scheduled_outage_rate,
 	intermittent, resource_limited, new_baseload ~ baseload, min_build_capacity, 
-	min_dispatch_fraction, min_runtime, min_downtime, max_ramp_rate_mw_per_hour, startup_fuel_mbtu;
+	min_dispatch_fraction, min_runtime, min_downtime, max_ramp_rate_mw_per_hour, startup_fuel_mbtu,
+	storage;
 read table generator_info;
 
 # Mark which technologies will be competing for space
@@ -182,12 +190,13 @@ table fuel_qualifies_for_rps IN:
 	LOAD_AREAS_AND_FUEL_CATEGORY <- [load_area, rps_fuel_category], fuel_qualifies_for_rps ~ qualifies;
 read table fuel_qualifies_for_rps; 
 
+
 ###################################
 # parameters used for reporting total generation and transmission
 
 # name of the scenario
 param scenario_id symbolic;
-read scenario_id <scenario_id.txt;
+read scenario_id < scenario_id.txt;
 
 # Whether or not to consider Renewable Portfolio Standards
 read enable_rps < enable_rps.txt;
@@ -215,9 +224,6 @@ for { t in TECHNOLOGIES } {
 }
 ;
 
-param Gross_Power_by_Period {p in PERIODS}; 
-param Transmission_Losses_by_Period {p in PERIODS};
-param Storage_Losses_by_Period {p in PERIODS}; 
 param Capital_Payments_by_Plant_and_Period { (pid, a, t) in PROJECTS, p in PERIODS }; 
 param EP_Capital_Payments_by_Plant_and_Period { (a, e, p) in EP_PERIODS }; 
 param Fixed_OM_by_Plant_and_Period { (pid, a, t) in PROJECTS, p in PERIODS }; 
@@ -229,6 +235,16 @@ param EP_Carbon_Cost_Incurred_Hourly { (a, e, h) in EP_AVAILABLE_HOURS };
 param Fuel_Cost_Incurred_Hourly { (pid, a, t) in PROJECTS, h in TIMEPOINTS }; 
 param EP_Fuel_Cost_Incurred_Hourly { (a, e, h) in EP_AVAILABLE_HOURS }; 
 param Variable_Cost_Incurred_Hourly { (pid, a, t) in PROJECTS, h in TIMEPOINTS }; 
+param Storage_Variable_Cost_Incurred_Hourly { (pid, a, t) in PROJ_STORAGE, h in TIMEPOINTS }; 
 param EP_Variable_Cost_Incurred_Hourly { (a, e, h) in EP_AVAILABLE_HOURS }; 
+param Local_TD_Existing_Cost_Per_Period { a in LOAD_AREAS, p in PERIODS };
+param Local_TD_New_Cost_Per_Period { a in LOAD_AREAS, p in PERIODS };
+param Transmission_Existing_Cost_Per_Period { a in LOAD_AREAS, p in PERIODS };
+param Transmission_New_Cost_Per_Period { (a1, a2) in TRANSMISSION_LINES, p in PERIODS };
 param Power_Cost_Per_Period {p in PERIODS};
 param Carbon_Costs_Per_Period_per_MWh {p in PERIODS};
+param Gross_Power_by_Period {p in PERIODS}; 
+param Transmission_Losses_by_Period {p in PERIODS};
+param Storage_Losses_by_Period {p in PERIODS};
+param system_load_discounted;
+

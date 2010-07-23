@@ -1,6 +1,7 @@
 include windsun.run;
 include min_solar_production_check.run;
 
+
 param cost_problem_file symbolic;
 param cost_solution_file symbolic;
 param trans_problem_file symbolic;
@@ -89,9 +90,7 @@ for {c in CARBON_COSTS} {
 
   }
 
-  include update_reporting_vars.run;
-  
-  # show some info about this run
+  # update recording variables and show some info about this run
   include basicstats.run;
 
   # export the results to csv files and the like if they haven't already been exported

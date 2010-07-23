@@ -10,6 +10,7 @@ port=3306
 ###################################################
 # Detect optional command-line arguments
 help=0
+TOY=0
 while [ -n "$1" ]; do
 case $1 in
   -u)
@@ -34,6 +35,10 @@ case $1 in
   ;;
   -h)
     db_server=$2
+    shift 2
+  ;;
+  -TOY)
+    TOY=$2
     shift 2
   ;;
   --help)
@@ -170,8 +175,8 @@ echo ampl.tab 4 1 > cap_factor.tab
 mysql $connection_string -e "select project_id, proposed_projects.load_area, proposed_projects.technology, study_hour as hour, cap_factor from _cap_factor_intermittent_sites c join study_hours_all h on (h.hournum=c.hour) join proposed_projects using (project_id) where avg_cap_factor_percentile_by_intermittent_tech > $TOY and $TIMESAMPLE;" >> cap_factor.tab
 
 echo '	generator_info.tab...'
-echo ampl.tab 1 23 > generator_info.tab
-mysql $connection_string -e "select technology, technology_id, min_build_year, fuel, heat_rate, construction_time_years, year_1_cost_fraction, year_2_cost_fraction, year_3_cost_fraction, year_4_cost_fraction, year_5_cost_fraction, year_6_cost_fraction, max_age_years, forced_outage_rate, scheduled_outage_rate, intermittent, resource_limited, baseload, min_build_capacity, min_dispatch_fraction, min_runtime, min_downtime, max_ramp_rate_mw_per_hour, startup_fuel_mbtu from generator_info;" >> generator_info.tab
+echo ampl.tab 1 24 > generator_info.tab
+mysql $connection_string -e "select technology, technology_id, min_build_year, fuel, heat_rate, construction_time_years, year_1_cost_fraction, year_2_cost_fraction, year_3_cost_fraction, year_4_cost_fraction, year_5_cost_fraction, year_6_cost_fraction, max_age_years, forced_outage_rate, scheduled_outage_rate, intermittent, resource_limited, baseload, min_build_capacity, min_dispatch_fraction, min_runtime, min_downtime, max_ramp_rate_mw_per_hour, startup_fuel_mbtu, storage from generator_info;" >> generator_info.tab
 
 echo '	fuel_costs.tab...'
 echo ampl.tab 3 1 > fuel_costs.tab

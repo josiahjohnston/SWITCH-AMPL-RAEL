@@ -241,7 +241,8 @@ create table generator_info (
 	min_downtime int,
 	max_ramp_rate_mw_per_hour float,
 	startup_fuel_mbtu float,
-	can_build_new TINYINT
+	can_build_new boolean,
+	storage boolean
 );
 insert into generator_info
  select 
@@ -269,7 +270,8 @@ insert into generator_info
 	min_downtime,
 	max_ramp_rate_mw_per_hour,
 	startup_fuel_mbtu,
-	can_build_new
+	can_build_new,
+	storage
  from generator_info.generator_costs;
 
 -- ---------------------------------------------------------------------
@@ -288,6 +290,8 @@ CREATE TABLE _fuel_prices_regional (
   fuel_price FLOAT NOT NULL COMMENT 'Regional fuel prices for various types of fuel in $2007 per MMBtu',
   INDEX scenario_id(scenario_id),
   INDEX area_id(area_id),
+  INDEX year_idx (year),
+  PRIMARY KEY (scenario_id, area_id, fuel, year),
   CONSTRAINT area_id FOREIGN KEY area_id (area_id) REFERENCES load_area_info (area_id)
 );
 
@@ -304,6 +308,10 @@ insert into _fuel_prices_regional
     where load_area_info.load_area = fuel_prices.regional_fuel_prices.load_area
     and fuel not like 'DistillateFuelOil'
     and fuel not like 'ResidualFuelOil';
+
+-- TODO: the fuel prices above go out to 2030 - if we want to do scenarios out further
+-- (including toys with an 8 year, 2026-2033 investment period) then we need fuel prices out further.
+-- write code that extrapolates the fuel price linearly to 2050 for years in which there aren't fuel price projections
 
   
 DROP VIEW IF EXISTS fuel_prices_regional;
@@ -466,6 +474,7 @@ SELECT      existing_plants.project_id,
 -- ---------------------------------------------------------------------
 -- PROPOSED PROJECTS--------------
 -- imported from postgresql, this table has all pv, csp, wind, geothermal, biomass and compressed air energy storage sites
+-- if this table is remade, the avg cap factors must be reinserted (see below) 
 -- ---------------------------------------------------------------------
 drop table if exists _proposed_projects;
 CREATE TABLE _proposed_projects (
@@ -485,6 +494,8 @@ CREATE TABLE _proposed_projects (
   variable_o_m float,
   overnight_cost_change float,
   nonfuel_startup_cost float,
+  avg_cap_factor_intermittent float default NULL,
+  avg_cap_factor_percentile_by_intermittent_tech float default NULL,
   INDEX project_id (project_id),
   INDEX area_id (area_id),
   INDEX technology_and_location (technology, location_id),
@@ -502,14 +513,10 @@ CREATE TABLE _proposed_projects (
 -- the capacity limit is either in MW if the capacity_limit_conversion is 1, or in other units if the capacity_limit_conversion is nonzero
 -- so for CSP and central PV the limit is expressed in land area, not MW
 -- The << operation moves the numeric form of the letter "P" (for proposed projects) over by 3 bytes, effectively making its value into the most significant digits.
-insert into _proposed_projects (project_id, gen_info_project_id, technology_id, technology, area_id, location_id, original_dataset_id, capacity_limit, capacity_limit_conversion, connect_cost_per_mw,
-  price_and_dollar_year,
-  overnight_cost,
-  fixed_o_m,
-  variable_o_m,
-  overnight_cost_change,
-  nonfuel_startup_cost
-)
+insert into _proposed_projects
+	(project_id, gen_info_project_id, technology_id, technology, area_id, location_id, original_dataset_id,
+	capacity_limit, capacity_limit_conversion, connect_cost_per_mw, price_and_dollar_year,
+	overnight_cost, fixed_o_m, variable_o_m, overnight_cost_change, nonfuel_startup_cost)
 	select  project_id + (ascii( 'P' ) << 8*3),
 	        project_id,
 	        technology_id,
@@ -528,7 +535,6 @@ insert into _proposed_projects (project_id, gen_info_project_id, technology_id, 
    			nonfuel_startup_cost * economic_multiplier as nonfuel_startup_cost
 			
 	from generator_info.proposed_projects proposed join generator_info.generator_costs using (technology) join load_area_info using (load_area)
-	WHERE technology != "Compressed_Air_Energy_Storage"
 	order by 2;
 
 -- CSP_Trough_6h_Storage is out for the moment. Solar Advisor Model is acting screwy with CSP when storage is included, regularly yielding power outputs that are in excess of the turbine capacity factors. 
@@ -552,14 +558,9 @@ delete from _proposed_projects WHERE technology = 'CSP_Trough_6h_Storage';
 -- Insert "generic" projects that can be built almost anywhere. These used to be in the table  _generator_costs_regional.
 -- Note, project_id is automatically set here because it is an autoincrement column. The renewable proposed_projects with ids set a-priori need to be imported first to avoid unique id conflicts.
  -- The << operation moves the numeric form of the letter "G" (for generic projects) over by 3 bytes, effectively making its value into the most significant digits.
-insert into _proposed_projects (technology_id, technology, area_id, connect_cost_per_mw,
-  price_and_dollar_year,
-  overnight_cost,
-  fixed_o_m,
-  variable_o_m,
-  overnight_cost_change,
-  nonfuel_startup_cost
-)
+insert into _proposed_projects
+	(technology_id, technology, area_id, connect_cost_per_mw, price_and_dollar_year,
+	overnight_cost, fixed_o_m, variable_o_m, overnight_cost_change, nonfuel_startup_cost)
     select 	technology_id,
     		technology,
     		area_id,
@@ -605,7 +606,9 @@ CREATE VIEW proposed_projects as
             fixed_o_m,
             variable_o_m,
             overnight_cost_change,
-            nonfuel_startup_cost
+            nonfuel_startup_cost,
+            avg_cap_factor_intermittent,
+            avg_cap_factor_percentile_by_intermittent_tech
     FROM _proposed_projects 
     join load_area_info using (area_id);
     
@@ -665,32 +668,67 @@ SELECT      proposed_projects.project_id,
     and		proposed_projects.technology_id = solar_farm_cap_factors.technology_id;
 
 
-
--- check the integrity of the cap factors table
-select 'Checking Cap Factors' as progress;
-
-drop table if exists number_of_cap_factor_hours_table;
-create table number_of_cap_factor_hours_table (
+select 'Calculating Average Cap Factors' as progress;
+-- calculate average capacity factors for subsampling purposes
+-- and count the number of capacity factors for each intermittent project to check for completeness
+drop table if exists avg_cap_factor_table;
+create table avg_cap_factor_table (
 	project_id int unsigned primary key,
+	avg_cap_factor float,
 	number_of_cap_factor_hours int);
 
-insert into number_of_cap_factor_hours_table
-	select 	project_id,
-			count(hour) as number_of_cap_factor_hours
+insert into avg_cap_factor_table
+	select	project_id,
+			avg(cap_factor) as avg_cap_factor,
+			count(*) as number_of_cap_factor_hours
 		from _cap_factor_intermittent_sites
-		group by project_id
-		order by project_id;
+		group by project_id;
 
+-- put the average cap factor values in proposed projects for easier access
+update	_proposed_projects,
+		avg_cap_factor_table
+set	_proposed_projects.avg_cap_factor_intermittent = avg_cap_factor_table.avg_cap_factor
+where _proposed_projects.project_id = avg_cap_factor_table.project_id;
+
+-- also add the avg_cap_factor_percentile_by_intermittent_tech values
+-- which will be used to subsample the larger range of intermittent tech hourly values
+-- can't do this as a temp table due to a mysql bug
+drop table if exists cap_factor_percentile_table;
+create table cap_factor_percentile_table (
+	project_id int unsigned NOT NULL,
+	technology_id tinyint unsigned NOT NULL ,
+	ordering_id int unsigned PRIMARY KEY AUTO_INCREMENT);
+
+insert into cap_factor_percentile_table (project_id, technology_id)
+	select project_id, technology_id from _proposed_projects
+	where avg_cap_factor_intermittent is not null
+	order by technology_id, avg_cap_factor_intermittent;
+
+update	_proposed_projects,
+		cap_factor_percentile_table,
+		(select technology_id,
+				count(*) as num_proj_per_tech,
+				min(ordering_id) as min_ordering_id
+			from cap_factor_percentile_table
+			group by technology_id
+		) as proj_tech_table
+set	_proposed_projects.avg_cap_factor_percentile_by_intermittent_tech = 100 * ( ordering_id - min_ordering_id ) / ( num_proj_per_tech - 1 )
+where 	_proposed_projects.project_id = cap_factor_percentile_table.project_id
+and		_proposed_projects.technology_id = proj_tech_table.technology_id;
+
+drop table cap_factor_percentile_table;
+
+select 'Checking Cap Factors' as progress;
 -- first, output the number of points with incomplete hours
 -- as many of the sites are missing the first few hours of output due to the change from local to utc time,
 -- we'll consider a site complete if it has cap factors for all hours from 2004-2005,
 -- so ( 366 days in 2004 + 365 days in 2005 - 1 day ) * 24 hours per day = 17520
 select 	proposed_projects.*,
 		number_of_cap_factor_hours
-	from 	number_of_cap_factor_hours_table,
+	from 	avg_cap_factor_table,
 			proposed_projects
 	where number_of_cap_factor_hours < 17520
-	and	number_of_cap_factor_hours_table.project_id = proposed_projects.project_id
+	and	avg_cap_factor_table.project_id = proposed_projects.project_id
 	order by project_id;
 		
 -- also, make sure each intermittent site has cap factors
@@ -699,12 +737,13 @@ select 	proposed_projects.*
 			generator_info
 	where	proposed_projects.technology_id = generator_info.technology_id
 	and		generator_info.intermittent = 1
-	and		project_id not in (select project_id from number_of_cap_factor_hours_table where number_of_cap_factor_hours >= 17520)
+	and		project_id not in (select project_id from avg_cap_factor_table where number_of_cap_factor_hours >= 17520)
 	order by project_id, generator_info.technology;
 	
 -- delete the projects that don't have cap factors
 -- for the WECC, if nothing is messed up, this means Central_PV on the eastern border of Colorado that contains
 -- a few grid points didn't get simulated because they were too far east... only 16 total solar farms out of thousands
+-- drop table if exists project_ids_to_delete;
 -- create temporary table project_ids_to_delete as 
 -- 	select 	_proposed_projects.project_id
 -- 		from 	_proposed_projects,
