@@ -10,8 +10,7 @@ option cplex_options 'lpdisplay=1 iisfind=1 mipdisplay=1 presolve=1 prestats=1';
 option presolve 0;
 option presolve_eps 1e-10;
 # Options to enable automatic substitution of variables without making the program non-linear
-option linelim 1;
-option substout 1;
+#option linelim 1, substout 1;
 
 # parameter used to track execution times and other management stuff.
 param curtime;
@@ -59,10 +58,7 @@ problem Cost_Minimization:
 	Maximum_Store_CAES, Maximum_Dispatch_CAES, Storage_Projects_Energy_Balance, CAES_Combined_Dispatch, 
 
   # Derived variables and the constraints that define them
-	Installed_To_Date, Installed_To_Date_by_Period, 
-	Power_Produced, EP_Power_Produced, Gross_Power, Net_Power, 
-	   Power_From_Dispatchable_Plants,    Power_From_Intermittent_Plants,    Power_From_Baseload_Plants, 
-	EP_Power_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Baseload_Plants, 
+#	Installed_To_Date, Installed_To_Date_by_Period, 
 
   # Contigency Planning Variables (to ensure that a dispatch plan exists that can meet reserve margins)
 	DispatchTransFromXToY_Reserve, StoreEnergyReserve, ReleaseEnergyReserve, 
@@ -91,9 +87,6 @@ problem Transmission_Minimization:
 	Maximum_Dispatch_Pumped_Hydro,    Average_Pumped_Hydro_Watershed_Output,
 	Maximum_Store_Pumped_Hydro, Conservation_Of_Stored_Pumped_Hydro_Electrons,
 	Maximum_Store_CAES, Maximum_Dispatch_CAES, Storage_Projects_Energy_Balance, CAES_Combined_Dispatch, 
-  # Constraints that define derived variables
-	   Power_From_Dispatchable_Plants,    Power_From_Intermittent_Plants,    Power_From_Baseload_Plants, 
-	EP_Power_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Baseload_Plants, 
   # Contigency Planning constraints
 	Satisfy_Load_Reserve, 
 	Maximum_Dispatch_NonPumped_Hydro_Reserve, Average_NonPumped_Hydro_Output_Reserve,        Minimum_Dispatch_NonPumped_Hydro_Reserve, 
