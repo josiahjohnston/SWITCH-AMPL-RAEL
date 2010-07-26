@@ -521,6 +521,11 @@ param transmission_length_km {TRANSMISSION_LINES};
 # delivery efficiency on each transmission line
 param transmission_efficiency {TRANSMISSION_LINES};
 
+# distribution losses, expressed as percentage of system load
+# this is not applied to distributed solar PV systems, which are assumed to be located within the distribution system, close to load
+# we took 5.3% losses value from ReEDS Solar Vision documentation, http://www1.eere.energy.gov/solar/pdfs/svs_appendix_a_model_descriptions_data.pdf
+param distribution_losses >= 0;
+
 # the rating of existing lines in MW (can be different for the two directions, but each direction is
 # represented by an individual entry in the table)
 param existing_transfer_capacity_mw {TRANSMISSION_LINES} >= 0 default 0;
@@ -663,11 +668,11 @@ param ep_could_be_operating_past_expected_lifetime { (a, e, p) in EP_PERIODS } =
   );
 
 param ep_capital_cost_annual_payment {(a, e) in EXISTING_PLANTS} = 
-  sum{ yr in YEAR_OF_CONSTRUCTION: yr < construction_time_years[ep_technology[a, e]] } (
+  sum{ yr_of_constr in YEAR_OF_CONSTRUCTION: yr_of_constr < construction_time_years[ep_technology[a, e]] } (
     ep_overnight_cost[a, e] * economic_multiplier[a]
-    * cost_fraction[ep_technology[a, e], yr] 
+    * cost_fraction[ep_technology[a, e], yr_of_constr] 
     # Bring the construction lump sum forward to the year before the plant starts operation. 
-    * (1 + discount_rate) ^ ( construction_time_years[t] - yr_of_constr - 1 )  	# This exponent will range from (construction_time - 1) to 0, meaning the cost of the last year's construction doesn't accrue interest.
+    * (1 + discount_rate) ^ ( construction_time_years[ep_technology[a, e]] - yr_of_constr - 1 )  	# This exponent will range from (construction_time - 1) to 0, meaning the cost of the last year's construction doesn't accrue interest.
   ) 
   # A CRF to spread the capital cost of the plant over all years of operation. 
   * finance_rate / (1 - (1+finance_rate)^(-1 * ep_max_age_years[a, e]))
@@ -1075,8 +1080,19 @@ subject to Conservation_Of_Energy {a in LOAD_AREAS, h in TIMEPOINTS, fc in RPS_F
 # except for hydro... outage rates are already built into the data so they aren't included here
 # (see the hydro constraints below)
 # note: power is deemed to flow from a1 to a2 if positive, reverse if negative
+# distribution losses are applied to all power except that supplied by distributed solar PV projects
 subject to Satisfy_Load {a in LOAD_AREAS, h in TIMEPOINTS}:
-	( sum{ fc in RPS_FUEL_CATEGORY} ConsumePower[a,h,fc] ) = system_load[a, h];
+	( sum{ fc in RPS_FUEL_CATEGORY} ConsumePower[a,h,fc] ) = system_load[a, h] + distribution_losses *
+	( system_load[a, h]
+	  - (sum {(pid, a, t) in PROJ_INTERMITTENT: t in SOLAR_DIST_PV_TECHNOLOGIES}
+          (1-forced_outage_rate[t]) * cap_factor[pid, a, t, h] * (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]))
+      - (sum {(a, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: ep_technology[a,e] in SOLAR_DIST_PV_TECHNOLOGIES }
+   	      OperateEPDuringPeriod[a, e, period[h]] * 
+          (1-ep_forced_outage_rate[a, e]) * eip_cap_factor[a, e, h] * ep_size_mw[a, e] ) 
+       )
+      
+       ;
+
 
 
 ################################################################################
@@ -1130,7 +1146,17 @@ subject to Satisfy_Load_Reserve {a in LOAD_AREAS, h in TIMEPOINTS}:
 	- ( sum {(a, a1) in TRANSMISSION_LINES}
 		DispatchTransFromXToY_Reserve[a, a1, h] )
 
-  >= system_load[a, h] * ( 1 + planning_reserve_margin );
+  >= ( 1 + planning_reserve_margin ) * 
+	 (
+	   system_load[a, h] + 
+	   distribution_losses * (
+		 system_load[a, h]
+		 - (sum {(pid, a, t) in PROJ_INTERMITTENT: t in SOLAR_DIST_PV_TECHNOLOGIES}
+		   cap_factor[pid, a, t, h] * (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]))
+		 - (sum {(a, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: ep_technology[a,e] in SOLAR_DIST_PV_TECHNOLOGIES }
+		   OperateEPDuringPeriod[a, e, period[h]] * eip_cap_factor[a, e, h] * ep_size_mw[a, e] ) 
+		)
+	  );
 
 
 #################################################
@@ -1141,7 +1167,17 @@ subject to Satisfy_RPS {a in LOAD_AREAS, p in PERIODS:
     (sum { h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY: 
            period[h] = p and fuel_qualifies_for_rps[a, fc] } 
       ConsumePower[a,h,fc] * hours_in_sample[h] )
-  / ( sum {h in TIMEPOINTS: period[h]=p} system_load[a, h] * hours_in_sample[h] )
+  / sum {h in TIMEPOINTS: period[h]=p} (
+      system_load[a, h] 
+      + distribution_losses * (
+        system_load[a, h]
+		- (sum {(pid, a, t) in PROJ_INTERMITTENT: t in SOLAR_DIST_PV_TECHNOLOGIES}
+			(1-forced_outage_rate[t]) * cap_factor[pid, a, t, h] * (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]))
+		- (sum {(a, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: ep_technology[a,e] in SOLAR_DIST_PV_TECHNOLOGIES }
+			OperateEPDuringPeriod[a, e, period[h]] * 
+			(1-ep_forced_outage_rate[a, e]) * eip_cap_factor[a, e, h] * ep_size_mw[a, e] ) 
+       )
+     )
    >= rps_compliance_fraction_in_period[a, p];
 
 ################################################################################

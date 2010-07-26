@@ -39,6 +39,9 @@ param transmission_forced_outage_rate := 0.01;
 # parameters for intra-zone transmission and distribution
 param local_td_max_age_years := 20;
 
+# distribution losses
+param distribution_losses := .053;
+
 # forced outage rate for hydroelectric dams
 # this is used to de-rate the planned power production
 # Source: Black and Veach / NREL ReEDS
