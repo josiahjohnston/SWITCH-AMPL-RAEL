@@ -607,10 +607,10 @@ param capital_cost {(pid, a, t, online_yr) in PROJECT_VINTAGES} =
 param fixed_o_m_by_period {(pid, a, t, p) in PROJECT_VINTAGES} = 
   # Fixed annual costs that are paid while the plant is operating (up to the end of the study period)
   fixed_o_m[pid, a, t]
-    # U to P: Convert annual payments during the course of the period to the value at the beginning of the period
+    # U to P: Convert annual payments during the course of the period to the value the year before the period starts
     * (1-(1+discount_rate)^(-1*num_years_per_period))/discount_rate
     # F to P, from the time the plant comes online to the base year
-    * 1/(1+discount_rate)^(p-base_year);
+    * 1/(1+discount_rate)^(p - 1 - base_year);
 
 # all variable costs ($/MWh) for generating a MWh of electricity in some
 # future hour, using a particular technology and vintage, 
@@ -623,13 +623,17 @@ param fixed_o_m_by_period {(pid, a, t, p) in PROJECT_VINTAGES} =
 # but for now, since the hours are non-chronological samples within each study period,
 # they are all discounted by the same factor
 param variable_cost {(pid, a, t) in PROJECTS, h in TIMEPOINTS} =
-  hours_in_sample[h] * (
-    variable_o_m[pid, a, t] + heat_rate[t] * fuel_cost_hourly[a, fuel[t], h]
+  sum{ yr_of_period in 0..(num_years_per_period-1) } (
+	hours_in_sample[h] / num_years_per_period * (
+	  variable_o_m[pid, a, t] + heat_rate[t] * fuel_cost_hourly[a, fuel[t], h]
+	) * 1/(1+discount_rate)^(yr_of_period)
   ) * 1/(1+discount_rate)^(period[h]-base_year);
 
 param carbon_cost_per_mwh {t in TECHNOLOGIES, h in TIMEPOINTS} = 
-  hours_in_sample[h] * (
-    heat_rate[t] * carbon_content[fuel[t]] * carbon_cost
+  sum{ yr_of_period in 0..(num_years_per_period-1) } (
+	hours_in_sample[h] / num_years_per_period * (
+	  heat_rate[t] * carbon_content[fuel[t]] * carbon_cost
+	) * 1/(1+discount_rate)^(yr_of_period)
   ) * 1/(1+discount_rate)^(period[h]-base_year);
 
 ########
@@ -662,8 +666,12 @@ param ep_capital_cost_annual_payment {(a, e) in EXISTING_PLANTS} =
   sum{ yr in YEAR_OF_CONSTRUCTION: yr < construction_time_years[ep_technology[a, e]] } (
     ep_overnight_cost[a, e] * economic_multiplier[a]
     * cost_fraction[ep_technology[a, e], yr] 
-	* finance_rate / (1 - (1+finance_rate)^(-1* (ep_max_age_years[a, e]+construction_time_years[ep_technology[a, e]]-yr)))
-  );
+    # Bring the construction lump sum forward to the year before the plant starts operation. 
+    * (1 + discount_rate) ^ ( construction_time_years[t] - yr_of_constr - 1 )  	# This exponent will range from (construction_time - 1) to 0, meaning the cost of the last year's construction doesn't accrue interest.
+  ) 
+  # A CRF to spread the capital cost of the plant over all years of operation. 
+  * finance_rate / (1 - (1+finance_rate)^(-1 * ep_max_age_years[a, e]))
+;
 
 
 # Calculate capital costs for all cogen plants that are operated beyond their expected retirement. 
@@ -674,7 +682,7 @@ param ep_capital_cost_payment_per_period_to_extend_operation
     # A factor to convert all of the uniform annual payments that occur in a study period to the start of a study period
 		* (1-(1+discount_rate)^(-1*num_years_per_period))/discount_rate
     # Future value (at the start of the study) to Present value (in the base year)
-		* 1/(1+discount_rate)^(p-base_year);
+		* 1/(1+discount_rate)^(p - 1 - base_year);
 
 # discount capital costs to a lump-sum value at the start of the study.
 # Multiply fixed costs by years per period so they will match the way multi-year periods are implicitly treated in variable costs.
@@ -684,7 +692,7 @@ param ep_capital_cost {(a, e) in EXISTING_PLANTS: start_year < ep_end_year[a, e]
     # to a lump sum value at the start of the study
     * (1-(1+discount_rate)^(-1 * (ep_end_year[a, e]-start_year)))/discount_rate
     # Future value (at the start of the study) to Present value (in the base year)
-    * 1/(1+discount_rate)^(start_year-base_year);
+    * 1/(1+discount_rate)^(start_year - 1 - base_year);
 
 
 # cost per MW to operate a plant in any future period, discounted to start of study (ep_fixed_o_m is a series of annual payments)
@@ -694,7 +702,7 @@ param ep_fixed_o_m_cost {(a, e, p) in EP_PERIODS} =
     # A factor to convert all of the uniform annual payments that occur in a study period to the start of a study period
     * (1-(1+discount_rate)^(-1 * num_years_per_period))/discount_rate
     # Future value (at the start of the study) to Present value (in the base year)
-    * 1/(1+discount_rate)^(p-base_year);
+    * 1/(1+discount_rate)^(p - 1 - base_year);
 
 # all variable costs ($/MWh) for generating a MWh of electricity in some
 # future hour, from each existing project, discounted to the reference year
@@ -702,14 +710,18 @@ param ep_fixed_o_m_cost {(a, e, p) in EP_PERIODS} =
 # hours_in_sample is calculated using period length in MySQL: period_length * (days represented) * (subsampling factors),
 # so if you work through the math, variable costs are multiplied by period_length.
 param ep_variable_cost {(a, e) in EXISTING_PLANTS, h in TIMEPOINTS} =
-  hours_in_sample[h] * (
-    ep_variable_o_m[a, e] * economic_multiplier[a]
-    + ep_heat_rate[a, e] * fuel_cost_hourly[a, ep_fuel[a, e], h]
+  sum{ yr_of_period in 0..(num_years_per_period-1) } (
+	hours_in_sample[h] / num_years_per_period * (
+	  ep_variable_o_m[a, e] * economic_multiplier[a]
+	  + ep_heat_rate[a, e] * fuel_cost_hourly[a, ep_fuel[a, e], h]
+	) * 1/(1+discount_rate)^(yr_of_period)
   ) * 1/(1+discount_rate)^(period[h]-base_year);
 
 param ep_carbon_cost_per_mwh {(a, e) in EXISTING_PLANTS, h in TIMEPOINTS} = 
-  hours_in_sample[h] * (
-    ep_heat_rate[a, e] * carbon_content[ep_fuel[a, e]] * carbon_cost
+  sum{ yr_of_period in 0..(num_years_per_period-1) } (
+	hours_in_sample[h] / num_years_per_period * (
+	  ep_heat_rate[a, e] * carbon_content[ep_fuel[a, e]] * carbon_cost
+	) * 1/(1+discount_rate)^(yr_of_period)
   ) * 1/(1+discount_rate)^(period[h]-base_year);
 
 ########
@@ -732,7 +744,7 @@ param transmission_end_year {p in PERIODS} =
 param transmission_cost_per_mw {(a1, a2) in TRANSMISSION_LINES, p in PERIODS} =
   transmission_annual_payment[a1, a2, p]
   * (1-(1+discount_rate)^(-1*(transmission_end_year[p] - p)))/discount_rate
-  * 1/(1+discount_rate)^(p-base_year);
+  * 1/(1+discount_rate)^(p - 1 - base_year);
 
 # costs to pay off and maintain the existing transmission grid are brought in as yearly cost that must be incurred
 # so they are summed here to make a total lump sum cost in present value at the base_year
@@ -740,7 +752,7 @@ param transmission_sunk_cost =
   sum {a in LOAD_AREAS} 
     transmission_sunk_annual_payment[a] 
     * (1 - (1+discount_rate)^(-1*(end_year-start_year)))/discount_rate
-    * 1/(1+discount_rate)^(start_year-base_year);
+    * 1/(1+discount_rate)^(start_year - 1 - base_year);
 
 # date when a when local T&D infrastructure of each vintage will stop being included in the simulation
 # note: if it would be expected to retire between study periods,
@@ -753,7 +765,7 @@ param local_td_end_year {p in PERIODS} =
 param local_td_cost_per_mw {a in LOAD_AREAS, p in PERIODS} = 
   local_td_new_annual_payment_per_mw[a]
   * (1 - (1+discount_rate)^(-1*(local_td_end_year[p]-p)))/discount_rate
-  * 1/(1+discount_rate)^(p-base_year);
+  * 1/(1+discount_rate)^( p - 1 - base_year);
 
 # costs to pay off and maintain local T&D are brought in as yearly cost that must be incurred
 # so they are summed here to make a total lump sum cost in present value at the base_year
@@ -761,7 +773,7 @@ param local_td_sunk_cost =
   sum {a in LOAD_AREAS} 
     local_td_sunk_annual_payment[a] 
     * (1 - (1+discount_rate)^(-1*(end_year-start_year)))/discount_rate
-    * 1/(1+discount_rate)^(start_year-base_year);
+    * 1/(1+discount_rate)^(start_year - 1 - base_year);
 
 
 ######
@@ -774,7 +786,7 @@ param local_td_sunk_cost =
 param hydro_cost_per_mw { a in LOAD_AREAS } = 
   hydro_annual_payment_per_mw * economic_multiplier[a]
   * (1 - (1+discount_rate)^(-1*(end_year-start_year)))/discount_rate
-  * 1/(1+discount_rate)^(start_year-base_year);
+  * 1/(1+discount_rate)^(start_year - 1 - base_year);
 # find the nameplate capacity of all existing hydro - they're all the same value - the max just picks one - could do avg or min instead
 param hydro_total_capacity {(a, pid) in PROJ_HYDRO} = 
   max {(a, pid, d) in PROJ_HYDRO_DATES} hydro_capacity_mw[a, pid, d];
