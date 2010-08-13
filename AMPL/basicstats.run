@@ -158,6 +158,15 @@ for {p in PERIODS} {
     sum {(a1, a2) in TRANSMISSION_LINES, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY: period[h] = p}
       DispatchTransFromXToY[a1, a2, h, fc] * ( 1 - transmission_efficiency[a1, a2] ) * hours_in_sample[h];
 
+ let Distribution_Losses_by_Period[p] := 
+	sum {a in LOAD_AREAS, h in TIMEPOINTS: period[h] = p}
+		distribution_losses * hours_in_sample[h] * ( system_load[a, h]
+		 - (sum {(pid, a, t) in PROJ_INTERMITTENT: t in SOLAR_DIST_PV_TECHNOLOGIES}
+		   cap_factor[pid, a, t, h] * (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]))
+		 - (sum {(a, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: ep_technology[a,e] in SOLAR_DIST_PV_TECHNOLOGIES }
+		   OperateEPDuringPeriod[a, e, period[h]] * eip_cap_factor[a, e, h] * ep_size_mw[a, e] ) 
+			);
+			
   let Storage_Losses_by_Period[p] :=
 	sum {(a, pid) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY: period[h] = p}
 		( Store_Pumped_Hydro[a, pid, h, fc] * ( 1 - pumped_hydro_efficiency ) * hours_in_sample[h] )
@@ -205,13 +214,15 @@ for {p in PERIODS} {
 	  / Gross_Power_by_Period[p]
 	;
 	
-	printf "\n   Transmission Losses=%2d\%\n   Storage Losses=%2d\%\n   Spilled=%2d\%\n", 
+	printf "\n   Transmission Losses=%2d\%\n  Distribution Losses=%2d\%\n  Storage Losses=%2d\%\n   Spilled=%2d\%\n", 
 		100 * Transmission_Losses_by_Period[p] / Gross_Power_by_Period[p], 
+		100 * Distribution_Losses_by_Period[p] / Gross_Power_by_Period[p],
 		100 * Storage_Losses_by_Period[p]      / Gross_Power_by_Period[p], 
 		100 * (Gross_Power_by_Period[p] - total_loads_by_period_weighted[p] - Transmission_Losses_by_Period[p] - Storage_Losses_by_Period[p]) / Gross_Power_by_Period[p];
 	
 	printf "Total Load  = %.0f\n", total_loads_by_period_weighted[p];
 	printf "Total Trans Losses  = %.0f\n", Transmission_Losses_by_Period[p];
+	printf "Total Distribution Losses  = %.0f\n", Distribution_Losses_by_Period[p];
 	printf "Total Storage Losses  = %.0f\n", Storage_Losses_by_Period[p];
 	printf "Total Spilled = %.0f\n", Gross_Power_by_Period[p] - total_loads_by_period_weighted[p] - Transmission_Losses_by_Period[p] - Storage_Losses_by_Period[p];
 	printf "Total Power = %.0f\n", Gross_Power_by_Period[p];
