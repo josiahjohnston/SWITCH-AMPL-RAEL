@@ -878,6 +878,7 @@ var StoreEnergyReserve {PROJ_STORAGE, TIMEPOINTS} >= 0;
 var ReleaseEnergyReserve {PROJ_STORAGE, TIMEPOINTS} >= 0;
 
 # Number of MW of power consumed in each load area in each hour. This is needed for RPS in cases where some excess power is spilled.
+# This is the actual power consumed by the load, after transmission losses, exports from the load area, and distribution losses.
 var ConsumePower {LOAD_AREAS, TIMEPOINTS, RPS_FUEL_CATEGORY} >= 0;
 
 # share of existing plants to operate during each study period.
@@ -1169,8 +1170,8 @@ subject to Satisfy_RPS {a in LOAD_AREAS, p in PERIODS:
     (sum { h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY: 
            period[h] = p and fuel_qualifies_for_rps[a, fc] } 
       ConsumePower[a,h,fc] * hours_in_sample[h] )
-  / sum {h in TIMEPOINTS: period[h]=p} 
-      system_load[a, h] 
+  / (sum {h in TIMEPOINTS: period[h]=p} 
+      system_load[a, h] * hours_in_sample[h])
      
    >= rps_compliance_fraction_in_period[a, p];
 
