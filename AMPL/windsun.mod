@@ -89,6 +89,13 @@ param base_year >= 0;
 # annual rate (real) to use to discount future costs to current year
 param discount_rate;
 
+# this parameter converts uniform payments made in each year of the period to a lump-sum value in the first year of the period
+param factor_to_bring_annual_costs_to_start_of_period =
+	# CRF to convert uniform annual payments to a lump sum in the year before the period begins
+	( 1 - ( 1 + discount_rate )^( -1 * num_years_per_period ) ) / discount_rate
+	# Convert the value from the year before the period starts to the value in the first year of the period.
+	* ( 1 + discount_rate );
+
 # required rates of return (real) for generator and transmission investments
 # may differ between generator types, and between generators and transmission lines
 param finance_rate >= 0;
@@ -370,17 +377,6 @@ param forced_outage_rate_hydro >= 0;
 # round-trip efficiency for storing power via a pumped hydro system
 param pumped_hydro_efficiency > 0;
 
-# annual costs for existing hydro plants (see notes in windsun.run)
-# "carrying cost" for hydro and pumped hydro facilities ($/MWp/year)
-# The source for these cost number is Black and Veach / NREL ReEDS
-# To do: Move these numbers & calculations into the database, then read them in with other cost values in existing_plants.tab
-param hydro_capital = 2242369 * discount_rate / (1-(1+discount_rate)^(-100)); # $2242369/MW * crf (capital recovery factor for a 100-year project at 7% interest)
-param hydro_fixed_o_m = 13632; # 13632/MW (fixed O&M per MW)
-param hydro_var_o_m = 2.43; 
-param hydro_var_o_m_annual = hydro_var_o_m * 8766 * 0.38; # var_o_m [$/MWh] * 8766h * 0.38 h/y (approx. capacity factor for hydro projects is about 38% according to our hydro monthly limit data)
-param hydro_annual_payment_per_mw =
-	hydro_capital + hydro_fixed_o_m + hydro_var_o_m_annual;
-
 # indexing sets for hydro data (read in along with data tables)
 # (this should probably be monthly data, but this has equivalent effect,
 # and doesn't require adding a month dataset and month <-> date links)
@@ -592,30 +588,32 @@ param cost_of_plant_one_year_before_operational {(pid, a, t, online_yr) in PROJE
  
 ;
 # Spread the costs of the plant evenly over the plant's operation. 
-# This doesn't represent the cash flow. Rather, it spreads the costs of bringing the plant online evenly over the operational period so the linear program optimization won't experience "boundary conditions" and avoid making long-term investments close to the last year of the simulation. 
+# This doesn't represent the cash flow. Rather, it spreads the costs of bringing the plant online evenly over the operational period
+# so the linear program optimization won't experience "boundary conditions"
+# and avoid making long-term investments close to the last year of the simulation. 
 param overnight_cost_levelized_over_operation {(pid, a, t, online_yr) in PROJECT_VINTAGES} = 
   cost_of_plant_one_year_before_operational[pid, a, t, online_yr] *
   discount_rate / ( 1 - (1 + discount_rate) ^ ( -1 * max_age_years[t] ) )
   ;
 
+# Convert annual payments made in each period the plant is operational to a lump-sum in the first year of the period and then discount back to the base year
 param capital_cost {(pid, a, t, online_yr) in PROJECT_VINTAGES} = 
-  overnight_cost_levelized_over_operation [pid, a, t, online_yr]
-  # CRF to convert uniform annual payments to a lump sum in the year before operation starts
-  * (1 - (1+discount_rate)^(-1 * (project_end_year[t,online_yr] - online_yr)))/discount_rate
-  # future value (in the year before operation starts) to present value (in the base year)
-  * 1/(1+discount_rate)^(online_yr - 1 - base_year)
+  sum {p in PERIODS: online_yr <= p < project_end_year[t, online_yr]} overnight_cost_levelized_over_operation [pid, a, t, online_yr]
+  * factor_to_bring_annual_costs_to_start_of_period
+  # future value (in the year the period starts) to present value (in the base year)
+  * 1/(1+discount_rate)^(p - base_year)
 ;
 
-# Take the stream of fixed O & M payments over the duration of the each periods,
+
+# Take the stream of fixed annual O & M payments over the duration of the each period,
 # and discount to a lump-sum value at the start of the period,
 # then discount from there to the base_year.
 param fixed_o_m_by_period {(pid, a, t, p) in PROJECT_VINTAGES} = 
   # Fixed annual costs that are paid while the plant is operating (up to the end of the study period)
   fixed_o_m[pid, a, t]
-    # U to P: Convert annual payments during the course of the period to the value the year before the period starts
-    * (1-(1+discount_rate)^(-1*num_years_per_period))/discount_rate
-    # F to P, from the time the plant comes online to the base year
-    * 1/(1+discount_rate)^(p - 1 - base_year);
+    * factor_to_bring_annual_costs_to_start_of_period
+    # F to P, from the first year of the period to the base year
+    * 1/(1+discount_rate)^(p - base_year);
 
 # all variable costs ($/MWh) for generating a MWh of electricity in some
 # future hour, using a particular technology and vintage, 
@@ -628,18 +626,18 @@ param fixed_o_m_by_period {(pid, a, t, p) in PROJECT_VINTAGES} =
 # but for now, since the hours are non-chronological samples within each study period,
 # they are all discounted by the same factor
 param variable_cost {(pid, a, t) in PROJECTS, h in TIMEPOINTS} =
-  sum{ yr_of_period in 0..(num_years_per_period-1) } (
-	hours_in_sample[h] / num_years_per_period * (
+  	hours_in_sample[h] * (
 	  variable_o_m[pid, a, t] + heat_rate[t] * fuel_cost_hourly[a, fuel[t], h]
-	) * 1/(1+discount_rate)^(yr_of_period)
-  ) * 1/(1+discount_rate)^(period[h]-base_year);
+	) / num_years_per_period
+    * factor_to_bring_annual_costs_to_start_of_period
+    * 1/(1+discount_rate)^(period[h] - base_year);
 
 param carbon_cost_per_mwh {t in TECHNOLOGIES, h in TIMEPOINTS} = 
-  sum{ yr_of_period in 0..(num_years_per_period-1) } (
-	hours_in_sample[h] / num_years_per_period * (
+   	hours_in_sample[h] * (
 	  heat_rate[t] * carbon_content[fuel[t]] * carbon_cost
-	) * 1/(1+discount_rate)^(yr_of_period)
-  ) * 1/(1+discount_rate)^(period[h]-base_year);
+	) / num_years_per_period
+	* factor_to_bring_annual_costs_to_start_of_period
+    * 1/(1+discount_rate)^(period[h] - base_year);
 
 ########
 # now get discounted costs for existing projects on similar terms
@@ -672,7 +670,8 @@ param ep_capital_cost_annual_payment {(a, e) in EXISTING_PLANTS} =
     ep_overnight_cost[a, e] * economic_multiplier[a]
     * cost_fraction[ep_technology[a, e], yr_of_constr] 
     # Bring the construction lump sum forward to the year before the plant starts operation. 
-    * (1 + discount_rate) ^ ( construction_time_years[ep_technology[a, e]] - yr_of_constr - 1 )  	# This exponent will range from (construction_time - 1) to 0, meaning the cost of the last year's construction doesn't accrue interest.
+	# This exponent will range from (construction_time - 1) to 0, meaning the cost of the last year's construction doesn't accrue interest.
+    * (1 + discount_rate) ^ ( construction_time_years[ep_technology[a, e]] - yr_of_constr - 1 )
   ) 
   # A CRF to spread the capital cost of the plant over all years of operation. 
   * finance_rate / (1 - (1+finance_rate)^(-1 * ep_max_age_years[a, e]))
@@ -684,20 +683,22 @@ param ep_capital_cost_annual_payment {(a, e) in EXISTING_PLANTS} =
 param ep_capital_cost_payment_per_period_to_extend_operation
 	{(a, e, p) in EP_PERIODS: ep_could_be_operating_past_expected_lifetime[a, e, p]} =
 		ep_capital_cost_annual_payment[a, e]
-    # A factor to convert all of the uniform annual payments that occur in a study period to the start of a study period
-		* (1-(1+discount_rate)^(-1*num_years_per_period))/discount_rate
+    # A factor to convert all of the uniform annual payments that occur in a study period to a lump sum at the start of a study period
+		* factor_to_bring_annual_costs_to_start_of_period
     # Future value (at the start of the study) to Present value (in the base year)
-		* 1/(1+discount_rate)^(p - 1 - base_year);
+		* 1/(1+discount_rate)^(p - base_year);
+
 
 # discount capital costs to a lump-sum value at the start of the study.
 # Multiply fixed costs by years per period so they will match the way multi-year periods are implicitly treated in variable costs.
 param ep_capital_cost {(a, e) in EXISTING_PLANTS: start_year < ep_end_year[a, e]} =
+    sum {p in PERIODS: p < ep_end_year[a, e]}
     ep_capital_cost_annual_payment[a, e]
-    # A factor to convert Uniform annual capital payments from the start of the study until the plant is retired
-    # to a lump sum value at the start of the study
-    * (1-(1+discount_rate)^(-1 * (ep_end_year[a, e]-start_year)))/discount_rate
-    # Future value (at the start of the study) to Present value (in the base year)
-    * 1/(1+discount_rate)^(start_year - 1 - base_year);
+    # A factor to convert Uniform annual capital payments in each period
+    # to a lump sum value at the start of the period
+    * factor_to_bring_annual_costs_to_start_of_period
+    # Future value (at the start of the period) to Present value (in the base year)
+    * 1/(1+discount_rate)^(p - base_year);
 
 
 # cost per MW to operate a plant in any future period, discounted to start of study (ep_fixed_o_m is a series of annual payments)
@@ -705,9 +706,9 @@ param ep_capital_cost {(a, e) in EXISTING_PLANTS: start_year < ep_end_year[a, e]
 param ep_fixed_o_m_cost {(a, e, p) in EP_PERIODS} =
   ep_fixed_o_m[a, e] * economic_multiplier[a] 
     # A factor to convert all of the uniform annual payments that occur in a study period to the start of a study period
-    * (1-(1+discount_rate)^(-1 * num_years_per_period))/discount_rate
+    * factor_to_bring_annual_costs_to_start_of_period
     # Future value (at the start of the study) to Present value (in the base year)
-    * 1/(1+discount_rate)^(p - 1 - base_year);
+    * 1/(1+discount_rate)^(p - base_year);
 
 # all variable costs ($/MWh) for generating a MWh of electricity in some
 # future hour, from each existing project, discounted to the reference year
@@ -715,26 +716,65 @@ param ep_fixed_o_m_cost {(a, e, p) in EP_PERIODS} =
 # hours_in_sample is calculated using period length in MySQL: period_length * (days represented) * (subsampling factors),
 # so if you work through the math, variable costs are multiplied by period_length.
 param ep_variable_cost {(a, e) in EXISTING_PLANTS, h in TIMEPOINTS} =
-  sum{ yr_of_period in 0..(num_years_per_period-1) } (
-	hours_in_sample[h] / num_years_per_period * (
+  	hours_in_sample[h] * (
 	  ep_variable_o_m[a, e] * economic_multiplier[a]
 	  + ep_heat_rate[a, e] * fuel_cost_hourly[a, ep_fuel[a, e], h]
-	) * 1/(1+discount_rate)^(yr_of_period)
-  ) * 1/(1+discount_rate)^(period[h]-base_year);
+	) / num_years_per_period
+	* factor_to_bring_annual_costs_to_start_of_period
+    * 1/(1+discount_rate)^(period[h]-base_year);
 
 param ep_carbon_cost_per_mwh {(a, e) in EXISTING_PLANTS, h in TIMEPOINTS} = 
-  sum{ yr_of_period in 0..(num_years_per_period-1) } (
-	hours_in_sample[h] / num_years_per_period * (
+  	hours_in_sample[h] * (
 	  ep_heat_rate[a, e] * carbon_content[ep_fuel[a, e]] * carbon_cost
-	) * 1/(1+discount_rate)^(yr_of_period)
-  ) * 1/(1+discount_rate)^(period[h]-base_year);
+	) / num_years_per_period 
+    * factor_to_bring_annual_costs_to_start_of_period
+    * 1/(1+discount_rate)^(period[h]-base_year);
 
+
+######
+# total cost of existing hydro plants (including capital and O&M)
+
+# The source for these cost number is Black and Veach / NREL ReEDS
+# To do: Move these numbers & calculations into the database, then read them in with other cost values in existing_plants.tab
+param nonpumped_hydro_capital = 2242369 * discount_rate / (1-(1+discount_rate)^(-100)); # $2242369/MW * crf (capital recovery factor for a 100-year project at 7% interest)
+param nonpumped_hydro_fixed_o_m = 13632;
+param nonpumped_hydro_variable_o_m = 2.43; 
+
+# same for pumped hydro
+# Black and Veatch has variable O+M at zero for PHS.
+param pumped_hydro_capital = 3860420 * discount_rate / (1-(1+discount_rate)^(-100)); # $3860420/MW * crf (capital recovery factor for a 100-year project at 7% interest)
+param pumped_hydro_fixed_o_m = 29666;
+
+# find the nameplate capacity of all existing hydro - they're all the same value - the max just picks one - could do avg or min instead
+param hydro_total_capacity {(a, pid) in PROJ_HYDRO} = 
+  max {(a, pid, d) in PROJ_HYDRO_DATES} hydro_capacity_mw[a, pid, d];
+
+# the total cost per MW for existing hydro plants
+# (the discounted stream of annual payments over the whole study)
+param nonpumped_hydro_fixed_cost_per_mw { a in LOAD_AREAS } = 
+  sum{p in PERIODS: start_year <= p < end_year}
+  ( nonpumped_hydro_capital + nonpumped_hydro_fixed_o_m ) * economic_multiplier[a]
+  * factor_to_bring_annual_costs_to_start_of_period
+  * 1/(1+discount_rate)^(p - base_year);
+param pumped_hydro_fixed_cost_per_mw { a in LOAD_AREAS } = 
+  sum{p in PERIODS: start_year <= p < end_year}
+  ( pumped_hydro_capital + pumped_hydro_fixed_o_m ) * economic_multiplier[a]
+  * factor_to_bring_annual_costs_to_start_of_period
+  * 1/(1+discount_rate)^(p - base_year);
+
+param nonpumped_hydro_variable_cost { a in LOAD_AREAS, h in TIMEPOINTS } =
+  	hours_in_sample[h] * (
+	  nonpumped_hydro_variable_o_m * economic_multiplier[a]
+	) / num_years_per_period
+	* factor_to_bring_annual_costs_to_start_of_period
+    * 1/(1+discount_rate)^(period[h]-base_year);
+  
 ########
 # now get discounted costs per MW for transmission lines and local T&D on similar terms
 
 # cost per MW for transmission lines
 # TODO: Move the regional cost adjustment into the database. 
-param transmission_annual_payment {(a1, a2) in TRANSMISSION_LINES, p in PERIODS} = 
+param transmission_annual_payment {(a1, a2) in TRANSMISSION_LINES} = 
   transmission_finance_rate / (1 - (1+transmission_finance_rate)^(-1*transmission_max_age_years)) 
   * transmission_cost_per_mw_km * ( (economic_multiplier[a1] + economic_multiplier[a2]) / 2 )
   * transmission_length_km[a1, a2];
@@ -746,10 +786,11 @@ param transmission_end_year {p in PERIODS} =
   min(end_year, p + ceil(transmission_max_age_years/num_years_per_period)*num_years_per_period);
 
 # discounted transmission cost per MW
-param transmission_cost_per_mw {(a1, a2) in TRANSMISSION_LINES, p in PERIODS} =
-  transmission_annual_payment[a1, a2, p]
-  * (1-(1+discount_rate)^(-1*(transmission_end_year[p] - p)))/discount_rate
-  * 1/(1+discount_rate)^(p - 1 - base_year);
+param transmission_cost_per_mw {(a1, a2) in TRANSMISSION_LINES, install_yr in PERIODS} =
+  sum {p in PERIODS: install_yr <= p < transmission_end_year[p]}
+  transmission_annual_payment[a1, a2]
+  * factor_to_bring_annual_costs_to_start_of_period
+  * 1/(1+discount_rate)^(p - base_year);
 
 # costs to pay off and maintain the existing transmission grid are brought in as yearly cost that must be incurred
 # so they are summed here to make a total lump sum cost in present value at the base_year
@@ -767,10 +808,11 @@ param local_td_end_year {p in PERIODS} =
 
 # discounted cost per MW for local T&D
 # the costs are already regionalized, so no need to do it again here
-param local_td_cost_per_mw {a in LOAD_AREAS, p in PERIODS} = 
+param local_td_cost_per_mw {a in LOAD_AREAS, install_yr in PERIODS} = 
+  sum {p in PERIODS: install_yr <= p < transmission_end_year[p]}
   local_td_new_annual_payment_per_mw[a]
-  * (1 - (1+discount_rate)^(-1*(local_td_end_year[p]-p)))/discount_rate
-  * 1/(1+discount_rate)^( p - 1 - base_year);
+  * factor_to_bring_annual_costs_to_start_of_period
+  * 1/(1+discount_rate)^( p - base_year);
 
 # costs to pay off and maintain local T&D are brought in as yearly cost that must be incurred
 # so they are summed here to make a total lump sum cost in present value at the base_year
@@ -779,22 +821,6 @@ param local_td_sunk_cost =
     local_td_sunk_annual_payment[a] 
     * (1 - (1+discount_rate)^(-1*(end_year-start_year)))/discount_rate
     * 1/(1+discount_rate)^(start_year - 1 - base_year);
-
-
-######
-# total cost of existing hydro plants (including capital and O&M)
-# note: it would be better to handle these costs more endogenously.
-# for now, we assume the nameplate capacity of each plant is equal to its peak allowed output.
-
-# the total cost per MW for existing hydro plants
-# (the discounted stream of annual payments over the whole study)
-param hydro_cost_per_mw { a in LOAD_AREAS } = 
-  hydro_annual_payment_per_mw * economic_multiplier[a]
-  * (1 - (1+discount_rate)^(-1*(end_year-start_year)))/discount_rate
-  * 1/(1+discount_rate)^(start_year - 1 - base_year);
-# find the nameplate capacity of all existing hydro - they're all the same value - the max just picks one - could do avg or min instead
-param hydro_total_capacity {(a, pid) in PROJ_HYDRO} = 
-  max {(a, pid, d) in PROJ_HYDRO_DATES} hydro_capacity_mw[a, pid, d];
 
 ##################
 # reduced sets for decision variables and constraints
@@ -853,52 +879,52 @@ set LOCAL_TD_HOURS :=
   {a in LOAD_AREAS, p in PERIODS, h in TIMEPOINTS: p <= period[h] < local_td_end_year[p]};
 
 
-#### VARIABLES ####
+######## VARIABLES ########
 
-# number of MW to install in each project at each date (vintage)
+# Number of MW of power consumed in each load area in each hour for non distributed and distributed projects
+# in terms of actual load met - distribution losses are NOT consumed
+# This is needed for RPS in cases where some excess power is spilled.
+var ConsumeNonDistributedPower {LOAD_AREAS, TIMEPOINTS, RPS_FUEL_CATEGORY} >= 0;
+var ConsumeDistributedPower {LOAD_AREAS, TIMEPOINTS, RPS_FUEL_CATEGORY} >= 0;
+
+# same on a reserve basis
+var ConsumeNonDistributedPower_Reserve {LOAD_AREAS, TIMEPOINTS} >= 0;
+var ConsumeDistributedPower_Reserve {LOAD_AREAS, TIMEPOINTS} >= 0;
+
+# variables to decide whether to redirect distributed power to the larger transmission-level grid for consumption elsewhere
+var RedirectDistributedPower {LOAD_AREAS, TIMEPOINTS, RPS_FUEL_CATEGORY} >= 0;
+var RedirectDistributedPower_Reserve {LOAD_AREAS, TIMEPOINTS} >= 0;
+
+
+# Project-level decision variables about how much generation to make available and how much power to dispatch
+
+# number of MW to install for each project in each investment period
 var InstallGen {PROJECT_VINTAGES} >= 0;
 
-# binary constraint that restricts small plants of certain types of generators (ex: Nuclear) from being built
+# binary constraint that restricts small plants of certain types of generators from being built
 # this quantity is one when there is there is not a constraint on how small plants can be
 # and is zero when there is a constraint
+# currently only enforced for new Nuclear generators
 var BuildGenOrNot {PROJ_MIN_BUILD_VINTAGES} >= 0, <= 1, integer;
 
-# number of MW to generate from each generation project, in each hour
-var DispatchGen {PROJ_DISPATCH, TIMEPOINTS} >= 0;
+# number of MW to generate from each dispatchable project, in each hour
+var ProducePowerNonIntermittent {PROJECTS, TIMEPOINTS} >= 0;
+
+# binary variable that decides to either operate or mothball an existing plant during each study period.
+var OperateEPDuringPeriod {EP_PERIODS} >= 0, <= 1, integer;
+
+# number of MW to generate from each existing dispatchable plant, in each hour
+var ProducePowerEP {EP_AVAILABLE_HOURS} >= 0;
 
 # the load in MW drawn from grid from storing electrons in new storage plants
 var StoreEnergy {PROJ_STORAGE, TIMEPOINTS, RPS_FUEL_CATEGORY} >= 0;
 # number of MW to generate from each storage project, in each hour. 
 var ReleaseEnergy {PROJ_STORAGE, TIMEPOINTS, RPS_FUEL_CATEGORY} >= 0;
 
-
 # storage reserve variables. 
-# ReleaseEnergyReserve is different from ReleaseEnergy in that all power from a CAES plant is attributed to ReleaseEnergyReserve rather than being spread over two decision variables. 
-var StoreEnergyReserve {PROJ_STORAGE, TIMEPOINTS} >= 0;
-var ReleaseEnergyReserve {PROJ_STORAGE, TIMEPOINTS} >= 0;
-
-# Number of MW of power consumed in each load area in each hour. This is needed for RPS in cases where some excess power is spilled.
-# This is the actual power consumed by the load, after transmission losses, exports from the load area, and distribution losses.
-var ConsumePower {LOAD_AREAS, TIMEPOINTS, RPS_FUEL_CATEGORY} >= 0;
-
-# share of existing plants to operate during each study period.
-# this should be a binary variable, but it's interesting to see 
-# how the continuous form works out
-var OperateEPDuringPeriod {EP_PERIODS} >= 0, <= 1, integer;
-
-# number of MW to generate from each existing dispatchable plant, in each hour
-var DispatchEP {EP_DISPATCH_HOURS} >= 0;
-
-# number of MW to install in each transmission corridor at each vintage
-var InstallTrans {TRANSMISSION_LINES, PERIODS} >= 0;
-
-# number of MW to transmit through each transmission corridor in each hour
-var DispatchTransFromXToY {TRANSMISSION_LINES, TIMEPOINTS, RPS_FUEL_CATEGORY} >= 0;
-var DispatchTransFromXToY_Reserve {TRANSMISSION_LINES, TIMEPOINTS} >= 0;
-
-# amount of local transmission and distribution capacity
-# (to carry peak power from transmission network to distributed loads)
-var InstallLocalTD {LOAD_AREAS, PERIODS} >= 0;
+# ReleaseEnergy_Reserve is different from ReleaseEnergy in that all power from a CAES plant is attributed to ReleaseEnergy_Reserve rather than being spread over two decision variables. 
+var StoreEnergy_Reserve {PROJ_STORAGE, TIMEPOINTS} >= 0;
+var ReleaseEnergy_Reserve {PROJ_STORAGE, TIMEPOINTS} >= 0;
 
 # amount of hydro to store and dispatch during each hour
 # note: Store_Pumped_Hydro represents the load on the grid so the amount of energy available for release
@@ -913,85 +939,19 @@ var Dispatch_Pumped_Hydro_Watershed_Electrons_Reserve {PROJ_PUMPED_HYDRO, TIMEPO
 var Dispatch_Pumped_Hydro_Storage_Reserve {PROJ_PUMPED_HYDRO, TIMEPOINTS} >= 0;
 var Store_Pumped_Hydro_Reserve {PROJ_PUMPED_HYDRO, TIMEPOINTS} >= 0;
 
-#####################################################
-# The rest of the variables are derived from linear combinations of decision variables. 
-# They are substituted out before the optimization occurs, so do not increase the complixity of the model.
+#############################
+# Transmission and Local T&D variables
 
-# This tracks the cumulative installed capacity at each project that is available at any given timepoint of the study.
-#Installed_To_Date[pid, a, t, h] = (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]);
-#var Installed_To_Date { (pid, a, t) in PROJECTS, h in TIMEPOINTS } = 
-#	sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: 
-#	     install_yr <= period[h] < project_end_year[t, install_yr] } 
-#	 InstallGen[pid, a, t, install_yr];
-#Installed_To_Date_by_Period[pid, a, t, p] = (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= p < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]);
-#var Installed_To_Date_by_Period { (pid, a, t) in PROJECTS, p in PERIODS } = 
-#	sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: 
-#	     install_yr <= p < project_end_year[t, install_yr] } 
-#	 InstallGen[pid, a, t, install_yr];
+# number of MW to install in each transmission corridor at each vintage
+var InstallTrans {TRANSMISSION_LINES, PERIODS} >= 0;
 
-# How much power is expected from each new project in each timepoint.
-# Power_Produced[pid, a, t, h] = (if dispatchable[t] then DispatchGen[pid, a, t, h] else (if intermittent[t] then (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]) * cap_factor[pid, a, t, h] * ( 1 - forced_outage_rate[t] ) else (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]) * ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] ) ) );
+# number of MW to transmit through each transmission corridor in each hour
+var DispatchTransFromXToY {TRANSMISSION_LINES, TIMEPOINTS, RPS_FUEL_CATEGORY} >= 0;
+var DispatchTransFromXToY_Reserve {TRANSMISSION_LINES, TIMEPOINTS} >= 0;
 
-#var Power_Produced { (pid, a, t) in PROJECTS, h in TIMEPOINTS};
-#subject to Power_From_Dispatchable_Plants { (pid, a, t) in PROJECTS, h in TIMEPOINTS: dispatchable[t]}: 
-#	Power_Produced[pid, a, t, h] = DispatchGen[pid, a, t, h];
-#subject to Power_From_Intermittent_Plants { (pid, a, t) in PROJECTS, h in TIMEPOINTS: intermittent[t] }: 
-#	Power_Produced[pid, a, t, h] = (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]) * cap_factor[pid, a, t, h] * ( 1 - forced_outage_rate[t] );
-#subject to Power_From_Baseload_Plants { (pid, a, t) in PROJECTS, h in TIMEPOINTS: new_baseload[t] }: 
-#    Power_Produced[pid, a, t, h] =  (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]) * ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] );
-
-# How much power is expected from each non-storage existing project in each timepoint.
-# EP_Power_Produced[a,e,h] = (if ep_dispatchable[a,e] then DispatchEP[a, e, h] else (if ep_intermittent[a,e] then OperateEPDuringPeriod[a, e, period[h]] * ep_size_mw[a, e] * eip_cap_factor[a, e, h] * ( 1 - ep_forced_outage_rate[a, e] ) else OperateEPDuringPeriod[a, e, period[h]] * ep_size_mw[a, e] * ( 1 - ep_forced_outage_rate[a, e] ) * ( 1 - ep_scheduled_outage_rate[a, e] ) ) );
-#var EP_Power_Produced { (a,e,h) in EP_AVAILABLE_HOURS };
-#subject to EP_Power_From_Dispatchable_Plants { (a,e,h) in EP_AVAILABLE_HOURS: ep_dispatchable[a,e] }: 
-#	EP_Power_Produced[a,e,h] = DispatchEP[a, e, h];
-#subject to EP_Power_From_Intermittent_Plants { (a,e,h) in EP_AVAILABLE_HOURS: ep_intermittent[a,e] }: 
-#	EP_Power_Produced[a,e,h] = OperateEPDuringPeriod[a, e, period[h]] * ep_size_mw[a, e] * eip_cap_factor[a, e, h] * ( 1 - ep_forced_outage_rate[a, e] );
-#subject to EP_Power_From_Baseload_Plants { (a,e,h) in EP_AVAILABLE_HOURS: ep_baseload[a,e] }: 
-#    EP_Power_Produced[a,e,h] = OperateEPDuringPeriod[a, e, period[h]] * ep_size_mw[a, e] * ( 1 - ep_forced_outage_rate[a, e] ) * ( 1 - ep_scheduled_outage_rate[a, e] );
-
-
-# The gross power available in each load area in each hour, broken down by "renewable" and "non-renewable" sources.
-# Gross_Power[a,h,fc] = (sum {(pid, a, t) in PROJECTS: rps_fuel_category[fuel[t]] = fc} (if dispatchable[t] then DispatchGen[pid, a, t, h] else (if intermittent[t] then (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]) * cap_factor[pid, a, t, h] * ( 1 - forced_outage_rate[t] ) else (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]) * ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] ) ) ) + sum { (a,e,h) in EP_AVAILABLE_HOURS: rps_fuel_category[ep_fuel[a, e]] = fc } (if ep_dispatchable[a,e] then DispatchEP[a, e, h] else (if ep_intermittent[a,e] then OperateEPDuringPeriod[a, e, period[h]] * ep_size_mw[a, e] * eip_cap_factor[a, e, h] * ( 1 - ep_forced_outage_rate[a, e] ) else OperateEPDuringPeriod[a, e, period[h]] * ep_size_mw[a, e] * ( 1 - ep_forced_outage_rate[a, e] ) * ( 1 - ep_scheduled_outage_rate[a, e] ) ) )	+ ( sum {(a, pid) in PROJ_NONPUMPED_HYDRO: rps_fuel_category[fuel_hydro] = fc} Dispatch_NonPumped_Hydro[a, pid, h] ) + ( sum {(a, pid) in PROJ_PUMPED_HYDRO: rps_fuel_category[fuel_hydro] = fc} Dispatch_Pumped_Hydro_Watershed_Electrons[a, pid, h] ));
-
-
-#var Gross_Power {a in LOAD_AREAS, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY} = 
-#	# Power from new plants
-#	sum {(pid, a, t) in PROJECTS: rps_fuel_category[fuel[t]] = fc} 
-#        (if dispatchable[t] then DispatchGen[pid, a, t, h] else (if intermittent[t] then (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]) * cap_factor[pid, a, t, h] * ( 1 - forced_outage_rate[t] ) else (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]) * ( 1 - #forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] ) ) )
-#    # Power from existing plants
-#    + sum { (a,e,h) in EP_AVAILABLE_HOURS: rps_fuel_category[ep_fuel[a, e]] = fc }
-#         (if ep_dispatchable[a,e] then DispatchEP[a, e, h] else (if ep_intermittent[a,e] then OperateEPDuringPeriod[a, e, period[h]] * ep_size_mw[a, e] * eip_cap_factor[a, e, h] * ( 1 - ep_forced_outage_rate[a, e] ) else OperateEPDuringPeriod[a, e, period[h]] * ep_size_mw[a, e] * ( 1 - ep_forced_outage_rate[a, e] ) * ( 1 - ep_scheduled_outage_rate[a, e] ) ) )
-#   #############################
-#   # Hydro Production
-#     # non pumped 
-# 	+ ( sum {(a, pid) in PROJ_NONPUMPED_HYDRO: rps_fuel_category[fuel_hydro] = fc}
-# 		Dispatch_NonPumped_Hydro[a, pid, h] )
-#     # pumped dispatch of water that wasn't stored
-# 	+ ( sum {(a, pid) in PROJ_PUMPED_HYDRO: rps_fuel_category[fuel_hydro] = fc}
-# 		Dispatch_Pumped_Hydro_Watershed_Electrons[a, pid, h] );
-
-# The net power available in each load area in each hour, broken down by "renewable" and "non-renewable" sources.
-# Net_Power[a,h,fc] = ( (sum {(pid, a, t) in PROJECTS: rps_fuel_category[fuel[t]] = fc} (if dispatchable[t] then DispatchGen[pid, a, t, h] else (if intermittent[t] then (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]) * cap_factor[pid, a, t, h] * ( 1 - forced_outage_rate[t] ) else (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]) * ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] ) ) ) + sum { (a,e,h) in EP_AVAILABLE_HOURS: rps_fuel_category[ep_fuel[a, e]] = fc } (if ep_dispatchable[a,e] then DispatchEP[a, e, h] else (if ep_intermittent[a,e] then OperateEPDuringPeriod[a, e, period[h]] * ep_size_mw[a, e] * eip_cap_factor[a, e, h] * ( 1 - ep_forced_outage_rate[a, e] ) else OperateEPDuringPeriod[a, e, period[h]] * ep_size_mw[a, e] * ( 1 - ep_forced_outage_rate[a, e] ) * ( 1 - ep_scheduled_outage_rate[a, e] ) ) )	+ ( sum {(a, pid) in PROJ_NONPUMPED_HYDRO: rps_fuel_category[fuel_hydro] = fc} Dispatch_NonPumped_Hydro[a, pid, h] ) + ( sum {(a, pid) in PROJ_PUMPED_HYDRO: rps_fuel_category[fuel_hydro] = fc} Dispatch_Pumped_Hydro_Watershed_Electrons[a, pid, h] )) + sum {(pid, a, t) in PROJ_STORAGE} ( ReleaseEnergy[pid, a, t, h, fc] - StoreEnergy[pid, a, t, h, fc] ) + sum {(a, pid) in PROJ_PUMPED_HYDRO} ( Dispatch_Pumped_Hydro_Storage[a, pid, h, fc] - Store_Pumped_Hydro[a, pid, h, fc]) + ( sum {(a2, a) in TRANSMISSION_LINES} DispatchTransFromXToY[a2, a, h, fc] * transmission_efficiency[a2, a]) - ( sum {(a, a1) in TRANSMISSION_LINES} DispatchTransFromXToY[a, a1, h, fc]) );
-
-# var Net_Power {a in LOAD_AREAS, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY}
-#   = (sum {(pid, a, t) in PROJECTS: rps_fuel_category[fuel[t]] = fc} (if dispatchable[t] then DispatchGen[pid, a, t, h] else (if intermittent[t] then (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]) * cap_factor[pid, a, t, h] * ( 1 - forced_outage_rate[t] ) else (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]) * ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] ) ) ) + sum { (a,e,h) in EP_AVAILABLE_HOURS: rps_fuel_category[ep_fuel[a, e]] = fc } (if ep_dispatchable[a,e] then DispatchEP[a, e, h] else (if ep_intermittent[a,e] then OperateEPDuringPeriod[a, e, period[h]] * ep_size_mw[a, e] * eip_cap_factor[a, e, h] * ( 1 - ep_forced_outage_rate[a, e] ) else OperateEPDuringPeriod[a, e, period[h]] * ep_size_mw[a, e] * ( 1 - ep_forced_outage_rate[a, e] ) * ( 1 - ep_scheduled_outage_rate[a, e] ) ) )	+ ( sum {(a, pid) in PROJ_NONPUMPED_HYDRO: rps_fuel_category[fuel_hydro] = fc} Dispatch_NonPumped_Hydro[a, pid, h] ) + ( sum {(a, pid) in PROJ_PUMPED_HYDRO: rps_fuel_category[fuel_hydro] = fc} Dispatch_Pumped_Hydro_Watershed_Electrons[a, pid, h] )) 
-#   #############################
-#   # Storage (moves power temporally)
-#     # Compressed Air Energy Storage
-#   + sum {(pid, a, t) in PROJ_STORAGE} (
-# 		ReleaseEnergy[pid, a, t, h, fc] - StoreEnergy[pid, a, t, h, fc] )
-#     # Pumped Hydro
-#   + sum {(a, pid) in PROJ_PUMPED_HYDRO} (
-# 		Dispatch_Pumped_Hydro_Storage[a, pid, h, fc] - Store_Pumped_Hydro[a, pid, h, fc])
-#   #############################
-#   # Transmission (moves power spatially)
-#   # Imports (have experienced transmission losses)
-#   + ( sum {(a2, a) in TRANSMISSION_LINES} 
-#       DispatchTransFromXToY[a2, a, h, fc] * transmission_efficiency[a2, a])
-#   # Exports (have not experienced transmission losses)
-#   - ( sum {(a, a1) in TRANSMISSION_LINES}
-# 	  DispatchTransFromXToY[a, a1, h, fc]);
+# amount of local transmission and distribution capacity
+# (to carry peak power from transmission network to distributed loads)
+var InstallLocalTD {LOAD_AREAS, PERIODS} >= 0;
 
 
 #### OBJECTIVES ####
@@ -1014,11 +974,16 @@ minimize Power_Cost:
         InstallGen[pid, a, t, p] * capital_cost[pid, a, t, p]
 	# Fixed Costs
 	+ sum {(pid, a, t, p) in PROJECT_VINTAGES} 
-	    (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= p < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]) * fixed_o_m_by_period[pid, a, t, p]
+	    (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= p < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr])
+	    * fixed_o_m_by_period[pid, a, t, p]
 	# Variable costs for non-storage projects
 	+ sum {(pid, a, t) in PROJECTS, h in TIMEPOINTS} 
-	    (if dispatchable[t] then DispatchGen[pid, a, t, h] else (if intermittent[t] then (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]) * cap_factor[pid, a, t, h] * ( 1 - forced_outage_rate[t] ) else (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]) * ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] ) ) )
-	    * (variable_cost[pid, a, t, h] + carbon_cost_per_mwh[t, h])
+	    ( if not intermittent[t]
+		then ProducePowerNonIntermittent[pid, a, t, h]
+		else
+		(sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr])
+			* cap_factor[pid, a, t, h] * ( 1 - forced_outage_rate[t] ) )
+	 * ( variable_cost[pid, a, t, h] + carbon_cost_per_mwh[t, h] )
 	# Variable costs for storage projects: currently attributed to the dispatch side of storage
 	# for CAES, power output is apportioned between Power_Produced and ReleaseEnergy by storage_efficiency_caes through the constraint CAES_Combined_Dispatch
 	+ sum {(pid, a, t) in PROJ_STORAGE, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY} 
@@ -1038,14 +1003,17 @@ minimize Power_Cost:
       OperateEPDuringPeriod[a, e, p] * ep_size_mw[a, e] * ep_fixed_o_m_cost[a, e, p]
 	# Calculate variable costs for all existing plants
 	+ sum {(a,e,h) in EP_AVAILABLE_HOURS}
-	  (if ep_dispatchable[a,e] then DispatchEP[a, e, h] else (if ep_intermittent[a,e] then OperateEPDuringPeriod[a, e, period[h]] * ep_size_mw[a, e] * eip_cap_factor[a, e, h] * ( 1 - ep_forced_outage_rate[a, e] ) else OperateEPDuringPeriod[a, e, period[h]] * ep_size_mw[a, e] * ( 1 - ep_forced_outage_rate[a, e] ) * ( 1 - ep_scheduled_outage_rate[a, e] ) ) )
-	  * (ep_variable_cost[a, e, h] + ep_carbon_cost_per_mwh[a, e, h])
+	  ProducePowerEP[a, e, h] * ( ep_variable_cost[a, e, h] + ep_carbon_cost_per_mwh[a, e, h] )
 
 	#############################
-	# Hydro: cost per MW of operating the hydro fleet - no decision variables here because hydro is assumed to be run no matter what
-	# TODO: divide hydro_cost_per_mw between nonpumped and pumped hydro projects
-	+ sum {(a, pid) in PROJ_HYDRO} 
-      hydro_cost_per_mw[a] * hydro_total_capacity[a, pid]
+	# Hydro: cost of operating the hydro fleet
+	+ sum { (a, pid) in PROJ_NONPUMPED_HYDRO } 
+      nonpumped_hydro_fixed_cost_per_mw[a] * hydro_total_capacity[a, pid]
+	+ sum { (a, pid) in PROJ_PUMPED_HYDRO } 
+      pumped_hydro_fixed_cost_per_mw[a] * hydro_total_capacity[a, pid]
+	# Variable costs: Nonpumped has nonzero variable O&M... for Pumped the variable is wrapped up in the fixed O&M
+	+ sum { (a, pid) in PROJ_NONPUMPED_HYDRO, h in TIMEPOINTS }
+	  Dispatch_NonPumped_Hydro[a, pid, h] * nonpumped_hydro_variable_cost[a, h]
 
 	########################################
 	#    TRANSMISSION & DISTRIBUTION
@@ -1067,70 +1035,115 @@ minimize Power_Cost:
 # so it is more clear where surplus power is being generated
 minimize Transmission_Usage:
   sum {(a1, a2) in TRANSMISSION_LINES, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY} 
-    (DispatchTransFromXToY[a1, a2, h, fc]);
+    DispatchTransFromXToY[a1, a2, h, fc];
+
 
 
 #### CONSTRAINTS ####
 
-# Consumed power may not exceed net available power.
-# ConsumePower is the actual power consumed by load.
-subject to Conservation_Of_Energy {a in LOAD_AREAS, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY}:
-  ConsumePower[a,h,fc]  <= 
-# Distributed PV generation, assumed not to experience any distribution losses.  
-  + (sum {(pid, a, t) in PROJ_INTERMITTENT: t in SOLAR_DIST_PV_TECHNOLOGIES and rps_fuel_category[fuel[t]] = fc}
-          (1-forced_outage_rate[t]) * cap_factor[pid, a, t, h] * (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]))
-      + (sum {(a, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: ep_technology[a,e] in SOLAR_DIST_PV_TECHNOLOGIES and rps_fuel_category[ep_fuel[a, e]] = fc}
-   	      OperateEPDuringPeriod[a, e, period[h]] * 
-          (1-ep_forced_outage_rate[a, e]) * eip_cap_factor[a, e, h] * ep_size_mw[a, e] ) +
-# All non-distributed generation, after it experiences transmission and distribution losses  
-  (
-  (sum {(pid, a, t) in PROJECTS: rps_fuel_category[fuel[t]] = fc and t not in SOLAR_DIST_PV_TECHNOLOGIES} (if dispatchable[t] then DispatchGen[pid, a, t, h] else (if intermittent[t] then (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]) * cap_factor[pid, a, t, h] * ( 1 - forced_outage_rate[t] ) else (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]) * ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] ) ) ) + sum { (a,e,h) in EP_AVAILABLE_HOURS: rps_fuel_category[ep_fuel[a, e]] = fc and ep_technology[a,e] not in SOLAR_DIST_PV_TECHNOLOGIES} (if ep_dispatchable[a,e] then DispatchEP[a, e, h] else (if ep_intermittent[a,e] then OperateEPDuringPeriod[a, e, period[h]] * ep_size_mw[a, e] * eip_cap_factor[a, e, h] * ( 1 - ep_forced_outage_rate[a, e] ) else OperateEPDuringPeriod[a, e, period[h]] * ep_size_mw[a, e] * ( 1 - ep_forced_outage_rate[a, e] ) * ( 1 - ep_scheduled_outage_rate[a, e] ) ) )	+ ( sum {(a, pid) in PROJ_NONPUMPED_HYDRO: rps_fuel_category[fuel_hydro] = fc} Dispatch_NonPumped_Hydro[a, pid, h] ) + ( sum {(a, pid) in PROJ_PUMPED_HYDRO: rps_fuel_category[fuel_hydro] = fc} Dispatch_Pumped_Hydro_Watershed_Electrons[a, pid, h] )) + sum {(pid, a, t) in PROJ_STORAGE} ( ReleaseEnergy[pid, a, t, h, fc] - StoreEnergy[pid, a, t, h, fc] ) + sum {(a, pid) in PROJ_PUMPED_HYDRO} ( Dispatch_Pumped_Hydro_Storage[a, pid, h, fc] - Store_Pumped_Hydro[a, pid, h, fc]) + ( sum {(a2, a) in TRANSMISSION_LINES} DispatchTransFromXToY[a2, a, h, fc] * transmission_efficiency[a2, a]) - ( sum {(a, a1) in TRANSMISSION_LINES} DispatchTransFromXToY[a, a1, h, fc]) 
-  ) / (1 + distribution_losses) 
-   ;
-
-# system needs to meet the load in each load area in each hour
-# The output of plants is derated by outage rates to reflect occasional unavailability
-# except for hydro... outage rates are already built into the data so they aren't included here
-# (see the hydro constraints below)
-# note: power is deemed to flow from a1 to a2 if positive, reverse if negative
-# distribution losses are applied to all power except that supplied by distributed solar PV projects
+# System needs to meet the load in each load area in each study hour, with all available flows of power.
 subject to Satisfy_Load {a in LOAD_AREAS, h in TIMEPOINTS}:
-	( sum{ fc in RPS_FUEL_CATEGORY} ConsumePower[a,h,fc] ) = system_load[a, h]      
+	 ( sum{ fc in RPS_FUEL_CATEGORY} ( ConsumeNonDistributedPower[a,h,fc] + ConsumeDistributedPower[a,h,fc] ) )
+		 = system_load[a, h]      
   ;
 
+
+# RPS constraint
+# windsun.run will drop this constraint if enable_rps is 0 (its default value)
+subject to Satisfy_RPS {a in LOAD_AREAS, p in PERIODS: rps_compliance_fraction_in_period[a, p] > 0 }:
+    ( sum { h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY: period[h] = p and fuel_qualifies_for_rps[a, fc] } 
+      ( ConsumeNonDistributedPower[a,h,fc] + ConsumeDistributedPower[a,h,fc] ) * hours_in_sample[h] )
+  / ( sum {h in TIMEPOINTS: period[h]=p} 
+      system_load[a, h] * hours_in_sample[h] )
+     
+   >= rps_compliance_fraction_in_period[a, p];
+
+#################################################
+# Power conservation constraints
+
+# non-distributed power production experiences distribution losses
+# and can be consumed, stored or transmitted or spilled (hence the <=).
+subject to Conservation_Of_Energy_NonDistributed {a in LOAD_AREAS, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY}:
+  ConsumeNonDistributedPower[a,h,fc] * (1 + distribution_losses)
+  <= 
+  (
+	# power redirected from distributed sources to the larger grid
+    RedirectDistributedPower[a,h,fc]
+	# power produced from new non-distributed projects  
+	+ (sum { (pid, a, t) in PROJECTS: rps_fuel_category[fuel[t]] = fc and t not in SOLAR_DIST_PV_TECHNOLOGIES}
+      ( if not intermittent[t] then ProducePowerNonIntermittent[pid, a, t, h]
+		else
+      (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr])
+        * cap_factor[pid, a, t, h] * ( 1 - forced_outage_rate[t] ) ) 
+    )
+	# power from new non pumped hydro storage
+	+ ( sum {(pid, a, t) in PROJ_STORAGE} ( ReleaseEnergy[pid, a, t, h, fc] - StoreEnergy[pid, a, t, h, fc] ) )
+	# power produced from exiting plants
+	+ ( sum { (a,e,h) in EP_AVAILABLE_HOURS: rps_fuel_category[ep_fuel[a, e]] = fc and ep_technology[a,e] not in SOLAR_DIST_PV_TECHNOLOGIES} ProducePowerEP[a, e, h] )
+	# power from hydro plants
+	+ ( sum { (a, pid) in PROJ_NONPUMPED_HYDRO: rps_fuel_category[fuel_hydro] = fc} Dispatch_NonPumped_Hydro[a, pid, h] )
+	+ ( sum { (a, pid) in PROJ_PUMPED_HYDRO: rps_fuel_category[fuel_hydro] = fc} Dispatch_Pumped_Hydro_Watershed_Electrons[a, pid, h] )
+ 	+ ( sum {(a, pid) in PROJ_PUMPED_HYDRO} ( Dispatch_Pumped_Hydro_Storage[a, pid, h, fc] - Store_Pumped_Hydro[a, pid, h, fc] ) )
+	# transmission in and out of each load area
+	+ ( sum {(a2, a) in TRANSMISSION_LINES} DispatchTransFromXToY[a2, a, h, fc] * transmission_efficiency[a2, a] )
+	- ( sum {(a, a1) in TRANSMISSION_LINES} DispatchTransFromXToY[a, a1, h, fc] )
+  	);
+
+# distributed power production doesn't experience distribution losses
+# and must be either consumed immediately on site
+# or added to the transmission-level power mix of a load area, incurring distribution losses going out of the distribution network
+subject to Conservation_Of_Energy_Distributed {a in LOAD_AREAS, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY}:
+  ConsumeDistributedPower[a,h,fc] + RedirectDistributedPower[a,h,fc] * (1 + distribution_losses)
+  <= 
+	(sum {(pid, a, t) in PROJ_INTERMITTENT: t in SOLAR_DIST_PV_TECHNOLOGIES and rps_fuel_category[fuel[t]] = fc}
+          (1-forced_outage_rate[t]) * cap_factor[pid, a, t, h] *
+          (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]))
+	+ (sum {(a, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: ep_technology[a,e] in SOLAR_DIST_PV_TECHNOLOGIES and rps_fuel_category[ep_fuel[a, e]] = fc}
+   	      OperateEPDuringPeriod[a, e, period[h]] * 
+          (1-ep_forced_outage_rate[a, e]) * eip_cap_factor[a, e, h] * ep_size_mw[a, e] ) 
+  ;
 
 
 ################################################################################
 # same on a reserve basis
 # note: these are not derated by forced outage rate, because that is incorporated in the reserve margin
 subject to Satisfy_Load_Reserve {a in LOAD_AREAS, h in TIMEPOINTS}:
+	( ConsumeNonDistributedPower_Reserve[a,h] + ConsumeDistributedPower_Reserve[a,h] )
+	=
+	( 1 + planning_reserve_margin ) * system_load[a, h]
+	;
 
-	#############################
+
+subject to Conservation_Of_Energy_NonDistributed_Reserve {a in LOAD_AREAS, h in TIMEPOINTS}:
+  ( ConsumeNonDistributedPower_Reserve[a,h] * (1 + distribution_losses) )
+  <= 
+  (
+  # power redirected from distributed sources to the larger grid
+    RedirectDistributedPower_Reserve[a,h]
 	#    NEW PLANTS
   # new dispatchable capacity (no need to decide how to dispatch it; we just need to know it's available)
-	( sum {(pid, a, t, p, h) in PROJ_DISPATCH_VINTAGE_HOURS: not storage[t]}
+	+ ( sum {(pid, a, t, p, h) in PROJ_DISPATCH_VINTAGE_HOURS: not storage[t]}
 		InstallGen[pid, a, t, p] )
   # output from new intermittent projects. 
-	+ ( sum {(pid, a, t, p, h) in PROJ_INTERMITTENT_VINTAGE_HOURS} 
+	+ ( sum {(pid, a, t, p, h) in PROJ_INTERMITTENT_VINTAGE_HOURS: t not in SOLAR_DIST_PV_TECHNOLOGIES} 
 		InstallGen[pid, a, t, p] * cap_factor[pid, a, t, h] )
   # new baseload plants
 	+ ( sum {(pid, a, t, p, h) in NEW_BASELOAD_VINTAGE_HOURS} 
 		InstallGen[pid, a, t, p] * ( 1 - scheduled_outage_rate[t] ) )
   # new storage projects
-	+ sum {(pid, a, t) in PROJ_STORAGE} (
-		ReleaseEnergyReserve[pid, a, t, h] - StoreEnergyReserve[pid, a, t, h] )
+	+ ( sum {(pid, a, t) in PROJ_STORAGE} (
+		ReleaseEnergy_Reserve[pid, a, t, h] - StoreEnergy_Reserve[pid, a, t, h] ) )
 	#############################
 	#    EXISTING PLANTS
   # existing dispatchable capacity
 	+ ( sum {(a, e, h) in EP_DISPATCH_HOURS}
 		OperateEPDuringPeriod[a, e, period[h]] * ep_size_mw[a, e] )
   # existing intermittent plants
-	+ ( sum {(a, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS} 
+	+ ( sum {(a, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: ep_technology[a,e] not in SOLAR_DIST_PV_TECHNOLOGIES} 
 		OperateEPDuringPeriod[a, e, period[h]] * ep_size_mw[a, e] * eip_cap_factor[a, e, h] )
   # existing baseload plants
 	+ ( sum {(a, e, p) in EP_BASELOAD_PERIODS: p=period[h]} 
 		OperateEPDuringPeriod[a, e, p] * ep_size_mw[a, e] * ( 1 - ep_scheduled_outage_rate[a, e] ) )
-
 	#	HYDRO
   # non pumped hydro dispatch
 	+ ( sum {(a, pid) in PROJ_NONPUMPED_HYDRO}
@@ -1139,54 +1152,63 @@ subject to Satisfy_Load_Reserve {a in LOAD_AREAS, h in TIMEPOINTS}:
 	+ ( sum {(a, pid) in PROJ_PUMPED_HYDRO}
 		Dispatch_Pumped_Hydro_Watershed_Electrons_Reserve[a, pid, h] )
   # pumped hydro storage and dispatch
-	+ sum {(a, pid) in PROJ_PUMPED_HYDRO} (
-		Dispatch_Pumped_Hydro_Storage_Reserve[a, pid, h] - Store_Pumped_Hydro_Reserve[a, pid, h] )
-
+	+ ( sum {(a, pid) in PROJ_PUMPED_HYDRO} (
+		Dispatch_Pumped_Hydro_Storage_Reserve[a, pid, h] - Store_Pumped_Hydro_Reserve[a, pid, h] ) )
 	########################################
 	#    TRANSMISSION
   # Imports (have experienced transmission losses)
 	+ ( sum {(a2, a) in TRANSMISSION_LINES}
-		transmission_efficiency[a2, a] * DispatchTransFromXToY_Reserve[a2, a, h] )
+		DispatchTransFromXToY_Reserve[a2, a, h] * transmission_efficiency[a2, a])
   # Exports (have not experienced transmission losses)
 	- ( sum {(a, a1) in TRANSMISSION_LINES}
 		DispatchTransFromXToY_Reserve[a, a1, h] )
-
-  >= ( 1 + planning_reserve_margin ) * 
-	 (
-	   system_load[a, h] + 
-	   distribution_losses * (
-		 system_load[a, h]
-		 - (sum {(pid, a, t) in PROJ_INTERMITTENT: t in SOLAR_DIST_PV_TECHNOLOGIES}
-		   cap_factor[pid, a, t, h] * (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]))
-		 - (sum {(a, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: ep_technology[a,e] in SOLAR_DIST_PV_TECHNOLOGIES }
-		   OperateEPDuringPeriod[a, e, period[h]] * eip_cap_factor[a, e, h] * ep_size_mw[a, e] ) 
-		)
-	  );
+	);
 
 
-#################################################
-# RPS constraint
-# windsun.run will drop this constraint if enable_rps is 0 (its default value)
-subject to Satisfy_RPS {a in LOAD_AREAS, p in PERIODS: 
-	rps_compliance_fraction_in_period[a, p] > 0 }:
-    (sum { h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY: 
-           period[h] = p and fuel_qualifies_for_rps[a, fc] } 
-      ConsumePower[a,h,fc] * hours_in_sample[h] )
-  / (sum {h in TIMEPOINTS: period[h]=p} 
-      system_load[a, h] * hours_in_sample[h])
-     
-   >= rps_compliance_fraction_in_period[a, p];
+subject to Conservation_Of_Energy_Distributed_Reserve {a in LOAD_AREAS, h in TIMEPOINTS}:
+  ConsumeDistributedPower_Reserve[a,h] + RedirectDistributedPower_Reserve[a,h] * (1 + distribution_losses)
+  <= 
+	( sum {(pid, a, t) in PROJ_INTERMITTENT: t in SOLAR_DIST_PV_TECHNOLOGIES}
+          cap_factor[pid, a, t, h] *
+          ( sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr] ) )
+	+ ( sum {(a, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: ep_technology[a,e] in SOLAR_DIST_PV_TECHNOLOGIES}
+   	      OperateEPDuringPeriod[a, e, period[h]] * eip_cap_factor[a, e, h] * ep_size_mw[a, e] ) 
+  ;
+
 
 ################################################################################
-# Operational Constraints
+# GENERATOR OPERATIONAL CONSTRAINTS
 
 # system can only dispatch as much of each project as is EXPECTED to be available
 # i.e., we only dispatch up to 1-forced_outage_rate, so the system will work on an expected-value basis
 # (this is the base portfolio, more backup generators will be added later to get a lower year-round risk level)
-subject to Maximum_DispatchGen 
-  {(pid, a, t) in PROJ_DISPATCH, h in TIMEPOINTS: not storage[t]}:
-  DispatchGen[pid, a, t, h] <= (1-forced_outage_rate[t]) * (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]);
+subject to Power_From_Dispatchable_Plants 
+	{(pid, a, t) in PROJ_DISPATCH, h in TIMEPOINTS: not storage[t]}:
+	ProducePowerNonIntermittent[pid, a, t, h] <= (1-forced_outage_rate[t]) * (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]);
 
+#subject to Power_From_Intermittent_Plants { (pid, a, t) in PROJECTS, h in TIMEPOINTS: intermittent[t] }: 
+#	ProducePower[pid, a, t, h] =
+#	(sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr])
+#	* cap_factor[pid, a, t, h] * ( 1 - forced_outage_rate[t] );
+
+subject to Power_From_Baseload_Plants { (pid, a, t) in PROJECTS, h in TIMEPOINTS: new_baseload[t] }: 
+    ProducePowerNonIntermittent[pid, a, t, h] = 
+    (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr])
+    * ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] );
+
+# existing dispatchable plants can only be used if they are operational this period
+subject to EP_Power_From_Dispatchable_Plants { (a,e,h) in EP_AVAILABLE_HOURS: ep_dispatchable[a,e] }:
+	ProducePowerEP[a, e, h] <= 
+		OperateEPDuringPeriod[a, e, period[h]] * (1-ep_forced_outage_rate[a, e]) * ep_size_mw[a, e];
+
+subject to EP_Power_From_Intermittent_Plants { (a,e,h) in EP_AVAILABLE_HOURS: ep_intermittent[a,e] }: 
+	ProducePowerEP[a, e, h] = OperateEPDuringPeriod[a, e, period[h]] * ep_size_mw[a, e] * eip_cap_factor[a, e, h] * ( 1 - ep_forced_outage_rate[a, e] );
+
+subject to EP_Power_From_Baseload_Plants { (a,e,h) in EP_AVAILABLE_HOURS: ep_baseload[a,e] }: 
+    ProducePowerEP[a, e, h] = OperateEPDuringPeriod[a, e, period[h]] * ep_size_mw[a, e] * ( 1 - ep_forced_outage_rate[a, e] ) * ( 1 - ep_scheduled_outage_rate[a, e] );
+
+########################################
+# GENERATOR INSTALLATION CONSTRAINTS           
 # there are limits on total installations in certain projects
 # TODO: adjust this to allow re-installing at the same site after retiring an earlier plant
 # or even allow forced retiring of earlier plants if new technologies are better
@@ -1209,16 +1231,15 @@ subject to Minimum_GenSize
 
 # This binds BuildGenOrNot to InstallGen. The number below (1e6) is somewhat arbitrary. 
 # I picked a number that would be far above the largest generator that would possibly be built
-# If a generator is installed, then BuildGenOrNot is 1, and InstallGen has to be <= 0
-# If a generator is NOT installed, then BuildGenOrNot is 0, and InstallGen can be between 0 & 1e6 - basically no upper limit
+# If a generator is installed, then BuildGenOrNot is 1, and InstallGen can be between 0 & 1e6 - basically no upper limit
+# If a generator is NOT installed, then BuildGenOrNot is 0, and InstallGen has to be <= 0
 subject to BuildGenOrNot_Constraint 
   {(pid, a, t, p) in PROJ_MIN_BUILD_VINTAGES}:
   InstallGen[pid, a, t, p] <= 1000000 * BuildGenOrNot[pid, a, t, p];
 
-# existing dispatchable plants can only be used if they are operational this period
-subject to EP_Maximum_DispatchGen
-  {(a, e, h) in EP_DISPATCH_HOURS}: DispatchEP[a, e, h] <= 
-      OperateEPDuringPeriod[a, e, period[h]] * (1-ep_forced_outage_rate[a, e]) * ep_size_mw[a, e];
+
+########################################
+# TRANSMISSION AND LOCAL T&D CONSTRAINTS
 
 # system can only use as much transmission as is expected to be available
 # note: transmission up and down the line both enter positively,
@@ -1238,10 +1259,9 @@ subject to Maximum_DispatchTransFromXToY_Reserve
   DispatchTransFromXToY_Reserve[a1, a2, h]
     <= (existing_transfer_capacity_mw[a1, a2] + sum {(a1, a2, p, h) in TRANS_VINTAGE_HOURS} InstallTrans[a1, a2, p]);
 
-# Simple fix to problem of asymetrical transmission build-out
+# Simple fix to the problem of asymetrical transmission build-out
 subject to SymetricalTrans
-  {(a1, a2) in TRANSMISSION_LINES, p in PERIODS}: InstallTrans[a1, a2, p] == InstallTrans[a2, a1, p];
-
+  {(a1, a2) in TRANSMISSION_LINES, p in PERIODS}: InstallTrans[a1, a2, p] = InstallTrans[a2, a1, p];
 
 # make sure there's enough intra-zone transmission and distribution capacity
 # to handle the net distributed loads
@@ -1251,23 +1271,21 @@ subject to SymetricalTrans
 # TODO: find better data on how much Local T&D is needed above peak load
 subject to Minimum_LocalTD 
   {a in LOAD_AREAS, h in TIMEPOINTS}:
-  system_load[a, h] * ( 1 + planning_reserve_margin ) - existing_local_td[a]
-    # New distributed PV
-    - (sum {(pid, a, t) in PROJ_INTERMITTENT: t in SOLAR_DIST_PV_TECHNOLOGIES}
-        (1-forced_outage_rate[t]) * cap_factor[pid, a, t, h] * (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]))
-    # Existing distributed PV
-    - (sum {(a, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: ep_technology[a,e] in SOLAR_DIST_PV_TECHNOLOGIES }
-    	OperateEPDuringPeriod[a, e, period[h]] * 
-        (1-ep_forced_outage_rate[a, e]) * eip_cap_factor[a, e, h] * ep_size_mw[a, e] )
-  <= sum {(a, p, h) in LOCAL_TD_HOURS} InstallLocalTD[a, p];
+  ( system_load[a, h]
+  	- sum { fc in RPS_FUEL_CATEGORY } ConsumeDistributedPower[a,h,fc]
+  	+ sum { fc in RPS_FUEL_CATEGORY } RedirectDistributedPower[a,h,fc] )
+  * ( 1 + planning_reserve_margin )
+	<= existing_local_td[a] + sum {(a, p, h) in LOCAL_TD_HOURS} InstallLocalTD[a, p];
 
 #################################
 # Installable (non pumped hydro) Storage constraints - currently only Compressed Air Energy Storage (CAES)
 
-# Energy output from CAES plants is apportioned into two separate decision variables: DispatchGen for the power attributable to NG combustion and ReleaseEnergy for the power attributable to stored energy. The ratio of NG:Stored is fixed at plant design and this constraint enforces that relationship. 
+# Energy output from CAES plants is apportioned into two separate decision variables:
+# ProducePowerNonIntermittent for the power attributable to NG combustion and ReleaseEnergy for the power attributable to stored energy.
+# The ratio of NG:Stored is fixed at plant design and this constraint enforces that relationship. 
 subject to CAES_Combined_Dispatch {(pid, a, t) in PROJ_STORAGE, h in TIMEPOINTS}:
   	(sum {fc in RPS_FUEL_CATEGORY} ReleaseEnergy[pid, a, t, h, fc] ) = 
-  	  DispatchGen[pid, a, t, h] * caes_ng_to_storage_ratio;
+  	  ProducePowerNonIntermittent[pid, a, t, h] * caes_ng_to_storage_ratio;
  
 # Maximum store rate for caes, derated for occasional forced outages
 # StoreEnergy represents the load on the grid from storing electrons
@@ -1277,7 +1295,7 @@ subject to Maximum_Store_CAES {(pid, a, t) in PROJ_STORAGE, h in TIMEPOINTS}:
 
 # Maximum dispatch rate for caes, derated for occasional forced outages
 subject to Maximum_Dispatch_CAES {(pid, a, t) in PROJ_STORAGE, h in TIMEPOINTS}:
-  	(sum {fc in RPS_FUEL_CATEGORY} ReleaseEnergy[pid, a, t, h, fc] ) + (if dispatchable[t] then DispatchGen[pid, a, t, h] else (if intermittent[t] then (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]) * cap_factor[pid, a, t, h] * ( 1 - forced_outage_rate[t] ) else (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]) * ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] ) ) )
+  	(sum {fc in RPS_FUEL_CATEGORY} ReleaseEnergy[pid, a, t, h, fc] ) + ProducePowerNonIntermittent[pid, a, t, h]
   		<= (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]) * ( 1 - forced_outage_rate[t] );
 
   # Energy balance
@@ -1286,45 +1304,23 @@ subject to Maximum_Dispatch_CAES {(pid, a, t) in PROJ_STORAGE, h in TIMEPOINTS}:
   # For hybrid technologies like compressed-air energy storage (CAES), the round-trip efficiency will be higher than 1
   # because natural gas is added to run the turbine. For CAES, this parameter is therefore only a "partial energy balance,"
   # i.e. only one form of energy -- electricity -- is included in the balancing.
-  # The energy balance for CAES should really be expressed as: sum(electricity in) + sum(natural gas in) = sum(electricity out) * k,
-  # where k is the total round-trip efficiency for the CAES storage process.
-
+  # The input of natural gas is handeled in CAES_Combined_Dispatch above
+  
   # ReleaseEnergy and StoreEnergy are derated for forced outages in Maximum_Dispatch_CAES and Maximum_Store_CAES respectivly
 subject to Storage_Projects_Energy_Balance {(pid, a, t) in PROJ_STORAGE, d in DATES, fc in RPS_FUEL_CATEGORY}:
   	sum {h in TIMEPOINTS: date[h]=d} ReleaseEnergy[pid, a, t, h, fc]
-  		= sum {h in TIMEPOINTS: date[h]=d} StoreEnergy[pid, a, t, h, fc] * storage_efficiency_caes;
+  		<= sum {h in TIMEPOINTS: date[h]=d} StoreEnergy[pid, a, t, h, fc] * storage_efficiency_caes;
 
 # RESERVE - the same as above on a reserve margin basis
 subject to Maximum_Store_CAES_Reserve {(pid, a, t) in PROJ_STORAGE, h in TIMEPOINTS}:
-  	StoreEnergyReserve[pid, a, t, h]
+  	StoreEnergy_Reserve[pid, a, t, h]
   		<= (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]) * max_store_rate_caes;
 subject to Maximum_Dispatch_CAES_Reserve {(pid, a, t) in PROJ_STORAGE, h in TIMEPOINTS}:
-  	ReleaseEnergyReserve[pid, a, t, h]
+  	ReleaseEnergy_Reserve[pid, a, t, h]
   		<= (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]);
 subject to Storage_Projects_Energy_Balance_Reserve {(pid, a, t) in PROJ_STORAGE, d in DATES}:
-  	sum {h in TIMEPOINTS: date[h]=d} ReleaseEnergyReserve[pid, a, t, h]
-  		= sum {h in TIMEPOINTS: date[h]=d} StoreEnergyReserve[pid, a, t, h] * round_trip_efficiency_caes;
-
-
-#################################################
-# Constraint: Min_Gen_Fraction_From_Solar
-# The sum of system-wide power output by new and existing solar plants in the last investment period 
-# (weighted by hours in each timepoint) must be greater than or equal to the policy target 
-# (expressed as a fraction of system load)
-#
-# Note, by default windsun.run will drop this constraint. Set enable_min_solar_production to 1 to enable this constraint.
-subject to Min_Gen_Fraction_From_Solar:
-    # New solar plants power output in the last periods
-	(sum {(pid, a, t) in PROJ_INTERMITTENT, h in TIMEPOINTS: 
-	      t in SOLAR_TECHNOLOGIES and period[h] = last( PERIODS ) } 
-        ( 1 - forced_outage_rate[t] ) * cap_factor[pid, a, t, h] * (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]) * hours_in_sample[h]) 
-    # Existing solar plants power output in the last periods
-    + (sum {(a, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: 
-        ep_technology[a,e] in SOLAR_TECHNOLOGIES and period[h] = last( PERIODS ) }
-    	OperateEPDuringPeriod[a, e, period[h]] * 
-        ( 1 - ep_forced_outage_rate[a,e] ) * eip_cap_factor[a, e, h]  * ep_size_mw[a, e] * hours_in_sample[h] )
-    # The policy target expressed as a fraction of total load in the last period
-    >=  min_solar_production * total_loads_by_period_weighted[ last( PERIODS ) ];
+  	sum {h in TIMEPOINTS: date[h]=d} ReleaseEnergy_Reserve[pid, a, t, h]
+  		<= sum {h in TIMEPOINTS: date[h]=d} StoreEnergy_Reserve[pid, a, t, h] * round_trip_efficiency_caes;
 
 
 ################################################################################
@@ -1348,7 +1344,7 @@ subject to Minimum_Dispatch_NonPumped_Hydro {(a, pid) in PROJ_NONPUMPED_HYDRO, h
 
 # for every day, the historical monthly average flow must be met
 subject to Average_NonPumped_Hydro_Output {(a, pid) in PROJ_NONPUMPED_HYDRO, d in DATES}:
-  sum {h in TIMEPOINTS: date[h]=d} Dispatch_NonPumped_Hydro[a, pid, h] = 
+  sum {h in TIMEPOINTS: date[h]=d} Dispatch_NonPumped_Hydro[a, pid, h] <= 
 # The sum below is equivalent to the daily hydro flow, but only over the study hours considered in each day
   sum {h in TIMEPOINTS: date[h]=d} avg_hydro_output[a, pid, d];
 
@@ -1360,7 +1356,7 @@ subject to Maximum_Dispatch_NonPumped_Hydro_Reserve {(a, pid) in PROJ_NONPUMPED_
 subject to Minimum_Dispatch_NonPumped_Hydro_Reserve {(a, pid) in PROJ_NONPUMPED_HYDRO, h in TIMEPOINTS}:
   Dispatch_NonPumped_Hydro_Reserve[a, pid, h] >= avg_hydro_output[a, pid, date[h]] * min_nonpumped_hydro_dispatch_fraction;
 subject to Average_NonPumped_Hydro_Output_Reserve {(a, pid) in PROJ_NONPUMPED_HYDRO, d in DATES}:
-  sum {h in TIMEPOINTS: date[h]=d} Dispatch_NonPumped_Hydro_Reserve[a, pid, h] = 
+  sum {h in TIMEPOINTS: date[h]=d} Dispatch_NonPumped_Hydro_Reserve[a, pid, h] <= 
   sum {h in TIMEPOINTS: date[h]=d} avg_hydro_output[a, pid, d];
 
 
@@ -1402,7 +1398,7 @@ subject to Maximum_Store_Pumped_Hydro {(a, pid) in PROJ_PUMPED_HYDRO, h in TIMEP
 # there is no accompanying minimum output from streamflow constraint (similar to Minimum_Dispatch_NonPumped_Hydro above)
 # because water can be released from the lower reservoir at will into the stream
 subject to Average_Pumped_Hydro_Watershed_Output {(a, pid) in PROJ_PUMPED_HYDRO, d in DATES}:
-  sum {h in TIMEPOINTS: date[h]=d} Dispatch_Pumped_Hydro_Watershed_Electrons[a, pid, h] = 
+  sum {h in TIMEPOINTS: date[h]=d} Dispatch_Pumped_Hydro_Watershed_Electrons[a, pid, h] <= 
 # The sum below is equivalent to the daily hydro flow, but only over the study hours considered in each day
   sum {h in TIMEPOINTS: date[h]=d} avg_hydro_output[a, pid, d];
 
@@ -1410,12 +1406,14 @@ subject to Average_Pumped_Hydro_Watershed_Output {(a, pid) in PROJ_PUMPED_HYDRO,
 # Pumped hydro has to dispatch all electrons it stored each day for each fuel type such that 
 # over the course of a day pumped hydro projects release the necessary amount of water downstream
 subject to Conservation_Of_Stored_Pumped_Hydro_Electrons {(a, pid) in PROJ_PUMPED_HYDRO, d in DATES, fc in RPS_FUEL_CATEGORY}:
-	sum {h in TIMEPOINTS: date[h]=d} Dispatch_Pumped_Hydro_Storage[a, pid, h, fc] = 
+	sum {h in TIMEPOINTS: date[h]=d} Dispatch_Pumped_Hydro_Storage[a, pid, h, fc] <= 
 	sum {h in TIMEPOINTS: date[h]=d} Store_Pumped_Hydro[a, pid, h, fc] * pumped_hydro_efficiency;
 
 
 # Pumped Hydro Reserve
-# This is basically an independent operational plan for hydro that can ensure average flow rates while maintain a reserve margin. This contigency plan is overkill for short-lived events (hours) that require tapping into the reserve margin. This contigency plan is needed for long-lasting events (days or weeks) that require maintenance of average stream flow.
+# This is an independent operational plan for hydro that can ensure average flow rates while maintain a reserve margin.
+# This contigency plan is overkill for short-lived events (hours) that require tapping into the reserve margin.
+# This contigency plan is needed for long-lasting events (days or weeks) that require maintenance of average stream flow.
 
 # as the reserve margin doesn't have an RPS flavor, these constraints don't include the fuel type
 
@@ -1424,11 +1422,11 @@ subject to Maximum_Dispatch_Pumped_Hydro_Reserve {(a, pid) in PROJ_PUMPED_HYDRO,
 	Dispatch_Pumped_Hydro_Watershed_Electrons_Reserve[a, pid, h] + Dispatch_Pumped_Hydro_Storage_Reserve[a, pid, h]
     <= hydro_capacity_mw[a, pid, date[h]];
 subject to Average_Pumped_Hydro_Watershed_Output_Reserve {(a, pid) in PROJ_PUMPED_HYDRO, d in DATES}:
-  sum {h in TIMEPOINTS: date[h]=d} Dispatch_Pumped_Hydro_Watershed_Electrons_Reserve[a, pid, h] = 
+  sum {h in TIMEPOINTS: date[h]=d} Dispatch_Pumped_Hydro_Watershed_Electrons_Reserve[a, pid, h] <= 
   sum {h in TIMEPOINTS: date[h]=d} avg_hydro_output[a, pid, d];
 subject to Conservation_Of_Stored_Pumped_Hydro_Electrons_Reserve {(a, pid) in PROJ_PUMPED_HYDRO, d in DATES}:
-	sum {h in TIMEPOINTS: date[h]=d} Dispatch_Pumped_Hydro_Storage_Reserve[a, pid, h] = 
+	sum {h in TIMEPOINTS: date[h]=d} Dispatch_Pumped_Hydro_Storage_Reserve[a, pid, h] <= 
 	sum {h in TIMEPOINTS: date[h]=d} Store_Pumped_Hydro_Reserve[a, pid, h] * pumped_hydro_efficiency;
 # Can't pump more water uphill than the pump capacity (in MW)
 subject to Maximum_Store_Pumped_Hydro_Reserve {(a, pid) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS}:
-  sum {fc in RPS_FUEL_CATEGORY} Store_Pumped_Hydro_Reserve[a, pid, h] <= hydro_capacity_mw[a, pid, date[h]];
+  Store_Pumped_Hydro_Reserve[a, pid, h] <= hydro_capacity_mw[a, pid, date[h]];

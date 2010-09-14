@@ -3,14 +3,23 @@
 
 reset;
 option solver cplexamp;
-option cplex_options 'lpdisplay=1 iisfind=1 mipdisplay=1 presolve=1 prestats=1';
+
+# find the number of cores on the machine we're running
+	param num_cores > 0;
+	shell("if [ `uname` == 'Darwin' ]; then sysctl hw.ncpu | awk '{print $2}' > num_cores.txt; elif [ `uname` == 'Linux' ]; then cat /proc/cpuinfo | grep processor | wc -l > num_cores.txt; fi");
+	read num_cores < "num_cores.txt";
+	close "num_cores.txt";
+	shell("rm num_cores.txt");
+
+option cplex_options (" lpdisplay=1 iisfind=1 mipdisplay=1 presolve=1 prestats=1 threads=" & num_cores);
+
 # Other options
 # Add 'threads=8' for multi-threaded execution.
 # Adding 'advance=2' might speed up solutions that work from a similar problem's solution
 option presolve 0;
 option presolve_eps 1e-10;
 # Options to enable automatic substitution of variables without making the program non-linear
-#option linelim 1, substout 1;
+# option linelim 1, substout 1;
 
 # parameter used to track execution times and other management stuff.
 param curtime;
@@ -37,34 +46,35 @@ problem Cost_Minimization:
   # Objective function 
 	Power_Cost, 
 
-  # Consumption Decisions (used for RPS)
-	ConsumePower, 
-  # Consumption Constraints
-	Conservation_Of_Energy, Satisfy_Load, 
-
+  # Satisfy Load and Power Consumption
+    Satisfy_Load,
+	Conservation_Of_Energy_NonDistributed, Conservation_Of_Energy_Distributed,
+    ConsumeNonDistributedPower, ConsumeDistributedPower, RedirectDistributedPower,
   # Investment Decisions
 	InstallGen, BuildGenOrNot, InstallTrans, InstallLocalTD, 
   # Installation Constraints
 	Maximum_Resource_Competing_Tech, Maximum_Resource_Location_Unspecified, Minimum_GenSize, BuildGenOrNot_Constraint, SymetricalTrans, Minimum_LocalTD, 
 
   # Dispatch Decisions
-	DispatchGen, OperateEPDuringPeriod, DispatchEP, DispatchTransFromXToY, StoreEnergy, ReleaseEnergy,
+	ProducePowerNonIntermittent, OperateEPDuringPeriod, ProducePowerEP, DispatchTransFromXToY, StoreEnergy, ReleaseEnergy,
 	Dispatch_NonPumped_Hydro, Dispatch_Pumped_Hydro_Watershed_Electrons, Dispatch_Pumped_Hydro_Storage, Store_Pumped_Hydro,
   # Dispatch Constraints
-	Maximum_DispatchGen, EP_Maximum_DispatchGen, Maximum_DispatchTransFromXToY, Maximum_DispatchTransFromXToY_Reserve, 
+	Power_From_Dispatchable_Plants, Power_From_Baseload_Plants,
+	EP_Power_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Baseload_Plants,
+	Maximum_DispatchTransFromXToY, Maximum_DispatchTransFromXToY_Reserve, 
 	Maximum_Dispatch_NonPumped_Hydro, Average_NonPumped_Hydro_Output,        Minimum_Dispatch_NonPumped_Hydro, 
 	Maximum_Dispatch_Pumped_Hydro,    Average_Pumped_Hydro_Watershed_Output,
 	Maximum_Store_Pumped_Hydro, Conservation_Of_Stored_Pumped_Hydro_Electrons,
 	Maximum_Store_CAES, Maximum_Dispatch_CAES, Storage_Projects_Energy_Balance, CAES_Combined_Dispatch, 
 
-  # Derived variables and the constraints that define them
-#	Installed_To_Date, Installed_To_Date_by_Period, 
-
   # Contigency Planning Variables (to ensure that a dispatch plan exists that can meet reserve margins)
-	DispatchTransFromXToY_Reserve, StoreEnergyReserve, ReleaseEnergyReserve, 
+	DispatchTransFromXToY_Reserve, StoreEnergy_Reserve, ReleaseEnergy_Reserve, 
 	Dispatch_NonPumped_Hydro_Reserve, Dispatch_Pumped_Hydro_Watershed_Electrons_Reserve, Dispatch_Pumped_Hydro_Storage_Reserve, Store_Pumped_Hydro_Reserve, 
   # Contigency Planning constraints
 	Satisfy_Load_Reserve, 
+	Conservation_Of_Energy_NonDistributed_Reserve, Conservation_Of_Energy_Distributed_Reserve,
+    ConsumeNonDistributedPower_Reserve, ConsumeDistributedPower_Reserve, RedirectDistributedPower_Reserve,
+  # Dispatch Reserve Constraints
 	Maximum_Dispatch_NonPumped_Hydro_Reserve, Average_NonPumped_Hydro_Output_Reserve,        Minimum_Dispatch_NonPumped_Hydro_Reserve, 
 	Maximum_Dispatch_Pumped_Hydro_Reserve,    Average_Pumped_Hydro_Watershed_Output_Reserve,
 	Maximum_Store_Pumped_Hydro_Reserve, Conservation_Of_Stored_Pumped_Hydro_Electrons_Reserve,
@@ -77,18 +87,23 @@ problem Transmission_Minimization:
 	Transmission_Usage, 
   # Transmission Dispatch Decisions
 	DispatchTransFromXToY, 
-  # Consumption Constraints
-	Conservation_Of_Energy, Satisfy_Load, 
+  # Satisfy Load
+    Satisfy_Load,
+	Conservation_Of_Energy_NonDistributed, Conservation_Of_Energy_Distributed,
   # Installation Constraints
 	Maximum_Resource_Competing_Tech, Maximum_Resource_Location_Unspecified, Minimum_GenSize, BuildGenOrNot_Constraint, SymetricalTrans, Minimum_LocalTD, 
   # Dispatch Constraints
-	Maximum_DispatchGen, EP_Maximum_DispatchGen, Maximum_DispatchTransFromXToY, Maximum_DispatchTransFromXToY_Reserve, 
+	Power_From_Dispatchable_Plants, Power_From_Baseload_Plants,
+	EP_Power_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Baseload_Plants,
+	Maximum_DispatchTransFromXToY, Maximum_DispatchTransFromXToY_Reserve, 
 	Maximum_Dispatch_NonPumped_Hydro, Average_NonPumped_Hydro_Output, Minimum_Dispatch_NonPumped_Hydro, 
 	Maximum_Dispatch_Pumped_Hydro,    Average_Pumped_Hydro_Watershed_Output,
 	Maximum_Store_Pumped_Hydro, Conservation_Of_Stored_Pumped_Hydro_Electrons,
 	Maximum_Store_CAES, Maximum_Dispatch_CAES, Storage_Projects_Energy_Balance, CAES_Combined_Dispatch, 
   # Contigency Planning constraints
 	Satisfy_Load_Reserve, 
+	Conservation_Of_Energy_NonDistributed_Reserve, Conservation_Of_Energy_Distributed_Reserve,
+  # Dispatch Reserve Constraints
 	Maximum_Dispatch_NonPumped_Hydro_Reserve, Average_NonPumped_Hydro_Output_Reserve,        Minimum_Dispatch_NonPumped_Hydro_Reserve, 
 	Maximum_Dispatch_Pumped_Hydro_Reserve,    Average_Pumped_Hydro_Watershed_Output_Reserve, 
 	Maximum_Store_Pumped_Hydro_Reserve,       Conservation_Of_Stored_Pumped_Hydro_Electrons_Reserve,
@@ -221,6 +236,11 @@ param Capital_Payments_by_Plant_and_Period { (pid, a, t) in PROJECTS, p in PERIO
 param EP_Capital_Payments_by_Plant_and_Period { (a, e, p) in EP_PERIODS }; 
 param Fixed_OM_by_Plant_and_Period { (pid, a, t) in PROJECTS, p in PERIODS }; 
 param EP_Fixed_OM_by_Plant_and_Period { (a, e, p) in EP_PERIODS }; 
+param NonPumped_Hydro_Capital_Payments_by_Plant_and_Period { (a, pid) in PROJ_NONPUMPED_HYDRO, p in PERIODS };
+param NonPumped_Hydro_Fixed_OM_by_Plant_and_Period  { (a, pid) in PROJ_NONPUMPED_HYDRO, p in PERIODS };
+param NonPumped_Hydro_Variable_Cost_Incurred_Hourly { (a, pid) in PROJ_NONPUMPED_HYDRO, h in TIMEPOINTS };
+param Pumped_Hydro_Capital_Payments_by_Plant_and_Period { (a, pid) in PROJ_PUMPED_HYDRO, p in PERIODS }; 
+param Pumped_Hydro_Fixed_OM_by_Plant_and_Period { (a, pid) in PROJ_PUMPED_HYDRO, p in PERIODS }; 
 param Carbon_Emissions { (pid, a, t) in PROJECTS, h in TIMEPOINTS }; 
 param EP_Carbon_Emissions { (a, e, h) in EP_AVAILABLE_HOURS }; 
 param Carbon_Cost_Incurred_Hourly { (pid, a, t) in PROJECTS, h in TIMEPOINTS }; 
@@ -241,4 +261,6 @@ param Transmission_Losses_by_Period {p in PERIODS};
 param Distribution_Losses_by_Period {p in PERIODS};
 param Storage_Losses_by_Period {p in PERIODS};
 param system_load_discounted;
+
+
 

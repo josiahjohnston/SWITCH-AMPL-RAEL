@@ -1,9 +1,9 @@
--- makes the switch input database from which data is thrown into ampl via 'get_switch_input_tables.sh'
--- run at command line from the DatabasePrep directory:
--- mysql -h switch-db1.erg.berkeley.edu -u jimmy -p < /Volumes/1TB_RAID/Models/Switch\ Runs/WECCv2_2/122/DatabasePrep/Build\ WECC\ Cap\ Factors.sql
-
-create database if not exists switch_inputs_wecc_v2_2;
-use switch_inputs_wecc_v2_2;
+ -- makes the switch input database from which data is thrown into ampl via 'get_switch_input_tables.sh'
+ -- run at command line from the DatabasePrep directory:
+ -- mysql -h switch-db1.erg.berkeley.edu -u jimmy -p < /Volumes/1TB_RAID/Models/Switch\ Runs/WECCv2_2/122/DatabasePrep/Build\ WECC\ Cap\ Factors.sql
+ 
+ create database if not exists switch_inputs_wecc_v2_2;
+ use switch_inputs_wecc_v2_2;
 
 -- LOAD AREA INFO	
 -- made in postgresql
@@ -189,12 +189,14 @@ source Setup_Study_Hours.sql;
 select 'Copying Trans Lines' as progress;
 drop table if exists transmission_lines;
 create table transmission_lines(
-	transmission_line_id int,
+	transmission_line_id int primary key,
 	load_area_start varchar(11),
 	load_area_end varchar(11),
 	existing_transfer_capacity_mw double,
 	transmission_length_km double,
-	load_areas_border_each_other char(1)
+	load_areas_border_each_other char(1),
+	transmission_efficiency double,
+	INDEX la_start_end (load_area_start, load_area_end)
 );
 
 load data local infile
@@ -203,11 +205,6 @@ load data local infile
 	fields terminated by	','
 	optionally enclosed by '"'
 	ignore 1 lines;
-
--- calculate losses as 1 percent losses per 100 miles or 1 percent per 160.9344 km (reference from ReEDS)
-alter table transmission_lines add column transmission_efficiency float;
-update transmission_lines set transmission_efficiency = 1 - (0.01 / 160.9344 * transmission_length_km);
-
 
 
 -- ---------------------------------------------------------------------
@@ -476,6 +473,29 @@ SELECT      existing_plants.project_id,
 -- imported from postgresql, this table has all pv, csp, wind, geothermal, biomass and compressed air energy storage sites
 -- if this table is remade, the avg cap factors must be reinserted (see below) 
 -- ---------------------------------------------------------------------
+drop table if exists proposed_projects_import;
+create temporary table proposed_projects_import(
+	project_id bigint PRIMARY KEY,
+	technology varchar(30),
+	original_dataset_id integer NOT NULL,
+	load_area varchar(11),
+	capacity_limit float,
+ 	capacity_limit_conversion float,
+	connect_cost_per_mw double,
+	location_id INT,
+	INDEX project_id (project_id),
+	INDEX load_area (load_area),
+	UNIQUE (technology, location_id, load_area)
+);
+	
+load data local infile
+	'proposed_projects.csv'
+	into table proposed_projects_import
+	fields terminated by	','
+	optionally enclosed by '"'
+	ignore 1 lines;	
+
+
 drop table if exists _proposed_projects;
 CREATE TABLE _proposed_projects (
   project_id int unsigned default NULL,
@@ -496,6 +516,8 @@ CREATE TABLE _proposed_projects (
   nonfuel_startup_cost float,
   avg_cap_factor_intermittent float default NULL,
   avg_cap_factor_percentile_by_intermittent_tech float default NULL,
+  cumulative_avg_MW_tech_load_area float default NULL,
+  rank_by_tech_in_load_area int default NULL,
   INDEX project_id (project_id),
   INDEX area_id (area_id),
   INDEX technology_and_location (technology, location_id),
@@ -503,6 +525,8 @@ CREATE TABLE _proposed_projects (
   INDEX location_id (location_id),
   INDEX original_dataset_id (original_dataset_id),
   INDEX original_dataset_id_tech_id (original_dataset_id, technology_id),
+  INDEX avg_cap_factor_percentile_by_intermittent_tech_idx (avg_cap_factor_percentile_by_intermittent_tech),
+  INDEX rank_by_tech_in_load_area_idx (rank_by_tech_in_load_area),
   UNIQUE (technology_id, original_dataset_id, area_id),
   UNIQUE (technology_id, location_id, area_id),
   FOREIGN KEY (area_id) REFERENCES load_area_info(area_id), 
@@ -512,12 +536,13 @@ CREATE TABLE _proposed_projects (
 
 -- the capacity limit is either in MW if the capacity_limit_conversion is 1, or in other units if the capacity_limit_conversion is nonzero
 -- so for CSP and central PV the limit is expressed in land area, not MW
--- The << operation moves the numeric form of the letter "P" (for proposed projects) over by 3 bytes, effectively making its value into the most significant digits.
+-- The << operation moves the numeric form of the letter "G" (for generators) over by 3 bytes, effectively making its value into the most significant digits.
+-- change to 'P' on a complete rebuild of the database to make this more clear
 insert into _proposed_projects
 	(project_id, gen_info_project_id, technology_id, technology, area_id, location_id, original_dataset_id,
 	capacity_limit, capacity_limit_conversion, connect_cost_per_mw, price_and_dollar_year,
 	overnight_cost, fixed_o_m, variable_o_m, overnight_cost_change, nonfuel_startup_cost)
-	select  project_id + (ascii( 'P' ) << 8*3),
+	select  project_id + (ascii( 'G' ) << 8*3),
 	        project_id,
 	        technology_id,
 	        technology,
@@ -534,26 +559,29 @@ insert into _proposed_projects
    			overnight_cost_change,
    			nonfuel_startup_cost * economic_multiplier as nonfuel_startup_cost
 			
-	from generator_info.proposed_projects proposed join generator_info.generator_costs using (technology) join load_area_info using (load_area)
+	from proposed_projects_import join generator_info.generator_costs using (technology) join load_area_info using (load_area)
 	order by 2;
 
--- CSP_Trough_6h_Storage is out for the moment. Solar Advisor Model is acting screwy with CSP when storage is included, regularly yielding power outputs that are in excess of the turbine capacity factors. 
-delete from _proposed_projects WHERE technology = 'CSP_Trough_6h_Storage';
 
+-- UPDATE CSP COSTS - they're done differently!
 -- to go backwards to aperture from mw_per_km2 (capacity_limit_conversion), use this:
 -- ( pow( (sqrt( ( 1000000 * 100 ) / capacity_limit_conversion ) - 15 ), 2 ) - 15625 ) / ( 1.06315118 * 3 )
 -- see proposed_projects.sql in the GIS directory for more info.
 
--- the cost of a solar thermal trough plant as a function of field area with a constant MW is $420/m^2 * (1 + 0.247),
+-- the cost of a solar thermal trough plant as a function of field area, per MW is $420/m^2 * (1 + 0.247),
 -- as the indirect costs are 24.7% of the direct field costs
 -- the costs in the database for CSP Trough are for sample 100MW plants,
 -- with areas of 600000m^2 for CSP_Trough_No_Storage and 800000m^2 for CSP_Trough_6h_Storage,
--- so to calculate the correct cost as a function of field area, 
+-- so first we find the difference between the above assumed area and the calculated area (the third and forth lines),
+-- then divide the difference by 100 to get the per MW cost difference
+-- then multiply by 420 * (1 + 0.247) to find the difference in cost from the reference,
+-- then finally add the reference cost to obtain the total CSP Trough cost
 
--- FIX!!!
--- update _proposed_projects set overnight_cost = 
--- 420 * (1 + 0.247) * ( pow( (sqrt( ( 1000000 * 100 ) / capacity_limit_conversion ) - 15 ), 2 ) - 15625 ) / ( 1.06315118 * 3 )
--- where technology in ('CSP_Trough_No_Storage', 'CSP_Trough_6h_Storage')
+update _proposed_projects set overnight_cost = 
+		overnight_cost + 420 * (1 + 0.247) *
+		( ( ( pow( (sqrt( ( 1000000 * 100 ) / capacity_limit_conversion ) - 15 ), 2 ) - 15625 ) / ( 1.06315118 * 3 )
+		- if( technology = 'CSP_Trough_No_Storage', 600000, 800000 ) ) / 100 ) 
+where technology in ('CSP_Trough_No_Storage', 'CSP_Trough_6h_Storage');
 
 -- Insert "generic" projects that can be built almost anywhere. These used to be in the table  _generator_costs_regional.
 -- Note, project_id is automatically set here because it is an autoincrement column. The renewable proposed_projects with ids set a-priori need to be imported first to avoid unique id conflicts.
@@ -574,10 +602,9 @@ insert into _proposed_projects
     from 	generator_info.generator_costs gen_costs,
 			load_area_info
 	where   gen_costs.can_build_new  = 1 and 
-	        load_area_info.scenario_id  = @load_area_scenario_id and
 	        gen_costs.resource_limited = 0
 	order by 1,3;
-UPDATE _proposed_projects SET project_id = gen_info_project_id + (ascii( 'G' ) << 8*3);
+UPDATE _proposed_projects SET project_id = gen_info_project_id + (ascii( 'G' ) << 8*3) where project_id is null;
 
 -- regional generator restrictions
 -- Coal_ST and Nuclear can't be built in CA. Nuclear can't be built in Mexico.
@@ -608,7 +635,9 @@ CREATE VIEW proposed_projects as
             overnight_cost_change,
             nonfuel_startup_cost,
             avg_cap_factor_intermittent,
-            avg_cap_factor_percentile_by_intermittent_tech
+            avg_cap_factor_percentile_by_intermittent_tech,
+            cumulative_avg_MW_tech_load_area,
+            rank_by_tech_in_load_area
     FROM _proposed_projects 
     join load_area_info using (area_id);
     
@@ -656,7 +685,25 @@ SELECT      proposed_projects.project_id,
     where   technology in ('Wind', 'Offshore_Wind')
     and		proposed_projects.original_dataset_id = 3tier.wind_farm_power_output.wind_farm_id;
 
+-- REMOVE when CSP_Trough_6h_Storage is finished in SAM
+-- these cap factors for some reason don't have the 31st of December, 2004... as long as this isnt sampled,
+-- then it's fine and it will get fixed once we're finished with SAM
+select 'Compiling CSP_Trough_6h_Storage' as progress;
+insert into _cap_factor_intermittent_sites
+SELECT      proposed_projects.project_id,
+            hournum as hour,
+            3tier.csp_power_output.e_net_mw/100 as cap_factor
+    from    proposed_projects, 
+            3tier.csp_power_output,
+            hours
+    where   proposed_projects.technology_id = 7
+    and		proposed_projects.original_dataset_id = 3tier.csp_power_output.siteid
+    and		3tier.csp_power_output.datetime_utc = hours.datetime_utc;
+
+
 -- includes Residential_PV, Commercial_PV, Central_PV, CSP_Trough_No_Storage and CSP_Trough_6h_Storage
+-- CSP_Trough_6h_Storage broken at the moment from the Solar_Advisor_Model... taken care of below
+-- remove the <> 7 to reinsert it, and delete the extra script below
 select 'Compiling Solar' as progress;
 insert into _cap_factor_intermittent_sites
 SELECT      proposed_projects.project_id,
@@ -665,7 +712,8 @@ SELECT      proposed_projects.project_id,
     from    proposed_projects,
             suny.solar_farm_cap_factors
     where   proposed_projects.original_dataset_id = solar_farm_cap_factors.solar_farm_id
-    and		proposed_projects.technology_id = solar_farm_cap_factors.technology_id;
+    and		proposed_projects.technology_id = solar_farm_cap_factors.technology_id
+    and 	proposed_projects.technology_id <> 7;
 
 
 select 'Calculating Average Cap Factors' as progress;
@@ -690,44 +738,17 @@ update	_proposed_projects,
 set	_proposed_projects.avg_cap_factor_intermittent = avg_cap_factor_table.avg_cap_factor
 where _proposed_projects.project_id = avg_cap_factor_table.project_id;
 
--- also add the avg_cap_factor_percentile_by_intermittent_tech values
--- which will be used to subsample the larger range of intermittent tech hourly values
--- can't do this as a temp table due to a mysql bug
-drop table if exists cap_factor_percentile_table;
-create table cap_factor_percentile_table (
-	project_id int unsigned NOT NULL,
-	technology_id tinyint unsigned NOT NULL ,
-	ordering_id int unsigned PRIMARY KEY AUTO_INCREMENT);
-
-insert into cap_factor_percentile_table (project_id, technology_id)
-	select project_id, technology_id from _proposed_projects
-	where avg_cap_factor_intermittent is not null
-	order by technology_id, avg_cap_factor_intermittent;
-
-update	_proposed_projects,
-		cap_factor_percentile_table,
-		(select technology_id,
-				count(*) as num_proj_per_tech,
-				min(ordering_id) as min_ordering_id
-			from cap_factor_percentile_table
-			group by technology_id
-		) as proj_tech_table
-set	_proposed_projects.avg_cap_factor_percentile_by_intermittent_tech = 100 * ( ordering_id - min_ordering_id ) / ( num_proj_per_tech - 1 )
-where 	_proposed_projects.project_id = cap_factor_percentile_table.project_id
-and		_proposed_projects.technology_id = proj_tech_table.technology_id;
-
-drop table cap_factor_percentile_table;
-
+-- ----------------------------
 select 'Checking Cap Factors' as progress;
 -- first, output the number of points with incomplete hours
 -- as many of the sites are missing the first few hours of output due to the change from local to utc time,
 -- we'll consider a site complete if it has cap factors for all hours from 2004-2005,
--- so ( 366 days in 2004 + 365 days in 2005 - 1 day ) * 24 hours per day = 17520
+-- so ( 366 days in 2004 + 365 days in 2005 - 1 day ) * 24 hours per day is about 17500
 select 	proposed_projects.*,
 		number_of_cap_factor_hours
 	from 	avg_cap_factor_table,
 			proposed_projects
-	where number_of_cap_factor_hours < 17520
+	where number_of_cap_factor_hours < 17500
 	and	avg_cap_factor_table.project_id = proposed_projects.project_id
 	order by project_id;
 		
@@ -737,21 +758,164 @@ select 	proposed_projects.*
 			generator_info
 	where	proposed_projects.technology_id = generator_info.technology_id
 	and		generator_info.intermittent = 1
-	and		project_id not in (select project_id from avg_cap_factor_table where number_of_cap_factor_hours >= 17520)
+	and		project_id not in (select project_id from avg_cap_factor_table where number_of_cap_factor_hours >= 17500)
 	order by project_id, generator_info.technology;
 	
 -- delete the projects that don't have cap factors
 -- for the WECC, if nothing is messed up, this means Central_PV on the eastern border of Colorado that contains
 -- a few grid points didn't get simulated because they were too far east... only 16 total solar farms out of thousands
--- drop table if exists project_ids_to_delete;
--- create temporary table project_ids_to_delete as 
--- 	select 	_proposed_projects.project_id
--- 		from 	_proposed_projects,
--- 				generator_info
--- 		where	_proposed_projects.technology_id = generator_info.technology_id
--- 		and		generator_info.intermittent = 1
--- 		and		project_id not in (select project_id from number_of_cap_factor_hours_table where number_of_cap_factor_hours >= 17520)
--- 		order by project_id, generator_info.technology;
--- 		
--- delete from _proposed_projects where project_id in (select project_id from project_ids_to_delete);
--- 
+drop table if exists project_ids_to_delete;
+create temporary table project_ids_to_delete as 
+ 	select 	_proposed_projects.project_id
+ 		from 	_proposed_projects join generator_info using (technology_id)
+ 		where	generator_info.intermittent = 1
+ 		and		project_id not in (select project_id from avg_cap_factor_table where number_of_cap_factor_hours >= 17500)
+ 		order by project_id, generator_info.technology;
+ 		
+ delete from _proposed_projects where project_id in (select project_id from project_ids_to_delete);
+
+-- --------------------
+select 'Calculating Intermittent Resource Quality Ranks' as progress;
+DROP PROCEDURE IF EXISTS determine_intermittent_cap_factor_rank;
+delimiter $$
+CREATE PROCEDURE determine_intermittent_cap_factor_rank()
+BEGIN
+
+declare current_ordering_id int;
+declare rank_total float;
+
+-- RANK BY TECH--------------------------
+-- add the avg_cap_factor_percentile_by_intermittent_tech values
+-- which will be used to subsample the larger range of intermittent tech hourly values
+drop table if exists rank_table;
+create table rank_table (
+	ordering_id int unsigned PRIMARY KEY AUTO_INCREMENT,
+	project_id int unsigned NOT NULL,
+	technology_id tinyint unsigned NOT NULL,
+	avg_MW double,
+	INDEX ord_tech (ordering_id, technology_id),
+	INDEX tech (technology_id),
+	INDEX ord_proj (ordering_id, project_id)
+	);
+
+insert into rank_table (project_id, technology_id, avg_MW)
+	select project_id, technology_id, capacity_limit * capacity_limit_conversion * avg_cap_factor_intermittent as avg_MW from _proposed_projects
+	where avg_cap_factor_intermittent is not null
+	order by technology_id, avg_cap_factor_intermittent;
+
+set current_ordering_id = (select min(ordering_id) from rank_table);
+
+rank_loop_total: LOOP
+
+	-- find the rank by technology class such that all resources above a certain class can be included
+	set rank_total = 
+		(select 	sum(avg_MW)/total_tech_avg_mw
+			from 	rank_table,
+					(select sum(avg_MW) as total_tech_avg_mw
+						from rank_table
+						where technology_id = (select technology_id from rank_table where ordering_id = current_ordering_id)
+					) as total_tech_capacity_table
+			where ordering_id <= current_ordering_id
+			and technology_id = (select technology_id from rank_table where ordering_id = current_ordering_id)
+		);
+			
+	update _proposed_projects, rank_table
+	set avg_cap_factor_percentile_by_intermittent_tech = rank_total
+	where rank_table.project_id = _proposed_projects.project_id
+	and rank_table.ordering_id = current_ordering_id;
+	
+	set current_ordering_id = current_ordering_id + 1;        
+	
+IF current_ordering_id > (select max(ordering_id) from rank_table)
+	THEN LEAVE rank_loop_total;
+    	END IF;
+END LOOP rank_loop_total;
+
+drop table rank_table;
+
+END;
+$$
+delimiter ;
+
+CALL determine_intermittent_cap_factor_rank;
+DROP PROCEDURE IF EXISTS determine_intermittent_cap_factor_rank;
+
+
+-- CUMULATIVE AVERAGE MW AND RANK IN EACH LOAD AREA BY TECH-------------------------
+-- find the amount of average MW of each technology in each load area at or above the level of each project
+-- also get the rank in each load area for each tech 
+DROP PROCEDURE IF EXISTS cumulative_intermittent_cap_factor_rank;
+delimiter $$
+CREATE PROCEDURE cumulative_intermittent_cap_factor_rank()
+BEGIN
+
+declare current_ordering_id int;
+declare cumulative_avg_MW float;
+declare rank_load_area float;
+
+drop table if exists cumulative_gen_load_area_table;
+create table cumulative_gen_load_area_table (
+	ordering_id int unsigned PRIMARY KEY AUTO_INCREMENT,
+	project_id int unsigned NOT NULL,
+	technology_id tinyint unsigned NOT NULL,
+	area_id smallint unsigned NOT NULL,
+  	avg_MW double,
+	INDEX ord_tech (ordering_id, technology_id),
+	INDEX tech (technology_id),
+	INDEX ord_proj (ordering_id, project_id),
+	INDEX area_id (area_id),
+	INDEX ord_tech_area (ordering_id, technology_id, area_id),
+	INDEX ord_proj_area (ordering_id, project_id, area_id)
+	);
+
+insert into cumulative_gen_load_area_table (project_id, technology_id, area_id, avg_MW)
+	select 	project_id, technology_id, area_id,
+			capacity_limit * capacity_limit_conversion * avg_cap_factor_intermittent as avg_MW
+		from _proposed_projects
+		where avg_cap_factor_intermittent is not null
+		order by technology_id, area_id, avg_cap_factor_intermittent;
+
+
+set current_ordering_id = (select min(ordering_id) from cumulative_gen_load_area_table);
+
+cumulative_capacity_loop: LOOP
+
+	set cumulative_avg_MW = 
+		(select 	sum(avg_MW) 
+			from 	cumulative_gen_load_area_table
+			where ordering_id >= current_ordering_id
+			and technology_id = (select technology_id from cumulative_gen_load_area_table where ordering_id = current_ordering_id)
+			and area_id = (select area_id from cumulative_gen_load_area_table where ordering_id = current_ordering_id)
+		);
+
+	set rank_load_area = 
+		(select 	count(*) 
+			from 	cumulative_gen_load_area_table
+			where ordering_id >= current_ordering_id
+			and technology_id = (select technology_id from cumulative_gen_load_area_table where ordering_id = current_ordering_id)
+			and area_id = (select area_id from cumulative_gen_load_area_table where ordering_id = current_ordering_id)
+		);
+			
+	update _proposed_projects, cumulative_gen_load_area_table
+	set cumulative_avg_MW_tech_load_area = cumulative_avg_MW,
+		rank_by_tech_in_load_area = rank_load_area
+	where cumulative_gen_load_area_table.project_id = _proposed_projects.project_id
+	and cumulative_gen_load_area_table.ordering_id = current_ordering_id;
+	
+	
+	set current_ordering_id = current_ordering_id + 1;        
+	
+IF current_ordering_id > (select max(ordering_id) from cumulative_capacity_load_area_table)
+	THEN LEAVE cumulative_capacity_loop;
+		END IF;
+END LOOP cumulative_capacity_loop;
+
+drop table cumulative_gen_load_area_table;
+
+END;
+$$
+delimiter ;
+
+CALL cumulative_intermittent_cap_factor_rank;
+DROP PROCEDURE IF EXISTS cumulative_intermittent_cap_factor_rank;
+

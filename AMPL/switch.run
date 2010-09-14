@@ -1,6 +1,4 @@
 include windsun.run;
-include min_solar_production_check.run;
-
 
 param cost_problem_file symbolic;
 param cost_solution_file symbolic;
@@ -12,7 +10,6 @@ param num_result_files;
 problem Cost_Minimization;
 # Add policy constraints as needed.
 if (enable_rps = 1                 ) then { restore Satisfy_RPS; };
-if (enable_min_solar_production = 1) then { restore Min_Gen_Fraction_From_Solar; };
 
 for {c in CARBON_COSTS} {
   let carbon_cost := c;
@@ -87,7 +84,6 @@ for {c in CARBON_COSTS} {
     solve;
     let trans_sol_time := time() - curtime;
     printf "\n%d seconds to optimize for transmission.\n", trans_sol_time;
-
   }
 
   # update recording variables and show some info about this run
@@ -96,12 +92,10 @@ for {c in CARBON_COSTS} {
   # export the results to csv files and the like if they haven't already been exported
   include record_results.run;
 
-  
   # restore the cost solution
   problem Cost_Minimization;
   # Add policy constraints as needed.
   if (enable_rps = 1                 ) then { restore Satisfy_RPS; };
-  if (enable_min_solar_production = 1) then { restore Min_Gen_Fraction_From_Solar; };
   let curtime := time();
   solution (cost_solution_file);
   printf "%d seconds to reload the cost solution from disk.\n", (time() - curtime);
