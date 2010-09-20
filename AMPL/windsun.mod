@@ -48,7 +48,7 @@ set SEASONS_OF_YEAR ordered = setof {h in TIMEPOINTS} (season_of_year[h]);
 param start_year = first(PERIODS);
 
 # interval between study periods
-param num_years_per_period = (last(PERIODS)-first(PERIODS))/(card(PERIODS)-1);
+param num_years_per_period;
 
 # the first year past the end of the current simulation
 # used for discounting series of annual payments back to a lump sum at the start of the payment window

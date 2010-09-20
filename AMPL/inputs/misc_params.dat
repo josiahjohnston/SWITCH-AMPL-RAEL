@@ -1,0 +1,3 @@
+param scenario_id           := 151;
+param enable_rps            := 1;
+param num_years_per_period  := 8;

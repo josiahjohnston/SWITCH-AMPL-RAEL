@@ -3,6 +3,7 @@
 
 reset;
 option solver cplexamp;
+param scenario_id symbolic;
 
 # find the number of cores on the machine we're running
 	param num_cores > 0;
@@ -11,7 +12,7 @@ option solver cplexamp;
 	close "num_cores.txt";
 	shell("rm num_cores.txt");
 
-option cplex_options (" lpdisplay=1 iisfind=1 mipdisplay=2 presolve=1 prestats=1 threads=" & num_cores);
+option cplex_options (" lpdisplay=1 iisfind=1 mipdisplay=2 presolve=1 prestats=1 timing=1 threads=" & num_cores);
 
 # Other options
 # Add 'threads=8' for multi-threaded execution.
@@ -38,6 +39,7 @@ param result_file_path_templates{RESULT_FILES} symbolic;
 param result_header_paths{RESULT_FILES} symbolic;
 param output_section symbolic;
 data windsun.dat;
+data inputs/misc_params.dat;
 param outfile symbolic;
 
 #########################
@@ -110,30 +112,33 @@ problem Transmission_Minimization:
 	Maximum_Store_CAES_Reserve, Maximum_Dispatch_CAES_Reserve, Storage_Projects_Energy_Balance_Reserve
 ;
 
+problem Cost_Minimization;
+# Add policy constraints as needed.
+if (enable_rps = 1                 ) then { restore Satisfy_RPS; };
 
-table study_hours IN: 
+table study_hours "inputs/study_hours.tab" IN: 
   TIMEPOINTS <- [hour], period, date, hours_in_sample, month_of_year, hour_of_day;
 read table study_hours;
 
-table load_areas IN: 
+table load_areas "inputs/load_areas.tab" IN: 
   LOAD_AREAS <- [load_area], load_area_id, economic_multiplier, 
   	max_coincident_load_for_local_td, local_td_new_annual_payment_per_mw, local_td_sunk_annual_payment, transmission_sunk_annual_payment;
 read table load_areas;
 
-table rps_load_area_targets IN: 
+table rps_load_area_targets "inputs/rps_load_area_targets.tab" IN: 
   [load_area, rps_compliance_year], rps_compliance_fraction;
 read table rps_load_area_targets;
 
-table transmission_lines IN: 
+table transmission_lines "inputs/transmission_lines.tab" IN: 
   TRANSMISSION_LINES <- [load_area_start, load_area_end], existing_transfer_capacity_mw, transmission_line_id, 
   transmission_length_km, transmission_efficiency;
 read table transmission_lines;
 
-table system_load IN: 
+table system_load "inputs/system_load.tab" IN: 
   [load_area, hour], system_load;
 read table system_load;
 
-table existing_plants IN: 
+table existing_plants "inputs/existing_plants.tab" IN: 
   EXISTING_PLANTS <- [load_area, plant_code], ep_project_id, 
     ep_size_mw ~ size_mw, ep_technology ~ technology, ep_fuel ~ fuel, ep_heat_rate ~ heat_rate, 
     ep_vintage ~ start_year, ep_max_age_years ~ max_age, 
@@ -142,16 +147,16 @@ table existing_plants IN:
     ep_baseload ~ baseload, ep_cogen ~ cogen, ep_intermittent ~ intermittent;
 read table existing_plants;
 
-table existing_intermittent_plant_cap_factor IN: 
+table existing_intermittent_plant_cap_factor "inputs/existing_intermittent_plant_cap_factor.tab" IN: 
   EP_INTERMITTENT_HOURS <- [load_area, plant_code, hour], eip_cap_factor ~ cap_factor;
 read table existing_intermittent_plant_cap_factor;
 
-table hydro IN: 
+table hydro "inputs/hydro.tab" IN: 
   PROJ_HYDRO_DATES <- [load_area, hydro_project_id, date], hydro_technology ~ technology, hydro_technology_id ~ technology_id, 
   hydro_capacity_mw ~ capacity_mw, avg_hydro_output ~ avg_output;
 read table hydro;
 
-table proposed_projects IN: 
+table proposed_projects "inputs/proposed_projects.tab" IN: 
   PROJECTS <- [project_id, load_area, technology], project_location ~ location_id, 
     capacity_limit, capacity_limit_conversion, connect_cost_per_mw, price_and_dollar_year, 
     overnight_cost, fixed_o_m, variable_o_m, overnight_cost_change, nonfuel_startup_cost;
@@ -162,16 +167,16 @@ for {(pid, a, t) in PROJECTS: project_location[pid, a, t] == 0} {
 	let project_location[pid, a, t] := location_unspecified;
 }
 
-table competing_locations IN:
+table competing_locations "inputs/competing_locations.tab" IN:
 	LOCATIONS_WITH_COMPETING_TECHNOLOGIES <- [location_id];
 read table competing_locations;
 
 
-table cap_factor IN: 
+table cap_factor "inputs/cap_factor.tab" IN: 
   PROJ_INTERMITTENT_HOURS <- [project_id, load_area, technology, hour], cap_factor;
 read table cap_factor;
 
-table generator_info IN:  
+table generator_info "inputs/generator_info.tab" IN:  
 	TECHNOLOGIES <- [technology], technology_id, min_build_year, fuel, heat_rate, construction_time_years,
  	year_1_cost_fraction, year_2_cost_fraction, year_3_cost_fraction, year_4_cost_fraction, year_5_cost_fraction, year_6_cost_fraction,
 	max_age_years, forced_outage_rate, scheduled_outage_rate,
@@ -186,28 +191,21 @@ for { t in SOLAR_CSP_TECHNOLOGIES } {
 }
 let technologies_compete_for_space['Central_PV'] := 1;
 
-table fuel_costs IN:
+table fuel_costs "inputs/fuel_costs.tab" IN:
 	[load_area, fuel, year], fuel_price;
 read table fuel_costs;
 
-table fuel_info IN:
+table fuel_info "inputs/fuel_info.tab" IN:
 	FUELS <- [fuel], rps_fuel_category, carbon_content;
 read table fuel_info;
 
-table fuel_qualifies_for_rps IN:
+table fuel_qualifies_for_rps "inputs/fuel_qualifies_for_rps.tab" IN:
 	LOAD_AREAS_AND_FUEL_CATEGORY <- [load_area, rps_fuel_category], fuel_qualifies_for_rps ~ qualifies;
 read table fuel_qualifies_for_rps; 
 
 
 ###################################
 # parameters used for reporting total generation and transmission
-
-# name of the scenario
-param scenario_id symbolic;
-read scenario_id < scenario_id.txt;
-
-# Whether or not to consider Renewable Portfolio Standards
-read enable_rps < enable_rps.txt;
 
 redeclare param rps_fuel_category {FUELS} symbolic;
 if (enable_rps = 0) then {

@@ -1,0 +1,11 @@
+ampl.tab 1 2
+fuel	rps_fuel_category	carbon_content
+Gas	fossilish	0.0531
+Wind	renewable	0
+Solar	renewable	0
+Bio_Solid	renewable	0
+Bio_Gas	renewable	0
+Coal	fossilish	0.0939
+Uranium	fossilish	0
+Geothermal	renewable	0
+Water	fossilish	0

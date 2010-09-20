@@ -1,7 +1,7 @@
 # Export SWITCH input data from the Switch inputs database into text files that will be read in by AMPL
 # This script assumes that the input database has already been built by the script 'Build WECC Cap Factors.sql'
 
-export write_to_path='.'
+write_to_path='inputs'
 
 db_server="switch-db1.erg.berkeley.edu"
 DB_name="switch_inputs_wecc_v2_2"
@@ -114,7 +114,7 @@ export HOURS_IN_SAMPLE=`mysql $connection_string --column-names=false -e "select
 export ENABLE_RPS=`mysql $connection_string --column-names=false -e "select enable_rps from scenarios where scenario_id=$SCENARIO_ID;"` 
 export STUDY_START_YEAR=`mysql $connection_string --column-names=false -e "select min(period) from study_hours_all where $TIMESAMPLE;"` 
 export STUDY_END_YEAR=`mysql $connection_string --column-names=false -e "select max(period) + (max(period)-min(period))/(count(distinct period) - 1 ) from study_hours_all where $TIMESAMPLE;"` 
-number_of_years_per_period=`mysql $connection_string --column-names=false -e "select (max(period)-min(period))/(count(distinct period) - 1 ) from study_hours_all where $TIMESAMPLE;"` 
+number_of_years_per_period=`mysql $connection_string --column-names=false -e "select round((max(period)-min(period))/(count(distinct period) - 1 )) from study_hours_all where $TIMESAMPLE;"` 
 
 echo 'Exporting Scenario Information'
 echo 'Scenario Information' > scenario_information.tab
@@ -137,9 +137,6 @@ echo 'Copying data from the database to input files...'
 echo '	study_hours.tab...'
 echo ampl.tab 1 5 > study_hours.tab
 mysql $connection_string -e "select study_hour as hour, period, study_date as date, $HOURS_IN_SAMPLE as hours_in_sample, month_of_year, hour_of_day from study_hours_all where $TIMESAMPLE order by 1;" >> study_hours.tab
-
-echo '	enable_rps.txt...'
-echo $ENABLE_RPS > enable_rps.txt
 
 echo '	load_areas.tab...'
 echo ampl.tab 1 6 > load_areas.tab
@@ -202,3 +199,9 @@ mysql $connection_string -e "select fuel, rps_fuel_category, carbon_content from
 echo '	fuel_qualifies_for_rps.tab...'
 echo ampl.tab 2 1 > fuel_qualifies_for_rps.tab
 mysql $connection_string -e "select load_area, rps_fuel_category, qualifies from fuel_qualifies_for_rps;" >> fuel_qualifies_for_rps.tab
+
+
+echo '	misc_params.dat...'
+echo "param scenario_id           := $SCENARIO_ID;" >  misc_params.dat
+echo "param enable_rps            := $ENABLE_RPS;"  >> misc_params.dat
+echo "param num_years_per_period  := $number_of_years_per_period;"  >> misc_params.dat
