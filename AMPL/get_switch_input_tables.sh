@@ -116,6 +116,12 @@ export STUDY_START_YEAR=`mysql $connection_string --column-names=false -e "selec
 export STUDY_END_YEAR=`mysql $connection_string --column-names=false -e "select max(period) + (max(period)-min(period))/(count(distinct period) - 1 ) from study_hours_all where $TIMESAMPLE;"` 
 number_of_years_per_period=`mysql $connection_string --column-names=false -e "select (max(period)-min(period))/(count(distinct period) - 1 ) from study_hours_all where $TIMESAMPLE;"` 
 
+echo 'Exporting Scenario Information'
+echo 'Scenario Information' > scenario_information.tab
+mysql $connection_string -e "select * from scenarios where scenario_id = $SCENARIO_ID;" >> scenario_information.txt
+echo 'Training Set Information' > scenario_information.tab
+mysql $connection_string -e "select training_sets.* from training_sets join scenarios using (training_set_id) where scenario_id = $SCENARIO_ID;" >> scenario_information.txt
+
 ###########################
 # Export data to be read into ampl.
 
