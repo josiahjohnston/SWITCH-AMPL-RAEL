@@ -11,7 +11,7 @@ option solver cplexamp;
 	close "num_cores.txt";
 	shell("rm num_cores.txt");
 
-option cplex_options (" lpdisplay=1 iisfind=1 mipdisplay=1 presolve=1 prestats=1 threads=" & num_cores);
+option cplex_options (" lpdisplay=1 iisfind=1 mipdisplay=2 presolve=1 prestats=1 threads=" & num_cores);
 
 # Other options
 # Add 'threads=8' for multi-threaded execution.

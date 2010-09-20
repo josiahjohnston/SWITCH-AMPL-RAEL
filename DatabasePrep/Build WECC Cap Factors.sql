@@ -34,29 +34,6 @@ set @load_area_scenario_id := (select if( count(distinct scenario_id) = 0, 1, ma
 update load_area_info set scenario_id = @load_area_scenario_id;
 
 
--- RPS COMPLIANCE INFO
-drop table if exists rps_load_area_targets;
-create table rps_load_area_targets(
-	load_area character varying(11),
-	compliance_year year,
-	compliance_fraction float,
-	PRIMARY KEY (load_area, compliance_year),
-	INDEX compliance_year (compliance_year)
-	);
-
-load data local infile
-	'load_area_yearly_rps_complaince_fractions.csv'
-	into table rps_load_area_targets
-	fields terminated by	','
-	optionally enclosed by '"'
-	ignore 1 lines;
-
-alter table rps_load_area_targets add column area_id smallint unsigned first;
-alter table rps_load_area_targets add unique index (area_id, compliance_year);
-update rps_load_area_targets, load_area_info set rps_load_area_targets.area_id = load_area_info.area_id
-where rps_load_area_targets.load_area = load_area_info.load_area;
-	
-
 -- HOURS-------------------------
 -- takes the timepoints table from the weather database, as the solar data is synced to this hournum scheme.  The load data has also been similarly synced.
 -- right now the hours only go through 2004-2005
@@ -298,7 +275,7 @@ insert into _fuel_prices_regional
 	select
 		@this_scenario_id as scenario_id,
         area_id,
-        if(fuel like 'NaturalGas', 'Gas', fuel),
+        if(fuel like 'NaturalGas', 'Gas', fuel) as fuel,
         year,
         fuel_price
     from fuel_prices.regional_fuel_prices, load_area_info
@@ -310,6 +287,74 @@ insert into _fuel_prices_regional
 -- (including toys with an 8 year, 2026-2033 investment period) then we need fuel prices out further.
 -- write code that extrapolates the fuel price linearly to 2050 for years in which there aren't fuel price projections
 
+-- add fuel price forcasts out to 2100 and beyond
+-- this takes the fuel price from 5 years before the end of the fuel price projections
+-- and the price from the last year of fuel price projections and linearly extrapolates the price onward in time
+-- this could be done by a linear regression, but mysql support is limited.
+drop table if exists integer_tmp;
+create table integer_tmp( integer_val int not null AUTO_INCREMENT primary key, insert_tmp int );
+	insert into integer_tmp (insert_tmp) select hournum from hours limit 100;
+	
+insert into _fuel_prices_regional (scenario_id, area_id, fuel, year, fuel_price)
+	select 	slope_table.scenario_id,
+			slope_table.area_id,
+			slope_table.fuel,
+			integer_val + max_year as year,
+			price_slope * integer_val + fuel_price_max_year as fuel_price
+		from
+		integer_tmp,
+		(select max_year_table.scenario_id,
+						max_year_table.area_id,
+						max_year_table.fuel,
+						max_year,
+						fuel_price as fuel_price_max_year
+						from 
+						( select scenario_id, area_id, fuel, max(year) as max_year from _fuel_prices_regional group by 1, 2, 3 ) as max_year_table,
+						_fuel_prices_regional
+				where max_year_table.max_year = _fuel_prices_regional.year
+				and max_year_table.scenario_id = _fuel_prices_regional.scenario_id
+				and max_year_table.area_id = _fuel_prices_regional.area_id
+				and max_year_table.fuel = _fuel_prices_regional.fuel
+				) as max_year_table,
+	
+		(select  m.scenario_id,
+				m.area_id,
+				m.fuel,
+				( fuel_price_max_year - fuel_price_max_year_minus_five ) / 5 as price_slope
+				from
+		
+				(select max_year_table.scenario_id,
+						max_year_table.area_id,
+						max_year_table.fuel,
+						fuel_price as fuel_price_max_year
+						from 
+						( select scenario_id, area_id, fuel, max(year) as max_year from _fuel_prices_regional group by 1, 2, 3 ) as max_year_table,
+						_fuel_prices_regional
+				where max_year_table.max_year = _fuel_prices_regional.year
+				and max_year_table.scenario_id = _fuel_prices_regional.scenario_id
+				and max_year_table.area_id = _fuel_prices_regional.area_id
+				and max_year_table.fuel = _fuel_prices_regional.fuel
+				) as m,
+				(select 	max_year_table.scenario_id,
+						max_year_table.area_id,
+						max_year_table.fuel,
+						fuel_price as fuel_price_max_year_minus_five
+						from 
+						( select scenario_id, area_id, fuel, max(year) as max_year from _fuel_prices_regional group by 1, 2, 3 ) as max_year_table,
+						_fuel_prices_regional
+				where (max_year_table.max_year - 5 ) = _fuel_prices_regional.year
+				and max_year_table.scenario_id = _fuel_prices_regional.scenario_id
+				and max_year_table.area_id = _fuel_prices_regional.area_id
+				and max_year_table.fuel = _fuel_prices_regional.fuel
+				) as m5
+			where m.scenario_id = m5.scenario_id
+			and m.area_id = m5.area_id
+			and m.fuel = m5.fuel) as slope_table
+		where 	slope_table.scenario_id = max_year_table.scenario_id
+		and		slope_table.area_id = max_year_table.area_id
+		and		slope_table.fuel = max_year_table.fuel
+		;
+			
   
 DROP VIEW IF EXISTS fuel_prices_regional;
 CREATE VIEW fuel_prices_regional as
@@ -359,6 +404,53 @@ insert into fuel_qualifies_for_rps
 			if(rps_fuel_category like 'renewable', 1, 0)
 		from fuel_info, load_area_info;
 
+
+-- RPS COMPLIANCE INFO ---------------
+drop table if exists rps_load_area_targets;
+create table rps_load_area_targets(
+	load_area character varying(11),
+	compliance_year year,
+	compliance_fraction float,
+	PRIMARY KEY (load_area, compliance_year),
+	INDEX compliance_year (compliance_year)
+	);
+
+load data local infile
+	'load_area_yearly_rps_complaince_fractions.csv'
+	into table rps_load_area_targets
+	fields terminated by	','
+	optionally enclosed by '"'
+	ignore 1 lines;
+
+alter table rps_load_area_targets add column area_id smallint unsigned first;
+alter table rps_load_area_targets add unique index (area_id, compliance_year);
+update rps_load_area_targets, load_area_info set rps_load_area_targets.area_id = load_area_info.area_id
+where rps_load_area_targets.load_area = load_area_info.load_area;
+	
+-- RPS targets are assumed to go on in the future, so targets out past 2010 are added here
+-- as the compliance fraction of the last year
+drop table if exists integer_tmp;
+create table integer_tmp( integer_val int not null AUTO_INCREMENT primary key, insert_tmp int );
+	insert into integer_tmp (insert_tmp) select hournum from hours limit 100;
+
+insert into rps_load_area_targets ( area_id, load_area, compliance_year, compliance_fraction )
+	select 	area_id,
+			load_area,
+			integer_val + max_year as compliance_year,
+			compliance_fraction_in_max_year as compliance_fraction
+	from	integer_tmp,
+			(select rps_load_area_targets.area_id,
+					load_area,
+					max_year,
+					compliance_fraction as compliance_fraction_in_max_year
+			from	rps_load_area_targets,
+					( select area_id, max(compliance_year) as max_year from rps_load_area_targets group by 1 ) as max_year_table
+			where	max_year_table.area_id = rps_load_area_targets.area_id
+			and		max_year_table.max_year = rps_load_area_targets.compliance_year
+			) as compliance_fraction_in_max_year_table
+	;
+					
+			
 
 -- HYDRO-------------------
 -- made in 'build existing plants table.sql'
