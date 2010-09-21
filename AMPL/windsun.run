@@ -5,12 +5,17 @@ reset;
 option solver cplexamp;
 param scenario_id symbolic;
 
+# Set the random number seed to a new value
+option randseed 0;
+param tmp_file symbolic;
+let tmp_file := round(Uniform(1,1000000));
+
 # find the number of cores on the machine we're running
-	param num_cores > 0;
-	shell("if [ `uname` == 'Darwin' ]; then sysctl hw.ncpu | awk '{print $2}' > num_cores.txt; elif [ `uname` == 'Linux' ]; then cat /proc/cpuinfo | grep processor | wc -l > num_cores.txt; fi");
-	read num_cores < "num_cores.txt";
-	close "num_cores.txt";
-	shell("rm num_cores.txt");
+param num_cores > 0;
+shell("if [ `uname` == 'Darwin' ]; then sysctl hw.ncpu | awk '{print $2}' > " & tmp_file & "; elif [ `uname` == 'Linux' ]; then cat /proc/cpuinfo | grep processor | wc -l > " & tmp_file & "; fi");
+read num_cores < (tmp_file);
+close( tmp_file );
+shell("rm " & tmp_file);
 
 option cplex_options (" lpdisplay=1 iisfind=1 mipdisplay=2 presolve=1 prestats=1 timing=1 threads=" & num_cores);
 

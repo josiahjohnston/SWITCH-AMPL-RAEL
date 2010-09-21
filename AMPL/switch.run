@@ -18,10 +18,10 @@ for {c in CARBON_COSTS} {
   ###############################
   # Cost optimization
   # Determine if a cost solution already exists. 
-  shell("if [ -f " & cost_solution_file & " ]; then echo 1 > sol_exists.txt; else echo 0 > sol_exists.txt; fi");
-  read file_exists < "sol_exists.txt";
-  close "sol_exists.txt";
-  shell("rm sol_exists.txt");
+  shell("if [ -f " & cost_solution_file & " ]; then echo 1 > " & tmp_file & "; else echo 0 > " & tmp_file & "; fi");
+  read file_exists < (tmp_file);
+  close (tmp_file);
+  shell("rm " & tmp_file);
   if ( file_exists )
   then {
     printf "\nLoading Cost solution from disk for a carbon cost of %d.\n", carbon_cost;
@@ -36,10 +36,10 @@ for {c in CARBON_COSTS} {
   
   } else {
 	# Determine if the cost problem already exists. 
-	shell("if [ -f " & cost_problem_file & ".nl ]; then echo 1 > sol_exists.txt; else echo 0 > sol_exists.txt; fi");
-	read file_exists < "sol_exists.txt";
-	close "sol_exists.txt";
-	shell("rm sol_exists.txt");
+	shell("if [ -f " & cost_problem_file & ".nl ]; then echo 1 > " & tmp_file & "; else echo 0 > " & tmp_file & "; fi");
+	read file_exists < (tmp_file);
+	close (tmp_file);
+	shell("rm " & tmp_file);
 	
 	if ( file_exists )
 	then {
@@ -57,10 +57,10 @@ for {c in CARBON_COSTS} {
 	  let cost_sol_time := time() - curtime;
 	  printf "%d seconds to optimize for cost.\n", cost_sol_time;
 	  # Remove the transmission problem if it exists; It will need to be re-run from the new cost solution
-	  shell("if [ -f " & trans_solution_file & " ]; then echo 1 > sol_exists.txt; else echo 0 > sol_exists.txt; fi");
-	  read file_exists < "sol_exists.txt";
-	  close "sol_exists.txt";
-	  shell("rm sol_exists.txt");
+	  shell("if [ -f " & trans_solution_file & " ]; then echo 1 > " & tmp_file & "; else echo 0 > " & tmp_file & "; fi");
+	  read file_exists < (tmp_file);
+	  close (tmp_file);
+	  shell("rm " & tmp_file);
 	  if ( file_exists )
 	  then {
 		shell ("rm trans_problem_file trans_solution_file");
@@ -83,10 +83,10 @@ for {c in CARBON_COSTS} {
 #  problem Transmission_Minimization;
 #
 #  # Determine if the transmission solution already exists. 
-#  shell("if [ -f " & trans_solution_file & " ]; then echo 1 > sol_exists.txt; else echo 0 > sol_exists.txt; fi");
-#  read file_exists < "sol_exists.txt";
-#  close "sol_exists.txt";
-#  shell("rm sol_exists.txt");
+#  shell("if [ -f " & trans_solution_file & " ]; then echo 1 > " & tmp_file & "; else echo 0 > " & tmp_file & "; fi");
+#  read file_exists < (tmp_file);
+#  close (tmp_file);
+#  shell("rm " & tmp_file );
 #
 #  if ( file_exists )
 #  then {
