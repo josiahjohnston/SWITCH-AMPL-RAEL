@@ -517,6 +517,11 @@ param transmission_length_km {TRANSMISSION_LINES};
 # delivery efficiency on each transmission line
 param transmission_efficiency {TRANSMISSION_LINES};
 
+# are new builds of transmission lines allowed along this transmission corridor?
+param new_transmission_builds_allowed {TRANSMISSION_LINES} binary;
+
+set TRANSMISSION_LINES_NEW_BUILDS_ALLOWED := { (a1, a2) in TRANSMISSION_LINES: new_transmission_builds_allowed[a1, a2] };
+
 # distribution losses, expressed as percentage of system load
 # this is not applied to distributed solar PV systems, which are assumed to be located within the distribution system, close to load
 # we took 5.3% losses value from ReEDS Solar Vision documentation, http://www1.eere.energy.gov/solar/pdfs/svs_appendix_a_model_descriptions_data.pdf
@@ -774,7 +779,7 @@ param nonpumped_hydro_variable_cost { a in LOAD_AREAS, h in TIMEPOINTS } =
 
 # cost per MW for transmission lines
 # TODO: Move the regional cost adjustment into the database. 
-param transmission_annual_payment {(a1, a2) in TRANSMISSION_LINES} = 
+param transmission_annual_payment {(a1, a2) in TRANSMISSION_LINES_NEW_BUILDS_ALLOWED } = 
   transmission_finance_rate / (1 - (1+transmission_finance_rate)^(-1*transmission_max_age_years)) 
   * transmission_cost_per_mw_km * ( (economic_multiplier[a1] + economic_multiplier[a2]) / 2 )
   * transmission_length_km[a1, a2];
@@ -786,7 +791,7 @@ param transmission_end_year {p in PERIODS} =
   min(end_year, p + ceil(transmission_max_age_years/num_years_per_period)*num_years_per_period);
 
 # discounted transmission cost per MW
-param transmission_cost_per_mw {(a1, a2) in TRANSMISSION_LINES, install_yr in PERIODS} =
+param transmission_cost_per_mw {(a1, a2) in TRANSMISSION_LINES_NEW_BUILDS_ALLOWED, install_yr in PERIODS } =
   sum {p in PERIODS: install_yr <= p < transmission_end_year[p]}
   transmission_annual_payment[a1, a2]
   * factor_to_bring_annual_costs_to_start_of_period
@@ -872,7 +877,7 @@ set EP_BASELOAD_PERIODS :=
 
 # trans_line-vintage-hour combinations for which dispatch decisions must be made
 set TRANS_VINTAGE_HOURS := 
-  {(a1, a2) in TRANSMISSION_LINES, p in PERIODS, h in TIMEPOINTS: p <= period[h] < transmission_end_year[p]};
+  {(a1, a2) in TRANSMISSION_LINES_NEW_BUILDS_ALLOWED, p in PERIODS, h in TIMEPOINTS: p <= period[h] < transmission_end_year[p]};
 
 # local_td-vintage-hour combinations which must be reconciled
 set LOCAL_TD_HOURS := 
@@ -943,7 +948,7 @@ var Store_Pumped_Hydro_Reserve {PROJ_PUMPED_HYDRO, TIMEPOINTS} >= 0;
 # Transmission and Local T&D variables
 
 # number of MW to install in each transmission corridor at each vintage
-var InstallTrans {TRANSMISSION_LINES, PERIODS} >= 0;
+var InstallTrans {TRANSMISSION_LINES_NEW_BUILDS_ALLOWED, PERIODS } >= 0;
 
 # number of MW to transmit through each transmission corridor in each hour
 var DispatchTransFromXToY {TRANSMISSION_LINES, TIMEPOINTS, RPS_FUEL_CATEGORY} >= 0;
@@ -1018,7 +1023,7 @@ minimize Power_Cost:
 	########################################
 	#    TRANSMISSION & DISTRIBUTION
 	# Calculate the cost of installing new transmission lines between zones
-	+ sum {(a1, a2) in TRANSMISSION_LINES, p in PERIODS} 
+	+ sum {(a1, a2) in TRANSMISSION_LINES_NEW_BUILDS_ALLOWED, p in PERIODS } 
       InstallTrans[a1, a2, p] * transmission_cost_per_mw[a1, a2, p]
 	# Sunk costs of operating the existing transmission grid
 	+ transmission_sunk_cost
@@ -1261,7 +1266,7 @@ subject to Maximum_DispatchTransFromXToY_Reserve
 
 # Simple fix to the problem of asymetrical transmission build-out
 subject to SymetricalTrans
-  {(a1, a2) in TRANSMISSION_LINES, p in PERIODS}: InstallTrans[a1, a2, p] = InstallTrans[a2, a1, p];
+  {(a1, a2) in TRANSMISSION_LINES_NEW_BUILDS_ALLOWED, p in PERIODS }: InstallTrans[a1, a2, p] = InstallTrans[a2, a1, p];
 
 # make sure there's enough intra-zone transmission and distribution capacity
 # to handle the net distributed loads

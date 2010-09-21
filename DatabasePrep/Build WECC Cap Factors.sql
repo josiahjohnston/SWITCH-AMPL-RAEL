@@ -171,8 +171,8 @@ create table transmission_lines(
 	load_area_end varchar(11),
 	existing_transfer_capacity_mw double,
 	transmission_length_km double,
-	load_areas_border_each_other char(1),
 	transmission_efficiency double,
+	new_transmission_builds_allowed tinyint,
 	INDEX la_start_end (load_area_start, load_area_end)
 );
 

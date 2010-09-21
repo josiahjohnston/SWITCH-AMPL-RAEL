@@ -523,7 +523,7 @@ select distances_along_translines('test_segment_start_end_dist_amp', 'test_segme
 update wecc_trans_lines set distances_along_existing_lines_m = ,
 from distances_along_existing_trans_lines d where (d.load_area_start like wecc_trans_lines.load_area_start and d.load_area_end like wecc_trans_lines.load_area_end)  
 
--- Autumn should insert the script that output transline geom here
+-- Autumn should insert the script that outputs transline geoms here
 SELECT AddGeometryColumn ('public','wecc_trans_lines','route_geom',4326,'MULTILINESTRING',2);
 update wecc_trans_lines set route_geom = wecc_trans_lines_old.route_geom
 from wecc_trans_lines_old
@@ -554,8 +554,8 @@ create table wecc_trans_lines_for_export(
 	load_area_end	character varying(11),
 	existing_transfer_capacity_mw double precision,
 	transmission_length_km double precision,
-	load_areas_border_each_other boolean,
-	transmission_efficiency double precision
+	transmission_efficiency double precision,
+	new_transmission_builds_allowed smallint default 1
 );
 
 SELECT AddGeometryColumn ('public','wecc_trans_lines_for_export','straightline_geom',4326,'LINESTRING',2);
@@ -563,7 +563,7 @@ SELECT AddGeometryColumn ('public','wecc_trans_lines_for_export','route_geom',43
 
 insert into wecc_trans_lines_for_export
 			(transmission_line_id, load_area_start, load_area_end, existing_transfer_capacity_mw,
-			transmission_length_km, load_areas_border_each_other, transmission_efficiency, straightline_geom, route_geom)
+			transmission_length_km, transmission_efficiency, straightline_geom, route_geom)
 	select	transmission_line_id,
 			load_area_start,
 			load_area_end,
@@ -572,7 +572,6 @@ insert into wecc_trans_lines_for_export
 				THEN 1.5 * transmission_length_km
 				ELSE distances_along_existing_lines_m/1000
 			END as transmission_length_km,
-			load_areas_border_each_other,
 			CASE 	WHEN ( 1 - (0.01 / 160.9344 * transmission_length_km) ) > 0.985
 					THEN 0.985
 					ELSE ( 1 - (0.01 / 160.9344 * transmission_length_km) )
@@ -585,9 +584,39 @@ insert into wecc_trans_lines_for_export
 -- a handful of the transmission lines are redundant, so these are removed here
 delete from wecc_trans_lines_for_export
 where	(load_area_start like 'MT_SW' and load_area_end like 'WA_ID_AVA')
-or		(load_area_end like 'MT_SW' and load_area_start like 'WA_ID_AVA')
 or		(load_area_start like 'CA_PGE_CEN' and load_area_end like 'CA_SCE_CEN')
-or		(load_area_end like 'CA_PGE_CEN' and load_area_start like 'CA_SCE_CEN');
+or		(load_area_start like 'CA_SCE_CEN' and load_area_end like 'CA_SCE_SE')
+or		(load_area_start like 'CO_E' and load_area_end like 'CO_NW')
+;
+
+-- now get the other direction
+delete from wecc_trans_lines_for_export 
+where (load_area_end, load_area_start) not in
+	( select load_area_start, load_area_end from wecc_trans_lines_for_export);
+
+
+-- a handful of existing long transmission lines are effectivly the combination of a few shorter ones in SWITCH,
+-- so they are flagged here to prevent new builds along the longer corridors
+update wecc_trans_lines_for_export
+set new_transmission_builds_allowed = 0
+where	(load_area_start like 'AZ_APS_N' and load_area_end like 'NV_S')
+or		(load_area_start like 'AZ_APS_SW' and load_area_end like 'CA_SCE_S')
+or		(load_area_start like 'AZ_APS_SW' and load_area_end like 'NV_S')
+or		(load_area_start like 'CA_LADWP' and load_area_end like 'OR_WA_BPA')
+or		(load_area_start like 'CA_PGE_CEN' and load_area_end like 'CA_PGE_N')
+or		(load_area_start like 'CA_PGE_N' and load_area_end like 'OR_W')
+or		(load_area_start like 'CA_SCE_CEN' and load_area_end like 'UT_S')
+or		(load_area_start like 'CAN_BC' and load_area_end like 'MT_NW')
+or		(load_area_start like 'CO_E' and load_area_end like 'WY_SE')
+or		(load_area_start like 'MT_NW' and load_area_end like 'MT_NE')
+or		(load_area_start like 'WA_N_CEN' and load_area_end like 'WA_SEATAC')
+;
+
+-- now get the other direction
+update wecc_trans_lines_for_export
+set new_transmission_builds_allowed = 0
+where (load_area_start, load_area_end) in
+	( select load_area_end, load_area_start from wecc_trans_lines_for_export where new_transmission_builds_allowed = 0 );
 
 
 COPY 
@@ -596,8 +625,8 @@ COPY
 		load_area_end,
 		existing_transfer_capacity_mw,
 		transmission_length_km,
-		load_areas_border_each_other,
-		transmission_efficiency
+		transmission_efficiency,
+		new_transmission_builds_allowed
 	from 	wecc_trans_lines_for_export)
 TO 		'/Volumes/1TB_RAID/Models/Switch\ Input\ Data/Transmission/wecc_trans_lines.csv'
 WITH 	CSV

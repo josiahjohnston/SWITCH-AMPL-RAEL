@@ -147,8 +147,8 @@ echo ampl.tab 2 1 > rps_load_area_targets.tab
 mysql $connection_string -e "select load_area, compliance_year as rps_compliance_year, compliance_fraction as rps_compliance_fraction from rps_load_area_targets where compliance_year >= $STUDY_START_YEAR and compliance_year <= $STUDY_END_YEAR;" >> rps_load_area_targets.tab
 
 echo '	transmission_lines.tab...'
-echo ampl.tab 2 4 > transmission_lines.tab
-mysql $connection_string -e "select load_area_start, load_area_end, existing_transfer_capacity_mw, transmission_line_id, transmission_length_km, transmission_efficiency from transmission_lines where (existing_transfer_capacity_mw > 0 or load_areas_border_each_other like 't');" >> transmission_lines.tab
+echo ampl.tab 2 5 > transmission_lines.tab
+mysql $connection_string -e "select load_area_start, load_area_end, existing_transfer_capacity_mw, transmission_line_id, transmission_length_km, transmission_efficiency, new_transmission_builds_allowed from transmission_lines order by 1,2;" >> transmission_lines.tab
 
 # TODO: adopt better load forecasts; this assumes a simple 1.0%/year increase - the amount projected for all of WECC from 2010 to 2018 by the EIA AEO 2008
 # currently we hit the middle of the period with number_of_years_per_period/2
