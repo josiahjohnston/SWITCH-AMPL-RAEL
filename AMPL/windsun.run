@@ -5,19 +5,22 @@ reset;
 option solver cplexamp;
 param scenario_id symbolic;
 
-# Set the random number seed to a new value
-option randseed 0;
-param tmp_file symbolic;
-let tmp_file := round(Uniform(1,1000000));
+############################################################
+#
+# Utility Functions that interact with the operating system
+#
+# get_num_cores() determines how many processor cores are on the current machine. Works on OS X & Linux.
+function get_num_cores pipe "while read junk; do if [ `uname` == 'Darwin' ]; then sysctl hw.ncpu | awk '{print $2}'; elif [ `uname` == 'Linux' ]; then cat /proc/cpuinfo | grep processor | wc -l | awk '{print $1}'; else echo 1; fi; done;";
+# file_exists(file_path) determines whether a file exists at the specified path (relative or absolute). Returns a 1 or a 0. Works on OS X & Linux.
+function file_exists pipe 'while read file_path; do if [ -f "$file_path" ]; then echo 1; else echo 0; fi; done;';
+# get_worker_id() and get_num_workers() are for use in the context of mpirun, a cluster computing utility. If the runtime environment does not include the related utility getid, then both of these functions will return 1.
+# In the proper context, get_num_workers will return the number of cloned processes working in this directory, and get_worker_id will return the worker id of this process in the range of 0 to N-1. 
+function get_worker_id pipe "while read foo; do if [ -z $(which getid 2>/dev/null) ]; then echo 0; else getid | awk '{print $1}'; fi; done";
+function get_num_workers pipe "while read foo; do if [ -z $(which getid 2>/dev/null) ]; then echo 1; else getid | awk '{print $2}'; fi; done";
 
-# find the number of cores on the machine we're running
-param num_cores > 0;
-shell("if [ `uname` == 'Darwin' ]; then sysctl hw.ncpu | awk '{print $2}' > " & tmp_file & "; elif [ `uname` == 'Linux' ]; then cat /proc/cpuinfo | grep processor | wc -l > " & tmp_file & "; fi");
-read num_cores < (tmp_file);
-close( tmp_file );
-shell("rm " & tmp_file);
 
-option cplex_options (" lpdisplay=1 iisfind=1 mipdisplay=2 presolve=1 prestats=1 timing=1 threads=" & num_cores);
+
+option cplex_options (" lpdisplay=1 iisfind=1 mipdisplay=2 presolve=1 prestats=1 timing=1 threads=" & get_num_cores() );
 
 # Other options
 # Add 'threads=8' for multi-threaded execution.
@@ -33,7 +36,6 @@ param cost_compile_time default -1;
 param cost_sol_time default -1;
 param trans_sol_time default -1;
 param solution_times_path symbolic = "results/run_times.txt";
-param file_exists;
 param results_path symbolic := 'results/';
 # Make the results directory if it doesn't exist.
 shell("if [ ! -d " & results_path & " ]; then mkdir " & results_path & "; fi");

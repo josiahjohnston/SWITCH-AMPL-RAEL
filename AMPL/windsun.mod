@@ -106,7 +106,7 @@ param transmission_finance_rate >= 0;
 param carbon_cost default 0;
 
 # set and parameters used to make carbon cost curves
-set CARBON_COSTS;
+set CARBON_COSTS ordered;
 
 # planning reserve margin - fractional extra load the system must be able able to serve
 # when there are no forced outages

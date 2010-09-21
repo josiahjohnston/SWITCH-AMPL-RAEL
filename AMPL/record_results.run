@@ -1,11 +1,7 @@
 let curtime := time();
 
 
-shell("if [ -f " & solution_times_path & " ]; then echo 1 > file_exists.txt; else echo 0 > file_exists.txt; fi");
-read file_exists < "file_exists.txt";
-close "file_exists.txt";
-shell("rm file_exists.txt");
-if ( file_exists == 0 )
+if ( file_exists(solution_times_path) == 0 )
 then {
   printf "scenario_id	carbon_cost	process_type time_seconds\n"
   > (solution_times_path);

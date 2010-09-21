@@ -1,124 +1,60 @@
 include windsun.run;
 
-param cost_problem_file symbolic;
-param cost_solution_file symbolic;
-param trans_problem_file symbolic;
-param trans_solution_file symbolic;
-param num_result_files;
-
-for {c in CARBON_COSTS} {
-  let carbon_cost := c;
-
-  let cost_problem_file := results_path & "sol" & carbon_cost & "cost";
-  let cost_solution_file := cost_problem_file & ".sol";
-  let trans_problem_file := results_path & "sol" & carbon_cost & "trans";
-  let trans_solution_file := trans_problem_file & ".sol";
+param cost_problem symbolic;
+param cost_problem_path symbolic;
+param cost_solution_path symbolic;
 
 
-  ###############################
-  # Cost optimization
-  # Determine if a cost solution already exists. 
-  shell("if [ -f " & cost_solution_file & " ]; then echo 1 > " & tmp_file & "; else echo 0 > " & tmp_file & "; fi");
-  read file_exists < (tmp_file);
-  close (tmp_file);
-  shell("rm " & tmp_file);
-  if ( file_exists )
+for {c in CARBON_COSTS} { 
+
+  if (ord(c) mod get_num_workers() = get_worker_id() )
   then {
-    printf "\nLoading Cost solution from disk for a carbon cost of %d.\n", carbon_cost;
-    let curtime := time();
-    solution (cost_solution_file);
-    printf "%d seconds to create a problem instance and load a solution from disk.\n", (time() - curtime);
-	# update recording variables and show some info about this run
-	include basicstats.run;
+    let carbon_cost := c;
+    let cost_problem       := results_path & "sol" & carbon_cost & "cost";
+    let cost_problem_path  := cost_problem & ".nl";
+    let cost_solution_path := cost_problem & ".sol";
   
-	# export the results to csv files and the like if they haven't already been exported
-	include record_results.run;
   
-  } else {
-	# Determine if the cost problem already exists. 
-	shell("if [ -f " & cost_problem_file & ".nl ]; then echo 1 > " & tmp_file & "; else echo 0 > " & tmp_file & "; fi");
-	read file_exists < (tmp_file);
-	close (tmp_file);
-	shell("rm " & tmp_file);
-	
-	if ( file_exists )
-	then {
-	  printf "\nThe cost problem file exists for a carbon cost of %d. This probably means another process is working on solving it. Delete the file %s.nl if this is not the case. \n", carbon_cost, cost_problem_file;
-	} else {
-	  
-	  shell("touch " & cost_problem_file  & ".nl" );
-	  printf "\nCost solution not found on disk for a carbon cost of %d; solving optimization problem.\n", carbon_cost;
+    ###############################
+    # Cost optimization
+    # Determine if a cost solution already exists. 
+    if ( file_exists(cost_solution_path) )
+    then {
+	  printf "\nLoading Cost solution from disk for a carbon cost of %d.\n", carbon_cost;
 	  let curtime := time();
-	  write ("b" & cost_problem_file);
-	  let cost_compile_time := time() - curtime;
-	  printf "%d seconds to compile and write the problem file.\n", cost_compile_time;
-	  let curtime := time();
-	  solve;
-	  let cost_sol_time := time() - curtime;
-	  printf "%d seconds to optimize for cost.\n", cost_sol_time;
-	  # Remove the transmission problem if it exists; It will need to be re-run from the new cost solution
-	  shell("if [ -f " & trans_solution_file & " ]; then echo 1 > " & tmp_file & "; else echo 0 > " & tmp_file & "; fi");
-	  read file_exists < (tmp_file);
-	  close (tmp_file);
-	  shell("rm " & tmp_file);
-	  if ( file_exists )
-	  then {
-		shell ("rm trans_problem_file trans_solution_file");
-		let file_exists := 0;
-	  }
+	  solution (cost_solution_path);
+	  printf "%d seconds to create a problem instance and load a solution from disk.\n", (time() - curtime);
 	  # update recording variables and show some info about this run
 	  include basicstats.run;
-	
+	  
 	  # export the results to csv files and the like if they haven't already been exported
 	  include record_results.run;
-	
-	}
-  }
-
-
-  ###############################
-  # Transmission optimization is disabled for now because it chronically generates infeasible problems for reasons unknown, and it isn't very important for most of the results. 
-  # All decision variables except DispatchTransFromXToY are fixed for the transmission usage objective function
-#
-#  problem Transmission_Minimization;
-#
-#  # Determine if the transmission solution already exists. 
-#  shell("if [ -f " & trans_solution_file & " ]; then echo 1 > " & tmp_file & "; else echo 0 > " & tmp_file & "; fi");
-#  read file_exists < (tmp_file);
-#  close (tmp_file);
-#  shell("rm " & tmp_file );
-#
-#  if ( file_exists )
-#  then {
-#    printf "\nLoading Transmission solution from disk for a carbon cost of %d.\n", carbon_cost;
-#    let curtime := time();
-#    solution (trans_solution_file);
-#    printf "%d seconds to create a problem instance and load a solution from disk.\n", (time() - curtime);
-#
-#  } else {
-#
-#    printf "\nTransmission solution not found on disk for a carbon cost of %d; solving optimization problem.\n", carbon_cost;
-#    let curtime := time();
-#    write ("b" & trans_problem_file);
-#    printf "\n%d seconds to compile and write the problem file.\n", (time() - curtime);
-#    solve;
-#    let trans_sol_time := time() - curtime;
-#    printf "\n%d seconds to optimize for transmission.\n", trans_sol_time;
-#  }
-#
-#  # update recording variables and show some info about this run
-#  include basicstats.run;
-#
-#  # export the results to csv files and the like if they haven't already been exported
-#  include record_results.run;
-#
-#
-#  # restore the cost solution
-#  problem Cost_Minimization;
-#  # Add policy constraints as needed.
-#  if (enable_rps = 1                 ) then { restore Satisfy_RPS; };
-#  let curtime := time();
-#  solution (cost_solution_file);
-#  printf "%d seconds to reload the cost solution from disk.\n", (time() - curtime);
-
+    
+    } else {
+    # Determine if the cost problem already exists. 
+    if ( file_exists(cost_problem_path) )
+    then {
+      printf "\nThe cost problem file exists for a carbon cost of %d. This probably means another process is working on solving it. Delete the file %s.nl if this is not the case. \n", carbon_cost, cost_problem;
+    } else {
+      
+      shell("touch " & cost_problem  & ".nl" );
+      printf "\nCost solution not found on disk for a carbon cost of %d; solving optimization problem.\n", carbon_cost;
+      let curtime := time();
+      write ("b" & cost_problem);
+      let cost_compile_time := time() - curtime;
+      printf "%d seconds to compile and write the problem file.\n", cost_compile_time;
+      let curtime := time();
+      solve;
+      let cost_sol_time := time() - curtime;
+      printf "%d seconds to optimize for cost.\n", cost_sol_time;
+  
+      # update recording variables and show some info about this run
+      include basicstats.run;
+    
+      # export the results to csv files and the like if they haven't already been exported
+      include record_results.run;
+    
+    }
+    }
+  } 
 }
