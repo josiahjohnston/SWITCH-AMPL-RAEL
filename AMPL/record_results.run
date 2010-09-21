@@ -15,7 +15,7 @@ then {
 if ( cost_sol_time >= 0 ) then {
 	printf "%d	%d	%s	%d\n", scenario_id, carbon_cost, "Cost_Compilation", cost_compile_time  >> (solution_times_path);
 	printf "%d	%d	%s	%d\n", scenario_id, carbon_cost, "Cost_Optimization", cost_sol_time  >> (solution_times_path);
-	printf "%d	%d	%s	%d\n", scenario_id, carbon_cost, "Transmission_Optimization", trans_sol_time  >> (solution_times_path);
+#	printf "%d	%d	%s	%d\n", scenario_id, carbon_cost, "Transmission_Optimization", trans_sol_time  >> (solution_times_path);
 	close (solution_times_path);
 }
 
