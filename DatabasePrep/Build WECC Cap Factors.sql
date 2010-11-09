@@ -1,10 +1,10 @@
- -- makes the switch input database from which data is thrown into ampl via 'get_switch_input_tables.sh'
- -- run at command line from the DatabasePrep directory:
- -- mysql -h switch-db1.erg.berkeley.edu -u jimmy -p < /Volumes/1TB_RAID/Models/Switch\ Runs/WECCv2_2/122/DatabasePrep/Build\ WECC\ Cap\ Factors.sql
+-- makes the switch input database from which data is thrown into ampl via 'get_switch_input_tables.sh'
+-- run at command line from the DatabasePrep directory:
+-- mysql -h switch-db1.erg.berkeley.edu -u jimmy -p < /Volumes/1TB_RAID/Models/Switch\ Runs/WECCv2_2/122/DatabasePrep/Build\ WECC\ Cap\ Factors.sql
+  
+create database if not exists switch_inputs_wecc_v2_2;
+use switch_inputs_wecc_v2_2;
  
- create database if not exists switch_inputs_wecc_v2_2;
- use switch_inputs_wecc_v2_2;
-
 -- LOAD AREA INFO	
 -- made in postgresql
 drop table if exists load_area_info;
@@ -193,8 +193,14 @@ DROP TABLE IF EXISTS generator_info;
 create table generator_info (
 	technology_id tinyint unsigned NOT NULL PRIMARY KEY,
 	technology varchar(64) UNIQUE,
+	price_and_dollar_year year,
 	min_build_year year,
 	fuel varchar(64),
+	overnight_cost float,
+	fixed_o_m float,
+	variable_o_m float,
+	overnight_cost_change float,
+	connect_cost_per_mw_generic float,
 	heat_rate float,
 	construction_time_years float,
 	year_1_cost_fraction float,
@@ -215,38 +221,18 @@ create table generator_info (
 	min_downtime int,
 	max_ramp_rate_mw_per_hour float,
 	startup_fuel_mbtu float,
-	can_build_new boolean,
-	storage boolean
+	nonfuel_startup_cost float, 
+	can_build_new tinyint,
+	storage tinyint,
+	index techology_id_name (technology_id, technology)
 );
-insert into generator_info
- select 
- 	technology_id,
- 	technology,
-	min_build_year,
-	fuel,
-	heat_rate,
-	construction_time_years,
-	year_1_cost_fraction,
-	year_2_cost_fraction,
-	year_3_cost_fraction,
-	year_4_cost_fraction,
-	year_5_cost_fraction,
-	year_6_cost_fraction,
-	max_age_years,
-	forced_outage_rate,
-	scheduled_outage_rate,
-	intermittent,
-	resource_limited,
-	baseload,
-	min_build_capacity,
-	min_dispatch_fraction,
-	min_runtime,
-	min_downtime,
-	max_ramp_rate_mw_per_hour,
-	startup_fuel_mbtu,
-	can_build_new,
-	storage
- from generator_info.generator_costs;
+
+load data local infile
+	'GeneratorInfo/generator_costs.csv'
+	into table generator_info
+	fields terminated by	','
+	optionally enclosed by '"'
+	ignore 1 lines;
 
 -- ---------------------------------------------------------------------
 --        REGION-SPECIFIC GENERATOR COSTS & AVAILIBILITY
@@ -282,10 +268,6 @@ insert into _fuel_prices_regional
     where load_area_info.load_area = fuel_prices.regional_fuel_prices.load_area
     and fuel not like 'DistillateFuelOil'
     and fuel not like 'ResidualFuelOil';
-
--- TODO: the fuel prices above go out to 2030 - if we want to do scenarios out further
--- (including toys with an 8 year, 2026-2033 investment period) then we need fuel prices out further.
--- write code that extrapolates the fuel price linearly to 2050 for years in which there aren't fuel price projections
 
 -- add fuel price forcasts out to 2100 and beyond
 -- this takes the fuel price from 5 years before the end of the fuel price projections
@@ -488,8 +470,8 @@ insert into hydro_monthly_limits (project_id, hydro_id, area_id, load_area, tech
 	where generator_info.technology = 	CASE WHEN agg.primemover = 'HY' THEN 'Hydro_NonPumped'
 										WHEN agg.primemover = 'PS' THEN 'Hydro_Pumped' END;
 
--- EXISTING PLANTS---------
--- made in 'build existing plants table.sql'
+EXISTING PLANTS---------
+made in 'build existing plants table.sql'
 select 'Copying existing_plants' as progress;
 
 drop table if exists existing_plants;
@@ -651,7 +633,7 @@ insert into _proposed_projects
    			overnight_cost_change,
    			nonfuel_startup_cost * economic_multiplier as nonfuel_startup_cost
 			
-	from proposed_projects_import join generator_info.generator_costs using (technology) join load_area_info using (load_area)
+	from proposed_projects_import join generator_info using (technology) join load_area_info using (load_area)
 	order by 2;
 
 
@@ -691,10 +673,10 @@ insert into _proposed_projects
     		variable_o_m * economic_multiplier as variable_o_m,
    			overnight_cost_change,
    			nonfuel_startup_cost * economic_multiplier as nonfuel_startup_cost
-    from 	generator_info.generator_costs gen_costs,
+    from 	generator_info,
 			load_area_info
-	where   gen_costs.can_build_new  = 1 and 
-	        gen_costs.resource_limited = 0
+	where   generator_info.can_build_new  = 1 and 
+	        generator_info.resource_limited = 0
 	order by 1,3;
 UPDATE _proposed_projects SET project_id = gen_info_project_id + (ascii( 'G' ) << 8*3) where project_id is null;
 
@@ -736,9 +718,9 @@ CREATE VIEW proposed_projects as
 
 
 
--- ---------------------------------------------------------------------
--- CAP FACTOR-----------------
--- assembles the hourly power output for wind and solar technologies
+---------------------------------------------------------------------
+CAP FACTOR-----------------
+assembles the hourly power output for wind and solar technologies
 drop table if exists _cap_factor_intermittent_sites;
 create table _cap_factor_intermittent_sites(
 	project_id int unsigned,
@@ -997,7 +979,7 @@ cumulative_capacity_loop: LOOP
 	
 	set current_ordering_id = current_ordering_id + 1;        
 	
-IF current_ordering_id > (select max(ordering_id) from cumulative_capacity_load_area_table)
+IF current_ordering_id > (select max(ordering_id) from cumulative_gen_load_area_table)
 	THEN LEAVE cumulative_capacity_loop;
 		END IF;
 END LOOP cumulative_capacity_loop;

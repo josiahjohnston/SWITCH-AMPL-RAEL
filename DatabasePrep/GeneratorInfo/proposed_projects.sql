@@ -166,7 +166,7 @@ insert into proposed_projects (technology, original_dataset_id, capacity_limit, 
 								solar_farm_id,
 								sum( area_km2 ) as total_area_km2
 						from insolation_solar_farm_map
-						where technology in ( 'Central_PV', 'CSP_Trough_No_Storage', 'CSP_Trough_6h_Storage' )
+						where technology in ( 'Central_PV', 'CSP_Trough_No_Storage', 'CSP_Trough_6h_Storage', 'Concentrating_PV' )
 						group by 1,2
 						) as total_area_table
 				where	insolation_solar_farm_map.technology = total_area_table.technology

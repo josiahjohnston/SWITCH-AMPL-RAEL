@@ -13,10 +13,8 @@ param scenario_id symbolic;
 function get_num_cores pipe "while read junk; do if [ `uname` == 'Darwin' ]; then sysctl hw.ncpu | awk '{print $2}'; elif [ `uname` == 'Linux' ]; then cat /proc/cpuinfo | grep processor | wc -l | awk '{print $1}'; else echo 1; fi; done;";
 # file_exists(file_path) determines whether a file exists at the specified path (relative or absolute). Returns a 1 or a 0. Works on OS X & Linux.
 function file_exists pipe 'while read file_path; do if [ -f "$file_path" ]; then echo 1; else echo 0; fi; done;';
-# get_worker_id() and get_num_workers() are for use in the context of mpirun, a cluster computing utility. If the runtime environment does not include the related utility getid, then both of these functions will return 1.
-# In the proper context, get_num_workers will return the number of cloned processes working in this directory, and get_worker_id will return the worker id of this process in the range of 0 to N-1. 
-function get_worker_id pipe "while read foo; do if [ -z $(which getid 2>/dev/null) ]; then echo 0; else getid | awk '{print $1}'; fi; done";
-function get_num_workers pipe "while read foo; do if [ -z $(which getid 2>/dev/null) ]; then echo 1; else getid | awk '{print $2}'; fi; done";
+param num_workers default 1;
+param worker_id default 0;
 
 
 
@@ -197,6 +195,7 @@ for { t in SOLAR_CSP_TECHNOLOGIES } {
   let technologies_compete_for_space[t] := 1;
 }
 let technologies_compete_for_space['Central_PV'] := 1;
+let technologies_compete_for_space['Concentrating_PV'] := 1;
 
 table fuel_costs "inputs/fuel_costs.tab" IN:
 	[load_area, fuel, year], fuel_price;

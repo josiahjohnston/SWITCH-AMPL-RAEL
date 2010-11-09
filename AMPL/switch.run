@@ -1,13 +1,14 @@
-include windsun.run;
+#include windsun.run;
 
 param cost_problem symbolic;
 param cost_problem_path symbolic;
 param cost_solution_path symbolic;
 
+display num_workers, worker_id;
 
 for {c in CARBON_COSTS} { 
 
-  if (ord(c) mod get_num_workers() = get_worker_id() )
+  if (ord(c) mod num_workers = worker_id )
   then {
     let carbon_cost := c;
     let cost_problem       := results_path & "sol" & carbon_cost & "cost";
@@ -31,11 +32,6 @@ for {c in CARBON_COSTS} {
 	  include record_results.run;
     
     } else {
-    # Determine if the cost problem already exists. 
-    if ( file_exists(cost_problem_path) )
-    then {
-      printf "\nThe cost problem file exists for a carbon cost of %d. This probably means another process is working on solving it. Delete the file %s.nl if this is not the case. \n", carbon_cost, cost_problem;
-    } else {
       
       shell("touch " & cost_problem  & ".nl" );
       printf "\nCost solution not found on disk for a carbon cost of %d; solving optimization problem.\n", carbon_cost;
@@ -54,7 +50,6 @@ for {c in CARBON_COSTS} {
       # export the results to csv files and the like if they haven't already been exported
       include record_results.run;
     
-    }
     }
   } 
 }

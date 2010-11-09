@@ -170,11 +170,11 @@ mysql $connection_string -e "select load_area, project_id as hydro_project_id, s
 
 echo '	proposed_projects.tab...'
 echo ampl.tab 3 10 > proposed_projects.tab
-mysql $connection_string -e "select project_id, proposed_projects.load_area, technology, if(location_id is NULL, 0, location_id) as location_id, if(capacity_limit is NULL, 0, capacity_limit) as capacity_limit, capacity_limit_conversion, connect_cost_per_mw, price_and_dollar_year, overnight_cost, fixed_o_m, variable_o_m, overnight_cost_change, nonfuel_startup_cost from proposed_projects join load_area_info using (area_id) where ( avg_cap_factor_percentile_by_intermittent_tech >= 0.75 or cumulative_avg_MW_tech_load_area <= 5 * total_yearly_load_mwh / 8766 or rank_by_tech_in_load_area <= 10 or avg_cap_factor_percentile_by_intermittent_tech is null or technology = 'Wind');" >> proposed_projects.tab
+mysql $connection_string -e "select project_id, proposed_projects.load_area, technology, if(location_id is NULL, 0, location_id) as location_id, if(capacity_limit is NULL, 0, capacity_limit) as capacity_limit, capacity_limit_conversion, connect_cost_per_mw, price_and_dollar_year, overnight_cost, fixed_o_m, variable_o_m, overnight_cost_change, nonfuel_startup_cost from proposed_projects join load_area_info using (area_id) where ( ( avg_cap_factor_percentile_by_intermittent_tech >= 0.75 or cumulative_avg_MW_tech_load_area <= 5 * total_yearly_load_mwh / 8766 or rank_by_tech_in_load_area <= 10 or avg_cap_factor_percentile_by_intermittent_tech is null or technology = 'Wind') and technology <> 'Concentrating_PV' );" >> proposed_projects.tab
 
 echo '	competing_locations.tab...'
 echo ampl.tab 1 > competing_locations.tab
-mysql $connection_string -e "select distinct location_id from _proposed_projects p where (select count(*) from proposed_projects p2 where p.location_id = p2.location_id)>1 and location_id!=0 and technology_id in (SELECT technology_id FROM generator_info g where technology in ('Central_PV','CSP_Trough_No_Storage','CSP_Trough_6h_Storage'));" >> competing_locations.tab
+mysql $connection_string -e "select distinct location_id from _proposed_projects p where (select count(*) from proposed_projects p2 where p.location_id = p2.location_id)>1 and location_id!=0 and technology_id in (SELECT technology_id FROM generator_info g where technology in ('Central_PV','CSP_Trough_No_Storage','CSP_Trough_6h_Storage', 'Concentrating_PV'));" >> competing_locations.tab
 # If there aren't any competing locations, mysql won't print the column header, which in turn causes an error in AMPL. The following if statement will ensure the column header is present in the file as per AMPL's expectations.
 if [ `cat competing_locations.tab | wc -l | sed 's/ //g'` -eq 1 ]; then
   echo location_id >> competing_locations.tab
@@ -182,7 +182,7 @@ fi
 
 echo '	cap_factor.tab...'
 echo ampl.tab 4 1 > cap_factor.tab
-mysql $connection_string -e "select project_id, proposed_projects.load_area, proposed_projects.technology, study_hour as hour, cap_factor from _cap_factor_intermittent_sites c join study_hours_all h on (h.hournum=c.hour) join proposed_projects using (project_id) join load_area_info using (area_id) where ( avg_cap_factor_percentile_by_intermittent_tech >= 0.75 or cumulative_avg_MW_tech_load_area <= 5 * total_yearly_load_mwh / 8766 or rank_by_tech_in_load_area <= 10  or technology = 'Wind') and $TIMESAMPLE;" >> cap_factor.tab
+mysql $connection_string -e "select project_id, proposed_projects.load_area, proposed_projects.technology, study_hour as hour, cap_factor from _cap_factor_intermittent_sites c join study_hours_all h on (h.hournum=c.hour) join proposed_projects using (project_id) join load_area_info using (area_id) where ( ( avg_cap_factor_percentile_by_intermittent_tech >= 0.75 or cumulative_avg_MW_tech_load_area <= 5 * total_yearly_load_mwh / 8766 or rank_by_tech_in_load_area <= 10 or avg_cap_factor_percentile_by_intermittent_tech is null or technology = 'Wind') and technology <> 'Concentrating_PV' ) and $TIMESAMPLE;" >> cap_factor.tab
 
 echo '	generator_info.tab...'
 echo ampl.tab 1 24 > generator_info.tab

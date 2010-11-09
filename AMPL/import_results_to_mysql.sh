@@ -397,18 +397,6 @@ mysql $connection_string -e "select * from gen_cap_summary_tech_by_period WHERE 
 echo 'Exporting gen_cap_summary_fuel_by_period.txt...'
 mysql $connection_string -e "select * from gen_cap_summary_fuel_by_period WHERE scenario_id = $SCENARIO_ID;" > $results_graphing_dir/gen_cap_summary_fuel_by_period.txt
 
-echo 'Exporting dispatch_summary_hourly_tech.txt...'
-mysql $connection_string -e "select * from gen_hourly_summary_by_tech WHERE scenario_id = $SCENARIO_ID;" > $results_graphing_dir/dispatch_summary_hourly_tech.txt
-
-echo 'Exporting dispatch_hourly_summary_la_by_tech.txt...'
-mysql $connection_string -e "select * from gen_hourly_summary_la_by_tech WHERE scenario_id = $SCENARIO_ID;" > $results_graphing_dir/dispatch_hourly_summary_la_by_tech.txt
-
-echo 'Exporting dispatch_summary_hourly_fuel.txt...'
-mysql $connection_string -e "select * from gen_hourly_summary_by_fuel WHERE scenario_id = $SCENARIO_ID;" > $results_graphing_dir/dispatch_summary_hourly_fuel.txt
-
-echo 'Exporting dispatch_hourly_summary_la_by_fuel.txt...'
-mysql $connection_string -e "select * from gen_hourly_summary_la_by_fuel WHERE scenario_id = $SCENARIO_ID;" > $results_graphing_dir/dispatch_hourly_summary_la_by_fuel.txt
-
 echo 'Exporting co2_cc.txt...'
 mysql $connection_string -e "select * from co2_cc WHERE scenario_id = $SCENARIO_ID;" > $results_graphing_dir/co2_cc.txt
 
@@ -426,4 +414,16 @@ mysql $connection_string -e "select * from transmission_directed_hourly where sc
 
 echo 'Exporting transmission_avg_directed.txt...'
 mysql $connection_string -e "select * from transmission_avg_directed where scenario_id = $SCENARIO_ID;" > $results_graphing_dir/transmission_avg_directed.txt
+
+echo 'Exporting dispatch_summary_hourly_fuel.txt...'
+mysql $connection_string -e "select * from gen_hourly_summary_by_fuel WHERE scenario_id = $SCENARIO_ID;" > $results_graphing_dir/dispatch_summary_hourly_fuel.txt
+
+echo 'Exporting dispatch_summary_hourly_tech.txt...'
+mysql $connection_string -e "select * from gen_hourly_summary_by_tech WHERE scenario_id = $SCENARIO_ID;" > $results_graphing_dir/dispatch_summary_hourly_tech.txt
+
+echo 'Exporting dispatch_hourly_summary_la_by_tech.txt...'
+mysql $connection_string -e "select * from gen_hourly_summary_la_by_tech WHERE scenario_id = $SCENARIO_ID;" > $results_graphing_dir/dispatch_hourly_summary_la_by_tech.txt
+
+echo 'Exporting dispatch_hourly_summary_la_by_fuel.txt...'
+mysql $connection_string -e "select * from gen_hourly_summary_la_by_fuel WHERE scenario_id = $SCENARIO_ID;" > $results_graphing_dir/dispatch_hourly_summary_la_by_fuel.txt
 
