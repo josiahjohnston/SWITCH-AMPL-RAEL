@@ -45,8 +45,31 @@ for { (a, pid) in PROJ_PUMPED_HYDRO, p in PERIODS } {
   let Pumped_Hydro_Fixed_OM_by_Plant_and_Period[a, pid, p] := 
 	hydro_total_capacity[a, pid] * pumped_hydro_fixed_o_m * economic_multiplier[a] * factor_to_bring_annual_costs_to_start_of_period;
 }
-
+for { a in LOAD_AREAS, h in TIMEPOINTS, p in PERIODS: period[h] = p and num_bio_breakpoints[a] > 0 } {
+  let Biomass_Solid_Fuel_Cost[a, h] :=
+	if ConsumeBioSolid[a, p] = 0 then 0 else
+	# total cost in each load area in each period for biomass solid
+  		(<< { bp in 1..num_bio_breakpoints[a]-1 } breakpoint_mbtus_per_period[a, bp]; 
+	  	   { bp in 1..num_bio_breakpoints[a] } price_dollars_per_mbtu[a, bp] >>
+	   		ConsumeBioSolid[a, p] * ( 1 / num_years_per_period ) * factor_to_bring_annual_costs_to_start_of_period)
+	# divided by the total fuel usage
+	   / ConsumeBioSolid[a, p];	   		
+}
 for { (pid, a, t) in PROJECTS, h in TIMEPOINTS } {
+  let Fuel_Cost_Incurred_Hourly[ pid, a, t, h ] := 
+	if fuel[t] = 'Bio_Solid' then
+		ProducePowerNonIntermittent[pid, a, t, h] * heat_rate[t] * Biomass_Solid_Fuel_Cost[a, h]
+	# now on to all other fuels
+		else	
+	# power produced
+	( ( if not intermittent[t]
+		then ProducePowerNonIntermittent[pid, a, t, h]
+		else
+		(sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr])
+			* cap_factor[pid, a, t, h] * ( 1 - forced_outage_rate[t] ) )
+	# convert to hourly
+	* heat_rate[t] * fuel_cost_hourly[a, fuel[t], h] / num_years_per_period * factor_to_bring_annual_costs_to_start_of_period
+	);
   let Carbon_Emissions[ pid, a, t, h ] := 
 	( if not intermittent[t]
 		then ProducePowerNonIntermittent[pid, a, t, h]
@@ -61,13 +84,7 @@ for { (pid, a, t) in PROJECTS, h in TIMEPOINTS } {
 		(sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr])
 			* cap_factor[pid, a, t, h] * ( 1 - forced_outage_rate[t] ) )
 	* carbon_content[fuel[t]] * carbon_cost / num_years_per_period * factor_to_bring_annual_costs_to_start_of_period;
-  let Fuel_Cost_Incurred_Hourly[ pid, a, t, h ] := 
-	( if not intermittent[t]
-		then ProducePowerNonIntermittent[pid, a, t, h]
-		else
-		(sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr])
-			* cap_factor[pid, a, t, h] * ( 1 - forced_outage_rate[t] ) )
-	* heat_rate[t] * fuel_cost_hourly[a, fuel[t], h] / num_years_per_period * factor_to_bring_annual_costs_to_start_of_period;
+
   let Variable_Cost_Incurred_Hourly[ pid, a, t, h ] := 
 	( if not intermittent[t]
 		then ProducePowerNonIntermittent[pid, a, t, h]
@@ -249,7 +266,7 @@ for {p in PERIODS} {
 		100 * Transmission_Losses_by_Period[p] / Gross_Power_by_Period[p], 
 		100 * Distribution_Losses_by_Period[p] / Gross_Power_by_Period[p],
 		100 * Storage_Losses_by_Period[p]      / Gross_Power_by_Period[p], 
-		100 * (Gross_Power_by_Period[p] - total_loads_by_period_weighted[p] - Transmission_Losses_by_Period[p] - Storage_Losses_by_Period[p]) / Gross_Power_by_Period[p];
+		100 * (Gross_Power_by_Period[p] - total_loads_by_period_weighted[p] - Distribution_Losses_by_Period[p] - Transmission_Losses_by_Period[p] - Storage_Losses_by_Period[p]) / Gross_Power_by_Period[p];
 	
 	printf "Total Load  = %.0f\n", total_loads_by_period_weighted[p];
 	printf "Total Trans Losses  = %.0f\n", Transmission_Losses_by_Period[p];

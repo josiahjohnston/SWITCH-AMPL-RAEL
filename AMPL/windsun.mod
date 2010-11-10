@@ -152,15 +152,26 @@ param fuel {TECHNOLOGIES} symbolic in FUELS;
 # annual fuel price forecast in $/MBtu
 param fuel_price {LOAD_AREAS, FUELS, YEARS} default 0, >= 0;
 
+# biomass supply curve params
+set LOAD_AREAS_AND_BIO_BREAKPOINTS dimen 2;
+
+param num_bio_breakpoints {a in LOAD_AREAS} = max( { (la, bp) in LOAD_AREAS_AND_BIO_BREAKPOINTS: la = a } bp , 0 );
+param price_dollars_per_mbtu {a in LOAD_AREAS, bp in 1..num_bio_breakpoints[a]}
+	>= if bp = 1 then 0 else price_dollars_per_mbtu[a, bp-1];
+param breakpoint_mbtus_per_year {a in LOAD_AREAS, bp in 1..num_bio_breakpoints[a]-1}
+	> if bp = 1 then 0 else breakpoint_mbtus_per_year[a, bp-1];
+param breakpoint_mbtus_per_period {a in LOAD_AREAS, bp in 1..num_bio_breakpoints[a]-1}
+	= breakpoint_mbtus_per_year[a, bp] * num_years_per_period;
+
+	
 # carbon content (tons) per MBtu of each fuel
 param carbon_content {FUELS} default 0, >= 0;
 
 # For now, all hours in each study period use the same fuel cost which averages annual prices over the course of each study period.
 # This could be updated to use fuel costs that vary by month, or for an hourly model, it could interpolate between annual forecasts 
-param fuel_cost_hourly {a in LOAD_AREAS, f in FUELS, h in TIMEPOINTS} := 
-	( sum{ y in YEARS: y >= period[h] and y < period[h] + num_years_per_period } fuel_price[a, f, y] )
-	/ num_years_per_period;
-
+param fuel_cost_hourly {a in LOAD_AREAS, f in FUELS, h in TIMEPOINTS: f <> 'Bio_Solid'} := 
+		( sum{ y in YEARS: y >= period[h] and y < period[h] + num_years_per_period } fuel_price[a, f, y] ) / num_years_per_period;
+			  
 # heat rate (in MBtu/MWh)
 param heat_rate {TECHNOLOGIES} >= 0;
 
@@ -631,9 +642,12 @@ param fixed_o_m_by_period {(pid, a, t, p) in PROJECT_VINTAGES} =
 # but for now, since the hours are non-chronological samples within each study period,
 # they are all discounted by the same factor
 param variable_cost {(pid, a, t) in PROJECTS, h in TIMEPOINTS} =
-  	hours_in_sample[h] * (
-	  variable_o_m[pid, a, t] + heat_rate[t] * fuel_cost_hourly[a, fuel[t], h]
-	) / num_years_per_period
+  	variable_o_m[pid, a, t] * ( hours_in_sample[h] / num_years_per_period )
+    * factor_to_bring_annual_costs_to_start_of_period
+    * 1/(1+discount_rate)^(period[h] - base_year);
+
+param fuel_cost {(pid, a, t) in PROJECTS, h in TIMEPOINTS: fuel[t] <> 'Bio_Solid'} =
+  	heat_rate[t] * fuel_cost_hourly[a, fuel[t], h] * ( hours_in_sample[h] / num_years_per_period )
     * factor_to_bring_annual_costs_to_start_of_period
     * 1/(1+discount_rate)^(period[h] - base_year);
 
@@ -921,6 +935,9 @@ var OperateEPDuringPeriod {EP_PERIODS} >= 0, <= 1, integer;
 # number of MW to generate from each existing dispatchable plant, in each hour
 var ProducePowerEP {EP_AVAILABLE_HOURS} >= 0;
 
+# number of Mbtu of Biomass Solid fuel to consume each period in each load area.
+var ConsumeBioSolid {a in LOAD_AREAS, p in PERIODS: num_bio_breakpoints[a] > 0 } >= 0;
+
 # the load in MW drawn from grid from storing electrons in new storage plants
 var StoreEnergy {PROJ_STORAGE, TIMEPOINTS, RPS_FUEL_CATEGORY} >= 0;
 # number of MW to generate from each storage project, in each hour. 
@@ -989,6 +1006,21 @@ minimize Power_Cost:
 		(sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr])
 			* cap_factor[pid, a, t, h] * ( 1 - forced_outage_rate[t] ) )
 	 * ( variable_cost[pid, a, t, h] + carbon_cost_per_mwh[t, h] )
+	# Fuel costs
+	+ sum {(pid, a, t) in PROJECTS, h in TIMEPOINTS: fuel[t] <> 'Bio_Solid' } 
+	    ( if not intermittent[t]
+		then ProducePowerNonIntermittent[pid, a, t, h]
+		else
+		(sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr])
+			* cap_factor[pid, a, t, h] * ( 1 - forced_outage_rate[t] ) )
+	 * fuel_cost[pid, a, t, h]
+	# BioSolid fuel costs - ConsumeBioSolid is the Mbtus of biomass consumed per period per load area
+	# so this is annualized because costs in the objective function are annualized for proper discounting
+	+ sum {a in LOAD_AREAS, p in PERIODS: num_bio_breakpoints[a] > 0} 
+		<< { bp in 1..num_bio_breakpoints[a]-1 } breakpoint_mbtus_per_period[a, bp]; 
+	   { bp in 1..num_bio_breakpoints[a] } price_dollars_per_mbtu[a, bp] >>
+	   		ConsumeBioSolid[a, p] * ( 1 / num_years_per_period ) * factor_to_bring_annual_costs_to_start_of_period * ( 1 / ( 1 + discount_rate )^(p - base_year) )
+
 	# Variable costs for storage projects: currently attributed to the dispatch side of storage
 	# for CAES, power output is apportioned between Power_Produced and ReleaseEnergy by storage_efficiency_caes through the constraint CAES_Combined_Dispatch
 	+ sum {(pid, a, t) in PROJ_STORAGE, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY} 
@@ -1211,6 +1243,20 @@ subject to EP_Power_From_Intermittent_Plants { (a,e,h) in EP_AVAILABLE_HOURS: ep
 
 subject to EP_Power_From_Baseload_Plants { (a,e,h) in EP_AVAILABLE_HOURS: ep_baseload[a,e] }: 
     ProducePowerEP[a, e, h] = OperateEPDuringPeriod[a, e, period[h]] * ep_size_mw[a, e] * ( 1 - ep_forced_outage_rate[a, e] ) * ( 1 - ep_scheduled_outage_rate[a, e] );
+
+
+########################################
+# FUEL CONSTRAINTS
+
+subject to Bio_Solid_Consumption {a in LOAD_AREAS, p in PERIODS: num_bio_breakpoints[a] > 0 }:
+	sum {(pid, a, t) in PROJECTS, h in TIMEPOINTS: period[h] = p and fuel[t] = 'Bio_Solid'} 
+	# the hourly MWh output of biomass solid projects in baseload mode is below - ProducePowerNonIntermittent wasn't used because it made the compiled MIP more complex
+		( (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr])
+   		* ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] ) )
+	# weight each hour to get the total biomass consumed
+      * hours_in_sample[h] * heat_rate[t]
+	= ConsumeBioSolid[a, p];
+
 
 ########################################
 # GENERATOR INSTALLATION CONSTRAINTS           

@@ -267,7 +267,8 @@ insert into _fuel_prices_regional
     from fuel_prices.regional_fuel_prices, load_area_info
     where load_area_info.load_area = fuel_prices.regional_fuel_prices.load_area
     and fuel not like 'DistillateFuelOil'
-    and fuel not like 'ResidualFuelOil';
+    and fuel not like 'ResidualFuelOil'
+    and fuel not like 'Bio_Solid';
 
 -- add fuel price forcasts out to 2100 and beyond
 -- this takes the fuel price from 5 years before the end of the fuel price projections
@@ -343,6 +344,37 @@ CREATE VIEW fuel_prices_regional as
 SELECT _fuel_prices_regional.scenario_id, load_area_info.area_id, load_area, fuel, year, fuel_price 
     FROM _fuel_prices_regional, load_area_info
     WHERE _fuel_prices_regional.area_id = load_area_info.area_id;
+
+-- BIOMASS SUPPLY CURVE
+drop table if exists biomass_solid_supply_curve;
+create table biomass_solid_supply_curve(
+	breakpoint_id int,
+	load_area varchar(11),
+	price_dollars_per_mbtu double,
+	mbtus_per_year double,
+	breakpoint_mbtus_per_year double,
+	UNIQUE INDEX bp_la (breakpoint_id, load_area),
+	INDEX load_area (load_area)
+);
+
+load data local infile
+	'biomass_solid_supply_curve_by_load_area.csv'
+	into table biomass_solid_supply_curve
+	fields terminated by	','
+	optionally enclosed by '"'
+	ignore 1 lines;
+
+-- the AMPL forumlation of piecewise linear curves requires a slope above the last breakpoint.
+-- this slope has no meaning for us, as we cap biomass installations above this level
+-- but we still need something, so we'll say biomass costs $9999/Mbtu above this level.
+insert into biomass_solid_supply_curve
+	select	max_breakpoint_id + 1 as breakpoint_id,
+			load_area,
+			9999 as price_dollars_per_mbtu,
+			null as mbtus_per_year,
+			null as breakpoint_mbtus_per_year
+	from 	(select load_area, max(breakpoint_id) as max_breakpoint_id from biomass_solid_supply_curve group by 1) as max_breakpoint_table;
+
 
 -- RPS----------------------
 drop table if exists fuel_info;

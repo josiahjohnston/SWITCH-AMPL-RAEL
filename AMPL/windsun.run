@@ -63,11 +63,12 @@ problem Cost_Minimization:
 	Maximum_Resource_Competing_Tech, Maximum_Resource_Location_Unspecified, Minimum_GenSize, BuildGenOrNot_Constraint, SymetricalTrans, Minimum_LocalTD, 
 
   # Dispatch Decisions
-	ProducePowerNonIntermittent, OperateEPDuringPeriod, ProducePowerEP, DispatchTransFromXToY, StoreEnergy, ReleaseEnergy,
+	ProducePowerNonIntermittent, OperateEPDuringPeriod, ProducePowerEP, ConsumeBioSolid, DispatchTransFromXToY, StoreEnergy, ReleaseEnergy,
 	Dispatch_NonPumped_Hydro, Dispatch_Pumped_Hydro_Watershed_Electrons, Dispatch_Pumped_Hydro_Storage, Store_Pumped_Hydro,
   # Dispatch Constraints
 	Power_From_Dispatchable_Plants, Power_From_Baseload_Plants,
 	EP_Power_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Baseload_Plants,
+	Bio_Solid_Consumption,
 	Maximum_DispatchTransFromXToY, Maximum_DispatchTransFromXToY_Reserve, 
 	Maximum_Dispatch_NonPumped_Hydro, Average_NonPumped_Hydro_Output,        Minimum_Dispatch_NonPumped_Hydro, 
 	Maximum_Dispatch_Pumped_Hydro,    Average_Pumped_Hydro_Watershed_Output,
@@ -102,6 +103,7 @@ problem Transmission_Minimization:
   # Dispatch Constraints
 	Power_From_Dispatchable_Plants, Power_From_Baseload_Plants,
 	EP_Power_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Baseload_Plants,
+	Bio_Solid_Consumption, 
 	Maximum_DispatchTransFromXToY, Maximum_DispatchTransFromXToY_Reserve, 
 	Maximum_Dispatch_NonPumped_Hydro, Average_NonPumped_Hydro_Output, Minimum_Dispatch_NonPumped_Hydro, 
 	Maximum_Dispatch_Pumped_Hydro,    Average_Pumped_Hydro_Watershed_Output,
@@ -201,6 +203,14 @@ table fuel_costs "inputs/fuel_costs.tab" IN:
 	[load_area, fuel, year], fuel_price;
 read table fuel_costs;
 
+table biomass_supply_curve_slope "inputs/biomass_supply_curve_slope.tab" IN:
+	LOAD_AREAS_AND_BIO_BREAKPOINTS <- [load_area, breakpoint_id], price_dollars_per_mbtu;
+read table biomass_supply_curve_slope;
+
+table biomass_supply_curve_breakpoint "inputs/biomass_supply_curve_breakpoint.tab" IN:
+	[load_area, breakpoint_id], breakpoint_mbtus_per_year;
+read table biomass_supply_curve_breakpoint;
+
 table fuel_info "inputs/fuel_info.tab" IN:
 	FUELS <- [fuel], rps_fuel_category, carbon_content;
 read table fuel_info;
@@ -249,6 +259,7 @@ param Carbon_Emissions { (pid, a, t) in PROJECTS, h in TIMEPOINTS };
 param EP_Carbon_Emissions { (a, e, h) in EP_AVAILABLE_HOURS }; 
 param Carbon_Cost_Incurred_Hourly { (pid, a, t) in PROJECTS, h in TIMEPOINTS }; 
 param EP_Carbon_Cost_Incurred_Hourly { (a, e, h) in EP_AVAILABLE_HOURS }; 
+param Biomass_Solid_Fuel_Cost { a in LOAD_AREAS, h in TIMEPOINTS: num_bio_breakpoints[a] > 0 };
 param Fuel_Cost_Incurred_Hourly { (pid, a, t) in PROJECTS, h in TIMEPOINTS }; 
 param EP_Fuel_Cost_Incurred_Hourly { (a, e, h) in EP_AVAILABLE_HOURS }; 
 param Variable_Cost_Incurred_Hourly { (pid, a, t) in PROJECTS, h in TIMEPOINTS }; 

@@ -286,20 +286,27 @@ update	proposed_projects
 
 
 -- BIOMASS ---------------------
+-- the conversion from mbtu to cap_mw goes as follows:
+	-- the heat rates are EIA heat rates (see generator costs for more info)
+	-- for Bio_Gas, the heat rate is 13.648 mbtus/MWh
+	-- for Bio_Solid, the heat rate is 9.646 mbtus/MWh 
+	-- so mbtus_per_year / 8766 -> mbtus_per_hour
+
 insert into proposed_projects (technology, load_area, capacity_limit, capacity_limit_conversion)
 	select 	'Biomass_IGCC',
 			load_area,
-			cap_mw,
+			max(mbtus_per_year / 8766) / 9.646 as cap_mw,
 			1 as capacity_limit_conversion
-		from biomass_supply_by_load_area
-		where fuel like 'Bio_Solid';
+		from biomass_supply_curve_by_load_area
+		where fuel like 'Bio_Solid'
+		group by 1,2,4;
 
 insert into proposed_projects (technology, load_area, capacity_limit, capacity_limit_conversion)
 	select 	'Bio_Gas',
 			load_area,
-			cap_mw,
+			( mbtus_per_year / 13.648 ) / 8766,
 			1 as capacity_limit_conversion
-		from biomass_supply_by_load_area
+		from biomass_supply_curve_by_load_area
 		where fuel like 'Bio_Gas';
 
 
@@ -613,86 +620,3 @@ TO '/Volumes/1TB_RAID/Models/Switch\ Input\ Data/Generators/proposed_projects.cs
 WITH 	CSV
 		HEADER;
 
-
-
-
--- OLD CODE-----
-
-
-
--- no hydro builds yet
--- -- HYDRO (CONVENTIONAL) ---------
--- insert into proposed_projects (technology, original_dataset_id, capacity_limit, the_geom)
--- 	select conventional_hydro_sites_table.*
--- 		from wecc_load_areas,
--- 			(select  'Hydro', plant_id, sum(cap_mw) as capacity_limit, plant_name, centroid(st_collect(the_geom)) as the_geom
--- 				from ventyx_e_units_point
---  				where pm_group like 'Hydraulic Turbine'
---  				and plant_id not in (select plant_id from ventyx_e_plants_point where county like 'Offshore')
---  				and statustype like 'Planned'
---  				group by plant_name, plant_id
---  				order by plant_id) as conventional_hydro_sites_table
--- 		where (intersects(wecc_load_areas.polygon_geom, conventional_hydro_sites_table.the_geom));
--- 
--- 
--- -- HYDRO (PUMPED STORAGE) ---------
--- insert into proposed_projects (technology, original_dataset_id, capacity_limit, site_name_or_notes, the_geom)
--- 	select pumped_storage_hydro_sites_table.*
--- 		from wecc_load_areas,
--- 			(select  'Pumped_Storage', plant_id, sum(cap_mw) as capacity_limit, plant_name, centroid(st_collect(the_geom)) as the_geom
--- 				from ventyx_e_units_point
---  				where pm_group like 'Pumped Storage'
---  				and plant_id not in (select plant_id from ventyx_e_plants_point where county like 'Offshore')
---  				and statustype like 'Planned'
---  				group by plant_name, plant_id
---  				order by plant_id) as pumped_storage_hydro_sites_table
--- 		where (intersects(wecc_load_areas.polygon_geom, pumped_storage_hydro_sites_table.the_geom));
--- 
-
-
-
-
--- -- extra code to create a table of currently proposed capacity grouped by load area, primemover and fuel
--- -- such that these sites could be developed quickly at the start of the model if desires
--- -- this table is envisioned to be used as a maximum build constraint within the first investment period if it is close to the current year
--- -- I don't know to what fuel REF and WH refer, but they're both small, so I'll take them out.
--- drop table if exists proposed_capacity_by_load_area_generic;
--- create table proposed_capacity_by_load_area_generic with oids as
--- SELECT	load_area,
--- 		replace(pm_group, ' ', '_'),
--- 		fuel_type,
--- 		sum(cap_mw) as proposed_capacity_limit
--- 	FROM ventyx_e_units_point, wecc_load_areas
--- 	where 		statustype like 'Planned'
--- 		and 	intersects(wecc_load_areas.polygon_geom, ventyx_e_units_point.the_geom)
--- 		and		fuel_type not in ('REF', 'WH')
--- 		and 	plant_id not in (select plant_id from ventyx_e_plants_point where county like 'Offshore')
--- 	group by load_area, pm_group, fuel_type
---   	order by load_area, pm_group, fuel_type;
---   
--- drop table if exists offshore_proposed_tmp;
--- create temporary table offshore_proposed_tmp as 
--- select	load_area,
--- 		pm_group,
--- 		fuel_type,
--- 		sum(cap_mw) as proposed_capacity_limit
--- 	from wecc_load_areas, ventyx_e_units_point,
--- 		(select unit_id, min(ST_distance(wecc_load_areas.polygon_geom, ventyx_e_units_point.the_geom)) as min_distance
--- 		from wecc_load_areas, ventyx_e_units_point
--- 		where plant_id in (select plant_id from ventyx_e_plants_point where county like 'Offshore' and state in ('WA', 'OR', 'CA', 'BC'))
--- 		and statustype like 'Planned'
--- 		group by unit_id) as unit_id_load_area_distance_table
--- 	where min_distance = ST_distance(wecc_load_areas.polygon_geom, ventyx_e_units_point.the_geom)
--- 	and unit_id_load_area_distance_table.unit_id = ventyx_e_units_point.unit_id
--- 	group by load_area, pm_group, fuel_type;
--- 
--- insert into proposed_capacity_by_load_area_generic
--- 	select load_area, 'Offshore_Wind_Turbine', fuel_type, proposed_capacity_limit
--- 	from offshore_proposed_tmp
--- 	where pm_group like 'Wind Turbine';
--- 
--- insert into proposed_capacity_by_load_area_generic
--- 	select load_area,'Offshore_Hydraulic_Turbine', fuel_type, proposed_capacity_limit
--- 	from offshore_proposed_tmp
--- 	where pm_group like 'Hydraulic Turbine';
--- 

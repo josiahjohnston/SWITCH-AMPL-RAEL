@@ -192,6 +192,14 @@ echo '	fuel_costs.tab...'
 echo ampl.tab 3 1 > fuel_costs.tab
 mysql $connection_string -e "select load_area, fuel, year, fuel_price from fuel_prices_regional where scenario_id = $REGIONAL_FUEL_COST_SCENARIO_ID and year >= $STUDY_START_YEAR and year <= $STUDY_END_YEAR" >> fuel_costs.tab
 
+echo '	biomass_supply_curve_slope.tab...'
+echo ampl.tab 2 1 > biomass_supply_curve_slope.tab
+mysql $connection_string -e "select load_area, breakpoint_id, price_dollars_per_mbtu from biomass_solid_supply_curve order by load_area, breakpoint_id" >> biomass_supply_curve_slope.tab
+
+echo '	biomass_supply_curve_breakpoint.tab...'
+echo ampl.tab 2 1 > biomass_supply_curve_breakpoint.tab
+mysql $connection_string -e "select load_area, breakpoint_id, breakpoint_mbtus_per_year from biomass_solid_supply_curve where breakpoint_mbtus_per_year is not null order by load_area, breakpoint_id" >> biomass_supply_curve_breakpoint.tab
+
 echo '	fuel_info.tab...'
 echo ampl.tab 1 2 > fuel_info.tab
 mysql $connection_string -e "select fuel, rps_fuel_category, carbon_content from fuel_info;" >> fuel_info.tab
