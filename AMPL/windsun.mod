@@ -220,23 +220,6 @@ param dispatchable {t in TECHNOLOGIES} binary =
 # especially considering that if a project is economical, normally Switch will build a few hundred MW per load area
 param min_build_capacity {TECHNOLOGIES} >= 0;
 
-# the minimum capacity in MW that a project can be dispatched due to operation constraints
-# (i.e. CCGTs don't operate at 5% capacity)
-param min_dispatch_fraction {TECHNOLOGIES} >= 0;
-
-# the minimum amount of hours a generator must be operating (at >= min_dispatch_fraction)
-# if that generator is to be turned on at all
-param min_runtime {TECHNOLOGIES} >= 0;
-
-# the minimum amount of hours a generator must be left off before ramping up again
-param min_downtime {TECHNOLOGIES} >= 0;
-
-# the maximum ramp rate (unused at the moment)
-param max_ramp_rate_mw_per_hour {TECHNOLOGIES} >= 0;
-
-# the amount of fuel burned in MBtu that is needed to start a generator from cold
-param startup_fuel_mbtu {TECHNOLOGIES} >= 0;
-
 # Whether or not technologies located at the same place will compete for space
 param technologies_compete_for_space {TECHNOLOGIES} >= 0, <= 1 default 0;
 
@@ -303,9 +286,6 @@ param variable_o_m {PROJECTS} >= 0;
 
 # annual rate of change of overnight cost, beginning at price_and_dollar_year
 param overnight_cost_change {PROJECTS};
-
-# the nonfuel costs incurred by starting a plant from cold to producing powers
-param nonfuel_startup_cost {PROJECTS};
 
 set PROJ_RESOURCE_LIMITED = {(pid, a, t) in PROJECTS: resource_limited[t]};
 
@@ -1232,6 +1212,9 @@ subject to Power_From_Baseload_Plants { (pid, a, t) in PROJECTS, h in TIMEPOINTS
     ProducePowerNonIntermittent[pid, a, t, h] = 
     (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr])
     * ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] );
+
+subject to EP_Operational_Continuity {(a, e, p) in EP_PERIODS: p > first(PERIODS)}:
+	OperateEPDuringPeriod[a, e, p] <= OperateEPDuringPeriod[a, e, prev(p, PERIODS)];
 
 # existing dispatchable plants can only be used if they are operational this period
 subject to EP_Power_From_Dispatchable_Plants { (a,e,h) in EP_AVAILABLE_HOURS: ep_dispatchable[a,e] }:

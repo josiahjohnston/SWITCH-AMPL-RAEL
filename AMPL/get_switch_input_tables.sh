@@ -169,8 +169,8 @@ echo ampl.tab 3 4 > hydro.tab
 mysql $connection_string -e "select load_area, project_id as hydro_project_id, study_date as date, technology, technology_id, capacity_mw, avg_output from hydro_monthly_limits l join study_dates_all d on l.year = year(d.date_utc) and l.month=month(d.date_utc) where $DATESAMPLE order by 1, 2, month, year;" >> hydro.tab
 
 echo '	proposed_projects.tab...'
-echo ampl.tab 3 10 > proposed_projects.tab
-mysql $connection_string -e "select project_id, proposed_projects.load_area, technology, if(location_id is NULL, 0, location_id) as location_id, if(capacity_limit is NULL, 0, capacity_limit) as capacity_limit, capacity_limit_conversion, connect_cost_per_mw, price_and_dollar_year, overnight_cost, fixed_o_m, variable_o_m, overnight_cost_change, nonfuel_startup_cost from proposed_projects join load_area_info using (area_id) where ( ( avg_cap_factor_percentile_by_intermittent_tech >= 0.75 or cumulative_avg_MW_tech_load_area <= 5 * total_yearly_load_mwh / 8766 or rank_by_tech_in_load_area <= 10 or avg_cap_factor_percentile_by_intermittent_tech is null or technology = 'Wind') and technology <> 'Concentrating_PV' );" >> proposed_projects.tab
+echo ampl.tab 3 9 > proposed_projects.tab
+mysql $connection_string -e "select project_id, proposed_projects.load_area, technology, if(location_id is NULL, 0, location_id) as location_id, if(capacity_limit is NULL, 0, capacity_limit) as capacity_limit, capacity_limit_conversion, connect_cost_per_mw, price_and_dollar_year, overnight_cost, fixed_o_m, variable_o_m, overnight_cost_change from proposed_projects join load_area_info using (area_id) where technology <> 'Battery_Storage' and technology not like '%CCS%' and ( ( avg_cap_factor_percentile_by_intermittent_tech >= 0.75 or cumulative_avg_MW_tech_load_area <= 5 * total_yearly_load_mwh / 8766 or rank_by_tech_in_load_area <= 10 or avg_cap_factor_percentile_by_intermittent_tech is null or technology = 'Wind') and technology <> 'Concentrating_PV' );" >> proposed_projects.tab
 
 echo '	competing_locations.tab...'
 echo ampl.tab 1 > competing_locations.tab
@@ -180,17 +180,13 @@ if [ `cat competing_locations.tab | wc -l | sed 's/ //g'` -eq 1 ]; then
   echo location_id >> competing_locations.tab
 fi
 
-echo '	cap_factor.tab...'
-echo ampl.tab 4 1 > cap_factor.tab
-mysql $connection_string -e "select project_id, proposed_projects.load_area, proposed_projects.technology, study_hour as hour, cap_factor from _cap_factor_intermittent_sites c join study_hours_all h on (h.hournum=c.hour) join proposed_projects using (project_id) join load_area_info using (area_id) where ( ( avg_cap_factor_percentile_by_intermittent_tech >= 0.75 or cumulative_avg_MW_tech_load_area <= 5 * total_yearly_load_mwh / 8766 or rank_by_tech_in_load_area <= 10 or avg_cap_factor_percentile_by_intermittent_tech is null or technology = 'Wind') and technology <> 'Concentrating_PV' ) and $TIMESAMPLE;" >> cap_factor.tab
-
 echo '	generator_info.tab...'
-echo ampl.tab 1 24 > generator_info.tab
-mysql $connection_string -e "select technology, technology_id, min_build_year, fuel, heat_rate, construction_time_years, year_1_cost_fraction, year_2_cost_fraction, year_3_cost_fraction, year_4_cost_fraction, year_5_cost_fraction, year_6_cost_fraction, max_age_years, forced_outage_rate, scheduled_outage_rate, intermittent, resource_limited, baseload, min_build_capacity, min_dispatch_fraction, min_runtime, min_downtime, max_ramp_rate_mw_per_hour, startup_fuel_mbtu, storage from generator_info;" >> generator_info.tab
+echo ampl.tab 1 19 > generator_info.tab
+mysql $connection_string -e "select technology, technology_id, min_build_year, fuel, heat_rate, construction_time_years, year_1_cost_fraction, year_2_cost_fraction, year_3_cost_fraction, year_4_cost_fraction, year_5_cost_fraction, year_6_cost_fraction, max_age_years, forced_outage_rate, scheduled_outage_rate, intermittent, resource_limited, baseload, min_build_capacity, storage from generator_info where technology <> 'Battery_Storage' and technology not like '%CCS%';" >> generator_info.tab
 
 echo '	fuel_costs.tab...'
 echo ampl.tab 3 1 > fuel_costs.tab
-mysql $connection_string -e "select load_area, fuel, year, fuel_price from fuel_prices_regional where scenario_id = $REGIONAL_FUEL_COST_SCENARIO_ID and year >= $STUDY_START_YEAR and year <= $STUDY_END_YEAR" >> fuel_costs.tab
+mysql $connection_string -e "select load_area, fuel, year, fuel_price from fuel_prices_regional where fuel not like '%CCS%' and scenario_id = $REGIONAL_FUEL_COST_SCENARIO_ID and year >= $STUDY_START_YEAR and year <= $STUDY_END_YEAR" >> fuel_costs.tab
 
 echo '	biomass_supply_curve_slope.tab...'
 echo ampl.tab 2 1 > biomass_supply_curve_slope.tab
@@ -202,7 +198,7 @@ mysql $connection_string -e "select load_area, breakpoint_id, breakpoint_mbtus_p
 
 echo '	fuel_info.tab...'
 echo ampl.tab 1 2 > fuel_info.tab
-mysql $connection_string -e "select fuel, rps_fuel_category, carbon_content from fuel_info;" >> fuel_info.tab
+mysql $connection_string -e "select fuel, rps_fuel_category, carbon_content from fuel_info where fuel not like '%CCS%';" >> fuel_info.tab
 
 echo '	fuel_qualifies_for_rps.tab...'
 echo ampl.tab 2 1 > fuel_qualifies_for_rps.tab
@@ -213,5 +209,9 @@ echo '	misc_params.dat...'
 echo "param scenario_id           := $SCENARIO_ID;" >  misc_params.dat
 echo "param enable_rps            := $ENABLE_RPS;"  >> misc_params.dat
 echo "param num_years_per_period  := $number_of_years_per_period;"  >> misc_params.dat
+
+echo '	cap_factor.tab...'
+echo ampl.tab 4 1 > cap_factor.tab
+mysql $connection_string -e "select project_id, proposed_projects.load_area, proposed_projects.technology, study_hour as hour, cap_factor from _cap_factor_intermittent_sites c join study_hours_all h on (h.hournum=c.hour) join proposed_projects using (project_id) join load_area_info using (area_id) where ( ( avg_cap_factor_percentile_by_intermittent_tech >= 0.75 or cumulative_avg_MW_tech_load_area <= 5 * total_yearly_load_mwh / 8766 or rank_by_tech_in_load_area <= 10 or avg_cap_factor_percentile_by_intermittent_tech is null or technology = 'Wind') and technology <> 'Concentrating_PV' ) and $TIMESAMPLE;" >> cap_factor.tab
 
 cd ..

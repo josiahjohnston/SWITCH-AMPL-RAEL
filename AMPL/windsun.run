@@ -67,7 +67,7 @@ problem Cost_Minimization:
 	Dispatch_NonPumped_Hydro, Dispatch_Pumped_Hydro_Watershed_Electrons, Dispatch_Pumped_Hydro_Storage, Store_Pumped_Hydro,
   # Dispatch Constraints
 	Power_From_Dispatchable_Plants, Power_From_Baseload_Plants,
-	EP_Power_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Baseload_Plants,
+	EP_Operational_Continuity, EP_Power_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Baseload_Plants,
 	Bio_Solid_Consumption,
 	Maximum_DispatchTransFromXToY, Maximum_DispatchTransFromXToY_Reserve, 
 	Maximum_Dispatch_NonPumped_Hydro, Average_NonPumped_Hydro_Output,        Minimum_Dispatch_NonPumped_Hydro, 
@@ -102,7 +102,7 @@ problem Transmission_Minimization:
 	Maximum_Resource_Competing_Tech, Maximum_Resource_Location_Unspecified, Minimum_GenSize, BuildGenOrNot_Constraint, SymetricalTrans, Minimum_LocalTD, 
   # Dispatch Constraints
 	Power_From_Dispatchable_Plants, Power_From_Baseload_Plants,
-	EP_Power_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Baseload_Plants,
+	EP_Operational_Continuity, EP_Power_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Baseload_Plants,
 	Bio_Solid_Consumption, 
 	Maximum_DispatchTransFromXToY, Maximum_DispatchTransFromXToY_Reserve, 
 	Maximum_Dispatch_NonPumped_Hydro, Average_NonPumped_Hydro_Output, Minimum_Dispatch_NonPumped_Hydro, 
@@ -166,7 +166,7 @@ read table hydro;
 table proposed_projects "inputs/proposed_projects.tab" IN: 
   PROJECTS <- [project_id, load_area, technology], project_location ~ location_id, 
     capacity_limit, capacity_limit_conversion, connect_cost_per_mw, price_and_dollar_year, 
-    overnight_cost, fixed_o_m, variable_o_m, overnight_cost_change, nonfuel_startup_cost;
+    overnight_cost, fixed_o_m, variable_o_m, overnight_cost_change;
 read table proposed_projects;
 
 # If a project's location id is 0, it means that project hasn't been assigned a geographic location that is more specific than a load area.
@@ -188,7 +188,6 @@ table generator_info "inputs/generator_info.tab" IN:
  	year_1_cost_fraction, year_2_cost_fraction, year_3_cost_fraction, year_4_cost_fraction, year_5_cost_fraction, year_6_cost_fraction,
 	max_age_years, forced_outage_rate, scheduled_outage_rate,
 	intermittent, resource_limited, new_baseload ~ baseload, min_build_capacity, 
-	min_dispatch_fraction, min_runtime, min_downtime, max_ramp_rate_mw_per_hour, startup_fuel_mbtu,
 	storage;
 read table generator_info;
 

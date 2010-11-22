@@ -216,14 +216,11 @@ create table generator_info (
 	resource_limited boolean,
 	baseload boolean,
 	min_build_capacity float,
-	min_dispatch_fraction float,
-	min_runtime int,
-	min_downtime int,
-	max_ramp_rate_mw_per_hour float,
-	startup_fuel_mbtu float,
-	nonfuel_startup_cost float, 
 	can_build_new tinyint,
+	ccs tinyint,
 	storage tinyint,
+	storage_efficiency float,
+	max_store_rate float,
 	index techology_id_name (technology_id, technology)
 );
 
@@ -338,6 +335,16 @@ insert into _fuel_prices_regional (scenario_id, area_id, fuel, year, fuel_price)
 		and		slope_table.fuel = max_year_table.fuel
 		;
 			
+
+-- add in fuel prices for CCS - these are the same as for the non-CCS technologies, but with a CCS added to the name
+insert into _fuel_prices_regional
+	select 	scenario_id,
+			area_id,
+			concat(fuel, '_CCS') as fuel,
+			year,
+			fuel_price
+	from _fuel_prices_regional where fuel in ('Gas', 'Coal');
+
   
 DROP VIEW IF EXISTS fuel_prices_regional;
 CREATE VIEW fuel_prices_regional as
@@ -397,7 +404,12 @@ insert into fuel_info (fuel, rps_fuel_category, carbon_content) values
 	('Coal', 'fossilish', 0.0939),
 	('Uranium', 'fossilish', 0),
 	('Geothermal', 'renewable', 0),
-	('Water', 'fossilish', 0);
+	('Water', 'fossilish', 0),
+	('Gas_CCS', 'fossilish', 0.00817),
+	('Coal_CCS', 'fossilish', 0.00144),
+	('Bio_Solid_CCS', 'renewable', -0.12),
+	('Bio_Gas_CCS', 'renewable',-0.06);
+
 
 
 drop table if exists fuel_qualifies_for_rps;
@@ -502,8 +514,8 @@ insert into hydro_monthly_limits (project_id, hydro_id, area_id, load_area, tech
 	where generator_info.technology = 	CASE WHEN agg.primemover = 'HY' THEN 'Hydro_NonPumped'
 										WHEN agg.primemover = 'PS' THEN 'Hydro_Pumped' END;
 
-EXISTING PLANTS---------
-made in 'build existing plants table.sql'
+-- EXISTING PLANTS---------
+-- made in 'build existing plants table.sql'
 select 'Copying existing_plants' as progress;
 
 drop table if exists existing_plants;
@@ -528,6 +540,7 @@ CREATE TABLE existing_plants (
 	max_age double,
 	intermittent boolean,
 	technology varchar(64),
+	ccs_project_id int unsigned default null,
 	INDEX area_id (area_id),
 	FOREIGN KEY (area_id) REFERENCES load_area_info(area_id), 
 	INDEX load_area_plant_code (load_area, plant_code)
@@ -618,8 +631,8 @@ CREATE TABLE _proposed_projects (
   overnight_cost float,
   fixed_o_m float,
   variable_o_m float,
+  heat_rate float default 0,
   overnight_cost_change float,
-  nonfuel_startup_cost float,
   avg_cap_factor_intermittent float default NULL,
   avg_cap_factor_percentile_by_intermittent_tech float default NULL,
   cumulative_avg_MW_tech_load_area float default NULL,
@@ -647,7 +660,7 @@ CREATE TABLE _proposed_projects (
 insert into _proposed_projects
 	(project_id, gen_info_project_id, technology_id, technology, area_id, location_id, original_dataset_id,
 	capacity_limit, capacity_limit_conversion, connect_cost_per_mw, price_and_dollar_year,
-	overnight_cost, fixed_o_m, variable_o_m, overnight_cost_change, nonfuel_startup_cost)
+	overnight_cost, fixed_o_m, variable_o_m, heat_rate, overnight_cost_change )
 	select  project_id + (ascii( 'G' ) << 8*3),
 	        project_id,
 	        technology_id,
@@ -662,9 +675,8 @@ insert into _proposed_projects
    			overnight_cost * economic_multiplier       as overnight_cost,
     		fixed_o_m * economic_multiplier            as fixed_o_m,
     		variable_o_m * economic_multiplier         as variable_o_m,
-   			overnight_cost_change,
-   			nonfuel_startup_cost * economic_multiplier as nonfuel_startup_cost
-			
+    		heat_rate,
+   			overnight_cost_change			
 	from proposed_projects_import join generator_info using (technology) join load_area_info using (load_area)
 	order by 2;
 
@@ -689,12 +701,12 @@ update _proposed_projects set overnight_cost =
 		- if( technology = 'CSP_Trough_No_Storage', 600000, 800000 ) ) / 100 ) 
 where technology in ('CSP_Trough_No_Storage', 'CSP_Trough_6h_Storage');
 
--- Insert "generic" projects that can be built almost anywhere. These used to be in the table  _generator_costs_regional.
+-- Insert "generic" projects that can be built almost anywhere.
 -- Note, project_id is automatically set here because it is an autoincrement column. The renewable proposed_projects with ids set a-priori need to be imported first to avoid unique id conflicts.
  -- The << operation moves the numeric form of the letter "G" (for generic projects) over by 3 bytes, effectively making its value into the most significant digits.
 insert into _proposed_projects
 	(technology_id, technology, area_id, connect_cost_per_mw, price_and_dollar_year,
-	overnight_cost, fixed_o_m, variable_o_m, overnight_cost_change, nonfuel_startup_cost)
+	overnight_cost, fixed_o_m, variable_o_m, hear_rate, overnight_cost_change )
     select 	technology_id,
     		technology,
     		area_id,
@@ -703,23 +715,80 @@ insert into _proposed_projects
    			overnight_cost * economic_multiplier as overnight_cost,
     		fixed_o_m * economic_multiplier as fixed_o_m,
     		variable_o_m * economic_multiplier as variable_o_m,
-   			overnight_cost_change,
-   			nonfuel_startup_cost * economic_multiplier as nonfuel_startup_cost
+    		heat_rate,
+   			overnight_cost_change
     from 	generator_info,
 			load_area_info
 	where   generator_info.can_build_new  = 1 and 
 	        generator_info.resource_limited = 0
 	order by 1,3;
-UPDATE _proposed_projects SET project_id = gen_info_project_id + (ascii( 'G' ) << 8*3) where project_id is null;
 
 -- regional generator restrictions
 -- Coal_ST and Nuclear can't be built in CA. Nuclear can't be built in Mexico.
 delete from _proposed_projects
- 	where 	(technology_id in (select technology_id from generator_info where fuel in ('Uranium', 'Coal')) and
+ 	where 	(technology_id in (select technology_id from generator_info where fuel in ('Uranium', 'Coal', 'Coal_CCS')) and
 			area_id in (select area_id from load_area_info where primary_nerc_subregion like 'CA'));
 delete from _proposed_projects
  	where 	(technology_id in (select technology_id from generator_info where fuel in ('Uranium')) and
 			area_id in (select area_id from load_area_info where primary_nerc_subregion like 'MX'));
+
+-- add new CCS projects
+insert into _proposed_projects (technology_id, technology, area_id,
+								connect_cost_per_mw, price_and_dollar_year, overnight_cost, fixed_o_m, variable_o_m, overnight_cost_change)
+   select 	technology_id,
+    		technology,
+    		load_area_info.area_id,
+    		connect_cost_per_mw_generic * economic_multiplier as connect_cost_per_mw,
+    		price_and_dollar_year,  
+   			overnight_cost * economic_multiplier as overnight_cost,
+    		fixed_o_m * economic_multiplier as fixed_o_m,
+    		variable_o_m * economic_multiplier as variable_o_m,
+    		heat_rate,
+   			overnight_cost_change
+    from 	generator_info,
+    		load_area_info,
+			( select area_id, concat(technology, '_CCS') as ccs_technology from _proposed_projects,
+				( select trim(trailing '_CCS' from technology) as non_ccs_technology
+						from generator_info
+						where technology like '%_CCS'
+						and resource_limited = 1) as non_ccs_technology_table
+					where non_ccs_technology_table.non_ccs_technology = _proposed_projects.technology ) as resource_limited_ccs_load_area_projects
+	where 	generator_info.technology = resource_limited_ccs_load_area_projects.ccs_technology
+	and		load_area_info.area_id = resource_limited_ccs_load_area_projects.area_id;
+
+-- add CCS projects to retrofit existing plants
+-- the gen_info_project_id is from the existing plants table
+-- these projects will replace the existing plant - new overnight costs will be paid in addition to the sunk costs of the existing plant
+-- O&M costs and heat rates for the new retrofited plants will replace that of old plants
+insert into _proposed_projects (original_dataset_id, technology_id, technology, area_id,
+								connect_cost_per_mw, price_and_dollar_year, overnight_cost, fixed_o_m, variable_o_m, heat_rate, overnight_cost_change)
+   select 	existing_plants.project_id as original_dataset_id,
+   			technology_id,
+    		generator_info.technology,
+    		area_id,
+    		0 as connect_cost_per_mw,
+    		price_and_dollar_year,  
+   			generator_info.overnight_cost * economic_multiplier as overnight_cost,
+    		generator_info.fixed_o_m * economic_multiplier as fixed_o_m,
+    		generator_info.variable_o_m * economic_multiplier as variable_o_m,
+    		generator_info.heat_rate + existing_plants.heat_rate as heat_rate,
+   			overnight_cost_change
+    from 	generator_info,
+    		existing_plants
+    join    load_area_info using (area_id)
+	where 	replace(existing_plants.technology, '_EP', '_CCS_EP') = generator_info.technology
+	and 	existing_plants.fuel in ('Gas', 'Coal', 'Bio_Solid', 'Bio_Gas', 'DistillateFuelOil', 'ResidualFuelOil')
+;	
+
+-- make a unique identifier for all proposed projects
+UPDATE _proposed_projects SET project_id = gen_info_project_id + (ascii( 'G' ) << 8*3) where project_id is null;
+
+-- now go back to the existing plants table and add the ID of the CCS project associated with each existing plant
+update existing_plants, _proposed_projects
+set existing_plants.ccs_project_id = _proposed_projects.project_id
+where existing_plants.ep_id = _proposed_projects.original_dataset_id
+and _proposed_projects.technology like '%_CCS_EP';	
+
 
 DROP VIEW IF EXISTS proposed_projects;
 CREATE VIEW proposed_projects as
@@ -738,8 +807,8 @@ CREATE VIEW proposed_projects as
             overnight_cost,
             fixed_o_m,
             variable_o_m,
+            heat_rate,
             overnight_cost_change,
-            nonfuel_startup_cost,
             avg_cap_factor_intermittent,
             avg_cap_factor_percentile_by_intermittent_tech,
             cumulative_avg_MW_tech_load_area,
@@ -748,11 +817,9 @@ CREATE VIEW proposed_projects as
     join load_area_info using (area_id);
     
 
-
-
 ---------------------------------------------------------------------
-CAP FACTOR-----------------
-assembles the hourly power output for wind and solar technologies
+-- CAP FACTOR-----------------
+-- assembles the hourly power output for wind and solar technologies
 drop table if exists _cap_factor_intermittent_sites;
 create table _cap_factor_intermittent_sites(
 	project_id int unsigned,

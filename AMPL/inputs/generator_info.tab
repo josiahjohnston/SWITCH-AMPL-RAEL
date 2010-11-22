@@ -1,33 +1,33 @@
-ampl.tab 1 24
-technology	technology_id	min_build_year	fuel	heat_rate	construction_time_years	year_1_cost_fraction	year_2_cost_fraction	year_3_cost_fraction	year_4_cost_fraction	year_5_cost_fraction	year_6_cost_fraction	max_age_years	forced_outage_rate	scheduled_outage_rate	intermittent	resource_limited	baseload	min_build_capacity	min_dispatch_fraction	min_runtime	min_downtime	max_ramp_rate_mw_per_hour	startup_fuel_mbtu	storage
-CCGT	1	2010	Gas	6.974	3	0.5	0.4	0.1	0	0	0	30	0.04	0.06	0	0	0	0	0.5	8	4	150	700	0
-Gas_Combustion_Turbine	2	2010	Gas	10.05	3	0.8	0.1	0.1	0	0	0	30	0.03	0.05	0	0	0	0	0.3	2	2	320	190	0
-Concentrating_PV	3	2010	Solar	0	1	1	0	0	0	0	0	25	0.0027	0.0054	1	1	0	0	0	0	0	0	0	0
-Wind	4	2010	Wind	0	3	0.8	0.1	0.1	0	0	0	20	0.015	0.003	1	1	0	0	0	0	0	0	0	0
-Offshore_Wind	5	2010	Wind	0	4	0.7	0.1	0.1	0.1	0	0	20	0.02	0.01	1	1	0	0	0	0	0	0	0	0
-Residential_PV	6	2010	Solar	0	1	1	0	0	0	0	0	30	0.003	0	1	1	0	0	0	0	0	0	0	0
-CSP_Trough_6h_Storage	7	2012	Solar	0	3	0.8	0.1	0.1	0	0	0	30	0.05	0.05	1	1	0	0	0	0	0	0	0	0
-Bio_Gas	8	2010	Bio_Gas	13.648	3	0.8	0.1	0.1	0	0	0	30	0.03	0.05	0	1	1	0	1	0	0	0	0	0
-Biomass_Steam_Turbine	9	2010	Bio_Solid	14.5	4	0.4	0.3	0.2	0.1	0	0	45	0.09	0.076	0	1	1	0	0.2	12	8	220	2100	0
-Biomass_IGCC	10	2012	Bio_Solid	9.646	4	0.4	0.3	0.2	0.1	0	0	40	0.06	0.1	0	1	1	0	0.5	8	4	150	700	0
-Coal_IGCC	11	2010	Coal	8.765	4	0.4	0.3	0.2	0.1	0	0	40	0.06	0.1	0	0	1	0	0.5	8	4	150	700	0
-Coal_Steam_Turbine	12	2010	Coal	9.2	4	0.4	0.3	0.2	0.1	0	0	40	0.08	0.12	0	0	1	0	0.4	168	48	200	2500	0
-Nuclear	13	2010	Uranium	10.434	6	0.1	0.2	0.2	0.2	0.2	0.1	40	0.04	0.06	0	0	1	1000	1	168	168	220	0	0
-Geothermal	14	2010	Geothermal	32.32	4	0.4	0.3	0.2	0.1	0	0	45	0.0075	0.0241	0	1	1	0	1	0	0	0	0	0
-Hydro_NonPumped	15	2010	Water	0	6	0.1	0.2	0.2	0.2	0.2	0.1	100	0.05	0.019	0	1	0	0	0	0	0	0	0	0
-Hydro_Pumped	16	2010	Water	0	6	0.1	0.2	0.2	0.2	0.2	0.1	100	0.038	0.03	0	1	0	0	0	0	0	0	0	0
-Gas_Combustion_Turbine_EP	17	2000	Gas	0	3	0.8	0.1	0.1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
-Coal_Steam_Turbine_EP	18	2000	Coal	0	6	0.1	0.2	0.2	0.2	0.2	0.1	0	0	0	0	0	0	0	0	0	0	0	0	0
-Gas_Steam_Turbine_EP	19	2000	Gas	0	3	0.5	0.4	0.1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
-CCGT_EP	20	2000	Gas	0	3	0.5	0.4	0.1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
-Geothermal_EP	21	2000	Geothermal	0	4	0.4	0.3	0.2	0.1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
-Nuclear_EP	22	2000	Uranium	0	6	0.1	0.2	0.2	0.2	0.2	0.1	0	0	0	0	0	0	0	0	0	0	0	0	0
-Wind_EP	23	2000	Wind	0	3	0.8	0.1	0.1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
-Commercial_PV	25	2010	Solar	0	1	1	0	0	0	0	0	30	0.003	0	1	1	0	0	0	0	0	0	0	0
-Central_PV	26	2010	Solar	0	3	0.8	0.1	0.1	0	0	0	30	0.003	0	1	1	0	0	0	0	0	0	0	0
-CSP_Trough_No_Storage	27	2010	Solar	0	3	0.8	0.1	0.1	0	0	0	30	0.05	0.05	1	1	0	0	0	0	0	0	0	0
-Compressed_Air_Energy_Storage	28	2010	Gas	4.4	6	0.1	0.2	0.2	0.2	0.2	0.1	30	0.03	0.04	0	1	0	0	0	0	0	0	0	1
-Gas_Combustion_Turbine_Cogen_EP	29	2000	Gas	0	3	0.8	0.1	0.1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
-Coal_Steam_Turbine_Cogen_EP	30	2000	Coal	0	4	0.4	0.3	0.2	0.1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
-Gas_Steam_Turbine_Cogen_EP	31	2000	Gas	0	3	0.5	0.4	0.1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
-CCGT_Cogen_EP	32	2000	Gas	0	3	0.5	0.4	0.1	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0
+ampl.tab 1 19
+technology	technology_id	min_build_year	fuel	heat_rate	construction_time_years	year_1_cost_fraction	year_2_cost_fraction	year_3_cost_fraction	year_4_cost_fraction	year_5_cost_fraction	year_6_cost_fraction	max_age_years	forced_outage_rate	scheduled_outage_rate	intermittent	resource_limited	baseload	min_build_capacity	storage
+CCGT	1	2010	Gas	6.974	3	0.5	0.4	0.1	0	0	0	30	0.04	0.06	0	0	0	0	0
+Gas_Combustion_Turbine	2	2010	Gas	10.05	3	0.8	0.1	0.1	0	0	0	30	0.03	0.05	0	0	0	0	0
+Concentrating_PV	3	2010	Solar	0	3	0.8	0.1	0.1	0	0	0	25	0.0027	0.0054	1	1	0	0	0
+Wind	4	2010	Wind	0	3	0.8	0.1	0.1	0	0	0	20	0.015	0.003	1	1	0	0	0
+Offshore_Wind	5	2010	Wind	0	4	0.7	0.1	0.1	0.1	0	0	20	0.02	0.01	1	1	0	0	0
+Residential_PV	6	2010	Solar	0	1	1	0	0	0	0	0	30	0.003	0	1	1	0	0	0
+CSP_Trough_6h_Storage	7	2012	Solar	0	3	0.8	0.1	0.1	0	0	0	30	0.05	0.05	1	1	0	0	0
+Bio_Gas	8	2010	Bio_Gas	13.648	3	0.8	0.1	0.1	0	0	0	30	0.03	0.05	0	1	1	0	0
+Biomass_Steam_Turbine	9	2010	Bio_Solid	14.5	4	0.4	0.3	0.2	0.1	0	0	45	0.09	0.076	0	1	1	0	0
+Biomass_IGCC	10	2012	Bio_Solid	9.646	4	0.4	0.3	0.2	0.1	0	0	40	0.06	0.1	0	1	1	0	0
+Coal_IGCC	11	2010	Coal	8.765	4	0.4	0.3	0.2	0.1	0	0	40	0.06	0.1	0	0	1	0	0
+Coal_Steam_Turbine	12	2010	Coal	9.2	4	0.4	0.3	0.2	0.1	0	0	40	0.08	0.12	0	0	1	0	0
+Nuclear	13	2010	Uranium	10.434	6	0.1	0.2	0.2	0.2	0.2	0.1	40	0.04	0.06	0	0	1	1000	0
+Geothermal	14	2010	Geothermal	32.32	4	0.4	0.3	0.2	0.1	0	0	45	0.0075	0.0241	0	1	1	0	0
+Hydro_NonPumped	15	2010	Water	0	6	0.1	0.2	0.2	0.2	0.2	0.1	100	0.05	0.019	0	1	0	0	0
+Hydro_Pumped	16	2010	Water	0	6	0.1	0.2	0.2	0.2	0.2	0.1	100	0.038	0.03	0	1	0	0	0
+Gas_Combustion_Turbine_EP	17	2000	Gas	0	3	0.8	0.1	0.1	0	0	0	0	0	0	0	0	0	0	0
+Coal_Steam_Turbine_EP	18	2000	Coal	0	6	0.1	0.2	0.2	0.2	0.2	0.1	0	0	0	0	0	0	0	0
+Gas_Steam_Turbine_EP	19	2000	Gas	0	3	0.5	0.4	0.1	0	0	0	0	0	0	0	0	0	0	0
+CCGT_EP	20	2000	Gas	0	3	0.5	0.4	0.1	0	0	0	0	0	0	0	0	0	0	0
+Geothermal_EP	21	2000	Geothermal	0	4	0.4	0.3	0.2	0.1	0	0	0	0	0	0	0	0	0	0
+Nuclear_EP	22	2000	Uranium	0	6	0.1	0.2	0.2	0.2	0.2	0.1	0	0	0	0	0	0	0	0
+Wind_EP	23	2000	Wind	0	3	0.8	0.1	0.1	0	0	0	0	0	0	0	0	0	0	0
+Commercial_PV	25	2010	Solar	0	1	1	0	0	0	0	0	30	0.003	0	1	1	0	0	0
+Central_PV	26	2010	Solar	0	3	0.8	0.1	0.1	0	0	0	30	0.003	0	1	1	0	0	0
+CSP_Trough_No_Storage	27	2010	Solar	0	3	0.8	0.1	0.1	0	0	0	30	0.05	0.05	1	1	0	0	0
+Compressed_Air_Energy_Storage	28	2010	Gas	4.4	6	0.1	0.2	0.2	0.2	0.2	0.1	30	0.03	0.04	0	1	0	0	1
+Gas_Combustion_Turbine_Cogen_EP	29	2000	Gas	0	3	0.8	0.1	0.1	0	0	0	0	0	0	0	0	0	0	0
+Coal_Steam_Turbine_Cogen_EP	30	2000	Coal	0	4	0.4	0.3	0.2	0.1	0	0	0	0	0	0	0	0	0	0
+Gas_Steam_Turbine_Cogen_EP	31	2000	Gas	0	3	0.5	0.4	0.1	0	0	0	0	0	0	0	0	0	0	0
+CCGT_Cogen_EP	32	2000	Gas	0	3	0.5	0.4	0.1	0	0	0	0	0	0	0	0	0	0	0

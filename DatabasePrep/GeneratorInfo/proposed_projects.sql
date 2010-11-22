@@ -295,7 +295,7 @@ update	proposed_projects
 insert into proposed_projects (technology, load_area, capacity_limit, capacity_limit_conversion)
 	select 	'Biomass_IGCC',
 			load_area,
-			max(mbtus_per_year / 8766) / 9.646 as cap_mw,
+			sum(mbtus_per_year / 8766) / 9.646 as cap_mw,
 			1 as capacity_limit_conversion
 		from biomass_supply_curve_by_load_area
 		where fuel like 'Bio_Solid'
@@ -616,7 +616,7 @@ COPY
 		connect_cost_per_mw,
 		location_id
 from proposed_projects )
-TO '/Volumes/1TB_RAID/Models/Switch\ Input\ Data/Generators/proposed_projects.csv'
+TO '/Volumes/1TB_RAID/Models/Switch_Input_Data/Generators/proposed_projects.csv'
 WITH 	CSV
 		HEADER;
 

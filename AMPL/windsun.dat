@@ -92,7 +92,7 @@ set YEAR_OF_CONSTRUCTION :=  0, 1, 2, 3, 4, 5 ;
 # cost of carbon emissions ($/tonneCO2)
 param carbon_cost;
 # Set this to more than one value if you want to run the carbon curve scripty thing
-set CARBON_COSTS := 80 100;
+set CARBON_COSTS := 60;
 
 param: 
 RESULT_FILES:                        result_file_path_templates :=
