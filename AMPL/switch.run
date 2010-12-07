@@ -8,48 +8,55 @@ display num_workers, worker_id;
 
 for {c in CARBON_COSTS} { 
 
-  if (ord(c) mod num_workers = worker_id )
-  then {
-    let carbon_cost := c;
-    let cost_problem       := results_path & "sol" & carbon_cost & "cost";
-    let cost_problem_path  := cost_problem & ".nl";
-    let cost_solution_path := cost_problem & ".sol";
-  
-  
-    ###############################
-    # Cost optimization
-    # Determine if a cost solution already exists. 
-    if ( file_exists(cost_solution_path) )
-    then {
-	  printf "\nLoading Cost solution from disk for a carbon cost of %d.\n", carbon_cost;
-	  let curtime := time();
-	  solution (cost_solution_path);
-	  printf "%d seconds to create a problem instance and load a solution from disk.\n", (time() - curtime);
-	  # update recording variables and show some info about this run
-	  include basicstats.run;
-	  
-	  # export the results to csv files and the like if they haven't already been exported
-	  include record_results.run;
-    
-    } else {
-      
-      shell("touch " & cost_problem  & ".nl" );
-      printf "\nCost solution not found on disk for a carbon cost of %d; solving optimization problem.\n", carbon_cost;
-      let curtime := time();
-      write ("b" & cost_problem);
-      let cost_compile_time := time() - curtime;
-      printf "%d seconds to compile and write the problem file.\n", cost_compile_time;
-      let curtime := time();
-      solve;
-      let cost_sol_time := time() - curtime;
-      printf "%d seconds to optimize for cost.\n", cost_sol_time;
-  
-      # update recording variables and show some info about this run
-      include basicstats.run;
-    
-      # export the results to csv files and the like if they haven't already been exported
-      include record_results.run;
-    
-    }
-  } 
+	if (ord(c) mod num_workers = worker_id )
+	then {
+		let carbon_cost := c;
+		let cost_problem       := results_path & "sol" & carbon_cost & "cost";
+		let cost_problem_path  := cost_problem & ".nl";
+		let cost_solution_path := cost_problem & ".sol";
+	
+	
+		###############################
+		# Cost optimization
+		# Determine if a cost solution already exists. 
+		if ( file_exists(cost_solution_path) )
+		then {
+		printf "\nLoading Cost solution from disk for a carbon cost of %d.\n", carbon_cost;
+		let curtime := time();
+		solution (cost_solution_path);
+		printf "%d seconds to create a problem instance and load a solution from disk.\n", (time() - curtime);
+		# update recording variables and show some info about this run
+		include basicstats.run;
+		
+		# export the results to csv files and the like if they haven't already been exported
+		include record_results.run;
+		
+		} else {
+			
+			shell("touch " & cost_problem	 & ".nl" );
+			printf "\nCost solution not found on disk for a carbon cost of %d; solving optimization problem.\n", carbon_cost;
+			let curtime := time();
+			write ("b" & cost_problem);
+			let cost_compile_time := time() - curtime;
+			printf "%d seconds to compile and write the problem file.\n", cost_compile_time;
+
+			# The compile_mip_only parameter lets you compile the problem in AMPL, then separately call cplex on the problem after AMPL exits. 
+			# This can save considerable amounts of RAM. 
+			if( compile_mip_only = 0 ) then {
+				let curtime := time();
+				solve;
+				let cost_sol_time := time() - curtime;
+				printf "%d seconds to optimize for cost.\n", cost_sol_time;
+			
+				# update recording variables and show some info about this run
+				include basicstats.run;
+			
+				# export the results to csv files and the like if they haven't already been exported
+				include record_results.run;
+			# If cplex will be solving this problem separately, make sure the options can be retrieved by a separate process. 
+			} else {
+				option cplex_options > results/cplex_options;
+			}
+		}
+	} 
 }

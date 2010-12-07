@@ -15,7 +15,7 @@ function get_num_cores pipe "while read junk; do if [ `uname` == 'Darwin' ]; the
 function file_exists pipe 'while read file_path; do if [ -f "$file_path" ]; then echo 1; else echo 0; fi; done;';
 param num_workers default 1;
 param worker_id default 0;
-
+param compile_mip_only default 0;
 
 
 option cplex_options (" lpdisplay=1 iisfind=1 mipdisplay=2 presolve=1 prestats=1 timing=1 threads=" & get_num_cores() );
