@@ -47,7 +47,7 @@ set @first_period_to_exclude = @base_year;
 set @second_period_to_exclude = @base_year + 2 * @years_per_period;
 
 
-	INSERT IGNORE INTO scenarios ( training_set_id,exclude_peaks,exclude_periods,period_reduced_by,regional_cost_multiplier_scenario_id,regional_fuel_cost_scenario_id,regional_gen_price_scenario_id,months_between_samples,start_month,hours_between_samples,start_hour,enable_rps )
+	INSERT IGNORE INTO scenarios ( training_set_id,exclude_peaks,exclude_periods,period_reduced_by,regional_cost_multiplier_scenario_id,regional_fuel_cost_scenario_id,regional_gen_price_scenario_id,months_between_samples,start_month,hours_between_samples,start_hour,enable_rps,enable_carbon_cap )
 	  SELECT 
 	    @training_set_id, 
 	    0 as exclude_peaks, 
@@ -60,7 +60,8 @@ set @second_period_to_exclude = @base_year + 2 * @years_per_period;
 	    start_month,
 	    hours_between_samples,
 	    start_hour,
-	    enable_rps
+	    enable_rps,
+	    enable_carbon_cap
 	  FROM 
 	        
 	     (SELECT  0 AS start_month UNION
@@ -87,9 +88,13 @@ set @second_period_to_exclude = @base_year + 2 * @years_per_period;
 	    (SELECT 0 AS enable_rps
 	       UNION
 	     SELECT 1 AS enable_rps
-	    ) AS rps_setting;
+	    ) AS rps_setting,
+	    (SELECT 0 AS enable_carbon_cap
+	       UNION
+	     SELECT 1 AS enable_carbon_cap
+	    ) AS carbon_cap_setting;
 	-- -------
-	INSERT IGNORE INTO scenarios ( training_set_id,exclude_peaks,exclude_periods,period_reduced_by,regional_cost_multiplier_scenario_id,regional_fuel_cost_scenario_id,regional_gen_price_scenario_id,months_between_samples,start_month,hours_between_samples,start_hour,enable_rps )
+	INSERT IGNORE INTO scenarios ( training_set_id,exclude_peaks,exclude_periods,period_reduced_by,regional_cost_multiplier_scenario_id,regional_fuel_cost_scenario_id,regional_gen_price_scenario_id,months_between_samples,start_month,hours_between_samples,start_hour,enable_rps,enable_carbon_cap )
 	  SELECT 
 	    @training_set_id, 
 	    0 as exclude_peaks, 
@@ -102,7 +107,8 @@ set @second_period_to_exclude = @base_year + 2 * @years_per_period;
 	    start_month,
 	    hours_between_samples,
 	    start_hour,
-	    enable_rps
+	    enable_rps,
+	    enable_carbon_cap
 	  FROM 
 	        
 	     (SELECT  0 AS start_month UNION
@@ -129,9 +135,13 @@ set @second_period_to_exclude = @base_year + 2 * @years_per_period;
 	    (SELECT 0 AS enable_rps
 	       UNION
 	     SELECT 1 AS enable_rps
-	    ) AS rps_setting;
+	    ) AS rps_setting,
+	    (SELECT 0 AS enable_carbon_cap
+	       UNION
+	     SELECT 1 AS enable_carbon_cap
+	    ) AS carbon_cap_setting;
 	-- -------
-	INSERT IGNORE INTO scenarios ( training_set_id,exclude_peaks,exclude_periods,period_reduced_by,regional_cost_multiplier_scenario_id,regional_fuel_cost_scenario_id,regional_gen_price_scenario_id,months_between_samples,start_month,hours_between_samples,start_hour,enable_rps )
+	INSERT IGNORE INTO scenarios ( training_set_id,exclude_peaks,exclude_periods,period_reduced_by,regional_cost_multiplier_scenario_id,regional_fuel_cost_scenario_id,regional_gen_price_scenario_id,months_between_samples,start_month,hours_between_samples,start_hour,enable_rps,enable_carbon_cap )
 	  SELECT 
 	    @training_set_id, 
 	    0 as exclude_peaks, 
@@ -144,7 +154,8 @@ set @second_period_to_exclude = @base_year + 2 * @years_per_period;
 	    start_month,
 	    hours_between_samples,
 	    start_hour,
-	    enable_rps
+	    enable_rps,
+	    enable_carbon_cap
 	  FROM 
 	        
 	     (SELECT  0 AS start_month UNION
@@ -171,9 +182,13 @@ set @second_period_to_exclude = @base_year + 2 * @years_per_period;
 	    (SELECT 0 AS enable_rps
 	       UNION
 	     SELECT 1 AS enable_rps
-	    ) AS rps_setting;
+	    ) AS rps_setting,
+	    (SELECT 0 AS enable_carbon_cap
+	       UNION
+	     SELECT 1 AS enable_carbon_cap
+	    ) AS carbon_cap_setting;
 	-- -------
-	INSERT IGNORE INTO scenarios ( training_set_id,exclude_peaks,exclude_periods,period_reduced_by,regional_cost_multiplier_scenario_id,regional_fuel_cost_scenario_id,regional_gen_price_scenario_id,months_between_samples,start_month,hours_between_samples,start_hour,enable_rps )
+	INSERT IGNORE INTO scenarios ( training_set_id,exclude_peaks,exclude_periods,period_reduced_by,regional_cost_multiplier_scenario_id,regional_fuel_cost_scenario_id,regional_gen_price_scenario_id,months_between_samples,start_month,hours_between_samples,start_hour,enable_rps,enable_carbon_cap )
 	  SELECT 
 	    @training_set_id, 
 	    0 as exclude_peaks, 
@@ -186,7 +201,8 @@ set @second_period_to_exclude = @base_year + 2 * @years_per_period;
 	    start_month,
 	    hours_between_samples,
 	    start_hour,
-	    enable_rps
+	    enable_rps,
+	    enable_carbon_cap
 	  FROM 
 	        
 	     (SELECT  0 AS start_month UNION
@@ -213,9 +229,13 @@ set @second_period_to_exclude = @base_year + 2 * @years_per_period;
 	    (SELECT 0 AS enable_rps
 	       UNION
 	     SELECT 1 AS enable_rps
-	    ) AS rps_setting;
+	    ) AS rps_setting,
+	    (SELECT 0 AS enable_carbon_cap
+	       UNION
+	     SELECT 1 AS enable_carbon_cap
+	    ) AS carbon_cap_setting;
 	-- -------
-	INSERT IGNORE INTO scenarios ( training_set_id,exclude_peaks,exclude_periods,period_reduced_by,regional_cost_multiplier_scenario_id,regional_fuel_cost_scenario_id,regional_gen_price_scenario_id,months_between_samples,start_month,hours_between_samples,start_hour,enable_rps )
+	INSERT IGNORE INTO scenarios ( training_set_id,exclude_peaks,exclude_periods,period_reduced_by,regional_cost_multiplier_scenario_id,regional_fuel_cost_scenario_id,regional_gen_price_scenario_id,months_between_samples,start_month,hours_between_samples,start_hour,enable_rps,enable_carbon_cap )
 	  SELECT 
 	    @training_set_id, 
 	    0 as exclude_peaks, 
@@ -228,7 +248,8 @@ set @second_period_to_exclude = @base_year + 2 * @years_per_period;
 	    start_month,
 	    hours_between_samples,
 	    start_hour,
-	    enable_rps
+	    enable_rps,
+	    enable_carbon_cap
 	  FROM 
 	        
 	     (SELECT  0 AS start_month
@@ -254,10 +275,14 @@ set @second_period_to_exclude = @base_year + 2 * @years_per_period;
 	    (SELECT 0 AS enable_rps
 	       UNION
 	     SELECT 1 AS enable_rps
-	    ) AS rps_setting;
+	    ) AS rps_setting,
+	    (SELECT 0 AS enable_carbon_cap
+	       UNION
+	     SELECT 1 AS enable_carbon_cap
+	    ) AS carbon_cap_setting;
 
 	-- add in some period exclusions ------------
-	INSERT IGNORE INTO scenarios ( training_set_id,exclude_peaks,exclude_periods,period_reduced_by,regional_cost_multiplier_scenario_id,regional_fuel_cost_scenario_id,regional_gen_price_scenario_id,months_between_samples,start_month,hours_between_samples,start_hour,enable_rps )
+	INSERT IGNORE INTO scenarios ( training_set_id,exclude_peaks,exclude_periods,period_reduced_by,regional_cost_multiplier_scenario_id,regional_fuel_cost_scenario_id,regional_gen_price_scenario_id,months_between_samples,start_month,hours_between_samples,start_hour,enable_rps,enable_carbon_cap )
 	  SELECT 
 	    @training_set_id, 
 	    0 as exclude_peaks, 
@@ -270,7 +295,8 @@ set @second_period_to_exclude = @base_year + 2 * @years_per_period;
 	    start_month,
 	    hours_between_samples,
 	    start_hour,
-	    enable_rps
+	    enable_rps,
+	    enable_carbon_cap
 	  FROM 
 	        
 	     (SELECT  0 AS start_month UNION
@@ -297,9 +323,13 @@ set @second_period_to_exclude = @base_year + 2 * @years_per_period;
 	    (SELECT 0 AS enable_rps
 	       UNION
 	     SELECT 1 AS enable_rps
-	    ) AS rps_setting;
+	    ) AS rps_setting,
+	    (SELECT 0 AS enable_carbon_cap
+	       UNION
+	     SELECT 1 AS enable_carbon_cap
+	    ) AS carbon_cap_setting;
 	-- -------
-	INSERT IGNORE INTO scenarios ( training_set_id,exclude_peaks,exclude_periods,period_reduced_by,regional_cost_multiplier_scenario_id,regional_fuel_cost_scenario_id,regional_gen_price_scenario_id,months_between_samples,start_month,hours_between_samples,start_hour,enable_rps )
+	INSERT IGNORE INTO scenarios ( training_set_id,exclude_peaks,exclude_periods,period_reduced_by,regional_cost_multiplier_scenario_id,regional_fuel_cost_scenario_id,regional_gen_price_scenario_id,months_between_samples,start_month,hours_between_samples,start_hour,enable_rps,enable_carbon_cap )
 	  SELECT 
 	    @training_set_id, 
 	    0 as exclude_peaks, 
@@ -312,7 +342,8 @@ set @second_period_to_exclude = @base_year + 2 * @years_per_period;
 	    start_month,
 	    hours_between_samples,
 	    start_hour,
-	    enable_rps
+	    enable_rps,
+	    enable_carbon_cap
 	  FROM 
 	        
 	     (SELECT  0 AS start_month UNION
@@ -339,7 +370,11 @@ set @second_period_to_exclude = @base_year + 2 * @years_per_period;
 	    (SELECT 0 AS enable_rps
 	       UNION
 	     SELECT 1 AS enable_rps
-	    ) AS rps_setting;
+	    ) AS rps_setting,
+	    (SELECT 0 AS enable_carbon_cap
+	       UNION
+	     SELECT 1 AS enable_carbon_cap
+	    ) AS carbon_cap_setting;
 	-- -------
 
 
@@ -365,4 +400,4 @@ DROP PROCEDURE make_many_scenarios_for_all_training_sets;
 
 
 -- This function sets the _datesample, _timesample, _hours_in_sample, num_timepoints, and scenario_name fields for records in the table with ids greater than or equal to 1.
-SELECT set_scenarios_sql_columns( 1 ) as `Number of New Scenarios`;
+SELECT set_scenarios_sql_columns( 1 ) as Number_of_New_Scenarios;

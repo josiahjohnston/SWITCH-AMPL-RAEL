@@ -112,10 +112,10 @@ export DATESAMPLE=`mysql $connection_string --column-names=false -e "select _dat
 export TIMESAMPLE=`mysql $connection_string --column-names=false -e "select _timesample from scenarios where scenario_id=$SCENARIO_ID;"` 
 export HOURS_IN_SAMPLE=`mysql $connection_string --column-names=false -e "select _hours_in_sample from scenarios where scenario_id=$SCENARIO_ID;"` 
 export ENABLE_RPS=`mysql $connection_string --column-names=false -e "select enable_rps from scenarios where scenario_id=$SCENARIO_ID;"` 
+export ENABLE_CARBON_CAP=`mysql $connection_string --column-names=false -e "select enable_carbon_cap from scenarios where scenario_id=$SCENARIO_ID;"` 
 export STUDY_START_YEAR=`mysql $connection_string --column-names=false -e "select min(period) from study_hours_all where $TIMESAMPLE;"` 
 export STUDY_END_YEAR=`mysql $connection_string --column-names=false -e "select max(period) + (max(period)-min(period))/(count(distinct period) - 1 ) from study_hours_all where $TIMESAMPLE;"` 
 number_of_years_per_period=`mysql $connection_string --column-names=false -e "select round((max(period)-min(period))/(count(distinct period) - 1 )) from study_hours_all where $TIMESAMPLE;"` 
-
 ###########################
 # Export data to be read into ampl.
 
@@ -146,6 +146,10 @@ echo '	rps_load_area_targets.tab...'
 echo ampl.tab 2 1 > rps_load_area_targets.tab
 mysql $connection_string -e "select load_area, compliance_year as rps_compliance_year, compliance_fraction as rps_compliance_fraction from rps_load_area_targets where compliance_year >= $STUDY_START_YEAR and compliance_year <= $STUDY_END_YEAR;" >> rps_load_area_targets.tab
 
+echo '	carbon_cap_targets.tab...'
+echo ampl.tab 1 1 > carbon_cap_targets.tab
+mysql $connection_string -e "select year, carbon_emissions_relative_to_base from carbon_cap_targets where year >= $STUDY_START_YEAR and year <= $STUDY_END_YEAR;" >> carbon_cap_targets.tab
+
 echo '	transmission_lines.tab...'
 echo ampl.tab 2 5 > transmission_lines.tab
 mysql $connection_string -e "select load_area_start, load_area_end, existing_transfer_capacity_mw, transmission_line_id, transmission_length_km, transmission_efficiency, new_transmission_builds_allowed from transmission_lines order by 1,2;" >> transmission_lines.tab
@@ -170,23 +174,23 @@ mysql $connection_string -e "select load_area, project_id as hydro_project_id, s
 
 echo '	proposed_projects.tab...'
 echo ampl.tab 3 9 > proposed_projects.tab
-mysql $connection_string -e "select project_id, proposed_projects.load_area, technology, if(location_id is NULL, 0, location_id) as location_id, if(capacity_limit is NULL, 0, capacity_limit) as capacity_limit, capacity_limit_conversion, connect_cost_per_mw, price_and_dollar_year, overnight_cost, fixed_o_m, variable_o_m, overnight_cost_change from proposed_projects join load_area_info using (area_id) where technology <> 'Battery_Storage' and technology not like '%CCS%' and ( ( avg_cap_factor_percentile_by_intermittent_tech >= 0.75 or cumulative_avg_MW_tech_load_area <= 5 * total_yearly_load_mwh / 8766 or rank_by_tech_in_load_area <= 10 or avg_cap_factor_percentile_by_intermittent_tech is null or technology = 'Wind') and technology <> 'Concentrating_PV' );" >> proposed_projects.tab
+mysql $connection_string -e "select project_id, proposed_projects.load_area, technology, if(location_id is NULL, 0, location_id) as location_id, if(capacity_limit is NULL, 0, capacity_limit) as capacity_limit, capacity_limit_conversion, connect_cost_per_mw, price_and_dollar_year, overnight_cost, fixed_o_m, variable_o_m, overnight_cost_change from proposed_projects join load_area_info using (area_id) where technology not like '%CCS_EP' and ( ( avg_cap_factor_percentile_by_intermittent_tech >= 0.75 or cumulative_avg_MW_tech_load_area <= 3 * total_yearly_load_mwh / 8766 or rank_by_tech_in_load_area <= 5 or avg_cap_factor_percentile_by_intermittent_tech is null) and technology <> 'Concentrating_PV' );" >> proposed_projects.tab
 
 echo '	competing_locations.tab...'
 echo ampl.tab 1 > competing_locations.tab
-mysql $connection_string -e "select distinct location_id from _proposed_projects p where (select count(*) from proposed_projects p2 where p.location_id = p2.location_id)>1 and location_id!=0 and technology_id in (SELECT technology_id FROM generator_info g where technology in ('Central_PV','CSP_Trough_No_Storage','CSP_Trough_6h_Storage', 'Concentrating_PV'));" >> competing_locations.tab
+mysql $connection_string -e "select distinct location_id from _proposed_projects p where (select count(*) from proposed_projects p2 where p.location_id = p2.location_id)>1 and location_id!=0 and technology_id in (SELECT technology_id FROM generator_info g where technology in ('Central_PV','CSP_Trough_No_Storage','CSP_Trough_6h_Storage', 'Concentrating_PV', 'Bio_Gas', 'Bio_Gas_CCS', 'Biomass_IGCC', 'Biomass_IGCC_CCS'));" >> competing_locations.tab
 # If there aren't any competing locations, mysql won't print the column header, which in turn causes an error in AMPL. The following if statement will ensure the column header is present in the file as per AMPL's expectations.
 if [ `cat competing_locations.tab | wc -l | sed 's/ //g'` -eq 1 ]; then
   echo location_id >> competing_locations.tab
 fi
 
 echo '	generator_info.tab...'
-echo ampl.tab 1 19 > generator_info.tab
-mysql $connection_string -e "select technology, technology_id, min_build_year, fuel, heat_rate, construction_time_years, year_1_cost_fraction, year_2_cost_fraction, year_3_cost_fraction, year_4_cost_fraction, year_5_cost_fraction, year_6_cost_fraction, max_age_years, forced_outage_rate, scheduled_outage_rate, intermittent, resource_limited, baseload, min_build_capacity, storage from generator_info where technology <> 'Battery_Storage' and technology not like '%CCS%';" >> generator_info.tab
+echo ampl.tab 1 21 > generator_info.tab
+mysql $connection_string -e "select technology, technology_id, min_build_year, fuel, heat_rate, construction_time_years, year_1_cost_fraction, year_2_cost_fraction, year_3_cost_fraction, year_4_cost_fraction, year_5_cost_fraction, year_6_cost_fraction, max_age_years, forced_outage_rate, scheduled_outage_rate, intermittent, resource_limited, baseload, min_build_capacity, storage, storage_efficiency, max_store_rate from generator_info where technology not like '%CCS_EP';" >> generator_info.tab
 
 echo '	fuel_costs.tab...'
 echo ampl.tab 3 1 > fuel_costs.tab
-mysql $connection_string -e "select load_area, fuel, year, fuel_price from fuel_prices_regional where fuel not like '%CCS%' and scenario_id = $REGIONAL_FUEL_COST_SCENARIO_ID and year >= $STUDY_START_YEAR and year <= $STUDY_END_YEAR" >> fuel_costs.tab
+mysql $connection_string -e "select load_area, fuel, year, fuel_price from fuel_prices_regional where scenario_id = $REGIONAL_FUEL_COST_SCENARIO_ID and year >= $STUDY_START_YEAR and year <= $STUDY_END_YEAR" >> fuel_costs.tab
 
 echo '	biomass_supply_curve_slope.tab...'
 echo ampl.tab 2 1 > biomass_supply_curve_slope.tab
@@ -198,7 +202,7 @@ mysql $connection_string -e "select load_area, breakpoint_id, breakpoint_mbtus_p
 
 echo '	fuel_info.tab...'
 echo ampl.tab 1 2 > fuel_info.tab
-mysql $connection_string -e "select fuel, rps_fuel_category, carbon_content from fuel_info where fuel not like '%CCS%';" >> fuel_info.tab
+mysql $connection_string -e "select fuel, rps_fuel_category, carbon_content from fuel_info;" >> fuel_info.tab
 
 echo '	fuel_qualifies_for_rps.tab...'
 echo ampl.tab 2 1 > fuel_qualifies_for_rps.tab
@@ -208,10 +212,11 @@ mysql $connection_string -e "select load_area, rps_fuel_category, qualifies from
 echo '	misc_params.dat...'
 echo "param scenario_id           := $SCENARIO_ID;" >  misc_params.dat
 echo "param enable_rps            := $ENABLE_RPS;"  >> misc_params.dat
+echo "param enable_carbon_cap     := $ENABLE_CARBON_CAP;"  >> misc_params.dat
 echo "param num_years_per_period  := $number_of_years_per_period;"  >> misc_params.dat
 
 echo '	cap_factor.tab...'
 echo ampl.tab 4 1 > cap_factor.tab
-mysql $connection_string -e "select project_id, proposed_projects.load_area, proposed_projects.technology, study_hour as hour, cap_factor from _cap_factor_intermittent_sites c join study_hours_all h on (h.hournum=c.hour) join proposed_projects using (project_id) join load_area_info using (area_id) where ( ( avg_cap_factor_percentile_by_intermittent_tech >= 0.75 or cumulative_avg_MW_tech_load_area <= 5 * total_yearly_load_mwh / 8766 or rank_by_tech_in_load_area <= 10 or avg_cap_factor_percentile_by_intermittent_tech is null or technology = 'Wind') and technology <> 'Concentrating_PV' ) and $TIMESAMPLE;" >> cap_factor.tab
+mysql $connection_string -e "select project_id, proposed_projects.load_area, proposed_projects.technology, study_hour as hour, cap_factor from _cap_factor_intermittent_sites c join study_hours_all h on (h.hournum=c.hour) join proposed_projects using (project_id) join load_area_info using (area_id) where ( ( avg_cap_factor_percentile_by_intermittent_tech >= 0.75 or cumulative_avg_MW_tech_load_area <= 3 * total_yearly_load_mwh / 8766 or rank_by_tech_in_load_area <= 5 or avg_cap_factor_percentile_by_intermittent_tech is null) and technology <> 'Concentrating_PV' ) and $TIMESAMPLE;" >> cap_factor.tab
 
 cd ..

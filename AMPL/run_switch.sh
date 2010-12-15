@@ -19,7 +19,7 @@ log_base="logs/"$(hostname)"_pid$$_switch"
 echo "Starting AMPL on "$(hostname)" with worker $WORKER_ID of $NUM_WORKERS. Logs written to $log_base..."
 #printf "AMPL commands are:\n   include windsun.run; let worker_id := $WORKER_ID; let num_workers := $NUM_WORKERS; let compile_mip_only := 1; include switch.run; exit;\n"
 echo "include windsun.run; let worker_id := $WORKER_ID; let num_workers := $NUM_WORKERS; let compile_mip_only := 1; include switch.run; exit;" | ampl 1>$log_base".log"  2>$log_base".error_log" 
-echo "	AMPL finished compiling the problems and has exited. About to solve them with cplex." >> $log_base
+echo "	AMPL finished compiling the problems and has exited. About to solve them with cplex." >> $log_base".log"
 cplex_options=$(sed -e "s/^[^']*'\([^']*\)'.*$/\1/" results/cplex_options)
 for f in $(ls -1 results/*nl); do 
   base_name=$(echo $f | sed "s/\.nl//"); 
@@ -30,4 +30,5 @@ for f in $(ls -1 results/*nl); do
   fi; 
 done; 
 echo "	Using AMPL to parse cplex solutions and write result files."
-echo 'include windsun.run; let worker_id := $WORKER_ID; let num_workers := $NUM_WORKERS; let compile_mip_only := 1; include switch.run; exit;' | ampl 1>>$log_base".log"  2>>$log_base".error_log" 
+printf "AMPL commands are:\n   include windsun.run; let compile_mip_only := 1; include switch.run; exit;\n"
+echo 'include windsun.run; let compile_mip_only := 1; include switch.run; exit;' | ampl 1>>$log_base".log"  2>>$log_base".error_log"

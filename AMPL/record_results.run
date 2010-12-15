@@ -28,7 +28,7 @@ printf "scenario_id	carbon_cost	period	project_id	load_area_id	load_area	date	ho
   > (outfile);
 
 # New Plants
-printf {(pid, a, t) in PROJECTS, h in TIMEPOINTS: ( if not intermittent[t]
+printf {(pid, a, t) in PROJECTS, h in TIMEPOINTS: t <> 'Battery_Storage' and ( if not intermittent[t]
 		then ProducePowerNonIntermittent[pid, a, t, h]
 		else
 		(sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr])
@@ -66,7 +66,7 @@ printf {(a, e, h) in EP_AVAILABLE_HOURS: ProducePowerEP[a, e, h] != 0}
 printf {(a, pid) in PROJ_NONPUMPED_HYDRO, h in TIMEPOINTS, p in PERIODS: period[h]=p and Dispatch_NonPumped_Hydro[a, pid, h] != 0} 
   "%s	%d	%d	%d	%d	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%d	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
   scenario_id, carbon_cost, p, pid, load_area_id[a], a, date[h], h,
-  hydro_technology_id[a,pid,date[h]], "Hydro_NonPumped", 0, 0, 0, 0, fuel_hydro, rps_fuel_category[fuel_hydro], hours_in_sample[h],
+  hydro_technology_id[a,pid,date[h]], "Hydro_NonPumped", 0, 0, 0, 0, "Water", rps_fuel_category["Water"], hours_in_sample[h],
   Dispatch_NonPumped_Hydro[a, pid, h],
   0, 0, 0, 0, 
   NonPumped_Hydro_Variable_Cost_Incurred_Hourly[a, pid, h]
@@ -76,7 +76,7 @@ printf {(a, pid) in PROJ_NONPUMPED_HYDRO, h in TIMEPOINTS, p in PERIODS: period[
 printf {(a, pid) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS, p in PERIODS: period[h]=p and Dispatch_Pumped_Hydro_Watershed_Electrons[a, pid, h] != 0} 
   "%s	%d	%d	%d	%d	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%d	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
   scenario_id, carbon_cost, p, pid, load_area_id[a], a, date[h], h,
-  hydro_technology_id[a,pid,date[h]], "Hydro_Pumped", 0, 0, 0, 0, fuel_hydro, rps_fuel_category[fuel_hydro], hours_in_sample[h],
+  hydro_technology_id[a,pid,date[h]], "Hydro_Pumped", 0, 0, 0, 0, "Water", rps_fuel_category["Water"], hours_in_sample[h],
   Dispatch_Pumped_Hydro_Watershed_Electrons[a, pid, h],
   0, 0, 0, 0, 
   0 # Pumped Hydro has 0 Variable O&M costs, as they are wrapped up in Fixed O&M costs
@@ -163,7 +163,7 @@ printf {(a, e, p) in EP_PERIODS}
 # Fixed costs are based on the hydro_annual_payment_per_mw parameter that is set and explained in windsun.dat. It is reported in terms of re-occurring costs due at the beginning of each study period.
 printf {(a, pid) in PROJ_NONPUMPED_HYDRO, p in PERIODS}
   "%s	%d	%d	%d	%d	%s	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%.2f\n",
-  scenario_id, carbon_cost, p, pid, load_area_id[a], a, hydro_technology_id[a,pid,first(DATES)], "Hydro_NonPumped", "Hydro_Agg", 0, 0, 0, fuel_hydro,
+  scenario_id, carbon_cost, p, pid, load_area_id[a], a, hydro_technology_id[a,pid,first(DATES)], "Hydro_NonPumped", "Hydro_Agg", 0, 0, 0, "Water",
   hydro_total_capacity[a, pid],
    # CAPITAL cost
 	NonPumped_Hydro_Capital_Payments_by_Plant_and_Period[a, pid, p],
@@ -174,7 +174,7 @@ printf {(a, pid) in PROJ_NONPUMPED_HYDRO, p in PERIODS}
 # hydro plants (pumped)
 printf {(a, pid) in PROJ_PUMPED_HYDRO, p in PERIODS}
   "%s	%d	%d	%d	%d	%s	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%.2f\n",
-  scenario_id, carbon_cost, p, pid, load_area_id[a], a, hydro_technology_id[a,pid,first(DATES)], "Hydro_Pumped", "Hydro_Agg", 0, 0, 0, fuel_hydro,
+  scenario_id, carbon_cost, p, pid, load_area_id[a], a, hydro_technology_id[a,pid,first(DATES)], "Hydro_Pumped", "Hydro_Agg", 0, 0, 0, "Water",
   hydro_total_capacity[a, pid],
   # CAPITAL cost
 	Pumped_Hydro_Capital_Payments_by_Plant_and_Period[a, pid, p],

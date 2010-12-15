@@ -290,13 +290,13 @@ update	proposed_projects
 	-- the heat rates are EIA heat rates (see generator costs for more info)
 	-- for Bio_Gas, the heat rate is 13.648 mbtus/MWh
 	-- for Bio_Solid, the heat rate is 9.646 mbtus/MWh 
-	-- so mbtus_per_year / 8766 -> mbtus_per_hour
+	-- so mbtus_per_year / 8766 -> mbtus_per_hour (capacity_limit)
 
 insert into proposed_projects (technology, load_area, capacity_limit, capacity_limit_conversion)
 	select 	'Biomass_IGCC',
 			load_area,
-			sum(mbtus_per_year / 8766) / 9.646 as cap_mw,
-			1 as capacity_limit_conversion
+			sum(mbtus_per_year / 8766) as capacity_limit,
+			1 / 9.646 as capacity_limit_conversion
 		from biomass_supply_curve_by_load_area
 		where fuel like 'Bio_Solid'
 		group by 1,2,4;
@@ -304,8 +304,8 @@ insert into proposed_projects (technology, load_area, capacity_limit, capacity_l
 insert into proposed_projects (technology, load_area, capacity_limit, capacity_limit_conversion)
 	select 	'Bio_Gas',
 			load_area,
-			( mbtus_per_year / 13.648 ) / 8766,
-			1 as capacity_limit_conversion
+			( mbtus_per_year / 8766 ) as capacity_limit,
+			1 / 13.648 as capacity_limit_conversion
 		from biomass_supply_curve_by_load_area
 		where fuel like 'Bio_Gas';
 
@@ -580,11 +580,13 @@ and		technology like 'Offshore_Wind';
 
 drop table offshore_wind_connect_to_shore;
 
-
--- add location_ids, which will unique to each geometry and will be used to make a constraint over maximum land area usage
+-- LOCATION IDS
+-- add location_ids, which will be unique to each geometry and will be used to make a constraint over maximum land area usage
+-- the project_id_bio will be used to link different bio projects to 'locations', which will be used to constrain 
 drop table if exists proposed_projects_location_ids;
 create table proposed_projects_location_ids(
-	location_id serial primary key);
+	location_id serial primary key,
+	project_id_bio int references proposed_projects (project_id);
 	
 SELECT AddGeometryColumn ('public','proposed_projects_location_ids','the_geom',4326,'POLYGON',2);
 
@@ -599,9 +601,18 @@ insert into proposed_projects_location_ids (the_geom)
 update proposed_projects
 	set location_id = proposed_projects_location_ids.location_id
 	from proposed_projects_location_ids
-	where proposed_projects.the_geom = proposed_projects_location_ids.the_geom
-	and		proposed_projects.the_geom && proposed_projects_location_ids.the_geom;
+	where 	proposed_projects.the_geom = proposed_projects_location_ids.the_geom
+	and		proposed_projects.the_geom && proposed_projects_location_ids.the_geom
+	and 	proposed_projects_location_ids.the_geom is not null;
 
+-- add location_ids for biomass and biogas as the non-ccs and ccs versions of biomass and biogas are resource constrained by location 
+insert into proposed_projects_location_ids (project_id_bio)
+	select project_id from proposed_projects where technology in ('Biomass_IGCC', 'Bio_Gas');
+
+update proposed_projects
+	set location_id = proposed_projects_location_ids.location_id
+	from proposed_projects_location_ids
+	where 	proposed_projects.project_id = proposed_projects_location_ids.project_id_bio;
 
 
 -- export to csv to get back to mysql

@@ -55,9 +55,9 @@ for { a in LOAD_AREAS, h in TIMEPOINTS, p in PERIODS: period[h] = p and num_bio_
 	# divided by the total fuel usage
 	   / ConsumeBioSolid[a, p];	   		
 }
-for { (pid, a, t) in PROJECTS, h in TIMEPOINTS } {
+for { (pid, a, t) in PROJECTS, h in TIMEPOINTS: t <> 'Battery_Storage' } {
   let Fuel_Cost_Incurred_Hourly[ pid, a, t, h ] := 
-	if fuel[t] = 'Bio_Solid' then
+	if fuel[t] in BIO_SOLID_FUELS then
 		ProducePowerNonIntermittent[pid, a, t, h] * heat_rate[t] * Biomass_Solid_Fuel_Cost[a, h]
 	# now on to all other fuels
 		else	
@@ -139,7 +139,7 @@ for {p in PERIODS} {
 	  sum { (pid, a, t) in PROJECTS } (
 		Capital_Payments_by_Plant_and_Period[pid, a, t, p] +
 		Fixed_OM_by_Plant_and_Period[pid, a, t, p] +
-		sum { h in TIMEPOINTS: period[h] = p } (
+		sum { h in TIMEPOINTS: period[h] = p and t <> 'Battery_Storage' } (
 		  Carbon_Cost_Incurred_Hourly[pid, a, t, h] * hours_in_sample[h] +
 		  Fuel_Cost_Incurred_Hourly[pid, a, t, h] * hours_in_sample[h] +
 		  Variable_Cost_Incurred_Hourly[pid, a, t, h] * hours_in_sample[h]
@@ -176,10 +176,16 @@ for {p in PERIODS} {
 	  )
 	)
 	/ total_loads_by_period_weighted[p];
+
+  let Yearly_Carbon_Emissions[p] :=
+	  sum { (pid, a, t) in PROJECTS, h in TIMEPOINTS: period[h] = p and t <> 'Battery_Storage' }
+		  Carbon_Emissions[ pid, a, t, h ] * hours_in_sample[h] / num_years_per_period + 
+	  sum { (a, e, p) in EP_PERIODS, h in TIMEPOINTS: period[h] = p }
+		  EP_Carbon_Emissions[a, e, h] * hours_in_sample[h] / num_years_per_period;
   
   let Carbon_Costs_Per_Period_per_MWh[p] :=
 	( # Cash flow in the given period, discounted to the start of the period.
-	  sum { (pid, a, t) in PROJECTS, h in TIMEPOINTS: period[h] = p }
+	  sum { (pid, a, t) in PROJECTS, h in TIMEPOINTS: period[h] = p and t <> 'Battery_Storage' }
 		Carbon_Cost_Incurred_Hourly[pid, a, t, h] * hours_in_sample[h]
 	  + sum { (a, e, h) in EP_AVAILABLE_HOURS } 
 		EP_Carbon_Cost_Incurred_Hourly[a, e, h] * hours_in_sample[h]
@@ -187,7 +193,7 @@ for {p in PERIODS} {
 	
   let Gross_Power_by_Period[p]  := 
 	sum{ a in LOAD_AREAS, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY: period[h] = p } 
-		( ( sum {(pid, a, t) in PROJECTS: rps_fuel_category[fuel[t]] = fc} 
+		( ( sum {(pid, a, t) in PROJECTS: t <> 'Battery_Storage' and rps_fuel_category[fuel[t]] = fc} 
 			( if not intermittent[t]
 			then ProducePowerNonIntermittent[pid, a, t, h]
 			else
@@ -195,8 +201,8 @@ for {p in PERIODS} {
 				* cap_factor[pid, a, t, h] * ( 1 - forced_outage_rate[t] ) )
 		)
 		+ ( sum { (a,e,h) in EP_AVAILABLE_HOURS: rps_fuel_category[ep_fuel[a, e]] = fc } ProducePowerEP[a, e, h] )
-		+ ( sum {(a, pid) in PROJ_NONPUMPED_HYDRO: rps_fuel_category[fuel_hydro] = fc} Dispatch_NonPumped_Hydro[a, pid, h] )
-		+ ( sum {(a, pid) in PROJ_PUMPED_HYDRO: rps_fuel_category[fuel_hydro] = fc} Dispatch_Pumped_Hydro_Watershed_Electrons[a, pid, h] )
+		+ ( sum {(a, pid) in PROJ_NONPUMPED_HYDRO: rps_fuel_category["Water"] = fc} Dispatch_NonPumped_Hydro[a, pid, h] )
+		+ ( sum {(a, pid) in PROJ_PUMPED_HYDRO: rps_fuel_category["Water"] = fc} Dispatch_Pumped_Hydro_Watershed_Electrons[a, pid, h] )
 		) * hours_in_sample[h];
 
   let Transmission_Losses_by_Period[p] := 
@@ -216,7 +222,7 @@ for {p in PERIODS} {
 	sum {(a, pid) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY: period[h] = p}
 		( Store_Pumped_Hydro[a, pid, h, fc] * ( 1 - pumped_hydro_efficiency ) * hours_in_sample[h] )
 	+ sum {(pid, a, t) in PROJ_STORAGE, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY: period[h] = p}
-		( StoreEnergy[pid, a, t, h, fc] * ( 1 - storage_efficiency_caes ) * hours_in_sample[h] );
+		( StoreEnergy[pid, a, t, h, fc] * ( 1 - storage_efficiency[t] ) * hours_in_sample[h] );
 }
 
 ######
@@ -227,7 +233,7 @@ for {p in PERIODS} {
 	( ( 1 + discount_rate )^( period[h] - base_year ) );
 
 # now print out results to the screen
-printf "\nTax=%d: Levelized Cost=$%3.2f/MWh ", 
+printf "\nTax=$%d/tCO2: Levelized Cost=$%3.2f/MWh ", 
   # Carbon Cost
   carbon_cost,
   # Power Cost
@@ -238,11 +244,11 @@ printf "\nPercentage of power produced by each fuel in the given investment peri
 for {p in PERIODS} {
 	printf "%.0d:\t", p;
 	
-	printf { f in FUELS } "%s=%2.0f\%, ", 
+	printf { f in FUELS: f <> 'Storage' } "%s=%2.0f\%, ", 
 	  f, 
 	  100 * (
 		#    Power from new plants
-		( sum { (pid, a, t) in PROJECTS, h in TIMEPOINTS: period[h] = p and fuel[t] = f } 
+		( sum { (pid, a, t) in PROJECTS, h in TIMEPOINTS: period[h] = p and fuel[t] = f and t <> 'Battery_Storage' } 
 			( if not intermittent[t]
 			then ProducePowerNonIntermittent[pid, a, t, h]
 			else
@@ -253,10 +259,10 @@ for {p in PERIODS} {
 		+ sum { (a,e,h) in EP_AVAILABLE_HOURS: period[h] = p and ep_fuel[a, e] = f }
 			ProducePowerEP[a, e, h] * hours_in_sample[h]
 		# Hydro - doesn't include storage and dispatch of stored electrons because this sum is for generation only
-		+ ( sum {(a, pid) in PROJ_NONPUMPED_HYDRO, h in TIMEPOINTS: period[h]=p and fuel_hydro = f }
+		+ ( sum {(a, pid) in PROJ_NONPUMPED_HYDRO, h in TIMEPOINTS: period[h]=p and "Water" = f }
 				Dispatch_NonPumped_Hydro[a, pid, h] * hours_in_sample[h] )
 			# pumped hydro dispatch of water from upstream
-		+ ( sum {(a, pid) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS: period[h]=p and fuel_hydro = f }
+		+ ( sum {(a, pid) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS: period[h]=p and "Water" = f }
 				Dispatch_Pumped_Hydro_Watershed_Electrons[a, pid, h] * hours_in_sample[h] )
 	  )
 	  / Gross_Power_by_Period[p]
@@ -268,12 +274,14 @@ for {p in PERIODS} {
 		100 * Storage_Losses_by_Period[p]      / Gross_Power_by_Period[p], 
 		100 * (Gross_Power_by_Period[p] - total_loads_by_period_weighted[p] - Distribution_Losses_by_Period[p] - Transmission_Losses_by_Period[p] - Storage_Losses_by_Period[p]) / Gross_Power_by_Period[p];
 	
-	printf "Total Load  = %.0f\n", total_loads_by_period_weighted[p];
-	printf "Total Trans Losses  = %.0f\n", Transmission_Losses_by_Period[p];
-	printf "Total Distribution Losses  = %.0f\n", Distribution_Losses_by_Period[p];
-	printf "Total Storage Losses  = %.0f\n", Storage_Losses_by_Period[p];
-	printf "Total Spilled = %.0f\n", Gross_Power_by_Period[p] - total_loads_by_period_weighted[p] - Transmission_Losses_by_Period[p] - Storage_Losses_by_Period[p] - Distribution_Losses_by_Period[p];
-	printf "Total Power = %.0f\n", Gross_Power_by_Period[p];
+	printf "Total Load  = %.0f MWh\n", total_loads_by_period_weighted[p];
+	printf "Total Trans Losses = %.0f MWh\n", Transmission_Losses_by_Period[p];
+	printf "Total Distribution Losses = %.0f MWh\n", Distribution_Losses_by_Period[p];
+	printf "Total Storage Losses = %.0f MWh\n", Storage_Losses_by_Period[p];
+	printf "Total Spilled = %.0f MWh\n", Gross_Power_by_Period[p] - total_loads_by_period_weighted[p] - Transmission_Losses_by_Period[p] - Storage_Losses_by_Period[p] - Distribution_Losses_by_Period[p];
+	printf "Total Power = %.0f MWh\n", Gross_Power_by_Period[p];
+	printf "Total Carbon Emissions = %.0f MtCO2/yr\n", Yearly_Carbon_Emissions[p]/1000000;
+	printf "Percent of 1990 Carbon Emissions = %.0f \%\n", 100 * Yearly_Carbon_Emissions[p] / base_carbon_emissions;
 	printf "Power Cost = $%.2f/MWh ($%.2f of which is carbon cost)\n", Power_Cost_Per_Period[p], Carbon_Costs_Per_Period_per_MWh[p];
 	
 	printf "\n";

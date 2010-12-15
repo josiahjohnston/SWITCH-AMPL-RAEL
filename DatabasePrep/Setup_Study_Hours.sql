@@ -280,13 +280,14 @@ CREATE TABLE IF NOT EXISTS scenarios (
   hours_between_samples INT NOT NULL DEFAULT 24, 
   start_hour INT NOT NULL DEFAULT 11 COMMENT 'The value of START_HOUR should be between 0 and one less than the value of NUM_HOURS_BETWEEN_SAMPLES. 0 means sampling starts at 12am, 1 means 1am, ... 15 means 3pm, etc', 
   enable_rps BOOLEAN NOT NULL DEFAULT 0 COMMENT 'This controls whether Renewable Portfolio Standards are considered in the optimization.', 
+  enable_carbon_cap BOOLEAN NOT NULL DEFAULT 0 COMMENT 'This controls whether a carbon cap is considered in the optimization.',
   notes TEXT,
   num_timepoints INT, 
   _datesample TEXT,
   _timesample TEXT,
   _hours_in_sample TEXT,
   PRIMARY KEY (scenario_id), 
-  UNIQUE INDEX unique_params(`training_set_id`, `exclude_peaks`, `exclude_periods`, `period_reduced_by`, `regional_cost_multiplier_scenario_id`, `regional_fuel_cost_scenario_id`, `regional_gen_price_scenario_id`, `months_between_samples`, `start_month`, `hours_between_samples`, `start_hour`, `enable_rps`), 
+  UNIQUE INDEX unique_params(training_set_id, exclude_peaks, exclude_periods, period_reduced_by, regional_cost_multiplier_scenario_id, regional_fuel_cost_scenario_id, regional_gen_price_scenario_id, months_between_samples, start_month, hours_between_samples, start_hour, enable_rps, enable_carbon_cap), 
   CONSTRAINT training_set_id FOREIGN KEY training_set_id (training_set_id)
     REFERENCES training_sets (training_set_id), 
   CONSTRAINT regional_cost_multiplier_scenario_id FOREIGN KEY regional_cost_multiplier_scenario_id (regional_cost_multiplier_scenario_id)
@@ -384,8 +385,8 @@ SELECT set_scenarios_sql_columns( @scenario_id );
 
 
 -- Drop the tables that are supposed to be temporary if the script finished successfully.
-drop table tperiods;
-drop table tmonths;
-drop table tdates;
-drop table thourtotal;
-drop table tmaxday_in_month;
+drop table if exists tperiods;
+drop table if exists tmonths;
+drop table if exists tdates;
+drop table if exists thourtotal;
+drop table if exists tmaxday_in_month;

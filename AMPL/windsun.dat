@@ -5,10 +5,6 @@ param base_year := 2007;
 # when there are no forced outages
 param planning_reserve_margin := 0.15;
 
-# Minimum amount of electricity that solar must produce
-param enable_min_solar_production := 0;
-param min_solar_production := 0.0030;
-
 # discount rate
 # a 7% real discount rate was chosen as per the recommendations of the Office of Managment and Budget
 # see http://www.whitehouse.gov/omb/rewrite/circulars/a094/a094.html#8 or subsequent revisions
@@ -51,31 +47,12 @@ param forced_outage_rate_hydro := 0.05;
 # from Samir Succar and Robert H. Williams: Compressed Air Energy Storage: Theory, Resources, And Applications For Wind Power, p. 39
 param pumped_hydro_efficiency := 0.74;
 
-
-# CAES
-# Round-trip efficiency for compressed air energy storage
-param round_trip_efficiency_caes := 1.4;
-
-# The storage efficiency of the the storage phase of compressed air energy storage
-# from Samir Succar and Robert H. Williams: Compressed Air Energy Storage: Theory, Resources, And Applications For Wind Power, p. 39
-param storage_efficiency_caes := 0.817;
-
-# Max store rate for compressed energy storage relative to turbine size
-param max_store_rate_caes := 1.2;
-
-
-# Names of intermittent and resource-limited technologies. 
-param tech_ccgt := "CCGT";
-param tech_gas_combustion_turbine := "Gas_Combustion_Turbine";
-param tech_wind := "Wind";
-param tech_offshore_wind := "Offshore_Wind";
-param tech_biomass_igcc := "Biomass_IGCC";
-param tech_bio_gas := "Bio_Gas";
-param fuel_hydro := "Water";
-
 # All of the solar technologies. If you change what they are called in the section immediately above, change them here too.
 set SOLAR_CSP_TECHNOLOGIES := CSP_Trough_No_Storage CSP_Trough_6h_Storage;
 set SOLAR_DIST_PV_TECHNOLOGIES := Residential_PV Commercial_PV;
+
+# biomass fuels... nonccs and ccs varieties
+set BIO_SOLID_FUELS := Bio_Solid Bio_Solid_CCS;
 
 # default values for projects that don't have a specific location assigned beyond the load area
 param location_unspecified := 0;
@@ -88,11 +65,10 @@ param location_unspecified := 0;
 
 set YEAR_OF_CONSTRUCTION :=  0, 1, 2, 3, 4, 5 ;
 
-
 # cost of carbon emissions ($/tonneCO2)
 param carbon_cost;
 # Set this to more than one value if you want to run the carbon curve scripty thing
-set CARBON_COSTS := 60;
+set CARBON_COSTS := 0;
 
 param: 
 RESULT_FILES:                        result_file_path_templates :=

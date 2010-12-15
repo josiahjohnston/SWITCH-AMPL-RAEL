@@ -9,3 +9,7 @@ Coal	fossilish	0.0939
 Uranium	fossilish	0
 Geothermal	renewable	0
 Water	fossilish	0
+Gas_CCS	fossilish	0.00817
+Coal_CCS	fossilish	0.00144
+Bio_Solid_CCS	renewable	-0.12
+Bio_Gas_CCS	renewable	-0.06

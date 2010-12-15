@@ -476,7 +476,22 @@ insert into rps_load_area_targets ( area_id, load_area, compliance_year, complia
 			) as compliance_fraction_in_max_year_table
 	;
 					
-			
+-- CARBON CAP INFO ---------------
+-- the current carbon cap in SWITCH is set by a linear decrease
+-- from 100% of 1990 levels in 2020 to 20% of 1990 levels in 2050
+-- these two goals are the california emission goals.
+drop table if exists carbon_cap_targets;
+create table carbon_cap_targets(
+	year year primary key,
+	carbon_emissions_relative_to_base float
+	);
+
+load data local infile
+	'carbon_cap_targets.csv'
+	into table carbon_cap_targets
+	fields terminated by	','
+	optionally enclosed by '"'
+	ignore 1 lines;
 
 -- HYDRO-------------------
 -- made in 'build existing plants table.sql'
@@ -755,6 +770,25 @@ insert into _proposed_projects (technology_id, technology, area_id,
 					where non_ccs_technology_table.non_ccs_technology = _proposed_projects.technology ) as resource_limited_ccs_load_area_projects
 	where 	generator_info.technology = resource_limited_ccs_load_area_projects.ccs_technology
 	and		load_area_info.area_id = resource_limited_ccs_load_area_projects.area_id;
+
+-- bio ccs projects are constrained by resource at each location, so add these constraints here
+update _proposed_projects,
+		( select	concat(technology, '_CCS') as ccs_bio_technology,
+					area_id,
+					capacity_limit,
+					location_id
+			from proposed_projects
+			where technology in ('Biomass_IGCC', 'Bio_Gas') ) as ccs_bio_technology_table
+set _proposed_projects.capacity_limit = ccs_bio_technology_table.capacity_limit,
+	_proposed_projects.location_id = ccs_bio_technology_table.location_id
+WHERE	_proposed_projects.area_id = ccs_bio_technology_table.area_id
+and		_proposed_projects.technology = ccs_bio_technology_table.ccs_bio_technology;
+
+-- the heat rate of each bio project constrains generation
+update _proposed_projects
+set _proposed_projects.capacity_limit_conversion = 1 / heat_rate
+where _proposed_projects.technology in ('Biomass_IGCC_CCS', 'Bio_Gas_CCS');
+
 
 -- add CCS projects to retrofit existing plants
 -- the gen_info_project_id is from the existing plants table
