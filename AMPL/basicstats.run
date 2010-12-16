@@ -23,7 +23,7 @@ for { (a, e, p) in EP_PERIODS } {
 	  ) 
 	* factor_to_bring_annual_costs_to_start_of_period;
   let EP_Fixed_OM_by_Plant_and_Period[a, e, p] := 
-	OperateEPDuringPeriod[a, e, p] * ep_size_mw[a, e] * ep_fixed_o_m[a, e] * economic_multiplier[a] * factor_to_bring_annual_costs_to_start_of_period;
+	( if ep_intermittent[a, e] then 1 else OperateEPDuringPeriod[a, e, p] ) * ep_size_mw[a, e] * ep_fixed_o_m[a, e] * economic_multiplier[a] * factor_to_bring_annual_costs_to_start_of_period;
 }
 
 # Fixed Cash flows for each hydro plant for every period in the study.
@@ -215,7 +215,7 @@ for {p in PERIODS} {
 		 - (sum {(pid, a, t) in PROJ_INTERMITTENT: t in SOLAR_DIST_PV_TECHNOLOGIES}
 		   cap_factor[pid, a, t, h] * (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]))
 		 - (sum {(a, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: ep_technology[a,e] in SOLAR_DIST_PV_TECHNOLOGIES }
-		   OperateEPDuringPeriod[a, e, period[h]] * eip_cap_factor[a, e, h] * ep_size_mw[a, e] ) 
+		   eip_cap_factor[a, e, h] * ep_size_mw[a, e] ) 
 			);
 			
   let Storage_Losses_by_Period[p] :=
@@ -233,7 +233,12 @@ for {p in PERIODS} {
 	( ( 1 + discount_rate )^( period[h] - base_year ) );
 
 # now print out results to the screen
-printf "\nTax=$%d/tCO2: Levelized Cost=$%3.2f/MWh ", 
+printf "\nPolicy Options Are:";
+printf "\nEnable RPS=%0d  Enable Carbon Cap=%0d", 
+		enable_rps, 
+		enable_carbon_cap;
+
+printf "\nTax=$%d/tCO2: Levelized Cost=$%3.2f/MWh \n", 
   # Carbon Cost
   carbon_cost,
   # Power Cost

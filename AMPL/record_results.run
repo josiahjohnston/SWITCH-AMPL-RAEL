@@ -146,11 +146,12 @@ printf {(pid, a, t) in PROJECTS, p in PERIODS: (sum {(pid, a, t, install_yr) in 
 # existing plants (either baseload or dispatchable)
 # note: they're only counted as "capacity" if they are operable during this period
 # as cogen plants can have their life extended past ep_end_year,
-# their capital cost are included here only if they are operated past their normal lifetime (the second printf statement - could probably done in one statement with an in-line if)
+# their capital cost are included here only if they are operated past their normal lifetime
+# existing intermittent plants generally have low operational costs and are therefore kept running
 printf {(a, e, p) in EP_PERIODS}
   "%s	%d	%d	%d	%d	%s	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%.2f\n",
   scenario_id, carbon_cost, p, ep_project_id[a, e], load_area_id[a], a, technology_id[ep_technology[a,e]], ep_technology[a,e], e, 0, ep_baseload[a, e], ep_cogen[a, e], ep_fuel[a, e],
-  OperateEPDuringPeriod[a, e, p] * ep_size_mw[a, e],
+  ( if ep_intermittent[a, e] then 1 else OperateEPDuringPeriod[a, e, p] ) * ep_size_mw[a, e],
   # Capital costs
   EP_Capital_Payments_by_Plant_and_Period[a, e, p], 
   # Fixed O & M

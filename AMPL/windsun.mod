@@ -905,7 +905,8 @@ var BuildGenOrNot {PROJ_MIN_BUILD_VINTAGES} >= 0, <= 1, integer;
 var ProducePowerNonIntermittent {PROJECTS, TIMEPOINTS} >= 0;
 
 # binary variable that decides to either operate or mothball an existing plant during each study period.
-var OperateEPDuringPeriod {EP_PERIODS} >= 0, <= 1, integer;
+# existing intermittent plants generally have low operational costs and are therefore kept running, hence are excluded from this variable definition
+var OperateEPDuringPeriod { ( a, e, p) in EP_PERIODS: not ep_intermittent[a, e] } >= 0, <= 1, integer;
 
 # number of MW to generate from each existing dispatchable plant, in each hour
 var ProducePowerEP {EP_AVAILABLE_HOURS} >= 0;
@@ -1012,7 +1013,7 @@ minimize Power_Cost:
       OperateEPDuringPeriod[a, e, p] * ep_size_mw[a, e] * ep_capital_cost_payment_per_period_to_extend_operation[a, e, p]
 	# Calculate fixed costs for all existing plants
 	+ sum {(a, e, p) in EP_PERIODS} 
-      OperateEPDuringPeriod[a, e, p] * ep_size_mw[a, e] * ep_fixed_o_m_cost[a, e, p]
+       ( if ep_intermittent[a, e] then 1 else OperateEPDuringPeriod[a, e, p] ) * ep_size_mw[a, e] * ep_fixed_o_m_cost[a, e, p]
 	# Calculate variable costs for all existing plants
 	+ sum {(a,e,h) in EP_AVAILABLE_HOURS}
 	  ProducePowerEP[a, e, h] * ( ep_variable_cost[a, e, h] + ep_carbon_cost_per_mwh[a, e, h] )
@@ -1111,8 +1112,7 @@ subject to Conservation_Of_Energy_Distributed {a in LOAD_AREAS, h in TIMEPOINTS,
           (1-forced_outage_rate[t]) * cap_factor[pid, a, t, h] *
           (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]))
 	+ (sum {(a, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: ep_technology[a,e] in SOLAR_DIST_PV_TECHNOLOGIES and rps_fuel_category[ep_fuel[a, e]] = fc}
-   	      OperateEPDuringPeriod[a, e, period[h]] * 
-          (1-ep_forced_outage_rate[a, e]) * eip_cap_factor[a, e, h] * ep_size_mw[a, e] ) 
+   	      (1-ep_forced_outage_rate[a, e]) * eip_cap_factor[a, e, h] * ep_size_mw[a, e] ) 
   ;
 
 
@@ -1152,7 +1152,7 @@ subject to Conservation_Of_Energy_NonDistributed_Reserve {a in LOAD_AREAS, h in 
 		OperateEPDuringPeriod[a, e, period[h]] * ep_size_mw[a, e] )
   # existing intermittent plants
 	+ ( sum {(a, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: ep_technology[a,e] not in SOLAR_DIST_PV_TECHNOLOGIES} 
-		OperateEPDuringPeriod[a, e, period[h]] * ep_size_mw[a, e] * eip_cap_factor[a, e, h] )
+		ep_size_mw[a, e] * eip_cap_factor[a, e, h] )
   # existing baseload plants
 	+ ( sum {(a, e, p) in EP_BASELOAD_PERIODS: p=period[h]} 
 		OperateEPDuringPeriod[a, e, p] * ep_size_mw[a, e] * ( 1 - ep_scheduled_outage_rate[a, e] ) )
@@ -1184,7 +1184,7 @@ subject to Conservation_Of_Energy_Distributed_Reserve {a in LOAD_AREAS, h in TIM
           cap_factor[pid, a, t, h] *
           ( sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr] ) )
 	+ ( sum {(a, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: ep_technology[a,e] in SOLAR_DIST_PV_TECHNOLOGIES}
-   	      OperateEPDuringPeriod[a, e, period[h]] * eip_cap_factor[a, e, h] * ep_size_mw[a, e] ) 
+   	      eip_cap_factor[a, e, h] * ep_size_mw[a, e] ) 
   ;
 
 
@@ -1214,7 +1214,7 @@ subject to Power_From_Battery_Storage
 	{(pid, a, t) in PROJ_DISPATCH, h in TIMEPOINTS: t = 'Battery_Storage'}:
 	ProducePowerNonIntermittent[pid, a, t, h] = 0;
 
-subject to EP_Operational_Continuity {(a, e, p) in EP_PERIODS: p > first(PERIODS)}:
+subject to EP_Operational_Continuity {(a, e, p) in EP_PERIODS: p > first(PERIODS) and not ep_intermittent[a,e]}:
 	OperateEPDuringPeriod[a, e, p] <= OperateEPDuringPeriod[a, e, prev(p, PERIODS)];
 
 # existing dispatchable plants can only be used if they are operational this period
@@ -1223,7 +1223,7 @@ subject to EP_Power_From_Dispatchable_Plants { (a,e,h) in EP_AVAILABLE_HOURS: ep
 		OperateEPDuringPeriod[a, e, period[h]] * (1-ep_forced_outage_rate[a, e]) * ep_size_mw[a, e];
 
 subject to EP_Power_From_Intermittent_Plants { (a,e,h) in EP_AVAILABLE_HOURS: ep_intermittent[a,e] }: 
-	ProducePowerEP[a, e, h] = OperateEPDuringPeriod[a, e, period[h]] * ep_size_mw[a, e] * eip_cap_factor[a, e, h] * ( 1 - ep_forced_outage_rate[a, e] );
+	ProducePowerEP[a, e, h] = ep_size_mw[a, e] * eip_cap_factor[a, e, h] * ( 1 - ep_forced_outage_rate[a, e] );
 
 subject to EP_Power_From_Baseload_Plants { (a,e,h) in EP_AVAILABLE_HOURS: ep_baseload[a,e] }: 
     ProducePowerEP[a, e, h] = OperateEPDuringPeriod[a, e, period[h]] * ep_size_mw[a, e] * ( 1 - ep_forced_outage_rate[a, e] ) * ( 1 - ep_scheduled_outage_rate[a, e] );

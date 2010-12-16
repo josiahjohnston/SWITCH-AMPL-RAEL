@@ -2,7 +2,7 @@ CREATE DATABASE IF NOT EXISTS switch_results_wecc_v2_2;
 USE switch_results_wecc_v2_2;
 
 CREATE OR REPLACE VIEW technologies as 
-	select technology_id, technology, fuel, can_build_new from switch_inputs_wecc_v2_2.generator_info;
+	select technology_id, technology, fuel, storage, can_build_new from switch_inputs_wecc_v2_2.generator_info;
 CREATE OR REPLACE VIEW load_areas as 
 	select area_id, load_area from switch_inputs_wecc_v2_2.load_area_info;
 CREATE OR REPLACE VIEW load_areas as 
@@ -218,6 +218,7 @@ CREATE TABLE IF NOT EXISTS _gen_hourly_summary_tech_la (
   month int,
   hour_of_day_UTC tinyint unsigned,
   technology_id tinyint unsigned NOT NULL,
+  fuel VARCHAR(64) NOT NULL,
   variable_o_m_cost double NOT NULL default 0,
   fuel_cost double NOT NULL default 0,
   carbon_cost_incurred double NOT NULL default 0,
@@ -233,10 +234,10 @@ CREATE TABLE IF NOT EXISTS _gen_hourly_summary_tech_la (
   FOREIGN KEY (technology_id) REFERENCES technologies(technology_id),
   PRIMARY KEY (scenario_id, carbon_cost, study_hour, area_id, technology_id)
 ) ROW_FORMAT=FIXED;
-CREATE OR REPLACE VIEW gen_hourly_summary_la_tech as
+CREATE OR REPLACE VIEW gen_hourly_summary_tech_la as
   SELECT 	scenario_id, carbon_cost, period, load_area, study_date, study_hour, hours_in_sample, month, month_name,
   			hour_of_day_UTC, mod(hour_of_day_UTC - 8, 24) as hour_of_day_PST,
-  			technology, fuel, variable_o_m_cost, fuel_cost, carbon_cost_incurred, co2_tons, power
+  			technology, _gen_hourly_summary_tech_la.fuel, variable_o_m_cost, fuel_cost, carbon_cost_incurred, co2_tons, power
     FROM _gen_hourly_summary_tech_la join load_areas using(area_id) join months on(month=month_id) join technologies using (technology_id);
 
 CREATE TABLE IF NOT EXISTS _gen_hourly_summary_tech (
@@ -430,6 +431,7 @@ CREATE TABLE IF NOT EXISTS power_cost (
   new_bio_cost double default 0 NOT NULL, 
   new_wind_cost double default 0 NOT NULL, 
   new_solar_cost double default 0 NOT NULL, 
+  new_storage_nonfuel_cost double default 0 NOT NULL, 
   carbon_cost_total double default 0 NOT NULL, 
   total_cost double default 0 NOT NULL,
   cost_per_mwh double default 0 NOT NULL,
