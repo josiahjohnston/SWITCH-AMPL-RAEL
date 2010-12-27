@@ -36,9 +36,9 @@ param season_of_year {h in TIMEPOINTS} = floor((month_of_year[h]-1)/3)+1;
 # note: periods must be evenly spaced and count by years
 set PERIODS ordered = setof {h in TIMEPOINTS} (period[h]);
 
-# specific dates are used to collect hours that are part of the same
-# day, for the purpose of hydro dispatch, etc.
+# specific dates are used to collect hours that are part of the same day, for the purpose of storage dispatch.
 set DATES ordered = setof {h in TIMEPOINTS} (date[h]);
+param period_of_date {d in DATES} = min {h in TIMEPOINTS:date[h] = d} period[h];
 
 set HOURS_OF_DAY ordered = setof {h in TIMEPOINTS} (hour_of_day[h]);
 set MONTHS_OF_YEAR ordered = setof {h in TIMEPOINTS} (month_of_year[h]);
@@ -177,22 +177,28 @@ param forced_outage_rate {TECHNOLOGIES} >= 0, <= 1;
 # fraction of the time when a plant must be taken off-line for maintenance
 param scheduled_outage_rate {TECHNOLOGIES} >= 0, <= 1;
 
+# are new generators of this type installable (existing plant types are included in the set of TECHNOLOGIES)
+param can_build_new {TECHNOLOGIES} binary;
+
 # does the generator have a fixed hourly capacity factor?
 param intermittent {TECHNOLOGIES} binary;
+
+# is this type of plant run in baseload mode?
+param baseload {TECHNOLOGIES} binary;
+
+# is this plant dispatchable?  This includes compressed air energy storage but not battery storage
+param dispatchable { t in TECHNOLOGIES: can_build_new[t] = 1 } binary = 
+(if intermittent[t] = 1 or baseload[t] = 1 or t = 'Battery_Storage'
+ then 0
+ else 1
+)
+;
 
 # can this type of project only be installed in limited amounts?
 param resource_limited {TECHNOLOGIES} binary;
 
-# is this type of plant run in baseload mode?
-param new_baseload {TECHNOLOGIES} binary;
-
-# is this plant dispatchable?
-param dispatchable {t in TECHNOLOGIES} binary = 
-(if intermittent[t] = 0 and new_baseload[t] = 0 
- then 1
- else 0
-)
-;
+# is this project a carbon capture and sequestration project?
+param ccs {TECHNOLOGIES} binary;
 
 # does this type of project have a minimum feasable installation size?
 # only in place for Nuclear at the moment
@@ -263,44 +269,34 @@ set PROJ_RESOURCE_LIMITED = {(pid, a, t) in PROJECTS: resource_limited[t]};
 
 # maximum capacity factors (%) for each project, each hour. 
 # generally based on renewable resources available
-set PROJ_INTERMITTENT_HOURS dimen 4;  # LOAD_AREAS, TECHNOLOGIES, PROJECT_ID, TIMEPOINTS
-set PROJ_INTERMITTENT = setof {(pid, a, t, h) in PROJ_INTERMITTENT_HOURS} (pid, a, t);
+set PROJ_INTERMITTENT_HOURS dimen 5;  # LOAD_AREAS, TECHNOLOGIES, PROJECT_ID, PERIODS, TIMEPOINTS
+set PROJ_INTERMITTENT = setof {(pid, a, t, p, h) in PROJ_INTERMITTENT_HOURS} (pid, a, t);
 
 check: card({(pid, a, t) in PROJ_RESOURCE_LIMITED: intermittent[t]} diff PROJ_INTERMITTENT) = 0;
 param cap_factor {PROJ_INTERMITTENT_HOURS};
 
-set PROJ_ANYWHERE = {(pid, a, t) in PROJECTS: not intermittent[t] and not resource_limited[t]};
-
-# the set of all dispatchable projects (i.e., non-intermittent)
-set PROJ_DISPATCH = {(pid, a, t) in PROJECTS: not new_baseload[t] and not intermittent[t]};
-
-# the set of all new storage projects
-set PROJ_STORAGE = {(pid, a, t) in PROJECTS: storage[t]};
-
 # project-vintage combinations that can be installed
 set PROJECT_VINTAGES = { (pid, a, t) in PROJECTS, p in PERIODS: p >= min_build_year[t] + construction_time_years[t]};
-# technology that can be installed, along with their year of construction and year of coming online. 
-set TECHNOLOGY_VINTAGES = setof { (pid, a, t, p) in PROJECT_VINTAGES} (t, p);
 
 # default values for projects that don't have sites
 param location_unspecified symbolic;
 
 # maximum capacity that can be installed in each project. These are units of MW for most technologies. The exceptions are Central PV and CSP, which have units of km^2 and a conversion factor of MW / km^2
-set LOCATIONS_WITH_COMPETING_TECHNOLOGIES;
-param capacity_limit_by_location {loc in LOCATIONS_WITH_COMPETING_TECHNOLOGIES} = min {(pid, a, t) in PROJ_RESOURCE_LIMITED: project_location[pid, a, t] == loc } capacity_limit[pid, a, t];
+set LOCATIONS_WITH_COMPETING_TECHNOLOGIES dimen 2 ;
+param capacity_limit_by_location {(l, a) in LOCATIONS_WITH_COMPETING_TECHNOLOGIES} = min {(pid, a, t) in PROJ_RESOURCE_LIMITED: project_location[pid, a, t] = l } capacity_limit[pid, a, t];
 
 # make sure all hours are represented, and that cap factors make sense.
 # Solar thermal can be parasitic, which means negative cap factors are allowed (just not TOO negative)
-check {(pid, a, t) in PROJ_INTERMITTENT, h in TIMEPOINTS: t in SOLAR_CSP_TECHNOLOGIES}: cap_factor[pid, a, t, h] >= -0.1;
+check {(pid, a, t, p, h) in PROJ_INTERMITTENT_HOURS: t in SOLAR_CSP_TECHNOLOGIES}: cap_factor[pid, a, t, p, h] >= -0.1;
 # No other technology can be parasitic, so only positive cap factors allowed
-check {(pid, a, t) in PROJ_INTERMITTENT, h in TIMEPOINTS: not( t in SOLAR_CSP_TECHNOLOGIES) }: cap_factor[pid, a, t, h] >= 0;
+check {(pid, a, t, p, h) in PROJ_INTERMITTENT_HOURS: not( t in SOLAR_CSP_TECHNOLOGIES) }: cap_factor[pid, a, t, p, h] >= 0;
 # cap factors for solar can be greater than 1 becasue sometimes the sun shines more than 1000W/m^2
 # which is how PV cap factors are defined.
 # The below checks make sure that for other plants the cap factors
 # are <= 1 but for solar they are <= 1.4
 # (roughly the irradiation coming in from space, though the cap factor shouldn't ever approach this number)
-check {(pid, a, t) in PROJ_INTERMITTENT, h in TIMEPOINTS: not( t in SOLAR_TECHNOLOGIES )}: cap_factor[pid, a, t, h] <= 1;
-check {(pid, a, t) in PROJ_INTERMITTENT, h in TIMEPOINTS: t in SOLAR_TECHNOLOGIES }: cap_factor[pid, a, t, h] <= 1.4;
+check {(pid, a, t, p, h) in PROJ_INTERMITTENT_HOURS: not( t in SOLAR_TECHNOLOGIES )}: cap_factor[pid, a, t, p, h] <= 1;
+check {(pid, a, t, p, h) in PROJ_INTERMITTENT_HOURS: t in SOLAR_TECHNOLOGIES }: cap_factor[pid, a, t, p, h] <= 1.4;
 check {(pid, a, t) in PROJ_INTERMITTENT}: intermittent[t];
 
 
@@ -661,8 +657,7 @@ param ep_could_be_operating_past_expected_lifetime { (a, e, p) in EP_PERIODS } =
 
 param ep_capital_cost_annual_payment {(a, e) in EXISTING_PLANTS} = 
   sum{ yr_of_constr in YEAR_OF_CONSTRUCTION: yr_of_constr < construction_time_years[ep_technology[a, e]] } (
-    ep_overnight_cost[a, e] * economic_multiplier[a]
-    * cost_fraction[ep_technology[a, e], yr_of_constr] 
+    ep_overnight_cost[a, e] * cost_fraction[ep_technology[a, e], yr_of_constr] 
     # Bring the construction lump sum forward to the year before the plant starts operation. 
 	# This exponent will range from (construction_time - 1) to 0, meaning the cost of the last year's construction doesn't accrue interest.
     * (1 + discount_rate) ^ ( construction_time_years[ep_technology[a, e]] - yr_of_constr - 1 )
@@ -698,7 +693,7 @@ param ep_capital_cost {(a, e) in EXISTING_PLANTS: start_year < ep_end_year[a, e]
 # cost per MW to operate a plant in any future period, discounted to start of study (ep_fixed_o_m is a series of annual payments)
 # and then discounted back to the base year
 param ep_fixed_o_m_cost {(a, e, p) in EP_PERIODS} =
-  ep_fixed_o_m[a, e] * economic_multiplier[a] 
+  ep_fixed_o_m[a, e]
     # A factor to convert all of the uniform annual payments that occur in a study period to the start of a study period
     * factor_to_bring_annual_costs_to_start_of_period
     # Future value (at the start of the study) to Present value (in the base year)
@@ -711,8 +706,7 @@ param ep_fixed_o_m_cost {(a, e, p) in EP_PERIODS} =
 # so if you work through the math, variable costs are multiplied by period_length.
 param ep_variable_cost {(a, e) in EXISTING_PLANTS, h in TIMEPOINTS} =
   	hours_in_sample[h] * (
-	  ep_variable_o_m[a, e] * economic_multiplier[a]
-	  + ep_heat_rate[a, e] * fuel_cost_hourly[a, ep_fuel[a, e], h]
+	  ep_variable_o_m[a, e] + ep_heat_rate[a, e] * fuel_cost_hourly[a, ep_fuel[a, e], h]
 	) / num_years_per_period
 	* factor_to_bring_annual_costs_to_start_of_period
     * 1/(1+discount_rate)^(period[h]-base_year);
@@ -822,27 +816,8 @@ param local_td_sunk_cost =
 # project-vintage combinations that have a minimum size constraint.
 set PROJ_MIN_BUILD_VINTAGES = {(pid, a, t, p) in PROJECT_VINTAGES: min_build_capacity[t] > 0};
 
-# technology-site-vintage-hour combinations for dispatchable projects
-# (i.e., all the project-vintage combinations that are still active in a given hour of the study)
-set PROJ_DISPATCH_VINTAGE_HOURS := 
-  {(pid, a, t) in PROJ_DISPATCH, p in PERIODS, h in TIMEPOINTS: not new_baseload[t] and p >= min_build_year[t] + construction_time_years[t] and p <= period[h] < project_end_year[t, p]};
-
-# technology-site-vintage-hour combinations for storage projects
-# (i.e., all the project-vintage combinations that are still active in a given hour of the study)
-set PROJ_STORAGE_VINTAGE_HOURS := 
-  {(pid, a, t) in PROJ_STORAGE, p in PERIODS, h in TIMEPOINTS: p >= min_build_year[t] + construction_time_years[t] and p <= period[h] < project_end_year[t, p]};
-
-# technology-project-vintage-hour combinations for intermittent (non-dispatchable) projects
-set PROJ_INTERMITTENT_VINTAGE_HOURS := 
-  {(pid, a, t) in PROJ_INTERMITTENT, p in PERIODS, h in TIMEPOINTS: p >= min_build_year[t] + construction_time_years[t] and p <= period[h] < project_end_year[t, p]};
-
-# plant-period combinations when new baseload plants can be installed
-set NEW_BASELOAD_VINTAGES = {(pid, a, t, p) in PROJECT_VINTAGES: new_baseload[t] and p >= min_build_year[t] + construction_time_years[t] };
-
-# plant-period combinations when new baseload plants can run. That is, all new baseload plants that are active in a given hour of the study
-set NEW_BASELOAD_VINTAGE_HOURS =
-  setof {(pid, a, t, p) in NEW_BASELOAD_VINTAGES, h in TIMEPOINTS: p <= period[h] < project_end_year[t, p]} (pid, a, t, p, h);
-
+# plant-hour combinations when new plants are available. 
+set PROJECT_VINTAGE_HOURS := { (pid, a, t, p) in PROJECT_VINTAGES, h in TIMEPOINTS: period[h] = p };
 
 # plant-hour combinations when existing plants can be available. 
 set EP_AVAILABLE_HOURS := setof{ (a, e, p) in EP_PERIODS, h in TIMEPOINTS: period[h] = p} (a,e,h);
@@ -895,6 +870,10 @@ var RedirectDistributedPower_Reserve {LOAD_AREAS, TIMEPOINTS} >= 0;
 # number of MW to install for each project in each investment period
 var InstallGen {PROJECT_VINTAGES} >= 0;
 
+# a derived variable that simplifies the model code and will be substituted out by AMPL
+var InstallGenTotal {(pid, a, t, p) in PROJECT_VINTAGES} =
+	sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= p < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr];
+
 # binary constraint that restricts small plants of certain types of generators from being built
 # this quantity is one when there is there is not a constraint on how small plants can be
 # and is zero when there is a constraint
@@ -902,7 +881,7 @@ var InstallGen {PROJECT_VINTAGES} >= 0;
 var BuildGenOrNot {PROJ_MIN_BUILD_VINTAGES} >= 0, <= 1, integer;
 
 # number of MW to generate from each dispatchable project, in each hour
-var ProducePowerNonIntermittent {PROJECTS, TIMEPOINTS} >= 0;
+var ProducePowerNonIntermittent {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: not intermittent[t] and t <> 'Battery_Storage'} >= 0;
 
 # binary variable that decides to either operate or mothball an existing plant during each study period.
 # existing intermittent plants generally have low operational costs and are therefore kept running, hence are excluded from this variable definition
@@ -915,14 +894,14 @@ var ProducePowerEP {EP_AVAILABLE_HOURS} >= 0;
 var ConsumeBioSolid {a in LOAD_AREAS, p in PERIODS: num_bio_breakpoints[a] > 0 } >= 0;
 
 # the load in MW drawn from grid from storing electrons in new storage plants
-var StoreEnergy {PROJ_STORAGE, TIMEPOINTS, RPS_FUEL_CATEGORY} >= 0;
+var StoreEnergy {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t]} >= 0;
 # number of MW to generate from each storage project, in each hour. 
-var ReleaseEnergy {PROJ_STORAGE, TIMEPOINTS, RPS_FUEL_CATEGORY} >= 0;
+var ReleaseEnergy {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t]} >= 0;
 
 # storage reserve variables. 
 # ReleaseEnergy_Reserve is different from ReleaseEnergy in that all power from a CAES plant is attributed to ReleaseEnergy_Reserve rather than being spread over two decision variables. 
-var StoreEnergy_Reserve {PROJ_STORAGE, TIMEPOINTS} >= 0;
-var ReleaseEnergy_Reserve {PROJ_STORAGE, TIMEPOINTS} >= 0;
+var StoreEnergy_Reserve {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t]} >= 0;
+var ReleaseEnergy_Reserve {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t]} >= 0;
 
 # amount of hydro to store and dispatch during each hour
 # note: Store_Pumped_Hydro represents the load on the grid so the amount of energy available for release
@@ -972,23 +951,20 @@ minimize Power_Cost:
         InstallGen[pid, a, t, p] * capital_cost[pid, a, t, p]
 	# Fixed Costs
 	+ sum {(pid, a, t, p) in PROJECT_VINTAGES} 
-	    (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= p < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr])
-	    * fixed_o_m_by_period[pid, a, t, p]
+	    InstallGenTotal[pid, a, t, p] * fixed_o_m_by_period[pid, a, t, p]
 	# Variable costs for non-storage projects and the natural gas part of CAES
-	+ sum {(pid, a, t) in PROJECTS, h in TIMEPOINTS: t <> 'Battery_Storage'} 
+	+ sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage'} 
 	    ( if not intermittent[t]
-		then ProducePowerNonIntermittent[pid, a, t, h]
+		then ProducePowerNonIntermittent[pid, a, t, p, h]
 		else
-		(sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr])
-			* cap_factor[pid, a, t, h] * ( 1 - forced_outage_rate[t] ) )
+		InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, p, h] * ( 1 - forced_outage_rate[t] ) )
 	 * ( variable_cost[pid, a, t, h] + carbon_cost_per_mwh[t, h] )
 	# Fuel costs
-	+ sum {(pid, a, t) in PROJECTS, h in TIMEPOINTS: fuel[t] not in BIO_SOLID_FUELS and t <> 'Battery_Storage'} 
+	+ sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: fuel[t] not in BIO_SOLID_FUELS and t <> 'Battery_Storage'} 
 	    ( if not intermittent[t]
-		then ProducePowerNonIntermittent[pid, a, t, h]
+		then ProducePowerNonIntermittent[pid, a, t, p, h]
 		else
-		(sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr])
-			* cap_factor[pid, a, t, h] * ( 1 - forced_outage_rate[t] ) )
+		InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, p, h] * ( 1 - forced_outage_rate[t] ) )
 	 * fuel_cost[pid, a, t, h]
 	# BioSolid fuel costs - ConsumeBioSolid is the Mbtus of biomass consumed per period per load area
 	# so this is annualized because costs in the objective function are annualized for proper discounting
@@ -999,8 +975,8 @@ minimize Power_Cost:
 
 	# Variable costs for storage projects: currently attributed to the dispatch side of storage
 	# for CAES, power output is apportioned between ProducePowerNonIntermittent and ReleaseEnergy by storage_efficiency_caes through the constraint CAES_Combined_Dispatch
-	+ sum {(pid, a, t) in PROJ_STORAGE, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY} 
-	    ReleaseEnergy[pid, a, t, h, fc] * variable_cost[pid, a, t, h]
+	+ sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t]} 
+	    ReleaseEnergy[pid, a, t, p, h, fc] * variable_cost[pid, a, t, h]
       
 	#############################
 	#    EXISTING PLANTS
@@ -1083,14 +1059,13 @@ subject to Conservation_Of_Energy_NonDistributed {a in LOAD_AREAS, h in TIMEPOIN
 	# power redirected from distributed sources to the larger grid
     RedirectDistributedPower[a,h,fc]
 	# power produced from new non-distributed, non-battery-storage projects  
-	+ (sum { (pid, a, t) in PROJECTS: t <> 'Battery_Storage' and rps_fuel_category[fuel[t]] = fc and t not in SOLAR_DIST_PV_TECHNOLOGIES}
-      ( if not intermittent[t] then ProducePowerNonIntermittent[pid, a, t, h]
+	+ (sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' and t not in SOLAR_DIST_PV_TECHNOLOGIES and rps_fuel_category[fuel[t]] = fc }
+      ( if not intermittent[t] then ProducePowerNonIntermittent[pid, a, t, p, h]
 		else
-      (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr])
-        * cap_factor[pid, a, t, h] * ( 1 - forced_outage_rate[t] ) ) 
+      InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, p, h] * ( 1 - forced_outage_rate[t] ) ) 
     )
 	# power from new non pumped hydro storage
-	+ ( sum {(pid, a, t) in PROJ_STORAGE} ( ReleaseEnergy[pid, a, t, h, fc] - StoreEnergy[pid, a, t, h, fc] ) )
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t]} ( ReleaseEnergy[pid, a, t, p, h, fc] - StoreEnergy[pid, a, t, p, h, fc] ) )
 	# power produced from exiting plants
 	+ ( sum { (a,e,h) in EP_AVAILABLE_HOURS: rps_fuel_category[ep_fuel[a, e]] = fc and ep_technology[a,e] not in SOLAR_DIST_PV_TECHNOLOGIES} ProducePowerEP[a, e, h] )
 	# power from hydro plants
@@ -1108,9 +1083,8 @@ subject to Conservation_Of_Energy_NonDistributed {a in LOAD_AREAS, h in TIMEPOIN
 subject to Conservation_Of_Energy_Distributed {a in LOAD_AREAS, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY}:
   ConsumeDistributedPower[a,h,fc] + RedirectDistributedPower[a,h,fc] * (1 + distribution_losses)
   <= 
-	(sum {(pid, a, t) in PROJ_INTERMITTENT: t in SOLAR_DIST_PV_TECHNOLOGIES and rps_fuel_category[fuel[t]] = fc}
-          (1-forced_outage_rate[t]) * cap_factor[pid, a, t, h] *
-          (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]))
+	(sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES and rps_fuel_category[fuel[t]] = fc}
+          InstallGenTotal[pid, a, t, p] * (1-forced_outage_rate[t]) * cap_factor[pid, a, t, p, h])
 	+ (sum {(a, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: ep_technology[a,e] in SOLAR_DIST_PV_TECHNOLOGIES and rps_fuel_category[ep_fuel[a, e]] = fc}
    	      (1-ep_forced_outage_rate[a, e]) * eip_cap_factor[a, e, h] * ep_size_mw[a, e] ) 
   ;
@@ -1134,17 +1108,17 @@ subject to Conservation_Of_Energy_NonDistributed_Reserve {a in LOAD_AREAS, h in 
     RedirectDistributedPower_Reserve[a,h]
 	#    NEW PLANTS
   # new dispatchable capacity (no need to decide how to dispatch it; we just need to know it's available)
-	+ ( sum {(pid, a, t, p, h) in PROJ_DISPATCH_VINTAGE_HOURS: not storage[t]}
-		InstallGen[pid, a, t, p] )
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t] and not storage[t]}
+		InstallGenTotal[pid, a, t, p] )
   # output from new intermittent projects. 
-	+ ( sum {(pid, a, t, p, h) in PROJ_INTERMITTENT_VINTAGE_HOURS: t not in SOLAR_DIST_PV_TECHNOLOGIES} 
-		InstallGen[pid, a, t, p] * cap_factor[pid, a, t, h] )
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: intermittent[t] and t not in SOLAR_DIST_PV_TECHNOLOGIES} 
+		InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, p, h] )
   # new baseload plants
-	+ ( sum {(pid, a, t, p, h) in NEW_BASELOAD_VINTAGE_HOURS} 
-		InstallGen[pid, a, t, p] * ( 1 - scheduled_outage_rate[t] ) )
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t]} 
+		InstallGenTotal[pid, a, t, p] * ( 1 - scheduled_outage_rate[t] ) )
   # new storage projects
-	+ ( sum {(pid, a, t) in PROJ_STORAGE} (
-		ReleaseEnergy_Reserve[pid, a, t, h] - StoreEnergy_Reserve[pid, a, t, h] ) )
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t]}
+		( ReleaseEnergy_Reserve[pid, a, t, p, h] - StoreEnergy_Reserve[pid, a, t, p, h] ) )
 	#############################
 	#    EXISTING PLANTS
   # existing dispatchable capacity
@@ -1180,9 +1154,8 @@ subject to Conservation_Of_Energy_NonDistributed_Reserve {a in LOAD_AREAS, h in 
 subject to Conservation_Of_Energy_Distributed_Reserve {a in LOAD_AREAS, h in TIMEPOINTS}:
   ConsumeDistributedPower_Reserve[a,h] + RedirectDistributedPower_Reserve[a,h] * (1 + distribution_losses)
   <= 
-	( sum {(pid, a, t) in PROJ_INTERMITTENT: t in SOLAR_DIST_PV_TECHNOLOGIES}
-          cap_factor[pid, a, t, h] *
-          ( sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr] ) )
+	( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES}
+          InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, p, h] )
 	+ ( sum {(a, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: ep_technology[a,e] in SOLAR_DIST_PV_TECHNOLOGIES}
    	      eip_cap_factor[a, e, h] * ep_size_mw[a, e] ) 
   ;
@@ -1195,24 +1168,17 @@ subject to Conservation_Of_Energy_Distributed_Reserve {a in LOAD_AREAS, h in TIM
 # i.e., we only dispatch up to 1-forced_outage_rate, so the system will work on an expected-value basis
 # (this is the base portfolio, more backup generators will be added later to get a lower year-round risk level)
 subject to Power_From_Dispatchable_Plants 
-	{(pid, a, t) in PROJ_DISPATCH, h in TIMEPOINTS: t <> 'Battery_Storage'}:
-	ProducePowerNonIntermittent[pid, a, t, h] <= (1-forced_outage_rate[t]) * (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]);
+	{(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t]}:
+	ProducePowerNonIntermittent[pid, a, t, p, h] <= (1-forced_outage_rate[t]) * InstallGenTotal[pid, a, t, p];
 
 #subject to Power_From_Intermittent_Plants { (pid, a, t) in PROJECTS, h in TIMEPOINTS: intermittent[t] }: 
 #	ProducePower[pid, a, t, h] =
 #	(sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr])
 #	* cap_factor[pid, a, t, h] * ( 1 - forced_outage_rate[t] );
 
-subject to Power_From_Baseload_Plants { (pid, a, t) in PROJECTS, h in TIMEPOINTS: new_baseload[t] }: 
-    ProducePowerNonIntermittent[pid, a, t, h] = 
-    (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr])
-    * ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] );
-
-# power production constraints for Battery_Storage and the non natural gas portion of CAES are found below in the storage section
-# ProducePowerNonIntermittent is zeroed out here because storage projects don't produce energy - they store and release energy.
-subject to Power_From_Battery_Storage 
-	{(pid, a, t) in PROJ_DISPATCH, h in TIMEPOINTS: t = 'Battery_Storage'}:
-	ProducePowerNonIntermittent[pid, a, t, h] = 0;
+subject to Power_From_Baseload_Plants { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t] }: 
+    ProducePowerNonIntermittent[pid, a, t, p, h] = 
+    InstallGenTotal[pid, a, t, p] * ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] );
 
 subject to EP_Operational_Continuity {(a, e, p) in EP_PERIODS: p > first(PERIODS) and not ep_intermittent[a,e]}:
 	OperateEPDuringPeriod[a, e, p] <= OperateEPDuringPeriod[a, e, prev(p, PERIODS)];
@@ -1233,22 +1199,20 @@ subject to EP_Power_From_Baseload_Plants { (a,e,h) in EP_AVAILABLE_HOURS: ep_bas
 # FUEL CONSTRAINTS
 
 subject to Bio_Solid_Consumption {a in LOAD_AREAS, p in PERIODS: num_bio_breakpoints[a] > 0 }:
-	sum {(pid, a, t) in PROJECTS, h in TIMEPOINTS: period[h] = p and fuel[t] in BIO_SOLID_FUELS } 
+	sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: fuel[t] in BIO_SOLID_FUELS } 
 	# the hourly MWh output of biomass solid projects in baseload mode is below - ProducePowerNonIntermittent wasn't used because it made the compiled MIP more complex
-		( (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr])
-   		* ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] ) )
+		( InstallGenTotal[pid, a, t, p] * ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] ) )
 	# weight each hour to get the total biomass consumed
       * hours_in_sample[h] * heat_rate[t]
 	= ConsumeBioSolid[a, p];
 
 subject to Carbon_Cap {p in PERIODS}:
 	# Carbon emissions from new plants
-	sum {(pid, a, t) in PROJECTS, h in TIMEPOINTS: period[h] = p and t <> 'Battery_Storage'} 
+	sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage'} 
 	    ( if not intermittent[t]
-		then ProducePowerNonIntermittent[pid, a, t, h]
+		then ProducePowerNonIntermittent[pid, a, t, p, h]
 		else
-		(sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr])
-			* cap_factor[pid, a, t, h] * ( 1 - forced_outage_rate[t] ) )
+		InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, p, h] * ( 1 - forced_outage_rate[t] ) )
   		* heat_rate[t] * carbon_content[fuel[t]] * hours_in_sample[h]
 	# Carbon emissions from existing plants
 	+ sum { (a,e,h) in EP_AVAILABLE_HOURS: period[h] = p }
@@ -1260,14 +1224,13 @@ subject to Carbon_Cap {p in PERIODS}:
 # GENERATOR INSTALLATION CONSTRAINTS           
 # there are limits on total installations in certain projects
 # for solar, these are in the form of land area
-subject to Maximum_Resource_Competing_Tech {p in PERIODS, l in LOCATIONS_WITH_COMPETING_TECHNOLOGIES}:
-	sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: technologies_compete_for_space[t] = 1 and install_yr <= p < project_end_year[t, install_yr] and project_location[pid, a, t] = l} 
-	InstallGen[pid, a, t, install_yr] / capacity_limit_conversion[pid, a, t] 
-		 <= capacity_limit_by_location[l];
+subject to Maximum_Resource_Competing_Tech {p in PERIODS, (l, a) in LOCATIONS_WITH_COMPETING_TECHNOLOGIES}:
+	sum {(pid, a, t, p) in PROJECT_VINTAGES: technologies_compete_for_space[t] = 1 and project_location[pid, a, t] = l} 
+	InstallGenTotal[pid, a, t, p] / capacity_limit_conversion[pid, a, t] 
+		 <= capacity_limit_by_location[l, a];
 
-subject to Maximum_Resource_Location_Unspecified { (pid, a, t) in PROJ_RESOURCE_LIMITED, p in PERIODS:
-		not( project_location[pid, a, t] in LOCATIONS_WITH_COMPETING_TECHNOLOGIES ) }:
-  (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= p < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]) <= capacity_limit[pid, a, t] * capacity_limit_conversion[pid, a, t];
+subject to Maximum_Resource_Location_Unspecified { (pid, a, t, p) in PROJECT_VINTAGES: resource_limited[t] and technologies_compete_for_space[t] = 0 }:
+  InstallGenTotal[pid, a, t, p] <= capacity_limit[pid, a, t] * capacity_limit_conversion[pid, a, t];
 
 # Some generators (currently only Nuclear) have a minimum build size. This enforces that constraint
 # If a generator is installed, then BuildGenOrNot is 1, and InstallGen has to be >= min_build_capacity
@@ -1330,23 +1293,23 @@ subject to Minimum_LocalTD
 # Energy output from CAES plants is apportioned into two separate decision variables:
 # ProducePowerNonIntermittent for the power attributable to NG combustion and ReleaseEnergy for the power attributable to stored energy.
 # The ratio of NG:Stored is fixed at plant design and this constraint enforces that relationship. 
-subject to CAES_Combined_Dispatch {(pid, a, t) in PROJ_STORAGE, h in TIMEPOINTS: t = 'Compressed_Air_Energy_Storage'}:
-  	(sum {fc in RPS_FUEL_CATEGORY} ReleaseEnergy[pid, a, t, h, fc] ) = 
-  	  ProducePowerNonIntermittent[pid, a, t, h] * caes_storage_to_ng_ratio[t];
+subject to CAES_Combined_Dispatch { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t = 'Compressed_Air_Energy_Storage' }:
+  	(sum {fc in RPS_FUEL_CATEGORY} ReleaseEnergy[pid, a, t, p, h, fc] ) = 
+  	  ProducePowerNonIntermittent[pid, a, t, p, h] * caes_storage_to_ng_ratio[t];
  
 # Maximum store rate, derated for occasional forced outages
 # StoreEnergy represents the load on the grid from storing electrons
-subject to Maximum_Store_Rate {(pid, a, t) in PROJ_STORAGE, h in TIMEPOINTS}:
-  	sum {fc in RPS_FUEL_CATEGORY} StoreEnergy[pid, a, t, h, fc]
-  		<= max_store_rate[t] * (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]) * ( 1 - forced_outage_rate[t] );
+subject to Maximum_Store_Rate {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t]}:
+  	sum {fc in RPS_FUEL_CATEGORY} StoreEnergy[pid, a, t, p, h, fc]
+  		<= InstallGenTotal[pid, a, t, p] * max_store_rate[t] * ( 1 - forced_outage_rate[t] );
 
 # Maximum dispatch rate, derated for occasional forced outages
 # CAES dispatch is apportioned between ProducePowerNonIntermittent and ReleaseEnergy for NG and stored energy respectivly
 # while other storage projects (currently only Battery_Storage) don't have input energy other than grid electricity
-subject to Maximum_Release_Storage_Rate {(pid, a, t) in PROJ_STORAGE, h in TIMEPOINTS}:
-  	(sum {fc in RPS_FUEL_CATEGORY} ReleaseEnergy[pid, a, t, h, fc] ) +
-  		( if t = 'Compressed_Air_Energy_Storage' then ProducePowerNonIntermittent[pid, a, t, h] else 0 )
-  		<= (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]) * ( 1 - forced_outage_rate[t] );
+subject to Maximum_Release_Storage_Rate { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] }:
+  	(sum {fc in RPS_FUEL_CATEGORY} ReleaseEnergy[pid, a, t, p, h, fc] ) +
+  		( if t = 'Compressed_Air_Energy_Storage' then ProducePowerNonIntermittent[pid, a, t, p, h] else 0 )
+  		<= InstallGenTotal[pid, a, t, p] * ( 1 - forced_outage_rate[t] );
 
   # Energy balance
   # The parameter round_trip_efficiency below expresses the relationship between the amount of electricity from the grid used
@@ -1357,21 +1320,21 @@ subject to Maximum_Release_Storage_Rate {(pid, a, t) in PROJ_STORAGE, h in TIMEP
   # The input of natural gas is handeled in CAES_Combined_Dispatch above
   
   # ReleaseEnergy and StoreEnergy are derated for forced outages in Maximum_Storage_Dispatch_Rate and Maximum_Store_Rate respectivly
-subject to Storage_Projects_Energy_Balance {(pid, a, t) in PROJ_STORAGE, d in DATES, fc in RPS_FUEL_CATEGORY}:
-  	sum {h in TIMEPOINTS: date[h]=d} ReleaseEnergy[pid, a, t, h, fc]
-  		<= sum {h in TIMEPOINTS: date[h]=d} StoreEnergy[pid, a, t, h, fc] * storage_efficiency[t];
+subject to Storage_Projects_Energy_Balance {(pid, a, t, p) in PROJECT_VINTAGES, d in DATES, fc in RPS_FUEL_CATEGORY: storage[t] and period_of_date[d] = p}:
+  	sum {h in TIMEPOINTS: date[h] = d} ReleaseEnergy[pid, a, t, p, h, fc]
+  		<= sum {h in TIMEPOINTS: date[h] = d} StoreEnergy[pid, a, t, p, h, fc] * storage_efficiency[t];
 
 # RESERVE - the same as above on a reserve margin basis
-subject to Maximum_Store_Rate_Reserve {(pid, a, t) in PROJ_STORAGE, h in TIMEPOINTS}:
-  	StoreEnergy_Reserve[pid, a, t, h]
-  		<= max_store_rate[t] * (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]);
-subject to Maximum_Release_Storage_Rate_Reserve {(pid, a, t) in PROJ_STORAGE, h in TIMEPOINTS}:
-  	ReleaseEnergy_Reserve[pid, a, t, h]
-  		<= (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]);
+subject to Maximum_Store_Rate_Reserve { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] }:
+  	StoreEnergy_Reserve[pid, a, t, p, h]
+  		<= max_store_rate[t] * InstallGenTotal[pid, a, t, p];
+subject to Maximum_Release_Storage_Rate_Reserve { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] }:
+  	ReleaseEnergy_Reserve[pid, a, t, p, h]
+  		<= InstallGenTotal[pid, a, t, p];
 # all energy from CAES in the reserve margin is coming from ReleaseEnergy_Reserve, with the use of natural gas included.
-subject to Storage_Projects_Energy_Balance_Reserve {(pid, a, t) in PROJ_STORAGE, d in DATES}:
-  	sum {h in TIMEPOINTS: date[h]=d} ReleaseEnergy_Reserve[pid, a, t, h]
-  		<= sum {h in TIMEPOINTS: date[h]=d} StoreEnergy_Reserve[pid, a, t, h]
+subject to Storage_Projects_Energy_Balance_Reserve {(pid, a, t, p) in PROJECT_VINTAGES, d in DATES: storage[t] and period_of_date[d] = p}:
+  	sum {h in TIMEPOINTS: date[h] = d} ReleaseEnergy_Reserve[pid, a, t, p, h]
+  		<= sum {h in TIMEPOINTS: date[h] = d} StoreEnergy_Reserve[pid, a, t, p, h]
   			* ( if t = 'Compressed_Air_Energy_Storage' then round_trip_efficiency_caes else storage_efficiency[t] );
 
 

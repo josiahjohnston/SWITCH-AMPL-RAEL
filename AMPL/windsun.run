@@ -27,7 +27,8 @@ option cplex_options (" lpdisplay=1 iisfind=1 mipdisplay=2 presolve=1 prestats=1
 option presolve 0;
 option presolve_eps 1e-10;
 # Options to enable automatic substitution of variables without making the program non-linear
-# option linelim 1, substout 1;
+option substout 1, linelim 1;
+# option show_stats 1, times 1, gentimes 1;
 
 # parameter used to track execution times and other management stuff.
 param curtime;
@@ -59,7 +60,7 @@ problem Cost_Minimization:
 	Conservation_Of_Energy_NonDistributed, Conservation_Of_Energy_Distributed,
     ConsumeNonDistributedPower, ConsumeDistributedPower, RedirectDistributedPower,
   # Investment Decisions
-	InstallGen, BuildGenOrNot, InstallTrans, InstallLocalTD, 
+	InstallGen, InstallGenTotal, BuildGenOrNot, InstallTrans, InstallLocalTD, 
   # Installation Constraints
 	Maximum_Resource_Competing_Tech, Maximum_Resource_Location_Unspecified, Minimum_GenSize, BuildGenOrNot_Constraint, SymetricalTrans, Minimum_LocalTD, 
 
@@ -67,7 +68,7 @@ problem Cost_Minimization:
 	ProducePowerNonIntermittent, OperateEPDuringPeriod, ProducePowerEP, ConsumeBioSolid, DispatchTransFromXToY, StoreEnergy, ReleaseEnergy,
 	Dispatch_NonPumped_Hydro, Dispatch_Pumped_Hydro_Watershed_Electrons, Dispatch_Pumped_Hydro_Storage, Store_Pumped_Hydro,
   # Dispatch Constraints
-	Power_From_Dispatchable_Plants, Power_From_Baseload_Plants, Power_From_Battery_Storage,
+	Power_From_Dispatchable_Plants, Power_From_Baseload_Plants,
 	EP_Operational_Continuity, EP_Power_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Baseload_Plants,
 	Bio_Solid_Consumption, Carbon_Cap,
 	Maximum_DispatchTransFromXToY, Maximum_DispatchTransFromXToY_Reserve, 
@@ -90,35 +91,6 @@ problem Cost_Minimization:
 	Maximum_Store_Rate_Reserve, Maximum_Release_Storage_Rate_Reserve, Storage_Projects_Energy_Balance_Reserve
 ;
 
-
-problem Transmission_Minimization: 
-  # Objective
-	Transmission_Usage, 
-  # Transmission Dispatch Decisions
-	DispatchTransFromXToY, 
-  # Satisfy Load
-    Satisfy_Load,
-	Conservation_Of_Energy_NonDistributed, Conservation_Of_Energy_Distributed,
-  # Installation Constraints
-	Maximum_Resource_Competing_Tech, Maximum_Resource_Location_Unspecified, Minimum_GenSize, BuildGenOrNot_Constraint, SymetricalTrans, Minimum_LocalTD, 
-  # Dispatch Constraints
-	Power_From_Dispatchable_Plants, Power_From_Baseload_Plants, Power_From_Battery_Storage,
-	EP_Operational_Continuity, EP_Power_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Baseload_Plants,
-	Bio_Solid_Consumption, Carbon_Cap,
-	Maximum_DispatchTransFromXToY, Maximum_DispatchTransFromXToY_Reserve, 
-	Maximum_Dispatch_NonPumped_Hydro, Average_NonPumped_Hydro_Output, Minimum_Dispatch_NonPumped_Hydro, 
-	Maximum_Dispatch_Pumped_Hydro,    Average_Pumped_Hydro_Watershed_Output,
-	Maximum_Store_Pumped_Hydro, Conservation_Of_Stored_Pumped_Hydro_Electrons,
-	CAES_Combined_Dispatch, Maximum_Store_Rate, Maximum_Release_Storage_Rate, Storage_Projects_Energy_Balance, 
-  # Contigency Planning constraints
-	Satisfy_Load_Reserve, 
-	Conservation_Of_Energy_NonDistributed_Reserve, Conservation_Of_Energy_Distributed_Reserve,
-  # Dispatch Reserve Constraints
-	Maximum_Dispatch_NonPumped_Hydro_Reserve, Average_NonPumped_Hydro_Output_Reserve,        Minimum_Dispatch_NonPumped_Hydro_Reserve, 
-	Maximum_Dispatch_Pumped_Hydro_Reserve,    Average_Pumped_Hydro_Watershed_Output_Reserve, 
-	Maximum_Store_Pumped_Hydro_Reserve,       Conservation_Of_Stored_Pumped_Hydro_Electrons_Reserve,
-	Maximum_Store_Rate_Reserve, Maximum_Release_Storage_Rate_Reserve, Storage_Projects_Energy_Balance_Reserve
-;
 
 problem Cost_Minimization;
 # Add policy constraints as needed.
@@ -180,19 +152,19 @@ for {(pid, a, t) in PROJECTS: project_location[pid, a, t] == 0} {
 }
 
 table competing_locations "inputs/competing_locations.tab" IN:
-	LOCATIONS_WITH_COMPETING_TECHNOLOGIES <- [location_id];
+	LOCATIONS_WITH_COMPETING_TECHNOLOGIES <- [location_id, load_area];
 read table competing_locations;
 
 
 table cap_factor "inputs/cap_factor.tab" IN: 
-  PROJ_INTERMITTENT_HOURS <- [project_id, load_area, technology, hour], cap_factor;
+  PROJ_INTERMITTENT_HOURS <- [project_id, load_area, technology, period, hour], cap_factor;
 read table cap_factor;
 
 table generator_info "inputs/generator_info.tab" IN:  
 	TECHNOLOGIES <- [technology], technology_id, min_build_year, fuel, heat_rate, construction_time_years,
  	year_1_cost_fraction, year_2_cost_fraction, year_3_cost_fraction, year_4_cost_fraction, year_5_cost_fraction, year_6_cost_fraction,
 	max_age_years, forced_outage_rate, scheduled_outage_rate,
-	intermittent, resource_limited, new_baseload ~ baseload, min_build_capacity, 
+	can_build_new, ccs, intermittent, resource_limited, baseload, min_build_capacity, 
 	storage, storage_efficiency, max_store_rate;
 read table generator_info;
 
@@ -258,24 +230,24 @@ for { t in TECHNOLOGIES } {
 
 ###################################
 # parameters used for reporting total generation and transmission
-param Capital_Payments_by_Plant_and_Period { (pid, a, t) in PROJECTS, p in PERIODS }; 
+param Capital_Payments_by_Plant_and_Period { (pid, a, t, p) in PROJECT_VINTAGES }; 
 param EP_Capital_Payments_by_Plant_and_Period { (a, e, p) in EP_PERIODS }; 
-param Fixed_OM_by_Plant_and_Period { (pid, a, t) in PROJECTS, p in PERIODS }; 
+param Fixed_OM_by_Plant_and_Period { (pid, a, t, p) in PROJECT_VINTAGES };  
 param EP_Fixed_OM_by_Plant_and_Period { (a, e, p) in EP_PERIODS }; 
 param NonPumped_Hydro_Capital_Payments_by_Plant_and_Period { (a, pid) in PROJ_NONPUMPED_HYDRO, p in PERIODS };
 param NonPumped_Hydro_Fixed_OM_by_Plant_and_Period  { (a, pid) in PROJ_NONPUMPED_HYDRO, p in PERIODS };
 param NonPumped_Hydro_Variable_Cost_Incurred_Hourly { (a, pid) in PROJ_NONPUMPED_HYDRO, h in TIMEPOINTS };
 param Pumped_Hydro_Capital_Payments_by_Plant_and_Period { (a, pid) in PROJ_PUMPED_HYDRO, p in PERIODS }; 
 param Pumped_Hydro_Fixed_OM_by_Plant_and_Period { (a, pid) in PROJ_PUMPED_HYDRO, p in PERIODS }; 
-param Carbon_Emissions { (pid, a, t) in PROJECTS, h in TIMEPOINTS: t <> 'Battery_Storage' }; 
+param Carbon_Emissions { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }; 
 param EP_Carbon_Emissions { (a, e, h) in EP_AVAILABLE_HOURS }; 
-param Carbon_Cost_Incurred_Hourly { (pid, a, t) in PROJECTS, h in TIMEPOINTS: t <> 'Battery_Storage' }; 
+param Carbon_Cost_Incurred_Hourly { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }; 
 param EP_Carbon_Cost_Incurred_Hourly { (a, e, h) in EP_AVAILABLE_HOURS }; 
 param Biomass_Solid_Fuel_Cost { a in LOAD_AREAS, h in TIMEPOINTS: num_bio_breakpoints[a] > 0 };
-param Fuel_Cost_Incurred_Hourly { (pid, a, t) in PROJECTS, h in TIMEPOINTS: t <> 'Battery_Storage' }; 
+param Fuel_Cost_Incurred_Hourly { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }; 
 param EP_Fuel_Cost_Incurred_Hourly { (a, e, h) in EP_AVAILABLE_HOURS }; 
-param Variable_Cost_Incurred_Hourly { (pid, a, t) in PROJECTS, h in TIMEPOINTS: t <> 'Battery_Storage' }; 
-param Storage_Variable_Cost_Incurred_Hourly { (pid, a, t) in PROJ_STORAGE, h in TIMEPOINTS }; 
+param Variable_Cost_Incurred_Hourly { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }; 
+param Storage_Variable_Cost_Incurred_Hourly { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] }; 
 param EP_Variable_Cost_Incurred_Hourly { (a, e, h) in EP_AVAILABLE_HOURS }; 
 param Local_TD_Existing_Cost_Per_Period { a in LOAD_AREAS, p in PERIODS };
 param Local_TD_New_Cost_Per_Period { a in LOAD_AREAS, p in PERIODS };

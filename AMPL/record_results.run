@@ -28,24 +28,22 @@ printf "scenario_id	carbon_cost	period	project_id	load_area_id	load_area	date	ho
   > (outfile);
 
 # New Plants
-printf {(pid, a, t) in PROJECTS, h in TIMEPOINTS: t <> 'Battery_Storage' and ( if not intermittent[t]
-		then ProducePowerNonIntermittent[pid, a, t, h]
+printf {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' and ( if not intermittent[t]
+		then ProducePowerNonIntermittent[pid, a, t, p, h]
 		else
-		(sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr])
-			* cap_factor[pid, a, t, h] * ( 1 - forced_outage_rate[t] ) ) != 0} 
+		InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, p, h] * ( 1 - forced_outage_rate[t] ) ) != 0} 
   "%s	%d	%d	%d	%d	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%d	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
   scenario_id, carbon_cost, period[h], pid, load_area_id[a], a, date[h], h,
-  technology_id[t], t, 1, new_baseload[t], 0, 0, fuel[t], rps_fuel_category[fuel[t]], hours_in_sample[h],
+  technology_id[t], t, 1, baseload[t], 0, 0, fuel[t], rps_fuel_category[fuel[t]], hours_in_sample[h],
   ( if not intermittent[t]
-		then ProducePowerNonIntermittent[pid, a, t, h]
+		then ProducePowerNonIntermittent[pid, a, t, p, h]
 		else
-		(sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr])
-			* cap_factor[pid, a, t, h] * ( 1 - forced_outage_rate[t] ) ), 
-  Carbon_Emissions[pid, a, t, h],
+		InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, p, h] * ( 1 - forced_outage_rate[t] ) ), 
+  Carbon_Emissions[pid, a, t, p, h],
   heat_rate[t], 
-  Fuel_Cost_Incurred_Hourly[pid, a, t, h],
-  Carbon_Cost_Incurred_Hourly[pid, a, t, h],
-  Variable_Cost_Incurred_Hourly[pid, a, t, h]
+  Fuel_Cost_Incurred_Hourly[pid, a, t, p, h],
+  Carbon_Cost_Incurred_Hourly[pid, a, t, p, h],
+  Variable_Cost_Incurred_Hourly[pid, a, t, p, h]
   >> (outfile);
 
 
@@ -104,22 +102,22 @@ printf {(a, pid) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS, p in PERIODS, fc in RPS_
   >> (outfile);
   
 # New storage projects while storing energy. Don't have to pay variable O&M for storing at the moment.
-printf {(pid, a, t) in PROJ_STORAGE, h in TIMEPOINTS, p in PERIODS, fc in RPS_FUEL_CATEGORY: period[h]=p and StoreEnergy[pid, a, t, h, fc] != 0} 
+printf {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t] and StoreEnergy[pid, a, t, p, h, fc] != 0} 
   "%s	%d	%d	%d	%d	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%d	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
   scenario_id, carbon_cost, p, pid, load_area_id[a], a, date[h], h,
   technology_id[t], t, 1, 0, 0, 1, 'Storage', fc, hours_in_sample[h],
-  -1 * StoreEnergy[pid, a, t, h, fc],
+  -1 * StoreEnergy[pid, a, t, p, h, fc],
   0, 0, 0, 0, 0
   >> (outfile);
 
 # New storage projects while releasing energy.
-printf {(pid, a, t) in PROJ_STORAGE, h in TIMEPOINTS, p in PERIODS, fc in RPS_FUEL_CATEGORY: period[h]=p and ReleaseEnergy[pid, a, t, h, fc] != 0} 
+printf {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t] and ReleaseEnergy[pid, a, t, p, h, fc] != 0} 
   "%s	%d	%d	%d	%d	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%d	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
   scenario_id, carbon_cost, p, pid, load_area_id[a], a, date[h], h,
   technology_id[t], t, 1, 0, 0, 1, 'Storage', fc, hours_in_sample[h],
-  ReleaseEnergy[pid, a, t, h, fc],
+  ReleaseEnergy[pid, a, t, p, h, fc],
   0, 0, 0, 0,
-  ReleaseEnergy[pid, a, t, h, fc] * variable_o_m[pid, a, t]
+  ReleaseEnergy[pid, a, t, p, h, fc] * variable_o_m[pid, a, t]
   >> (outfile);
 
 close (outfile);
@@ -135,12 +133,12 @@ printf "scenario_id	carbon_cost	period	project_id	load_area_id	load_area	technol
 > (outfile);
 
 # New Plants, inclusive of new storage projects
-printf {(pid, a, t) in PROJECTS, p in PERIODS: (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= p < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]) > 0}
+printf {(pid, a, t, p) in PROJECT_VINTAGES: InstallGenTotal[pid, a, t, p] > 0}
   "%s	%d	%d	%d	%d	%s	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%.2f\n",
-  scenario_id, carbon_cost, p, pid, load_area_id[a], a, technology_id[t], t, project_location[pid, a, t], 1, new_baseload[t], 0, fuel[t],
-  (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= p < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]),
-  Capital_Payments_by_Plant_and_Period[pid, a, t, p ],
-  Fixed_OM_by_Plant_and_Period[pid, a, t, p ]
+  scenario_id, carbon_cost, p, pid, load_area_id[a], a, technology_id[t], t, project_location[pid, a, t], 1, baseload[t], 0, fuel[t],
+  InstallGenTotal[pid, a, t, p],
+  Capital_Payments_by_Plant_and_Period[pid, a, t, p],
+  Fixed_OM_by_Plant_and_Period[pid, a, t, p]
   >> (outfile);
 
 # existing plants (either baseload or dispatchable)

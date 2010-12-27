@@ -323,6 +323,7 @@ and categoryname not like '%RPS'
 and categoryname not like '%Future'
 and year(commissionDate) < 2010
 and year(retirementdate) > 2010
+and peak_mw > 0
 order by categoryname
 
 -- switches v1 WECC load areas to v2 WECC load areas

@@ -565,10 +565,14 @@ CREATE TABLE existing_plants (
 insert into existing_plants (project_id, area_id, ep_id, load_area, plant_code, primemover, fuel, peak_mw, heat_rate, start_year, baseload, cogen, overnight_cost, fixed_o_m, variable_o_m, forced_outage_rate, scheduled_outage_rate, max_age, intermittent, technology )
 	select 	existing_plants_agg.ep_id + (ascii( 'E' ) << 8*3),
 			load_area_info.area_id,
-			existing_plants_agg.*
+			ep_id, load_area, plant_code, primemover, fuel, peak_mw, heat_rate,
+			start_year, baseload, cogen,
+			overnight_cost * economic_multiplier,
+			fixed_o_m * economic_multiplier,
+			variable_o_m * economic_multiplier,
+			forced_outage_rate, scheduled_outage_rate, max_age, intermittent, technology 
 			from generator_info.existing_plants_agg
 			join load_area_info using(load_area);
-
 
 drop table if exists _existing_intermittent_plant_cap_factor;
 create table _existing_intermittent_plant_cap_factor(
