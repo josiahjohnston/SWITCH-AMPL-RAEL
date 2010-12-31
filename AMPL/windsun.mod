@@ -645,16 +645,17 @@ param ep_end_year {(a, e) in EXISTING_PLANTS} =
 # plant-period combinations when existing plants can run
 # these are the times when a decision must be made about whether a plant will be kept available for the year
 # or mothballed to save on fixed O&M (or fuel, for baseload plants)
-# note: something like this could be added later for early retirement of new plants too
 # cogen plants can be operated past their normal lifetime by paying O & M costs during each period, plus paying into a capital replacement fund
+# existing nuclear plants are assumed to be kept operational indefinitely, as their O&M costs generally keep them in really good condition
 set EP_PERIODS :=
   {(a, e) in EXISTING_PLANTS, p in PERIODS: 
   		( not ep_cogen[a, e] and p < ep_end_year[a, e] ) or
-  		( ep_cogen[a, e] )	
-  };
+  		( ep_cogen[a, e] ) or
+  		( ep_technology[a, e] = 'Nuclear_EP' ) };
 
+# if a period exists that is >= ep_end_year[a, e], then this plant can be operational past the expected lifetime of the plant
 param ep_could_be_operating_past_expected_lifetime { (a, e, p) in EP_PERIODS } =
-  (if ep_cogen[a, e] and p >= ep_end_year[a, e]
+  (if p >= ep_end_year[a, e]
    then 1
    else 0);
 
@@ -675,7 +676,7 @@ param ep_capital_cost_annual_payment {(a, e) in EXISTING_PLANTS} =
 # Calculate capital costs for all cogen plants that are operated beyond their expected retirement. 
 # This can be thought of as making payments into a capital replacement fund
 param ep_capital_cost_payment_per_period_to_extend_operation
-	{(a, e, p) in EP_PERIODS: ep_could_be_operating_past_expected_lifetime[a, e, p]} =
+	{(a, e, p) in EP_PERIODS: ep_could_be_operating_past_expected_lifetime[a, e, p] and ep_cogen[a, e]} =
 		ep_capital_cost_annual_payment[a, e]
     # A factor to convert all of the uniform annual payments that occur in a study period to a lump sum at the start of a study period
 		* factor_to_bring_annual_costs_to_start_of_period
@@ -954,7 +955,7 @@ minimize Power_Cost:
 	  ep_size_mw[a, e] * ep_capital_cost[a, e]
 	# Calculate capital costs for all cogen plants that are operated beyond their expected retirement. 
 	# This can be thought of as making payments into a capital replacement fund
-	+ sum {(a, e, p) in EP_PERIODS: ep_could_be_operating_past_expected_lifetime[a, e, p]} 
+	+ sum {(a, e, p) in EP_PERIODS: ep_could_be_operating_past_expected_lifetime[a, e, p] and ep_cogen[a, e]} 
       OperateEPDuringPeriod[a, e, p] * ep_size_mw[a, e] * ep_capital_cost_payment_per_period_to_extend_operation[a, e, p]
 	# Calculate fixed costs for all existing plants
 	+ sum {(a, e, p) in EP_PERIODS} 

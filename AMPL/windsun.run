@@ -31,7 +31,7 @@ option substout 1, linelim 1;
 # Options to enable timing of compilation
 # option show_stats 1, times 1, gentimes 1;
 # Options to print out auxiliary files from ampl of the compiled MIP - see p. 488 of the AMPL book for documentation
-option auxfiles cfrsu;
+# option auxfiles cfrsu;
 
 
 # parameter used to track execution times and other management stuff.

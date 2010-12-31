@@ -16,8 +16,9 @@ for { (a, e, p) in EP_PERIODS } {
   let EP_Capital_Payments_by_Plant_and_Period[a, e, p] := 
 	ep_size_mw[a, e] * ep_capital_cost_annual_payment[a, e] 
 	# Don't pay for plants that aren't operated beyond their expected lifetime
-	* (if ep_could_be_operating_past_expected_lifetime[a,e,p]
+	* (if ( ep_could_be_operating_past_expected_lifetime[a,e,p] and ep_cogen[a, e] )
 	   then OperateEPDuringPeriod[a, e, p] # A decision variable with the values 0 or 1
+	   else if ep_technology[a, e] = 'Nuclear_EP' then 0 
 	   else 1
 	  ) 
 	* factor_to_bring_annual_costs_to_start_of_period;
@@ -184,7 +185,7 @@ for {p in PERIODS} {
 	
   let Gross_Power_by_Period[p]  := 
 	sum{ a in LOAD_AREAS, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY: period[h] = p } 
-		( ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }
+		( ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' and rps_fuel_category_tech[t] = fc }
 			(	if	 	dispatchable[t] then DispatchGen[pid, a, t, p, h]
 				else if	intermittent[t] then InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, p, h] * ( 1 - forced_outage_rate[t] )
 				else if	baseload[t] 	then InstallGenTotal[pid, a, t, p] * ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] )
