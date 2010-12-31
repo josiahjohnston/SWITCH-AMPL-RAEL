@@ -28,17 +28,16 @@ printf "scenario_id	carbon_cost	period	project_id	load_area_id	load_area	date	ho
   > (outfile);
 
 # New Plants
-printf {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' and ( if not intermittent[t]
-		then ProducePowerNonIntermittent[pid, a, t, p, h]
-		else
-		InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, p, h] * ( 1 - forced_outage_rate[t] ) ) != 0} 
+printf {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' and 
+	(	if	 	dispatchable[t] then DispatchGen[pid, a, t, p, h]
+		else if	intermittent[t] then InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, p, h] * ( 1 - forced_outage_rate[t] )
+		else if	baseload[t] 	then InstallGenTotal[pid, a, t, p] * ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] ) ) != 0} 
   "%s	%d	%d	%d	%d	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%d	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
-  scenario_id, carbon_cost, period[h], pid, load_area_id[a], a, date[h], h,
+  scenario_id, carbon_cost, p, pid, load_area_id[a], a, date[h], h,
   technology_id[t], t, 1, baseload[t], 0, 0, fuel[t], rps_fuel_category[fuel[t]], hours_in_sample[h],
-  ( if not intermittent[t]
-		then ProducePowerNonIntermittent[pid, a, t, p, h]
-		else
-		InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, p, h] * ( 1 - forced_outage_rate[t] ) ), 
+ 	 (	if	 	dispatchable[t] then DispatchGen[pid, a, t, p, h]
+		else if	intermittent[t] then InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, p, h] * ( 1 - forced_outage_rate[t] )
+		else if	baseload[t] 	then InstallGenTotal[pid, a, t, p] * ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] ) ), 
   Carbon_Emissions[pid, a, t, p, h],
   heat_rate[t], 
   Fuel_Cost_Incurred_Hourly[pid, a, t, p, h],
@@ -48,16 +47,16 @@ printf {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' and (
 
 
 # Existing Plants
-printf {(a, e, h) in EP_AVAILABLE_HOURS: ProducePowerEP[a, e, h] != 0} 
+printf {(a, e, p, h) in EP_AVAILABLE_HOURS: ProducePowerEP[a, e, p, h] != 0} 
   "%s	%d	%d	%d	%d	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%d	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
-  scenario_id, carbon_cost, period[h], ep_project_id[a, e], load_area_id[a], a, date[h], h,
-  technology_id[ep_technology[a,e]], ep_technology[a,e], 0, ep_baseload[a, e], ep_cogen[a, e], 0, ep_fuel[a, e], rps_fuel_category[ep_fuel[a, e]], hours_in_sample[h],
-  ProducePowerEP[a, e, h], 
-  EP_Carbon_Emissions[a, e, h],
+  scenario_id, carbon_cost, p, ep_project_id[a, e], load_area_id[a], a, date[h], h,
+  technology_id[ep_technology[a, e]], ep_technology[a,e], 0, ep_baseload[a, e], ep_cogen[a, e], 0, ep_fuel[a, e], rps_fuel_category[ep_fuel[a, e]], hours_in_sample[h],
+  ProducePowerEP[a, e, p, h], 
+  EP_Carbon_Emissions[a, e, p, h],
   ep_heat_rate[a, e], 
-  EP_Fuel_Cost_Incurred_Hourly[a, e, h],
-  EP_Carbon_Cost_Incurred_Hourly[a, e, h],
-  EP_Variable_Cost_Incurred_Hourly[a, e, h]
+  EP_Fuel_Cost_Incurred_Hourly[a, e, p, h],
+  EP_Carbon_Cost_Incurred_Hourly[a, e, p, h],
+  EP_Variable_Cost_Incurred_Hourly[a, e, p, h]
   >> (outfile);
 
 # Dispatch of non-pumped hydro. 

@@ -28,7 +28,11 @@ option presolve 0;
 option presolve_eps 1e-10;
 # Options to enable automatic substitution of variables without making the program non-linear
 option substout 1, linelim 1;
+# Options to enable timing of compilation
 # option show_stats 1, times 1, gentimes 1;
+# Options to print out auxiliary files from ampl of the compiled MIP - see p. 488 of the AMPL book for documentation
+option auxfiles cfrsu;
+
 
 # parameter used to track execution times and other management stuff.
 param curtime;
@@ -65,10 +69,10 @@ problem Cost_Minimization:
 	Maximum_Resource_Competing_Tech, Maximum_Resource_Location_Unspecified, Minimum_GenSize, BuildGenOrNot_Constraint, SymetricalTrans, Minimum_LocalTD, 
 
   # Dispatch Decisions
-	ProducePowerNonIntermittent, OperateEPDuringPeriod, ProducePowerEP, ConsumeBioSolid, DispatchTransFromXToY, StoreEnergy, ReleaseEnergy,
+	DispatchGen, OperateEPDuringPeriod, ProducePowerEP, ConsumeBioSolid, DispatchTransFromXToY, StoreEnergy, ReleaseEnergy,
 	Dispatch_NonPumped_Hydro, Dispatch_Pumped_Hydro_Watershed_Electrons, Dispatch_Pumped_Hydro_Storage, Store_Pumped_Hydro,
   # Dispatch Constraints
-	Power_From_Dispatchable_Plants, Power_From_Baseload_Plants,
+	Power_From_Dispatchable_Plants,
 	EP_Operational_Continuity, EP_Power_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Baseload_Plants,
 	Bio_Solid_Consumption, Carbon_Cap,
 	Maximum_DispatchTransFromXToY, Maximum_DispatchTransFromXToY_Reserve, 
@@ -132,7 +136,7 @@ table existing_plants "inputs/existing_plants.tab" IN:
 read table existing_plants;
 
 table existing_intermittent_plant_cap_factor "inputs/existing_intermittent_plant_cap_factor.tab" IN: 
-  EP_INTERMITTENT_HOURS <- [load_area, plant_code, hour], eip_cap_factor ~ cap_factor;
+  EP_INTERMITTENT_HOURS <- [load_area, plant_code, period, hour], eip_cap_factor ~ cap_factor;
 read table existing_intermittent_plant_cap_factor;
 
 table hydro "inputs/hydro.tab" IN: 
@@ -240,15 +244,15 @@ param NonPumped_Hydro_Variable_Cost_Incurred_Hourly { (a, pid) in PROJ_NONPUMPED
 param Pumped_Hydro_Capital_Payments_by_Plant_and_Period { (a, pid) in PROJ_PUMPED_HYDRO, p in PERIODS }; 
 param Pumped_Hydro_Fixed_OM_by_Plant_and_Period { (a, pid) in PROJ_PUMPED_HYDRO, p in PERIODS }; 
 param Carbon_Emissions { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }; 
-param EP_Carbon_Emissions { (a, e, h) in EP_AVAILABLE_HOURS }; 
+param EP_Carbon_Emissions { (a, e, p, h) in EP_AVAILABLE_HOURS }; 
 param Carbon_Cost_Incurred_Hourly { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }; 
-param EP_Carbon_Cost_Incurred_Hourly { (a, e, h) in EP_AVAILABLE_HOURS }; 
+param EP_Carbon_Cost_Incurred_Hourly { (a, e, p, h) in EP_AVAILABLE_HOURS }; 
 param Biomass_Solid_Fuel_Cost { a in LOAD_AREAS, h in TIMEPOINTS: num_bio_breakpoints[a] > 0 };
 param Fuel_Cost_Incurred_Hourly { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }; 
-param EP_Fuel_Cost_Incurred_Hourly { (a, e, h) in EP_AVAILABLE_HOURS }; 
+param EP_Fuel_Cost_Incurred_Hourly { (a, e, p, h) in EP_AVAILABLE_HOURS }; 
 param Variable_Cost_Incurred_Hourly { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }; 
 param Storage_Variable_Cost_Incurred_Hourly { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] }; 
-param EP_Variable_Cost_Incurred_Hourly { (a, e, h) in EP_AVAILABLE_HOURS }; 
+param EP_Variable_Cost_Incurred_Hourly { (a, e, p, h) in EP_AVAILABLE_HOURS }; 
 param Local_TD_Existing_Cost_Per_Period { a in LOAD_AREAS, p in PERIODS };
 param Local_TD_New_Cost_Per_Period { a in LOAD_AREAS, p in PERIODS };
 param Transmission_Existing_Cost_Per_Period { a in LOAD_AREAS, p in PERIODS };

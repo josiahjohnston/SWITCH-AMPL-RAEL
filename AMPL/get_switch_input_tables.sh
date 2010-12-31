@@ -157,8 +157,8 @@ echo ampl.tab 2 15 > existing_plants.tab
 mysql $connection_string -e "select load_area, plant_code, project_id as ep_project_id, peak_mw as size_mw, technology, fuel, heat_rate, start_year, max_age, overnight_cost, fixed_o_m, variable_o_m, forced_outage_rate, scheduled_outage_rate, baseload, cogen, intermittent from existing_plants order by 1, 2;" >> existing_plants.tab
 
 echo '	existing_intermittent_plant_cap_factor.tab...'
-echo ampl.tab 3 1 > existing_intermittent_plant_cap_factor.tab
-mysql $connection_string -e "select load_area, plant_code, study_hour as hour, cap_factor from  existing_intermittent_plant_cap_factor c join study_hours_all h on (h.hournum=c.hour) where $TIMESAMPLE order by 1,2;" >> existing_intermittent_plant_cap_factor.tab
+echo ampl.tab 4 1 > existing_intermittent_plant_cap_factor.tab
+mysql $connection_string -e "select load_area, plant_code, period, study_hour as hour, cap_factor from  existing_intermittent_plant_cap_factor c join study_hours_all h on (h.hournum=c.hour) where $TIMESAMPLE order by 1,2;" >> existing_intermittent_plant_cap_factor.tab
 
 echo '	hydro.tab...'
 echo ampl.tab 3 4 > hydro.tab

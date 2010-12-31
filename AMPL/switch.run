@@ -32,14 +32,18 @@ for {c in CARBON_COSTS} {
 			include record_results.run;
 			
 		} else {
-			
+
 			shell("touch " & cost_problem	 & ".nl" );
 			printf "\nCost solution not found on disk for a carbon cost of %d; solving optimization problem.\n", carbon_cost;
 			let curtime := time();
+
+			# for debugging, this writes an mps problem, along with the auxfiles specificed in windsun.run
+			# write ("m" & cost_problem);
+			
+			# write out the problem file for solving by CPLEX
 			write ("b" & cost_problem);
 			let cost_compile_time := time() - curtime;
 			printf "%d seconds to compile and write the problem file.\n", cost_compile_time;
-
 			# The compile_mip_only parameter lets you compile the problem in AMPL, then separately call cplex on the problem after AMPL exits. 
 			# This can save considerable amounts of RAM. 
 			if( compile_mip_only = 0 ) then {

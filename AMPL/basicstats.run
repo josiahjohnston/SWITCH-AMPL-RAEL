@@ -4,7 +4,7 @@
 # Fixed Cash flows for each possible project for every period in the study.
 for { (pid, a, t, p) in PROJECT_VINTAGES } {
   let Capital_Payments_by_Plant_and_Period[pid, a, t, p] :=
-  	sum {(pid, a, t, online_yr) in PROJECT_VINTAGES: online_yr <= p < project_end_year[t, online_yr] } (
+	sum {(pid, a, t, online_yr) in PROJECT_VINTAGES: online_yr <= p < project_end_year[t, online_yr] } (
 	  InstallGen[pid, a, t, online_yr]
       * overnight_cost_levelized_over_operation [pid, a, t, online_yr] * factor_to_bring_annual_costs_to_start_of_period
 	);
@@ -55,37 +55,32 @@ for { a in LOAD_AREAS, h in TIMEPOINTS, p in PERIODS: period[h] = p and num_bio_
 	   / ConsumeBioSolid[a, p];	   		
 }
 for { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' } {
-  let Fuel_Cost_Incurred_Hourly[ pid, a, t, p, h ] := 
-	if fuel[t] in BIO_SOLID_FUELS then
-		ProducePowerNonIntermittent[pid, a, t, p, h] * heat_rate[t] * Biomass_Solid_Fuel_Cost[a, h]
+  let Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := 
+		if fuel[t] in BIO_SOLID_FUELS then
+		InstallGenTotal[pid, a, t, p] * ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] ) * heat_rate[t] * Biomass_Solid_Fuel_Cost[a, h]
 	# now on to all other fuels
 		else	
 	# power produced
-	( ( if not intermittent[t]
-		then ProducePowerNonIntermittent[pid, a, t, p, h]
-		else
-		InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, p, h] * ( 1 - forced_outage_rate[t] ) )
+	 (	if	 	dispatchable[t] then DispatchGen[pid, a, t, p, h]
+		else if	intermittent[t] then InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, p, h] * ( 1 - forced_outage_rate[t] )
+		else if	baseload[t] 	then InstallGenTotal[pid, a, t, p] * ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] ) )
 	# convert to hourly
-	* heat_rate[t] * fuel_cost_hourly[a, fuel[t], h] / num_years_per_period * factor_to_bring_annual_costs_to_start_of_period
-	);
-  let Carbon_Emissions[ pid, a, t, p, h ] := 
-	( if not intermittent[t]
-		then ProducePowerNonIntermittent[pid, a, t, p, h]
-		else
-		InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, p, h] * ( 1 - forced_outage_rate[t] ) )
+	* heat_rate[t] * fuel_cost_hourly[a, fuel[t], h] / num_years_per_period * factor_to_bring_annual_costs_to_start_of_period;
+  let Carbon_Emissions[pid, a, t, p, h] := 
+	 (	if	 	dispatchable[t] then DispatchGen[pid, a, t, p, h]
+		else if	intermittent[t] then InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, p, h] * ( 1 - forced_outage_rate[t] )
+		else if	baseload[t] 	then InstallGenTotal[pid, a, t, p] * ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] ) )
 	* heat_rate[t] * carbon_content[fuel[t]];
-  let Carbon_Cost_Incurred_Hourly[ pid, a, t, p, h ] := 
-	( if not intermittent[t]
-		then ProducePowerNonIntermittent[pid, a, t, p, h]
-		else
-		InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, p, h] * ( 1 - forced_outage_rate[t] ) )
+  let Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] := 
+	 (	if	 	dispatchable[t] then DispatchGen[pid, a, t, p, h]
+		else if	intermittent[t] then InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, p, h] * ( 1 - forced_outage_rate[t] )
+		else if	baseload[t] 	then InstallGenTotal[pid, a, t, p] * ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] ) )
 	* carbon_content[fuel[t]] * carbon_cost / num_years_per_period * factor_to_bring_annual_costs_to_start_of_period;
 
-  let Variable_Cost_Incurred_Hourly[ pid, a, t, p, h ] := 
-	( if not intermittent[t]
-		then ProducePowerNonIntermittent[pid, a, t, p, h]
-		else
-		InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, p, h] * ( 1 - forced_outage_rate[t] ) )
+  let Variable_Cost_Incurred_Hourly[pid, a, t, p, h] := 
+	 (	if	 	dispatchable[t] then DispatchGen[pid, a, t, p, h]
+		else if	intermittent[t] then InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, p, h] * ( 1 - forced_outage_rate[t] )
+		else if	baseload[t] 	then InstallGenTotal[pid, a, t, p] * ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] ) )
 	* variable_o_m[pid, a, t] / num_years_per_period * factor_to_bring_annual_costs_to_start_of_period;
 }
 
@@ -94,15 +89,15 @@ for { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] } {
   let Storage_Variable_Cost_Incurred_Hourly[ pid, a, t, p, h ] := 
 	sum {fc in RPS_FUEL_CATEGORY} ReleaseEnergy[pid, a, t, p, h, fc] * variable_o_m[pid, a, t] / num_years_per_period * factor_to_bring_annual_costs_to_start_of_period;
 }
-for { (a, e, h) in EP_AVAILABLE_HOURS } {
-  let EP_Carbon_Emissions[a, e, h] := 
-	ProducePowerEP[a, e, h] * ep_heat_rate[a, e] * carbon_content[ep_fuel[a, e]];
-  let EP_Carbon_Cost_Incurred_Hourly[a, e, h] := 
-	ProducePowerEP[a, e, h] * ep_heat_rate[a, e] * carbon_content[ep_fuel[a, e]] * carbon_cost / num_years_per_period * factor_to_bring_annual_costs_to_start_of_period;
-  let EP_Fuel_Cost_Incurred_Hourly[a, e, h] := 
-	ProducePowerEP[a, e, h] * ep_heat_rate[a, e] * fuel_cost_hourly[a, ep_fuel[a, e], h] / num_years_per_period * factor_to_bring_annual_costs_to_start_of_period;
-  let EP_Variable_Cost_Incurred_Hourly[a, e, h] := 
-	ProducePowerEP[a, e, h] * ep_variable_o_m[a, e] / num_years_per_period * factor_to_bring_annual_costs_to_start_of_period;
+for { (a, e, p, h) in EP_AVAILABLE_HOURS } {
+  let EP_Carbon_Emissions[a, e, p, h] := 
+	ProducePowerEP[a, e, p, h] * ep_heat_rate[a, e] * carbon_content[ep_fuel[a, e]];
+  let EP_Carbon_Cost_Incurred_Hourly[a, e, p, h] := 
+	ProducePowerEP[a, e, p, h] * ep_heat_rate[a, e] * carbon_content[ep_fuel[a, e]] * carbon_cost / num_years_per_period * factor_to_bring_annual_costs_to_start_of_period;
+  let EP_Fuel_Cost_Incurred_Hourly[a, e, p, h] := 
+	ProducePowerEP[a, e, p, h] * ep_heat_rate[a, e] * fuel_cost_hourly[a, ep_fuel[a, e], h] / num_years_per_period * factor_to_bring_annual_costs_to_start_of_period;
+  let EP_Variable_Cost_Incurred_Hourly[a, e, p, h] := 
+	ProducePowerEP[a, e, p, h] * ep_variable_o_m[a, e] / num_years_per_period * factor_to_bring_annual_costs_to_start_of_period;
 }
 
 # costs for existing local T&D
@@ -145,11 +140,12 @@ for {p in PERIODS} {
 	  ) +
 	  sum { (a, e, p) in EP_PERIODS } (
 		EP_Capital_Payments_by_Plant_and_Period[a, e, p] +
-		EP_Fixed_OM_by_Plant_and_Period[a, e, p] +
-		sum { h in TIMEPOINTS: period[h] = p } (
-		  EP_Carbon_Cost_Incurred_Hourly[a, e, h] * hours_in_sample[h] +
-		  EP_Fuel_Cost_Incurred_Hourly[a, e, h] * hours_in_sample[h] +
-		  EP_Variable_Cost_Incurred_Hourly[a, e, h] * hours_in_sample[h] )
+		EP_Fixed_OM_by_Plant_and_Period[a, e, p]
+	  ) + 
+	  sum { (a, e, p, h) in EP_AVAILABLE_HOURS } (
+		EP_Carbon_Cost_Incurred_Hourly[a, e, p, h] * hours_in_sample[h] +
+		EP_Fuel_Cost_Incurred_Hourly[a, e, p, h] * hours_in_sample[h] +
+		EP_Variable_Cost_Incurred_Hourly[a, e, p, h] * hours_in_sample[h]
 	  ) + 
 	  sum { (a, pid) in PROJ_NONPUMPED_HYDRO } (
 	    NonPumped_Hydro_Capital_Payments_by_Plant_and_Period[a, pid, p] +
@@ -175,26 +171,25 @@ for {p in PERIODS} {
   let Yearly_Carbon_Emissions[p] :=
 	  sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }
 		  Carbon_Emissions[ pid, a, t, p, h ] * hours_in_sample[h] / num_years_per_period + 
-	  sum { (a, e, p) in EP_PERIODS, h in TIMEPOINTS: period[h] = p }
-		  EP_Carbon_Emissions[a, e, h] * hours_in_sample[h] / num_years_per_period;
+	  sum { (a, e, p, h) in EP_AVAILABLE_HOURS }
+		  EP_Carbon_Emissions[a, e, p, h] * hours_in_sample[h] / num_years_per_period;
   
   let Carbon_Costs_Per_Period_per_MWh[p] :=
 	( # Cash flow in the given period, discounted to the start of the period.
 	  sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }
 		Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h]
-	  + sum { (a, e, h) in EP_AVAILABLE_HOURS } 
-		EP_Carbon_Cost_Incurred_Hourly[a, e, h] * hours_in_sample[h]
+	  + sum { (a, e, p, h) in EP_AVAILABLE_HOURS } 
+		EP_Carbon_Cost_Incurred_Hourly[a, e, p, h] * hours_in_sample[h]
 	) / total_loads_by_period_weighted[p];
 	
   let Gross_Power_by_Period[p]  := 
 	sum{ a in LOAD_AREAS, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY: period[h] = p } 
-		( ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' and rps_fuel_category[fuel[t]] = fc} 
-			( if not intermittent[t]
-			then ProducePowerNonIntermittent[pid, a, t, p, h]
-			else
-			InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, p, h] * ( 1 - forced_outage_rate[t] ) )
-		)
-		+ ( sum { (a,e,h) in EP_AVAILABLE_HOURS: rps_fuel_category[ep_fuel[a, e]] = fc } ProducePowerEP[a, e, h] )
+		( ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }
+			(	if	 	dispatchable[t] then DispatchGen[pid, a, t, p, h]
+				else if	intermittent[t] then InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, p, h] * ( 1 - forced_outage_rate[t] )
+				else if	baseload[t] 	then InstallGenTotal[pid, a, t, p] * ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] )
+			) )
+		+ ( sum { (a, e, p, h) in EP_AVAILABLE_HOURS: rps_fuel_category[ep_fuel[a, e]] = fc } ProducePowerEP[a, e, p, h] )
 		+ ( sum {(a, pid) in PROJ_NONPUMPED_HYDRO: rps_fuel_category["Water"] = fc} Dispatch_NonPumped_Hydro[a, pid, h] )
 		+ ( sum {(a, pid) in PROJ_PUMPED_HYDRO: rps_fuel_category["Water"] = fc} Dispatch_Pumped_Hydro_Watershed_Electrons[a, pid, h] )
 		) * hours_in_sample[h];
@@ -208,8 +203,8 @@ for {p in PERIODS} {
 		distribution_losses * hours_in_sample[h] * ( system_load[a, h]
 		 - (sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES}
 		   InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, p, h] )
-		 - (sum {(a, e, h) in EP_INTERMITTENT_OPERATIONAL_HOURS: ep_technology[a,e] in SOLAR_DIST_PV_TECHNOLOGIES }
-		   eip_cap_factor[a, e, h] * ep_size_mw[a, e] ) 
+		 - (sum {(a, e, p, h) in EP_AVAILABLE_HOURS: ep_intermittent[a, e] and ep_technology[a, e] in SOLAR_DIST_PV_TECHNOLOGIES }
+		   eip_cap_factor[a, e, p, h] * ep_size_mw[a, e] ) 
 			);
 			
   let Storage_Losses_by_Period[p] :=
@@ -248,14 +243,13 @@ for {p in PERIODS} {
 	  100 * (
 		#    Power from new plants
 		( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: fuel[t] = f and t <> 'Battery_Storage' } 
-			( if not intermittent[t]
-			then ProducePowerNonIntermittent[pid, a, t, p, h]
-			else
-			InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, p, h] * ( 1 - forced_outage_rate[t] ) )
+			(	if	 	dispatchable[t] then DispatchGen[pid, a, t, p, h]
+				else if	intermittent[t] then InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, p, h] * ( 1 - forced_outage_rate[t] )
+				else if	baseload[t] 	then InstallGenTotal[pid, a, t, p] * ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] ) )
 			* hours_in_sample[h] )
 		# Power from existing plants
-		+ sum { (a,e,h) in EP_AVAILABLE_HOURS: period[h] = p and ep_fuel[a, e] = f }
-			ProducePowerEP[a, e, h] * hours_in_sample[h]
+		+ sum { (a, e, p, h) in EP_AVAILABLE_HOURS: ep_fuel[a, e] = f }
+			ProducePowerEP[a, e, p, h] * hours_in_sample[h]
 		# Hydro - doesn't include storage and dispatch of stored electrons because this sum is for generation only
 		+ ( sum {(a, pid) in PROJ_NONPUMPED_HYDRO, h in TIMEPOINTS: period[h]=p and "Water" = f }
 				Dispatch_NonPumped_Hydro[a, pid, h] * hours_in_sample[h] )
