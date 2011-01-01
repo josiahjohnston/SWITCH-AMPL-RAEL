@@ -17,12 +17,9 @@ param num_workers default 1;
 param worker_id default 0;
 param compile_mip_only default 0;
 
-
-
 option cplex_options (" lpdisplay=1 iisfind=1 mipdisplay=2 presolve=1 prestats=1 timing=1 nodefile=2 treememory=15000 threads=" & get_num_cores() );
 
 # Other options
-# Add 'threads=8' for multi-threaded execution.
 # Adding 'advance=2' might speed up solutions that work from a similar problem's solution
 option presolve 0;
 option presolve_eps 1e-10;

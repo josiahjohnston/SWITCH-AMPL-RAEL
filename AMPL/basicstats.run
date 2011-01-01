@@ -15,8 +15,8 @@ for { (pid, a, t, p) in PROJECT_VINTAGES } {
 for { (a, e, p) in EP_PERIODS } {
   let EP_Capital_Payments_by_Plant_and_Period[a, e, p] := 
 	ep_size_mw[a, e] * ep_capital_cost_annual_payment[a, e] 
-	# Don't pay for plants that aren't operated beyond their expected lifetime
-	* (if ( ep_could_be_operating_past_expected_lifetime[a,e,p] and ep_cogen[a, e] )
+	# Don't pay for plants that aren't operated beyond their expected lifetime, unless they're cogen or geothermal
+	* (if ( ep_could_be_operating_past_expected_lifetime[a,e,p] and not ep_technology[a, e] = 'Nuclear_EP' )
 	   then OperateEPDuringPeriod[a, e, p] # A decision variable with the values 0 or 1
 	   else if ep_technology[a, e] = 'Nuclear_EP' then 0 
 	   else 1

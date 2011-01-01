@@ -188,11 +188,9 @@ param baseload {TECHNOLOGIES} binary;
 
 # is this plant dispatchable?  This includes compressed air energy storage but not battery storage
 param dispatchable { t in TECHNOLOGIES: can_build_new[t] = 1 } binary = 
-(if intermittent[t] = 1 or baseload[t] = 1 or t = 'Battery_Storage'
- then 0
- else 1
-)
-;
+( if intermittent[t] = 1 or baseload[t] = 1 or t = 'Battery_Storage'
+  then 0
+  else 1 );
 
 # can this type of project only be installed in limited amounts?
 param resource_limited {TECHNOLOGIES} binary;
@@ -211,7 +209,7 @@ param min_build_capacity {TECHNOLOGIES} >= 0;
 param technologies_compete_for_space {TECHNOLOGIES} >= 0, <= 1 default 0;
 
 # Solar-based technologies
-set SOLAR_TECHNOLOGIES = {t in TECHNOLOGIES: fuel[t]=='Solar'};
+set SOLAR_TECHNOLOGIES = {t in TECHNOLOGIES: fuel[t] = 'Solar'};
 set SOLAR_CSP_TECHNOLOGIES;
 set SOLAR_DIST_PV_TECHNOLOGIES;
 
@@ -265,14 +263,12 @@ param variable_o_m {PROJECTS} >= 0;
 # annual rate of change of overnight cost, beginning at price_and_dollar_year
 param overnight_cost_change {PROJECTS};
 
-set PROJ_RESOURCE_LIMITED = {(pid, a, t) in PROJECTS: resource_limited[t]};
-
 # maximum capacity factors (%) for each project, each hour. 
 # generally based on renewable resources available
 set PROJ_INTERMITTENT_HOURS dimen 5;  # LOAD_AREAS, TECHNOLOGIES, PROJECT_ID, PERIODS, TIMEPOINTS
 set PROJ_INTERMITTENT = setof {(pid, a, t, p, h) in PROJ_INTERMITTENT_HOURS} (pid, a, t);
 
-check: card({(pid, a, t) in PROJ_RESOURCE_LIMITED: intermittent[t]} diff PROJ_INTERMITTENT) = 0;
+check: card({(pid, a, t) in PROJECTS: intermittent[t] and resource_limited[t] and not ccs[t]} diff PROJ_INTERMITTENT) = 0;
 param cap_factor {PROJ_INTERMITTENT_HOURS};
 
 # project-vintage combinations that can be installed
@@ -281,22 +277,19 @@ set PROJECT_VINTAGES = { (pid, a, t) in PROJECTS, p in PERIODS: p >= min_build_y
 # project-vintage-hour combinations when new plants are available. 
 set PROJECT_VINTAGE_HOURS := { (pid, a, t, p) in PROJECT_VINTAGES, h in TIMEPOINTS: period[h] = p };
 
-# project-vintage combinations that have a minimum size constraint.
-set PROJ_MIN_BUILD_VINTAGES = {(pid, a, t, p) in PROJECT_VINTAGES: min_build_capacity[t] > 0};
-
 # default values for projects that don't have sites
 param location_unspecified symbolic;
 
 # maximum capacity that can be installed in each project. These are units of MW for most technologies. The exceptions are Central PV and CSP, which have units of km^2 and a conversion factor of MW / km^2
 set LOCATIONS_WITH_COMPETING_TECHNOLOGIES dimen 2 ;
-param capacity_limit_by_location {(l, a) in LOCATIONS_WITH_COMPETING_TECHNOLOGIES} = min {(pid, a, t) in PROJ_RESOURCE_LIMITED: project_location[pid, a, t] = l } capacity_limit[pid, a, t];
+param capacity_limit_by_location {(l, a) in LOCATIONS_WITH_COMPETING_TECHNOLOGIES} = min {(pid, a, t) in PROJECTS: resource_limited[t] and not ccs[t] and project_location[pid, a, t] = l } capacity_limit[pid, a, t];
 
 # make sure all hours are represented, and that cap factors make sense.
 # Solar thermal can be parasitic, which means negative cap factors are allowed (just not TOO negative)
 check {(pid, a, t, p, h) in PROJ_INTERMITTENT_HOURS: t in SOLAR_CSP_TECHNOLOGIES}: cap_factor[pid, a, t, p, h] >= -0.1;
 # No other technology can be parasitic, so only positive cap factors allowed
 check {(pid, a, t, p, h) in PROJ_INTERMITTENT_HOURS: not( t in SOLAR_CSP_TECHNOLOGIES) }: cap_factor[pid, a, t, p, h] >= 0;
-# cap factors for solar can be greater than 1 becasue sometimes the sun shines more than 1000W/m^2
+# cap factors for solar can be greater than 1 because sometimes the sun shines more than 1000W/m^2
 # which is how PV cap factors are defined.
 # The below checks make sure that for other plants the cap factors
 # are <= 1 but for solar they are <= 1.4
@@ -645,12 +638,13 @@ param ep_end_year {(a, e) in EXISTING_PLANTS} =
 # plant-period combinations when existing plants can run
 # these are the times when a decision must be made about whether a plant will be kept available for the year
 # or mothballed to save on fixed O&M (or fuel, for baseload plants)
-# cogen plants can be operated past their normal lifetime by paying O & M costs during each period, plus paying into a capital replacement fund
+# cogen and geothermal plants can be operated past their normal lifetime by paying O & M costs during each period, plus paying into a capital replacement fund
 # existing nuclear plants are assumed to be kept operational indefinitely, as their O&M costs generally keep them in really good condition
 set EP_PERIODS :=
-  {(a, e) in EXISTING_PLANTS, p in PERIODS: 
+  { (a, e) in EXISTING_PLANTS, p in PERIODS: 
   		( not ep_cogen[a, e] and p < ep_end_year[a, e] ) or
   		( ep_cogen[a, e] ) or
+  		( ep_technology[a, e] = 'Geothermal_EP' ) or
   		( ep_technology[a, e] = 'Nuclear_EP' ) };
 
 # if a period exists that is >= ep_end_year[a, e], then this plant can be operational past the expected lifetime of the plant
@@ -676,7 +670,7 @@ param ep_capital_cost_annual_payment {(a, e) in EXISTING_PLANTS} =
 # Calculate capital costs for all cogen plants that are operated beyond their expected retirement. 
 # This can be thought of as making payments into a capital replacement fund
 param ep_capital_cost_payment_per_period_to_extend_operation
-	{(a, e, p) in EP_PERIODS: ep_could_be_operating_past_expected_lifetime[a, e, p] and ep_cogen[a, e]} =
+	{(a, e, p) in EP_PERIODS: ep_could_be_operating_past_expected_lifetime[a, e, p] and not ep_technology[a, e] = 'Nuclear_EP'} =
 		ep_capital_cost_annual_payment[a, e]
     # A factor to convert all of the uniform annual payments that occur in a study period to a lump sum at the start of a study period
 		* factor_to_bring_annual_costs_to_start_of_period
@@ -855,7 +849,7 @@ var DispatchGen {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t]} >=
 # this quantity is one when there is there is not a constraint on how small plants can be
 # and is zero when there is a constraint
 # currently only enforced for new Nuclear generators
-var BuildGenOrNot {PROJ_MIN_BUILD_VINTAGES} >= 0, <= 1, integer;
+var BuildGenOrNot { (pid, a, t, p) in PROJECT_VINTAGES: min_build_capacity[t] > 0 } >= 0, <= 1, integer;
 
 # binary variable that decides to either operate or mothball an existing plant during each study period.
 # existing intermittent plants generally have low operational costs and are therefore kept running, hence are excluded from this variable definition
@@ -955,7 +949,7 @@ minimize Power_Cost:
 	  ep_size_mw[a, e] * ep_capital_cost[a, e]
 	# Calculate capital costs for all cogen plants that are operated beyond their expected retirement. 
 	# This can be thought of as making payments into a capital replacement fund
-	+ sum {(a, e, p) in EP_PERIODS: ep_could_be_operating_past_expected_lifetime[a, e, p] and ep_cogen[a, e]} 
+	+ sum {(a, e, p) in EP_PERIODS: ep_could_be_operating_past_expected_lifetime[a, e, p] and not ep_technology[a, e] = 'Nuclear_EP'} 
       OperateEPDuringPeriod[a, e, p] * ep_size_mw[a, e] * ep_capital_cost_payment_per_period_to_extend_operation[a, e, p]
 	# Calculate fixed costs for all existing plants
 	+ sum {(a, e, p) in EP_PERIODS} 
@@ -1189,16 +1183,16 @@ subject to Maximum_Resource_Location_Unspecified { (pid, a, t, p) in PROJECT_VIN
 # If a generator is installed, then BuildGenOrNot is 1, and InstallGen has to be >= min_build_capacity
 # If a generator is NOT installed, then BuildGenOrNot is 0, and InstallGen has to be >= 0
 subject to Minimum_GenSize 
-  {(pid, a, t, p) in PROJ_MIN_BUILD_VINTAGES}:
+  {(pid, a, t, p) in PROJECT_VINTAGES: min_build_capacity[t] > 0}:
   InstallGen[pid, a, t, p] >= min_build_capacity[t] * BuildGenOrNot[pid, a, t, p];
 
-# This binds BuildGenOrNot to InstallGen. The number below (1e6) is somewhat arbitrary. 
+# This binds BuildGenOrNot to InstallGen. The number below (1e5) is somewhat arbitrary. 
 # I picked a number that would be far above the largest generator that would possibly be built
-# If a generator is installed, then BuildGenOrNot is 1, and InstallGen can be between 0 & 1e6 - basically no upper limit
+# If a generator is installed, then BuildGenOrNot is 1, and InstallGen can be between 0 & 1e5 - basically no upper limit
 # If a generator is NOT installed, then BuildGenOrNot is 0, and InstallGen has to be <= 0
 subject to BuildGenOrNot_Constraint 
-  {(pid, a, t, p) in PROJ_MIN_BUILD_VINTAGES}:
-  InstallGen[pid, a, t, p] <= 1000000 * BuildGenOrNot[pid, a, t, p];
+  {(pid, a, t, p) in PROJECT_VINTAGES: min_build_capacity[t] > 0}:
+  InstallGen[pid, a, t, p] <= 100000 * BuildGenOrNot[pid, a, t, p];
 
 
 ########################################
