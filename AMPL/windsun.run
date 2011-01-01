@@ -71,7 +71,7 @@ problem Cost_Minimization:
   # Dispatch Constraints
 	Power_From_Dispatchable_Plants,
 	EP_Operational_Continuity, EP_Power_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Baseload_Plants,
-	Bio_Solid_Consumption, Carbon_Cap,
+	Carbon_Cap,
 	Maximum_DispatchTransFromXToY, Maximum_DispatchTransFromXToY_Reserve, 
 	Maximum_Dispatch_NonPumped_Hydro, Average_NonPumped_Hydro_Output,        Minimum_Dispatch_NonPumped_Hydro, 
 	Maximum_Dispatch_Pumped_Hydro,    Average_Pumped_Hydro_Watershed_Output,

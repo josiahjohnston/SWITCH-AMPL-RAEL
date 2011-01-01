@@ -858,8 +858,14 @@ var OperateEPDuringPeriod { ( a, e, p) in EP_PERIODS: not ep_intermittent[a, e] 
 # number of MW to generate from each existing dispatchable plant, in each hour
 var ProducePowerEP {EP_AVAILABLE_HOURS} >= 0;
 
-# number of Mbtu of Biomass Solid fuel to consume each period in each load area.
-var ConsumeBioSolid {a in LOAD_AREAS, p in PERIODS: num_bio_breakpoints[a] > 0 } >= 0;
+# a derived variable indicating the number of Mbtu of Biomass Solid fuel to consume each period in each load area,
+# as a function of the installed biomass generation capacity.
+var ConsumeBioSolid {a in LOAD_AREAS, p in PERIODS: num_bio_breakpoints[a] > 0 } =
+	sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: fuel[t] in BIO_SOLID_FUELS } 
+	# the hourly MWh output of biomass solid projects in baseload mode is below
+		( InstallGenTotal[pid, a, t, p] * ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] )
+	# weight each hour to get the total biomass consumed
+      	* hours_in_sample[h] * heat_rate[t] );
 
 # the load in MW drawn from grid from storing electrons in new storage plants
 var StoreEnergy {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t]} >= 0;
@@ -899,7 +905,7 @@ var DispatchTransFromXToY_Reserve {TRANSMISSION_LINES, TIMEPOINTS} >= 0;
 var InstallLocalTD {LOAD_AREAS, PERIODS} >= 0;
 
 
-#### OBJECTIVES ####
+#### OBJECTIVE ####
 
 # minimize the total cost of power over all study periods and hours, including carbon tax
 # pid = project specific id
@@ -982,27 +988,13 @@ minimize Power_Cost:
 	+ local_td_sunk_cost
 ;
 
-# this alternative objective is used to reduce transmission flows to
-# zero in one direction of each pair, and to minimize needless flows
-# around loops, or shipping of unneeded power to neighboring zones, 
-# so it is more clear where surplus power is being generated
-minimize Transmission_Usage:
-  sum {(a1, a2) in TRANSMISSION_LINES, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY} 
-    DispatchTransFromXToY[a1, a2, h, fc];
 
+############## CONSTRAINTS ##############
 
-
-#### CONSTRAINTS ####
-
-# System needs to meet the load in each load area in each study hour, with all available flows of power.
-subject to Satisfy_Load {a in LOAD_AREAS, h in TIMEPOINTS}:
-	 ( sum{ fc in RPS_FUEL_CATEGORY} ( ConsumeNonDistributedPower[a,h,fc] + ConsumeDistributedPower[a,h,fc] ) )
-		 = system_load[a, h]      
-  ;
-
+###### Policy Constraints #######
 
 # RPS constraint
-# windsun.run will drop this constraint if enable_rps is 0 (its default value)
+# windsun.run will drop this constraint if enable_rps is 0
 subject to Satisfy_RPS {a in LOAD_AREAS, p in PERIODS: rps_compliance_fraction_in_period[a, p] > 0 }:
     ( sum { h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY: period[h] = p and fuel_qualifies_for_rps[a, fc] } 
       ( ConsumeNonDistributedPower[a,h,fc] + ConsumeDistributedPower[a,h,fc] ) * hours_in_sample[h] )
@@ -1011,8 +1003,24 @@ subject to Satisfy_RPS {a in LOAD_AREAS, p in PERIODS: rps_compliance_fraction_i
      
    >= rps_compliance_fraction_in_period[a, p];
 
+# Carbon Cap constraint
+# windsun.run will drop this constraint if enable_carbon_cap is 0
+subject to Carbon_Cap {p in PERIODS}:
+	# Carbon emissions from new plants - none from intermittent plants
+	  ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t]} DispatchGen[pid, a, t, p, h] * heat_rate[t] * carbon_content[fuel[t]] * hours_in_sample[h] )
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t]} InstallGenTotal[pid, a, t, p] * ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] ) * heat_rate[t] * carbon_content[fuel[t]] * hours_in_sample[h] )
+	# Carbon emissions from existing plants
+	+ ( sum { (a, e, p, h) in EP_AVAILABLE_HOURS} ProducePowerEP[a, e, p, h] * ep_heat_rate[a, e] * carbon_content[ep_fuel[a, e]] * hours_in_sample[h] )
+  	<= carbon_cap[p];
+
+
 #################################################
 # Power conservation constraints
+
+# System needs to meet the load in each load area in each study hour, with all available flows of power.
+subject to Satisfy_Load {a in LOAD_AREAS, h in TIMEPOINTS}:
+	 ( sum{ fc in RPS_FUEL_CATEGORY} ( ConsumeNonDistributedPower[a,h,fc] + ConsumeDistributedPower[a,h,fc] ) )
+		 = system_load[a, h] ;
 
 # non-distributed power production experiences distribution losses
 # and can be consumed, stored or transmitted or spilled (hence the <=).
@@ -1145,27 +1153,6 @@ subject to EP_Power_From_Intermittent_Plants { (a, e, p, h) in EP_AVAILABLE_HOUR
 
 subject to EP_Power_From_Baseload_Plants { (a, e, p, h) in EP_AVAILABLE_HOURS: ep_baseload[a,e] }: 
     ProducePowerEP[a, e, p, h] = OperateEPDuringPeriod[a, e, p] * ep_size_mw[a, e] * ( 1 - ep_forced_outage_rate[a, e] ) * ( 1 - ep_scheduled_outage_rate[a, e] );
-
-
-########################################
-# FUEL CONSTRAINTS
-
-subject to Bio_Solid_Consumption {a in LOAD_AREAS, p in PERIODS: num_bio_breakpoints[a] > 0 }:
-	sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: fuel[t] in BIO_SOLID_FUELS } 
-	# the hourly MWh output of biomass solid projects in baseload mode is below
-		( InstallGenTotal[pid, a, t, p] * ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] ) )
-	# weight each hour to get the total biomass consumed
-      * hours_in_sample[h] * heat_rate[t]
-	= ConsumeBioSolid[a, p];
-
-subject to Carbon_Cap {p in PERIODS}:
-	# Carbon emissions from new plants - none from intermittent plants
-	  ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t]} DispatchGen[pid, a, t, p, h] * heat_rate[t] * carbon_content[fuel[t]] * hours_in_sample[h] )
-	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t]} InstallGenTotal[pid, a, t, p] * ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] ) * heat_rate[t] * carbon_content[fuel[t]] * hours_in_sample[h] )
-	# Carbon emissions from existing plants
-	+ ( sum { (a, e, p, h) in EP_AVAILABLE_HOURS} ProducePowerEP[a, e, p, h] * ep_heat_rate[a, e] * carbon_content[ep_fuel[a, e]] * hours_in_sample[h] )
-  	<= carbon_cap[p];
-
 
 ########################################
 # GENERATOR INSTALLATION CONSTRAINTS           
