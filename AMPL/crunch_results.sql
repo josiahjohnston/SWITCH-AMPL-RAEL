@@ -1,14 +1,6 @@
 --#######################################################
 -- Export results for graphing
 
--- Determine investment period length
-set @first_period  := (select min( period) from gen_cap where scenario_id=@scenario_id);
-set @second_period := (select min(period) from gen_cap where period != @first_period and scenario_id=@scenario_id);
-set @period_length := (@second_period - @first_period);
-set @last_period := (select max(period) from gen_cap where scenario_id=@scenario_id);
-
--- -------------------------------------
-
 -- GENERATION AND STORAGE SUMMARIES--------
 select 'Creating generation summaries' as progress;
 -- total generation each hour by carbon cost, technology and load area
@@ -40,20 +32,30 @@ replace into _gen_hourly_summary_tech ( scenario_id, carbon_cost, period, study_
 		order by 1, 2, 3, 4, 5, 6, 7, 8, 9;
 
 -- find the total number of hours represented by each period for use in weighting hourly generation
-set @sum_hourly_weights_per_period :=
-	(SELECT sum( hours_in_sample ) from
-		(select distinct study_hour, hours_in_sample
+drop table if exists sum_hourly_weights_per_period_table;
+create table sum_hourly_weights_per_period_table (
+	period year primary key,
+	sum_hourly_weights_per_period double,
+	years_per_period double);
+
+insert into sum_hourly_weights_per_period_table ( period, sum_hourly_weights_per_period, years_per_period )
+	select 	period,
+			sum(hours_in_sample) as sum_hourly_weights_per_period,
+			sum(hours_in_sample)/8766 as years_per_period
+		from
+			(SELECT distinct
+					period,
+					study_hour,
+					hours_in_sample
 				from _gen_hourly_summary_tech
- 			where 	scenario_id=@scenario_id and
-					carbon_cost = (select carbon_cost from _gen_hourly_summary_tech where scenario_id=@scenario_id limit 1) and 
-					period = (select period from _gen_hourly_summary_tech where scenario_id=@scenario_id limit 1)
-		) as  distinct_hours_in_sample_table);
+				where scenario_id = @scenario_id ) as distinct_hours_table
+		group by period;
 
 -- total generation each period by carbon cost, technology and load area
 replace into _gen_summary_tech_la ( scenario_id, carbon_cost, period, area_id, technology_id, avg_power )
   select scenario_id, carbon_cost, period, area_id, technology_id,
-    	sum(power * hours_in_sample) / @sum_hourly_weights_per_period as avg_power
-		from _gen_hourly_summary_tech_la
+    	sum(power * hours_in_sample) / sum_hourly_weights_per_period as avg_power
+		from _gen_hourly_summary_tech_la join sum_hourly_weights_per_period_table using (period)
     	where scenario_id = @scenario_id
     	group by 1, 2, 3, 4, 5
     	order by 1, 2, 3, 4, 5;
@@ -88,8 +90,8 @@ replace into _gen_hourly_summary_fuel ( scenario_id, carbon_cost, period, study_
 -- total generation each period by carbon cost, fuel and load area
 replace into _gen_summary_fuel_la ( scenario_id, carbon_cost, period, area_id, fuel, avg_power )
   select scenario_id, carbon_cost, period, area_id, fuel,
-    	sum(power * hours_in_sample) / @sum_hourly_weights_per_period as avg_power
-		from _gen_hourly_summary_fuel_la
+    	sum(power * hours_in_sample) / sum_hourly_weights_per_period as avg_power
+		from _gen_hourly_summary_fuel_la join sum_hourly_weights_per_period_table using (period)
     	where scenario_id = @scenario_id
     	group by 1, 2, 3, 4, 5
     	order by 1, 2, 3, 4, 5;
@@ -310,15 +312,15 @@ from	transmission_lines tl,
 							period,
 							send_id,
 							receive_id,
-							sum( hours_in_sample * ( ( power_sent + power_received ) / 2 ) ) / @sum_hourly_weights_per_period as average_transmission
-						from _transmission_dispatch where scenario_id = @scenario_id group by 1,2,3,4
+							sum( hours_in_sample * ( ( power_sent + power_received ) / 2 ) ) / sum_hourly_weights_per_period as average_transmission
+						from _transmission_dispatch join sum_hourly_weights_per_period_table using (period) where scenario_id = @scenario_id group by 1,2,3,4
 						UNION
 					select 	carbon_cost,
 							period,
 							receive_id as send_id,
 							send_id as receive_id,
-							-1 * sum( hours_in_sample * ( ( power_sent + power_received ) / 2 ) ) / @sum_hourly_weights_per_period as average_transmission
-						from _transmission_dispatch where scenario_id = @scenario_id group by 1,2,3,4
+							-1 * sum( hours_in_sample * ( ( power_sent + power_received ) / 2 ) ) / sum_hourly_weights_per_period as average_transmission
+						from _transmission_dispatch join sum_hourly_weights_per_period_table using (period) where scenario_id = @scenario_id group by 1,2,3,4
 					) as trans_direction_table
 				group by 1,2,3,4) as avg_trans_table
 		) as directed_trans_table
@@ -333,26 +335,15 @@ select 'Calculating CO2 emissions' as progress;
 -- see WECC_Plants_For_Emissions in the Switch_Input_Data folder for a calculation of the yearly 1990 emissions from WECC
 set @co2_tons_1990 := 284800000;
 
--- find the base case (almost always $0/tCO2) emissions for reference
--- coded here as minimum of the carbon cost such that it doesn't break if there isn't a $0/tCO2 run
 replace into co2_cc 
 	select 	scenario_id,
 			carbon_cost,
 			_gen_hourly_summary_tech_la.period,
-			sum( co2_tons * hours_in_sample ) / @period_length as co2_tons, 
-    		base_co2_tons - sum( co2_tons * hours_in_sample ) / @period_length as co2_tons_reduced, 
-   			1 - sum( co2_tons * hours_in_sample ) / @period_length / base_co2_tons as co2_share_reduced, 
-    		@co2_tons_1990 - sum( co2_tons * hours_in_sample ) / @period_length as co2_tons_reduced_1990,
-    		1 - sum( co2_tons * hours_in_sample ) / @period_length / @co2_tons_1990 as co2_share_reduced_1990
-  	from 	_gen_hourly_summary_tech_la,
-  			(select period,
-					sum(co2_tons * hours_in_sample) / @period_length as base_co2_tons
-				from _gen_hourly_summary_tech_la
-				where carbon_cost = (select min(carbon_cost) from _gen_hourly_summary_tech_la where scenario_id = @scenario_id)
-				and scenario_id = @scenario_id
-				group by 1) as base_co2_tons_table
+			sum( co2_tons * hours_in_sample ) / years_per_period as co2_tons, 
+     		@co2_tons_1990 - sum( co2_tons * hours_in_sample ) / years_per_period as co2_tons_reduced_1990,
+    		1 - ( sum( co2_tons * hours_in_sample ) / years_per_period ) / @co2_tons_1990 as co2_share_reduced_1990
+  	from 	_gen_hourly_summary_tech_la join sum_hourly_weights_per_period_table using (period)
   	where 	scenario_id = @scenario_id
-  	and		base_co2_tons_table.period = _gen_hourly_summary_tech_la.period
   	group by 1, 2, 3
   	order by 1, 2, 3;
 
@@ -360,10 +351,6 @@ replace into co2_cc
 -- SYSTEM COSTS ---------------
 select 'Calculating system costs' as progress;
 -- average power costs, for each study period, for each carbon tax
--- Matthias Note:(this should probably use a discounting method for the MWhs, 
--- since the costs are already discounted to the start of each period,
--- but electricity production is spread out over time. But the main model doesn't do that so I don't do it here either.)
-
 
 -- update load data first
 update _system_load
@@ -375,10 +362,10 @@ replace into system_load_summary
 	select 	scenario_id,
 			carbon_cost,
 			period,
-			sum( hours_in_sample * power ) / ( @sum_hourly_weights_per_period ) as system_load,
-			sum( hours_in_sample * satisfy_load_reduced_cost ) / ( @sum_hourly_weights_per_period ) as satisfy_load_reduced_cost_weighted,
-			sum( hours_in_sample * satisfy_load_reserve_reduced_cost ) / ( @sum_hourly_weights_per_period ) as satisfy_load_reserve_reduced_cost_weighted
-	from _system_load
+			sum( hours_in_sample * power ) / sum_hourly_weights_per_period as system_load,
+			sum( hours_in_sample * satisfy_load_reduced_cost ) / sum_hourly_weights_per_period as satisfy_load_reduced_cost_weighted,
+			sum( hours_in_sample * satisfy_load_reserve_reduced_cost ) / sum_hourly_weights_per_period as satisfy_load_reserve_reduced_cost_weighted
+	from _system_load join sum_hourly_weights_per_period_table using (period)
 	where scenario_id = @scenario_id
 	group by 1, 2, 3
 	order by 1, 2, 3;
@@ -387,8 +374,8 @@ replace into power_cost (scenario_id, carbon_cost, period, load_in_period_mwh )
   select 	scenario_id,
   			carbon_cost,
   			period,
-  			system_load * ( @sum_hourly_weights_per_period ) as load_in_period_mwh
-  from system_load_summary
+  			system_load * sum_hourly_weights_per_period as load_in_period_mwh
+  from system_load_summary join sum_hourly_weights_per_period_table using (period)
   where scenario_id = @scenario_id
   order by 1, 2, 3;
   
@@ -512,3 +499,5 @@ update power_cost set total_cost =
 
 update power_cost set cost_per_mwh = total_cost / load_in_period_mwh
 	where scenario_id = @scenario_id;
+	
+drop table if exists sum_hourly_weights_per_period_table;

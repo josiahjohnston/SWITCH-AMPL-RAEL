@@ -54,10 +54,6 @@ set SOLAR_DIST_PV_TECHNOLOGIES := Residential_PV Commercial_PV;
 # biomass fuels... nonccs and ccs varieties
 set BIO_SOLID_FUELS := Bio_Solid Bio_Solid_CCS;
 
-# default values for projects that don't have a specific location assigned beyond the load area
-param location_unspecified := 0;
-
-
 # capital cost fractions during construction period and resulting annual payment streams
 # YEAR_OF_CONSTRUCTION set used to calculate time between first payment on each cost fraction and
 # the project end-year or the model base

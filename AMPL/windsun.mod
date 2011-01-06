@@ -44,6 +44,9 @@ set HOURS_OF_DAY ordered = setof {h in TIMEPOINTS} (hour_of_day[h]);
 set MONTHS_OF_YEAR ordered = setof {h in TIMEPOINTS} (month_of_year[h]);
 set SEASONS_OF_YEAR ordered = setof {h in TIMEPOINTS} (season_of_year[h]);
 
+# the present year, on which the preset day power cost optimization will depend
+param present_year;
+
 # the date (year and fraction) when the optimization starts
 param start_year = first(PERIODS);
 
@@ -68,6 +71,11 @@ param load_area_id {LOAD_AREAS} >= 0;
 
 # system load (MW)
 param system_load {LOAD_AREAS, TIMEPOINTS} >= 0;
+
+# the load in current day instead of a future investment period
+# this is used to calculate the present day cost of power
+# and will be referenced to present day timepoints in ??
+param present_day_system_load {LOAD_AREAS, TIMEPOINTS} >= 0;
 
 # Regional cost multipliers
 param economic_multiplier {LOAD_AREAS} >= 0;
@@ -118,8 +126,8 @@ param technology_id {TECHNOLOGIES} >= 0;
 # earliest time when each technology can be built
 param min_build_year {TECHNOLOGIES} >= 0;
 
-# all possible years in the study, including the first year construction can begin
-set YEARS ordered = (min{ t in TECHNOLOGIES } min_build_year[t]) .. end_year by 1;
+# all possible years in the study 
+set YEARS ordered = 2000 .. 2100 by 1;
 
 # list of all possible fuels.  The fuel 'Storage' is included but lacks many of the params of normal fuels is it's a metafuel
 # CAES has a fuel of natural gas here but also has a 'Storage' component implicit in its dispatch
@@ -265,20 +273,21 @@ param overnight_cost_change {PROJECTS};
 
 # maximum capacity factors (%) for each project, each hour. 
 # generally based on renewable resources available
-set PROJ_INTERMITTENT_HOURS dimen 5;  # LOAD_AREAS, TECHNOLOGIES, PROJECT_ID, PERIODS, TIMEPOINTS
-set PROJ_INTERMITTENT = setof {(pid, a, t, p, h) in PROJ_INTERMITTENT_HOURS} (pid, a, t);
+set PROJ_INTERMITTENT_HOURS dimen 4;  # PROJECT_ID, LOAD_AREAS, TECHNOLOGIES, TIMEPOINTS
+set PROJ_INTERMITTENT = setof {(pid, a, t, h) in PROJ_INTERMITTENT_HOURS} (pid, a, t);
 
 check: card({(pid, a, t) in PROJECTS: intermittent[t] and resource_limited[t] and not ccs[t]} diff PROJ_INTERMITTENT) = 0;
 param cap_factor {PROJ_INTERMITTENT_HOURS};
 
 # project-vintage combinations that can be installed
-set PROJECT_VINTAGES = { (pid, a, t) in PROJECTS, p in PERIODS: p >= min_build_year[t] + construction_time_years[t]};
+# Combustion turbines are assumed to be installable quickly to meet peak load in present day dispatch
+# as the historical existing plant data that SWITCH uses is always a year or two old
+set PROJECT_VINTAGES =
+	if present_day_optimization then { (pid, a, t) in PROJECTS, p in PERIODS: t = 'Gas_Combustion_Turbine' }
+	else { (pid, a, t) in PROJECTS, p in PERIODS: p >= min_build_year[t] + construction_time_years[t] };
 
 # project-vintage-hour combinations when new plants are available. 
 set PROJECT_VINTAGE_HOURS := { (pid, a, t, p) in PROJECT_VINTAGES, h in TIMEPOINTS: period[h] = p };
-
-# default values for projects that don't have sites
-param location_unspecified symbolic;
 
 # maximum capacity that can be installed in each project. These are units of MW for most technologies. The exceptions are Central PV and CSP, which have units of km^2 and a conversion factor of MW / km^2
 set LOCATIONS_WITH_COMPETING_TECHNOLOGIES dimen 2 ;
@@ -286,16 +295,16 @@ param capacity_limit_by_location {(l, a) in LOCATIONS_WITH_COMPETING_TECHNOLOGIE
 
 # make sure all hours are represented, and that cap factors make sense.
 # Solar thermal can be parasitic, which means negative cap factors are allowed (just not TOO negative)
-check {(pid, a, t, p, h) in PROJ_INTERMITTENT_HOURS: t in SOLAR_CSP_TECHNOLOGIES}: cap_factor[pid, a, t, p, h] >= -0.1;
+check {(pid, a, t, h) in PROJ_INTERMITTENT_HOURS: t in SOLAR_CSP_TECHNOLOGIES}: cap_factor[pid, a, t, h] >= -0.1;
 # No other technology can be parasitic, so only positive cap factors allowed
-check {(pid, a, t, p, h) in PROJ_INTERMITTENT_HOURS: not( t in SOLAR_CSP_TECHNOLOGIES) }: cap_factor[pid, a, t, p, h] >= 0;
+check {(pid, a, t, h) in PROJ_INTERMITTENT_HOURS: not( t in SOLAR_CSP_TECHNOLOGIES) }: cap_factor[pid, a, t, h] >= 0;
 # cap factors for solar can be greater than 1 because sometimes the sun shines more than 1000W/m^2
 # which is how PV cap factors are defined.
 # The below checks make sure that for other plants the cap factors
 # are <= 1 but for solar they are <= 1.4
 # (roughly the irradiation coming in from space, though the cap factor shouldn't ever approach this number)
-check {(pid, a, t, p, h) in PROJ_INTERMITTENT_HOURS: not( t in SOLAR_TECHNOLOGIES )}: cap_factor[pid, a, t, p, h] <= 1;
-check {(pid, a, t, p, h) in PROJ_INTERMITTENT_HOURS: t in SOLAR_TECHNOLOGIES }: cap_factor[pid, a, t, p, h] <= 1.4;
+check {(pid, a, t, h) in PROJ_INTERMITTENT_HOURS: not( t in SOLAR_TECHNOLOGIES )}: cap_factor[pid, a, t, h] <= 1;
+check {(pid, a, t, h) in PROJ_INTERMITTENT_HOURS: t in SOLAR_TECHNOLOGIES }: cap_factor[pid, a, t, h] <= 1.4;
 check {(pid, a, t) in PROJ_INTERMITTENT}: intermittent[t];
 
 
@@ -338,7 +347,7 @@ set CARBON_COSTS ordered;
 
 ### Carbon Cap
 # does this scenario include a cap on carbon emissions?
-param enable_carbon_cap >= 0, <= 1 default 0;
+param enable_carbon_cap >= 0, <= 1 default 1;
 
 # the base (1990) carbon emissions in tCO2/Yr
 param base_carbon_emissions = 284800000;
@@ -466,7 +475,7 @@ param ep_dispatchable {(a,e) in EXISTING_PLANTS} binary =
 # Existing intermittent generators (existing wind, csp and pv)
 
 # hours in which each existing intermittent renewable adds power to the grid
-set EP_INTERMITTENT_HOURS dimen 4;  # load area, plant code, period, study hour
+set EP_INTERMITTENT_HOURS dimen 3;  # load area, plant code, study hour
 
 # capacity factor for existing intermittent renewables
 # generally between 0 and 1, but for some solar plants the capacity factor may be more than 1
@@ -930,7 +939,7 @@ minimize Power_Cost:
 	+(sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t]} 
 		DispatchGen[pid, a, t, p, h] * ( variable_cost[pid, a, t, p, h] + carbon_cost_per_mwh[pid, a, t, p, h] + fuel_cost[pid, a, t, p, h] ) )
 	+(sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: intermittent[t]} 
-		InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, p, h] * ( 1 - forced_outage_rate[t] ) * ( variable_cost[pid, a, t, p, h] + carbon_cost_per_mwh[pid, a, t, p, h] ) )
+		InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, h] * ( 1 - forced_outage_rate[t] ) * ( variable_cost[pid, a, t, p, h] + carbon_cost_per_mwh[pid, a, t, p, h] ) )
 	+(sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t]} 
 	    InstallGenTotal[pid, a, t, p] * ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] ) * ( variable_cost[pid, a, t, p, h] + carbon_cost_per_mwh[pid, a, t, p, h] ) )
 	# Fuel costs - intermittent generators don't have fuel costs as they're either solar or wind
@@ -1032,7 +1041,7 @@ subject to Conservation_Of_Energy_NonDistributed {a in LOAD_AREAS, h in TIMEPOIN
     RedirectDistributedPower[a,h,fc]
 	# power produced from new non-battery-storage projects  
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t] and rps_fuel_category_tech[t] = fc} DispatchGen[pid, a, t, p, h] )
-	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: intermittent[t] and t not in SOLAR_DIST_PV_TECHNOLOGIES and rps_fuel_category_tech[t] = fc } InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, p, h] * ( 1 - forced_outage_rate[t] ) )
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: intermittent[t] and t not in SOLAR_DIST_PV_TECHNOLOGIES and rps_fuel_category_tech[t] = fc } InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, h] * ( 1 - forced_outage_rate[t] ) )
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t] and rps_fuel_category_tech[t] = fc } InstallGenTotal[pid, a, t, p] * ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] ) )
 	# power from new storage
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t]} ( ReleaseEnergy[pid, a, t, p, h, fc] - StoreEnergy[pid, a, t, p, h, fc] ) )
@@ -1054,9 +1063,9 @@ subject to Conservation_Of_Energy_Distributed {a in LOAD_AREAS, h in TIMEPOINTS,
   ConsumeDistributedPower[a,h,fc] + RedirectDistributedPower[a,h,fc] * (1 + distribution_losses)
   <= 
 	(sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES and rps_fuel_category_tech[t] = fc}
-          InstallGenTotal[pid, a, t, p] * (1-forced_outage_rate[t]) * cap_factor[pid, a, t, p, h])
+          InstallGenTotal[pid, a, t, p] * (1-forced_outage_rate[t]) * cap_factor[pid, a, t, h])
 	+ (sum {(a, e, p, h) in EP_AVAILABLE_HOURS: ep_intermittent[a, e] and ep_technology[a, e] in SOLAR_DIST_PV_TECHNOLOGIES and rps_fuel_category[ep_fuel[a, e]] = fc}
-   	      (1-ep_forced_outage_rate[a, e]) * eip_cap_factor[a, e, p, h] * ep_size_mw[a, e] ) 
+   	      (1-ep_forced_outage_rate[a, e]) * eip_cap_factor[a, e, h] * ep_size_mw[a, e] ) 
   ;
 
 
@@ -1082,7 +1091,7 @@ subject to Conservation_Of_Energy_NonDistributed_Reserve {a in LOAD_AREAS, h in 
 		InstallGenTotal[pid, a, t, p] )
   # output from new intermittent projects. 
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: intermittent[t] and t not in SOLAR_DIST_PV_TECHNOLOGIES} 
-		InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, p, h] )
+		InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, h] )
   # new baseload plants
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t]} 
 		InstallGenTotal[pid, a, t, p] * ( 1 - scheduled_outage_rate[t] ) )
@@ -1096,7 +1105,7 @@ subject to Conservation_Of_Energy_NonDistributed_Reserve {a in LOAD_AREAS, h in 
 		OperateEPDuringPeriod[a, e, period[h]] * ep_size_mw[a, e] )
   # existing intermittent plants
 	+ ( sum {(a, e, p, h) in EP_AVAILABLE_HOURS: ep_intermittent[a, e] and ep_technology[a,e] not in SOLAR_DIST_PV_TECHNOLOGIES} 
-		eip_cap_factor[a, e, p, h] * ep_size_mw[a, e] )
+		eip_cap_factor[a, e, h] * ep_size_mw[a, e] )
   # existing baseload plants
 	+ ( sum {(a, e, p, h) in EP_AVAILABLE_HOURS: ep_baseload[a,e]} 
 		OperateEPDuringPeriod[a, e, p] * ep_size_mw[a, e] * ( 1 - ep_scheduled_outage_rate[a, e] ) )
@@ -1125,9 +1134,9 @@ subject to Conservation_Of_Energy_Distributed_Reserve {a in LOAD_AREAS, h in TIM
   ConsumeDistributedPower_Reserve[a, h] + RedirectDistributedPower_Reserve[a, h] * (1 + distribution_losses)
   <= 
 	( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES}
-          InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, p, h] )
+          InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, h] )
 	+ ( sum {(a, e, p, h) in EP_AVAILABLE_HOURS: ep_intermittent[a, e] and ep_technology[a,e] in SOLAR_DIST_PV_TECHNOLOGIES}
-   	      eip_cap_factor[a, e, p, h] * ep_size_mw[a, e] ) 
+   	      eip_cap_factor[a, e, h] * ep_size_mw[a, e] ) 
   ;
 
 
@@ -1149,7 +1158,7 @@ subject to EP_Power_From_Dispatchable_Plants { (a, e, p, h) in EP_AVAILABLE_HOUR
 		OperateEPDuringPeriod[a, e, p] * (1-ep_forced_outage_rate[a, e]) * ep_size_mw[a, e];
 
 subject to EP_Power_From_Intermittent_Plants { (a, e, p, h) in EP_AVAILABLE_HOURS: ep_intermittent[a, e] }: 
-	ProducePowerEP[a, e, p, h] = ep_size_mw[a, e] * eip_cap_factor[a, e, p, h] * ( 1 - ep_forced_outage_rate[a, e] );
+	ProducePowerEP[a, e, p, h] = ep_size_mw[a, e] * eip_cap_factor[a, e, h] * ( 1 - ep_forced_outage_rate[a, e] );
 
 subject to EP_Power_From_Baseload_Plants { (a, e, p, h) in EP_AVAILABLE_HOURS: ep_baseload[a,e] }: 
     ProducePowerEP[a, e, p, h] = OperateEPDuringPeriod[a, e, p] * ep_size_mw[a, e] * ( 1 - ep_forced_outage_rate[a, e] ) * ( 1 - ep_scheduled_outage_rate[a, e] );

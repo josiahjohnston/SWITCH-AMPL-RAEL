@@ -92,6 +92,9 @@ fi
 ###########################
 # These next variables determine which input data is used
 
+# get the present year that will make present day cost optimization possible
+present_year=`date "+%Y"`
+
 INTERMITTENT_PROJECTS_SELECTION="(( avg_cap_factor_percentile_by_intermittent_tech >= 0.75 or cumulative_avg_MW_tech_load_area <= 3 * total_yearly_load_mwh / 8766 or rank_by_tech_in_load_area <= 5 or avg_cap_factor_percentile_by_intermittent_tech is null) and technology <> 'Concentrating_PV')"
 
 read SCENARIO_ID < scenario_id.txt
@@ -149,16 +152,16 @@ mysql $connection_string -e "select load_area_start, load_area_end, existing_tra
 # TODO: adopt better load forecasts; this assumes a simple 1.0%/year increase - the amount projected for all of WECC from 2010 to 2018 by the EIA AEO 2008
 # currently we hit the middle of the period with number_of_years_per_period/2
 echo '	system_load.tab...'
-echo ampl.tab 2 1 > system_load.tab
-mysql $connection_string -e "select load_area, study_hour as hour, power(1.01, period + $number_of_years_per_period/2 - year(datetime_utc))*power as system_load from system_load l join study_hours_all h on (h.hournum=l.hour) where $TIMESAMPLE order by study_hour, load_area;" >> system_load.tab
+echo ampl.tab 2 2 > system_load.tab
+mysql $connection_string -e "select load_area, study_hour as hour, power(1.01, period + $number_of_years_per_period/2 - year(datetime_utc))*power as system_load, power(1.01, $present_year - year(datetime_utc))*power as present_day_system_load from system_load l join study_hours_all h on (h.hournum=l.hour) where $TIMESAMPLE order by study_hour, load_area;" >> system_load.tab
 
 echo '	existing_plants.tab...'
 echo ampl.tab 2 15 > existing_plants.tab
 mysql $connection_string -e "select load_area, plant_code, project_id as ep_project_id, peak_mw as size_mw, technology, fuel, heat_rate, start_year, max_age, overnight_cost, fixed_o_m, variable_o_m, forced_outage_rate, scheduled_outage_rate, baseload, cogen, intermittent from existing_plants order by 1, 2;" >> existing_plants.tab
 
 echo '	existing_intermittent_plant_cap_factor.tab...'
-echo ampl.tab 4 1 > existing_intermittent_plant_cap_factor.tab
-mysql $connection_string -e "select load_area, plant_code, period, study_hour as hour, cap_factor from  existing_intermittent_plant_cap_factor c join study_hours_all h on (h.hournum=c.hour) where $TIMESAMPLE order by 1,2;" >> existing_intermittent_plant_cap_factor.tab
+echo ampl.tab 3 1 > existing_intermittent_plant_cap_factor.tab
+mysql $connection_string -e "select load_area, plant_code, study_hour as hour, cap_factor from  existing_intermittent_plant_cap_factor c join study_hours_all h on (h.hournum=c.hour) where $TIMESAMPLE order by 1,2;" >> existing_intermittent_plant_cap_factor.tab
 
 echo '	hydro.tab...'
 echo ampl.tab 3 4 > hydro.tab
@@ -182,7 +185,7 @@ mysql $connection_string -e "select technology, technology_id, min_build_year, f
 
 echo '	fuel_costs.tab...'
 echo ampl.tab 3 1 > fuel_costs.tab
-mysql $connection_string -e "select load_area, fuel, year, fuel_price from fuel_prices_regional where scenario_id = $REGIONAL_FUEL_COST_SCENARIO_ID and year >= $STUDY_START_YEAR and year <= $STUDY_END_YEAR" >> fuel_costs.tab
+mysql $connection_string -e "select load_area, fuel, year, fuel_price from fuel_prices_regional where scenario_id = $REGIONAL_FUEL_COST_SCENARIO_ID and year <= $STUDY_END_YEAR" >> fuel_costs.tab
 
 echo '	biomass_supply_curve_slope.tab...'
 echo ampl.tab 2 1 > biomass_supply_curve_slope.tab
@@ -206,9 +209,10 @@ echo "param scenario_id           := $SCENARIO_ID;" >  misc_params.dat
 echo "param enable_rps            := $ENABLE_RPS;"  >> misc_params.dat
 echo "param enable_carbon_cap     := $ENABLE_CARBON_CAP;"  >> misc_params.dat
 echo "param num_years_per_period  := $number_of_years_per_period;"  >> misc_params.dat
+echo "param present_year  := $present_year;"  >> misc_params.dat
 
 echo '	cap_factor.tab...'
-echo ampl.tab 5 1 > cap_factor.tab
-mysql $connection_string -e "select project_id, proposed_projects.load_area, proposed_projects.technology, period, study_hour as hour, cap_factor from _cap_factor_intermittent_sites c join study_hours_all h on (h.hournum=c.hour) join proposed_projects using (project_id) join load_area_info using (area_id) where $INTERMITTENT_PROJECTS_SELECTION and $TIMESAMPLE;" >> cap_factor.tab
+echo ampl.tab 4 1 > cap_factor.tab
+mysql $connection_string -e "select project_id, proposed_projects.load_area, proposed_projects.technology, study_hour as hour, cap_factor from _cap_factor_intermittent_sites c join study_hours_all h on (h.hournum=c.hour) join proposed_projects using (project_id) join load_area_info using (area_id) where $INTERMITTENT_PROJECTS_SELECTION and $TIMESAMPLE;" >> cap_factor.tab
 
 cd ..

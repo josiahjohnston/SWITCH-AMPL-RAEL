@@ -1,29 +1,209 @@
 #include windsun.run;
 
-param cost_problem symbolic;
-param cost_problem_path symbolic;
-param cost_solution_path symbolic;
+# remove tab delimited results summary files (NOT the .nl and .sol files) as we're going to start printing out new summary files
+shell("rm " & results_path & "*.txt");
 
 display num_workers, worker_id;
 
+
+##### PRESENT DAY COST OPTIMIZATION #####
+
+# first do a present day cost optimization to determine the current price of power
+# this will be done inside ampl instead of closing ampl and then opening cplex because it's quick and not memory intensive
+# after this optimization, the model needs to be reset as much of the data is changed with 'update data'
+# this is done below by calling 'include windsun.run'
+
+problem Present_Day_Cost_Minimization: 
+  # Objective function 
+	Power_Cost, 
+  # Satisfy Load and Power Consumption
+    Satisfy_Load,
+	Conservation_Of_Energy_NonDistributed, Conservation_Of_Energy_Distributed,
+    ConsumeNonDistributedPower, ConsumeDistributedPower, RedirectDistributedPower,
+  # Installation Decisions - only gas combustion turbines for the present day optimization
+	InstallGen, InstallGenTotal,
+  # Dispatch Decisions
+	DispatchGen, OperateEPDuringPeriod, ProducePowerEP, ConsumeBioSolid, DispatchTransFromXToY,
+	Dispatch_NonPumped_Hydro, Dispatch_Pumped_Hydro_Watershed_Electrons, Dispatch_Pumped_Hydro_Storage, Store_Pumped_Hydro,
+  # Dispatch Constraints
+	Power_From_Dispatchable_Plants,
+	EP_Power_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Baseload_Plants,
+	Maximum_DispatchTransFromXToY, 
+	Maximum_Dispatch_NonPumped_Hydro, Average_NonPumped_Hydro_Output, Minimum_Dispatch_NonPumped_Hydro, 
+	Maximum_Dispatch_Pumped_Hydro, Average_Pumped_Hydro_Watershed_Output,
+	Maximum_Store_Pumped_Hydro, Conservation_Of_Stored_Pumped_Hydro_Electrons,
+  # Local T&D
+  	InstallLocalTD, Minimum_LocalTD
+;
+
+  # disable all policy for present day cost minimization (few policy options are currently in place)
+	let carbon_cost := 0;
+	let enable_carbon_cap := 0;
+	let enable_rps := 0;
+	redeclare param rps_fuel_category {FUELS} symbolic;
+	let LOAD_AREAS_AND_FUEL_CATEGORY := setof{a in LOAD_AREAS} (a,'na');
+	let {f in FUELS} rps_fuel_category[f] := 'na';
+	redeclare param rps_fuel_category {FUELS} symbolic in RPS_FUEL_CATEGORY;
+
+
+  # timepoint params used in record_results.run - would be better to reset indexing of timepoints, but I don't know how to do this in AMPL
+
+	let {h in TIMEPOINTS} present_day_timepoint[h] := 10000000 * ( present_year mod 2000 ) + ( h mod ( 10000000 * ( period[h] mod 2000 ) ) );
+	let {h in TIMEPOINTS} present_day_date[h] := 1000000 * ( present_year mod 2000 ) + ( date[h] mod ( 1000000 * ( period[h] mod 2000 ) ) );
+  # flag for present day cost optimization to signal record results that we're not looking at the investment optimization
+	let present_day_optimization := 1;
+  # slice and dice the timepoints to make one one-year period with the same timepoints that will be included in the subsequent investment optimization
+	param total_number_of_hours_in_investment_optimization = sum {h in TIMEPOINTS} hours_in_sample[h];
+	let {h in TIMEPOINTS} hours_in_sample[h] := hours_in_sample[h] * ( 8766 / total_number_of_hours_in_investment_optimization );
+	let {h in TIMEPOINTS} period[h] := present_year;
+	let num_years_per_period := 1;
+  # update system load to present day system loads
+	let {a in LOAD_AREAS, h in TIMEPOINTS} system_load[a, h] := present_day_system_load[a, h];
+  # propagate the data changes downstream - this will update capital costs, discounting, constraints, etc.
+	update data;
+  # all plants that are expected to be operational in present day are forced to be operational
+  # cogen, geothermal and nuclear are given the option to continue running
+	fix {(a, e, p) in EP_PERIODS: not ep_intermittent[a, e] and not ep_could_be_operating_past_expected_lifetime[a, e, p]} OperateEPDuringPeriod[a, e, p] := 1;
+
+  # make file names
+	param present_day_cost_problem symbolic = results_path & "sol" & "_present_day_cost";
+	param present_day_cost_problem_path symbolic = present_day_cost_problem & ".nl";
+	param present_day_cost_solution_path symbolic = present_day_cost_problem & ".sol";
+
+	###############################
+  # Now actually solve the present day cost optimization problem
+	# Determine if a present day cost solution already exists. 
+	if ( file_exists(present_day_cost_solution_path) )
+	then {
+		printf "\nLoading Present Day Cost solution from disk for a carbon cost of %d.\n", carbon_cost;
+		let curtime := time();
+		solution (present_day_cost_solution_path);
+		printf "%d seconds to create a problem instance and load a solution from disk.\n", (time() - curtime);
+		# update recording variables and show some info about this run
+		include basicstats.run;
+		
+		# export the results to csv files and the like if they haven't already been exported
+		include record_results.run;
+		
+	} else {
+
+		shell("touch " & present_day_cost_problem & ".nl" );
+		printf "\nPresent Day Cost solution not found on disk; solving optimization problem.\n";
+		let curtime := time();
+
+		# for debugging, this writes an mps problem, along with the auxfiles specificed in windsun.run
+		# write ("m" & present_day_cost_problem);
+		
+		# write out the problem file for solving by CPLEX
+		write ("b" & present_day_cost_problem);
+		let present_day_cost_compile_time := time() - curtime;
+		printf "%d seconds to compile and write the problem file.\n", present_day_cost_compile_time;
+		let curtime := time();
+		solve Present_Day_Cost_Minimization;
+		let present_day_cost_sol_time := time() - curtime;
+		printf "%d seconds to optimize for present day cost.\n", present_day_cost_sol_time;
+		
+		# update recording variables and show some info about this run
+		include basicstats.run;
+		
+		# export the results to csv files and the like if they haven't already been exported
+		include record_results.run;
+	}
+
+
+
+##### INVESTMENT COST OPTIMIZATION #####
+
+# we're going to reset all the data by calling 'include windsun.run', but we need the num_workers and worker_id
+# so write them out to a tmp file, which will be deleted soon after
+printf "let num_workers := %d;\n	let worker_id := %d;\n	let compile_mip_only := %d;\n", num_workers, worker_id, compile_mip_only > tmp.run;
+
+# reset the whole model for investment optimization
+include windsun.run;
+
+data tmp.run;
+shell("rm tmp.run");
+
+problem Investment_Cost_Minimization: 
+  # Objective function 
+	Power_Cost, 
+
+  # Satisfy Load and Power Consumption
+    Satisfy_Load,
+	Conservation_Of_Energy_NonDistributed, Conservation_Of_Energy_Distributed,
+    ConsumeNonDistributedPower, ConsumeDistributedPower, RedirectDistributedPower,
+  # Policy Constraints
+	Satisfy_RPS, Carbon_Cap,
+
+  # Investment Decisions
+	InstallGen, InstallGenTotal, BuildGenOrNot, InstallTrans, InstallLocalTD, 
+  # Installation Constraints
+	Maximum_Resource_Competing_Tech, Maximum_Resource_Location_Unspecified, Minimum_GenSize, BuildGenOrNot_Constraint, SymetricalTrans, Minimum_LocalTD, 
+
+  # Dispatch Decisions
+	DispatchGen, OperateEPDuringPeriod, ProducePowerEP, ConsumeBioSolid, DispatchTransFromXToY, StoreEnergy, ReleaseEnergy,
+	Dispatch_NonPumped_Hydro, Dispatch_Pumped_Hydro_Watershed_Electrons, Dispatch_Pumped_Hydro_Storage, Store_Pumped_Hydro,
+  # Dispatch Constraints
+	Power_From_Dispatchable_Plants,
+	EP_Operational_Continuity, EP_Power_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Baseload_Plants,
+	Maximum_DispatchTransFromXToY, Maximum_DispatchTransFromXToY_Reserve, 
+	Maximum_Dispatch_NonPumped_Hydro, Average_NonPumped_Hydro_Output,        Minimum_Dispatch_NonPumped_Hydro, 
+	Maximum_Dispatch_Pumped_Hydro,    Average_Pumped_Hydro_Watershed_Output,
+	Maximum_Store_Pumped_Hydro, Conservation_Of_Stored_Pumped_Hydro_Electrons,
+	CAES_Combined_Dispatch, Maximum_Store_Rate, Maximum_Release_Storage_Rate, Storage_Projects_Energy_Balance, 
+
+  # Contigency Planning Variables (to ensure that a dispatch plan exists that can meet reserve margins)
+	DispatchTransFromXToY_Reserve, StoreEnergy_Reserve, ReleaseEnergy_Reserve, 
+	Dispatch_NonPumped_Hydro_Reserve, Dispatch_Pumped_Hydro_Watershed_Electrons_Reserve, Dispatch_Pumped_Hydro_Storage_Reserve, Store_Pumped_Hydro_Reserve, 
+  # Contigency Planning constraints
+	Satisfy_Load_Reserve, 
+	Conservation_Of_Energy_NonDistributed_Reserve, Conservation_Of_Energy_Distributed_Reserve,
+    ConsumeNonDistributedPower_Reserve, ConsumeDistributedPower_Reserve, RedirectDistributedPower_Reserve,
+  # Dispatch Reserve Constraints
+	Maximum_Dispatch_NonPumped_Hydro_Reserve, Average_NonPumped_Hydro_Output_Reserve,        Minimum_Dispatch_NonPumped_Hydro_Reserve, 
+	Maximum_Dispatch_Pumped_Hydro_Reserve,    Average_Pumped_Hydro_Watershed_Output_Reserve,
+	Maximum_Store_Pumped_Hydro_Reserve, Conservation_Of_Stored_Pumped_Hydro_Electrons_Reserve,
+	Maximum_Store_Rate_Reserve, Maximum_Release_Storage_Rate_Reserve, Storage_Projects_Energy_Balance_Reserve
+;
+
+
+  # subtract policy options if they're not in effect for this run
+	redeclare param rps_fuel_category {FUELS} symbolic;
+	if (enable_rps = 0) then {
+		drop Satisfy_RPS;
+		let LOAD_AREAS_AND_FUEL_CATEGORY := setof{a in LOAD_AREAS} (a,'na');
+		let {f in FUELS} rps_fuel_category[f] := 'na';
+	} 
+	redeclare param rps_fuel_category {FUELS} symbolic in RPS_FUEL_CATEGORY;
+
+	if (enable_carbon_cap = 0) then {
+		drop Carbon_Cap;
+	} 
+
+  # make file names - can't define params within a loop, so this is done in two parts here
+	param investment_cost_problem symbolic;
+	param investment_cost_problem_path symbolic;
+	param investment_cost_solution_path symbolic;
+
+
+# Now actually solve the investment cost optimization problem
 for {c in CARBON_COSTS} { 
 
 	if (ord(c) mod num_workers = worker_id )
 	then {
 		let carbon_cost := c;
-		let cost_problem       := results_path & "sol" & carbon_cost & "cost";
-		let cost_problem_path  := cost_problem & ".nl";
-		let cost_solution_path := cost_problem & ".sol";
+		let investment_cost_problem       := results_path & "sol" & carbon_cost & "_investment_cost";
+		let investment_cost_problem_path  := investment_cost_problem & ".nl";
+		let investment_cost_solution_path := investment_cost_problem & ".sol";
 	
 	
 		###############################
-		# Cost optimization
-		# Determine if a cost solution already exists. 
-		if ( file_exists(cost_solution_path) )
+		# Determine if an investment cost solution already exists. 
+		if ( file_exists(investment_cost_solution_path) )
 		then {
-			printf "\nLoading Cost solution from disk for a carbon cost of %d.\n", carbon_cost;
+			printf "\nLoading Investment Cost solution from disk for a carbon cost of %d.\n", carbon_cost;
 			let curtime := time();
-			solution (cost_solution_path);
+			solution (investment_cost_solution_path);
 			printf "%d seconds to create a problem instance and load a solution from disk.\n", (time() - curtime);
 			# update recording variables and show some info about this run
 			include basicstats.run;
@@ -33,24 +213,24 @@ for {c in CARBON_COSTS} {
 			
 		} else {
 
-			shell("touch " & cost_problem	 & ".nl" );
-			printf "\nCost solution not found on disk for a carbon cost of %d; solving optimization problem.\n", carbon_cost;
+			shell("touch " & investment_cost_problem & ".nl" );
+			printf "\nInvestment Cost solution not found on disk for a carbon cost of %d; solving optimization problem.\n", carbon_cost;
 			let curtime := time();
 
 			# for debugging, this writes an mps problem, along with the auxfiles specificed in windsun.run
-			# write ("m" & cost_problem);
+			# write ("m" & investment_cost_problem);
 			
 			# write out the problem file for solving by CPLEX
-			write ("b" & cost_problem);
-			let cost_compile_time := time() - curtime;
-			printf "%d seconds to compile and write the problem file.\n", cost_compile_time;
+			write ("b" & investment_cost_problem);
+			let investment_cost_compile_time := time() - curtime;
+			printf "%d seconds to compile and write the problem file.\n", investment_cost_compile_time;
 			# The compile_mip_only parameter lets you compile the problem in AMPL, then separately call cplex on the problem after AMPL exits. 
 			# This can save considerable amounts of RAM. 
 			if( compile_mip_only = 0 ) then {
 				let curtime := time();
-				solve;
-				let cost_sol_time := time() - curtime;
-				printf "%d seconds to optimize for cost.\n", cost_sol_time;
+				solve Investment_Cost_Minimization;
+				let investment_cost_sol_time := time() - curtime;
+				printf "%d seconds to optimize for cost.\n", investment_cost_sol_time;
 			
 				# update recording variables and show some info about this run
 				include basicstats.run;
