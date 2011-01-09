@@ -194,11 +194,21 @@ param intermittent {TECHNOLOGIES} binary;
 # is this type of plant run in baseload mode?
 param baseload {TECHNOLOGIES} binary;
 
+# is this technology an electricity storage technology?
+param storage {TECHNOLOGIES} binary;
+
 # is this plant dispatchable?  This includes compressed air energy storage but not battery storage
 param dispatchable { t in TECHNOLOGIES: can_build_new[t] = 1 } binary = 
-( if intermittent[t] = 1 or baseload[t] = 1 or t = 'Battery_Storage'
-  then 0
-  else 1 );
+	if intermittent[t] or baseload[t] or t = 'Battery_Storage'
+	then 0 else 1;
+
+# the fraction of time a generator is expected to be up
+# it's assumed that for dispatchable or intermittent generators or for storage
+# that their scheduled maintenence can be done when they're not going to be producing energy
+# while for baseload this is not the case.
+param gen_availability { t in TECHNOLOGIES: can_build_new[t] >= 0 <= 1 =
+	if ( dispatchable[t] or intermittent[t] or storage[t] ) then ( 1 - forced_outage_rate[t] )
+	else if baseload[t] then ( ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] ) );
 
 # can this type of project only be installed in limited amounts?
 param resource_limited {TECHNOLOGIES} binary;
@@ -224,9 +234,6 @@ set SOLAR_DIST_PV_TECHNOLOGIES;
 #####################
 
 # new storage techs ######
-
-# is this technology an electricity storage technology?
-param storage {TECHNOLOGIES} binary;
 
 # what is the efficiency of storing electricity with this storage technology?
 param storage_efficiency {TECHNOLOGIES} >= 0 <= 1;
@@ -872,7 +879,7 @@ var ProducePowerEP {EP_AVAILABLE_HOURS} >= 0;
 var ConsumeBioSolid {a in LOAD_AREAS, p in PERIODS: num_bio_breakpoints[a] > 0 } =
 	sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: fuel[t] in BIO_SOLID_FUELS } 
 	# the hourly MWh output of biomass solid projects in baseload mode is below
-		( InstallGenTotal[pid, a, t, p] * ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] )
+		( InstallGenTotal[pid, a, t, p] * gen_availability[t]
 	# weight each hour to get the total biomass consumed
       	* hours_in_sample[h] * heat_rate[t] );
 
@@ -939,12 +946,12 @@ minimize Power_Cost:
 	+(sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t]} 
 		DispatchGen[pid, a, t, p, h] * ( variable_cost[pid, a, t, p, h] + carbon_cost_per_mwh[pid, a, t, p, h] + fuel_cost[pid, a, t, p, h] ) )
 	+(sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: intermittent[t]} 
-		InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, h] * ( 1 - forced_outage_rate[t] ) * ( variable_cost[pid, a, t, p, h] + carbon_cost_per_mwh[pid, a, t, p, h] ) )
+		InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, h] * gen_availability[t] * ( variable_cost[pid, a, t, p, h] + carbon_cost_per_mwh[pid, a, t, p, h] ) )
 	+(sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t]} 
-	    InstallGenTotal[pid, a, t, p] * ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] ) * ( variable_cost[pid, a, t, p, h] + carbon_cost_per_mwh[pid, a, t, p, h] ) )
+	    InstallGenTotal[pid, a, t, p] * gen_availability[t] * ( variable_cost[pid, a, t, p, h] + carbon_cost_per_mwh[pid, a, t, p, h] ) )
 	# Fuel costs - intermittent generators don't have fuel costs as they're either solar or wind
 	+(sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t] and fuel[t] not in BIO_SOLID_FUELS} 
-	    InstallGenTotal[pid, a, t, p] * ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] ) * fuel_cost[pid, a, t, p, h] )
+	    InstallGenTotal[pid, a, t, p] * gen_availability[t] * fuel_cost[pid, a, t, p, h] )
 	# BioSolid fuel costs - ConsumeBioSolid is the Mbtus of biomass consumed per period per load area
 	# so this is annualized because costs in the objective function are annualized for proper discounting
 	+(sum {a in LOAD_AREAS, p in PERIODS: num_bio_breakpoints[a] > 0} 
@@ -1017,7 +1024,7 @@ subject to Satisfy_RPS {a in LOAD_AREAS, p in PERIODS: rps_compliance_fraction_i
 subject to Carbon_Cap {p in PERIODS}:
 	# Carbon emissions from new plants - none from intermittent plants
 	  ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t]} DispatchGen[pid, a, t, p, h] * heat_rate[t] * carbon_content[fuel[t]] * hours_in_sample[h] )
-	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t]} InstallGenTotal[pid, a, t, p] * ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] ) * heat_rate[t] * carbon_content[fuel[t]] * hours_in_sample[h] )
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t]} InstallGenTotal[pid, a, t, p] * gen_availability[t] * heat_rate[t] * carbon_content[fuel[t]] * hours_in_sample[h] )
 	# Carbon emissions from existing plants
 	+ ( sum { (a, e, p, h) in EP_AVAILABLE_HOURS} ProducePowerEP[a, e, p, h] * ep_heat_rate[a, e] * carbon_content[ep_fuel[a, e]] * hours_in_sample[h] )
   	<= carbon_cap[p];
@@ -1041,8 +1048,8 @@ subject to Conservation_Of_Energy_NonDistributed {a in LOAD_AREAS, h in TIMEPOIN
     RedirectDistributedPower[a,h,fc]
 	# power produced from new non-battery-storage projects  
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t] and rps_fuel_category_tech[t] = fc} DispatchGen[pid, a, t, p, h] )
-	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: intermittent[t] and t not in SOLAR_DIST_PV_TECHNOLOGIES and rps_fuel_category_tech[t] = fc } InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, h] * ( 1 - forced_outage_rate[t] ) )
-	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t] and rps_fuel_category_tech[t] = fc } InstallGenTotal[pid, a, t, p] * ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] ) )
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: intermittent[t] and t not in SOLAR_DIST_PV_TECHNOLOGIES and rps_fuel_category_tech[t] = fc } InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, h] * gen_availability[t] )
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t] and rps_fuel_category_tech[t] = fc } InstallGenTotal[pid, a, t, p] * gen_availability[t] )
 	# power from new storage
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t]} ( ReleaseEnergy[pid, a, t, p, h, fc] - StoreEnergy[pid, a, t, p, h, fc] ) )
 	# power produced from exiting plants
@@ -1063,7 +1070,7 @@ subject to Conservation_Of_Energy_Distributed {a in LOAD_AREAS, h in TIMEPOINTS,
   ConsumeDistributedPower[a,h,fc] + RedirectDistributedPower[a,h,fc] * (1 + distribution_losses)
   <= 
 	(sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES and rps_fuel_category_tech[t] = fc}
-          InstallGenTotal[pid, a, t, p] * (1-forced_outage_rate[t]) * cap_factor[pid, a, t, h])
+          InstallGenTotal[pid, a, t, p] * gen_availability[t] * cap_factor[pid, a, t, h])
 	+ (sum {(a, e, p, h) in EP_AVAILABLE_HOURS: ep_intermittent[a, e] and ep_technology[a, e] in SOLAR_DIST_PV_TECHNOLOGIES and rps_fuel_category[ep_fuel[a, e]] = fc}
    	      (1-ep_forced_outage_rate[a, e]) * eip_cap_factor[a, e, h] * ep_size_mw[a, e] ) 
   ;
@@ -1144,10 +1151,10 @@ subject to Conservation_Of_Energy_Distributed_Reserve {a in LOAD_AREAS, h in TIM
 # GENERATOR OPERATIONAL CONSTRAINTS
 
 # system can only dispatch as much of each project as is EXPECTED to be available
-# i.e., we only dispatch up to 1-forced_outage_rate, so the system will work on an expected-value basis
+# i.e., we only dispatch up to gen_availability[t], so the system will work on an expected-value basis
 subject to Power_From_Dispatchable_Plants 
 	{(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t]}:
-	DispatchGen[pid, a, t, p, h] <= InstallGenTotal[pid, a, t, p] * (1-forced_outage_rate[t]);
+	DispatchGen[pid, a, t, p, h] <= InstallGenTotal[pid, a, t, p] * gen_availability[t];
 
 subject to EP_Operational_Continuity {(a, e, p) in EP_PERIODS: p > first(PERIODS) and not ep_intermittent[a,e]}:
 	OperateEPDuringPeriod[a, e, p] <= OperateEPDuringPeriod[a, e, prev(p, PERIODS)];
@@ -1244,7 +1251,7 @@ subject to CAES_Combined_Dispatch { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: 
 # StoreEnergy represents the load on the grid from storing electrons
 subject to Maximum_Store_Rate {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t]}:
   	sum {fc in RPS_FUEL_CATEGORY} StoreEnergy[pid, a, t, p, h, fc]
-  		<= InstallGenTotal[pid, a, t, p] * max_store_rate[t] * ( 1 - forced_outage_rate[t] );
+  		<= InstallGenTotal[pid, a, t, p] * max_store_rate[t] * gen_availability[t];
 
 # Maximum dispatch rate, derated for occasional forced outages
 # CAES dispatch is apportioned between DispatchGen and ReleaseEnergy for NG and stored energy respectivly
@@ -1252,7 +1259,7 @@ subject to Maximum_Store_Rate {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: stora
 subject to Maximum_Release_Storage_Rate { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] }:
   	(sum {fc in RPS_FUEL_CATEGORY} ReleaseEnergy[pid, a, t, p, h, fc] ) +
   		( if t = 'Compressed_Air_Energy_Storage' then DispatchGen[pid, a, t, p, h] else 0 )
-  		<= InstallGenTotal[pid, a, t, p] * ( 1 - forced_outage_rate[t] );
+  		<= InstallGenTotal[pid, a, t, p] * gen_availability[t];
 
   # Energy balance
   # The parameter round_trip_efficiency below expresses the relationship between the amount of electricity from the grid used

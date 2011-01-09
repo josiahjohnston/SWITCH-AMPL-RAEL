@@ -33,18 +33,13 @@ printf "scenario_id	carbon_cost	period	project_id	load_area_id	load_area	date	ho
   > (outfile); }
 
 # New Plants
-printf {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' and 
-	(	if	 	dispatchable[t] then DispatchGen[pid, a, t, p, h]
-		else if	intermittent[t] then InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, h] * ( 1 - forced_outage_rate[t] )
-		else if	baseload[t] 	then InstallGenTotal[pid, a, t, p] * ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] ) ) != 0} 
+printf {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' and Power_Produced[pid, a, t, p, h] > 0.001} 
   "%s	%d	%d	%d	%d	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
   scenario_id, carbon_cost, p, pid, load_area_id[a], a,
   (if present_day_optimization then present_day_date[h] else date[h]),
   (if present_day_optimization then present_day_timepoint[h] else h),
   technology_id[t], t, 1, baseload[t], 0, 0, fuel[t], rps_fuel_category[fuel[t]], hours_in_sample[h],
- 	 (	if	 	dispatchable[t] then DispatchGen[pid, a, t, p, h]
-		else if	intermittent[t] then InstallGenTotal[pid, a, t, p] * cap_factor[pid, a, t, h] * ( 1 - forced_outage_rate[t] )
-		else if	baseload[t] 	then InstallGenTotal[pid, a, t, p] * ( 1 - forced_outage_rate[t] ) * ( 1 - scheduled_outage_rate[t] ) ), 
+  Power_Produced[pid, a, t, p, h], 
   Carbon_Emissions[pid, a, t, p, h],
   heat_rate[t], 
   Fuel_Cost_Incurred_Hourly[pid, a, t, p, h],
@@ -54,7 +49,7 @@ printf {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' and
 
 
 # Existing Plants
-printf {(a, e, p, h) in EP_AVAILABLE_HOURS: ProducePowerEP[a, e, p, h] != 0} 
+printf {(a, e, p, h) in EP_AVAILABLE_HOURS: ProducePowerEP[a, e, p, h] > 0.001} 
   "%s	%d	%d	%d	%d	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
   scenario_id, carbon_cost, p, ep_project_id[a, e], load_area_id[a], a,
   (if present_day_optimization then present_day_date[h] else date[h]),
@@ -69,7 +64,7 @@ printf {(a, e, p, h) in EP_AVAILABLE_HOURS: ProducePowerEP[a, e, p, h] != 0}
   >> (outfile);
 
 # Dispatch of non-pumped hydro. 
-printf {(a, pid) in PROJ_NONPUMPED_HYDRO, h in TIMEPOINTS, p in PERIODS: period[h]=p and Dispatch_NonPumped_Hydro[a, pid, h] != 0} 
+printf {(a, pid) in PROJ_NONPUMPED_HYDRO, h in TIMEPOINTS, p in PERIODS: period[h]=p and Dispatch_NonPumped_Hydro[a, pid, h] > 0.001} 
   "%s	%d	%d	%d	%d	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
   scenario_id, carbon_cost, p, pid, load_area_id[a], a,
   (if present_day_optimization then present_day_date[h] else date[h]),
@@ -81,7 +76,7 @@ printf {(a, pid) in PROJ_NONPUMPED_HYDRO, h in TIMEPOINTS, p in PERIODS: period[
   >> (outfile);
 
 # Dispatch of pumped hydro watershed electrons. 
-printf {(a, pid) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS, p in PERIODS: period[h]=p and Dispatch_Pumped_Hydro_Watershed_Electrons[a, pid, h] != 0} 
+printf {(a, pid) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS, p in PERIODS: period[h]=p and Dispatch_Pumped_Hydro_Watershed_Electrons[a, pid, h] > 0.001} 
   "%s	%d	%d	%d	%d	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
   scenario_id, carbon_cost, p, pid, load_area_id[a], a,
   (if present_day_optimization then present_day_date[h] else date[h]),
@@ -96,7 +91,7 @@ printf {(a, pid) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS, p in PERIODS: period[h]=
 # Store all STORAGE DISPATCH decisions
 
 # Storage of pumped hydro. Don't have to pay variable O&M for storing at the moment.
-printf {(a, pid) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS, p in PERIODS, fc in RPS_FUEL_CATEGORY: period[h]=p and Store_Pumped_Hydro[a, pid, h, fc] != 0} 
+printf {(a, pid) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS, p in PERIODS, fc in RPS_FUEL_CATEGORY: period[h]=p and Store_Pumped_Hydro[a, pid, h, fc] > 0.001} 
   "%s	%d	%d	%d	%d	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
   scenario_id, carbon_cost, p, pid, load_area_id[a], a,
   (if present_day_optimization then present_day_date[h] else date[h]),
@@ -107,7 +102,7 @@ printf {(a, pid) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS, p in PERIODS, fc in RPS_
   >> (outfile);
 
 # Dispatch of stored pumped hydro.
-printf {(a, pid) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS, p in PERIODS, fc in RPS_FUEL_CATEGORY: period[h]=p and Dispatch_Pumped_Hydro_Storage[a, pid, h, fc] != 0} 
+printf {(a, pid) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS, p in PERIODS, fc in RPS_FUEL_CATEGORY: period[h]=p and Dispatch_Pumped_Hydro_Storage[a, pid, h, fc]  > 0.001} 
   "%s	%d	%d	%d	%d	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
   scenario_id, carbon_cost, p, pid, load_area_id[a], a,
   (if present_day_optimization then present_day_date[h] else date[h]),
@@ -118,7 +113,7 @@ printf {(a, pid) in PROJ_PUMPED_HYDRO, h in TIMEPOINTS, p in PERIODS, fc in RPS_
   >> (outfile);
   
 # New storage projects while storing energy. Don't have to pay variable O&M for storing at the moment.
-printf {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t] and StoreEnergy[pid, a, t, p, h, fc] != 0} 
+printf {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t] and StoreEnergy[pid, a, t, p, h, fc]  > 0.001} 
   "%s	%d	%d	%d	%d	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
   scenario_id, carbon_cost, p, pid, load_area_id[a], a,
   (if present_day_optimization then present_day_date[h] else date[h]),
@@ -129,7 +124,7 @@ printf {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS, fc in RPS_FUEL_CATEGORY: sto
   >> (outfile);
 
 # New storage projects while releasing energy.
-printf {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t] and ReleaseEnergy[pid, a, t, p, h, fc] != 0} 
+printf {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t] and ReleaseEnergy[pid, a, t, p, h, fc]  > 0.001} 
   "%s	%d	%d	%d	%d	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
   scenario_id, carbon_cost, p, pid, load_area_id[a], a,
   (if present_day_optimization then present_day_date[h] else date[h]),
@@ -154,7 +149,7 @@ printf "scenario_id	carbon_cost	period	project_id	load_area_id	load_area	technol
 	> (outfile); }
 
 # New Plants, inclusive of new storage projects
-printf {(pid, a, t, p) in PROJECT_VINTAGES: InstallGenTotal[pid, a, t, p] > 0}
+printf {(pid, a, t, p) in PROJECT_VINTAGES: InstallGenTotal[pid, a, t, p]  > 0.001}
   "%s	%d	%d	%d	%d	%s	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%.2f\n",
   scenario_id, carbon_cost, p, pid, load_area_id[a], a, technology_id[t], t, project_location[pid, a, t], 1, baseload[t], 0, fuel[t],
   InstallGenTotal[pid, a, t, p],

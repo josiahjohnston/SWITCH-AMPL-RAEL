@@ -800,7 +800,7 @@ where _proposed_projects.technology in ('Biomass_IGCC_CCS', 'Bio_Gas_CCS');
 -- O&M costs and heat rates for the new retrofited plants will replace that of old plants
 insert into _proposed_projects (original_dataset_id, technology_id, technology, area_id,
 								connect_cost_per_mw, price_and_dollar_year, overnight_cost, fixed_o_m, variable_o_m, heat_rate, overnight_cost_change)
-   select 	existing_plants.project_id as original_dataset_id,
+   select 	existing_plants.ep_id as original_dataset_id,
    			technology_id,
     		generator_info.technology,
     		area_id,

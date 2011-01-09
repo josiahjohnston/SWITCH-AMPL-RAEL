@@ -184,6 +184,7 @@ param NonPumped_Hydro_Fixed_OM_by_Plant_and_Period  { (a, pid) in PROJ_NONPUMPED
 param NonPumped_Hydro_Variable_Cost_Incurred_Hourly { (a, pid) in PROJ_NONPUMPED_HYDRO, h in TIMEPOINTS };
 param Pumped_Hydro_Capital_Payments_by_Plant_and_Period { (a, pid) in PROJ_PUMPED_HYDRO, p in PERIODS }; 
 param Pumped_Hydro_Fixed_OM_by_Plant_and_Period { (a, pid) in PROJ_PUMPED_HYDRO, p in PERIODS }; 
+param Power_Produced { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }; 
 param Carbon_Emissions { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }; 
 param EP_Carbon_Emissions { (a, e, p, h) in EP_AVAILABLE_HOURS }; 
 param Carbon_Cost_Incurred_Hourly { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }; 
