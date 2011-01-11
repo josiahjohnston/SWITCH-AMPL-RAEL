@@ -1,0 +1,180 @@
+let curtime := time();
+
+
+if ( file_exists(solution_times_path) == 0 )
+then {
+  printf "scenario_id	carbon_cost	process_type time_seconds\n"
+  > (solution_times_path);
+  close (solution_times_path);
+}
+# Store solution times
+if ( cost_sol_time >= 0 ) then {
+	printf "%d	%d	%s	%d\n", scenario_id, carbon_cost, "Cost_Compilation", cost_compile_time  >> (solution_times_path);
+	printf "%d	%d	%s	%d\n", scenario_id, carbon_cost, "Cost_Optimization", cost_sol_time  >> (solution_times_path);
+	close (solution_times_path);
+}
+
+read week_num < "week_num.txt";
+
+#########################
+# Store the sums of the dispatches for each plant
+let outfile := results_path & sprintf( "dispatch_sums_%d.txt", carbon_cost );
+printf "scenario_id	carbon_cost	period	project_id	load_area_id	load_area	week_num	technology_id	technology	new	baseload	cogen	storage	fuel	fuel_category	hours_in_sample	power	co2_tons	heat_rate	fuel_cost	carbon_cost_sum	variable_o_m\n"
+  > (outfile);
+
+# New Plants
+printf {(pid, a, t) in PROJECTS, p in PERIODS: 
+         (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= p < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr]) >= 0.005 and 
+         (intermittent[t] or (sum {h in TIMEPOINTS: period[h] = p } ProducePowerNonIntermittent[pid, a, t, h] ) >= 0.005 )
+       } 
+  "%s	%d	%d	%d	%d	%s	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
+  scenario_id, carbon_cost, p, pid, load_area_id[a], a, week_num,
+  technology_id[t], t, 1, new_baseload[t], 0, 0, fuel[t], rps_fuel_category[fuel[t]], 
+  (sum {h in TIMEPOINTS: period[h] = p } hours_in_sample[h])/card({h in TIMEPOINTS: period[h] = p }),
+  # Power output
+  (sum {h in TIMEPOINTS: period[h] = p }
+    ( if not intermittent[t]
+      then 
+        ProducePowerNonIntermittent[pid, a, t, h]
+      else
+        ((sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= p < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr])
+          * ( 1 - forced_outage_rate[t] ) 
+          * cap_factor[pid, a, t, h] )
+    ) * hours_in_sample[h]
+  ) / (sum {h in TIMEPOINTS: period[h] = p } hours_in_sample[h] ), 
+  # Carbon emmissions.
+  (sum {h in TIMEPOINTS: period[h] = p } 
+    ( if not intermittent[t]
+		  then ProducePowerNonIntermittent[pid, a, t, h]
+		  else
+		  (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr])
+			* cap_factor[pid, a, t, h] * ( 1 - forced_outage_rate[t] ) 
+		) * heat_rate[t] * carbon_content[fuel[t]]  * hours_in_sample[h]
+  ) / (sum {h in TIMEPOINTS: period[h] = p } hours_in_sample[h]),
+  heat_rate[t], 
+  # Fuel costs incurred hourly
+  (sum {h in TIMEPOINTS: period[h] = p } 
+    ( if not intermittent[t]
+      then ProducePowerNonIntermittent[pid, a, t, h]
+      else
+      (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr])
+        * cap_factor[pid, a, t, h] * ( 1 - forced_outage_rate[t] ) 
+    ) * heat_rate[t] * fuel_cost_hourly[a, fuel[t], h] / num_years_per_period * factor_to_bring_annual_costs_to_start_of_period * hours_in_sample[h]
+  ) / (sum {h in TIMEPOINTS: period[h] = p } hours_in_sample[h]),
+  # Carbon_Cost_Incurred_Hourly
+  (sum {h in TIMEPOINTS: period[h] = p } 
+    ( if not intermittent[t]
+      then ProducePowerNonIntermittent[pid, a, t, h]
+      else
+      (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr])
+        * cap_factor[pid, a, t, h] * ( 1 - forced_outage_rate[t] ) 
+    ) * carbon_content[fuel[t]] * carbon_cost / num_years_per_period * factor_to_bring_annual_costs_to_start_of_period * hours_in_sample[h]
+  ) / (sum {h in TIMEPOINTS: period[h] = p } hours_in_sample[h]),
+  # Variable_Cost_Incurred_Hourly
+  (sum {h in TIMEPOINTS: period[h] = p } 
+  	( if not intermittent[t]
+      then ProducePowerNonIntermittent[pid, a, t, h]
+      else
+      (sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= period[h] < project_end_year[t, install_yr] } InstallGen[pid, a, t, install_yr])
+        * cap_factor[pid, a, t, h] * ( 1 - forced_outage_rate[t] ) 
+		)	* variable_o_m[pid, a, t] / num_years_per_period * factor_to_bring_annual_costs_to_start_of_period * hours_in_sample[h]
+  ) / (sum {h in TIMEPOINTS: period[h] = p } hours_in_sample[h])
+  >> (outfile);
+
+
+# Existing Plants
+printf {(a, e, p) in EP_PERIODS: (sum {h in TIMEPOINTS: period[h] = p } ProducePowerEP[a, e, h]) >= 0.005} 
+  "%s	%d	%d	%d	%d	%s	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
+  scenario_id, carbon_cost, p, ep_project_id[a, e], load_area_id[a], a, week_num,
+  technology_id[ep_technology[a,e]], ep_technology[a,e], 0, ep_baseload[a, e], ep_cogen[a, e], 0, ep_fuel[a, e], rps_fuel_category[ep_fuel[a, e]], 
+  (sum {h in TIMEPOINTS: period[h] = p } hours_in_sample[h])/card({h in TIMEPOINTS: period[h] = p }),
+  (sum {h in TIMEPOINTS: period[h] = p } ProducePowerEP[a, e, h] * hours_in_sample[h]) / (sum {h in TIMEPOINTS: period[h] = p } hours_in_sample[h]), 
+  # EP_Carbon_Emissions
+  (sum {h in TIMEPOINTS: period[h] = p } 
+    ProducePowerEP[a, e, h] * ep_heat_rate[a, e] * carbon_content[ep_fuel[a, e]] * hours_in_sample[h]
+  ) / (sum {h in TIMEPOINTS: period[h] = p } hours_in_sample[h]),
+  ep_heat_rate[a, e], 
+  # EP_Fuel_Cost_Incurred_Hourly
+  (sum {h in TIMEPOINTS: period[h] = p } 
+    ProducePowerEP[a, e, h] * ep_heat_rate[a, e] * fuel_cost_hourly[a, ep_fuel[a, e], h] / num_years_per_period * factor_to_bring_annual_costs_to_start_of_period * hours_in_sample[h]
+  ) / (sum {h in TIMEPOINTS: period[h] = p } hours_in_sample[h]),
+  # EP_Carbon_Cost_Incurred_Hourly
+  (sum {h in TIMEPOINTS: period[h] = p } 
+    ProducePowerEP[a, e, h] * ep_heat_rate[a, e] * carbon_content[ep_fuel[a, e]] * carbon_cost / num_years_per_period * factor_to_bring_annual_costs_to_start_of_period * hours_in_sample[h]
+  ) / (sum {h in TIMEPOINTS: period[h] = p } hours_in_sample[h]),
+  # EP_Variable_Cost_Incurred_Hourly
+  (sum {h in TIMEPOINTS: period[h] = p } 
+    ProducePowerEP[a, e, h] * ep_variable_o_m[a, e] / num_years_per_period * factor_to_bring_annual_costs_to_start_of_period * hours_in_sample[h]
+  ) / (sum {h in TIMEPOINTS: period[h] = p } hours_in_sample[h])
+  >> (outfile);
+
+# Dispatch of non-pumped hydro. 
+printf {(a, pid) in PROJ_NONPUMPED_HYDRO, p in PERIODS} 
+  "%s	%d	%d	%d	%d	%s	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
+  scenario_id, carbon_cost, p, pid, load_area_id[a], a, week_num,
+  hydro_technology_id[a,pid,first(DATES)], "Hydro_NonPumped", 0, 0, 0, 0, fuel_hydro, rps_fuel_category[fuel_hydro], 
+  (sum {h in TIMEPOINTS: period[h] = p } hours_in_sample[h])/card({h in TIMEPOINTS: period[h] = p }),
+  (sum {h in TIMEPOINTS: period[h] = p } Dispatch_NonPumped_Hydro[a, pid, h] * hours_in_sample[h]) / (sum {h in TIMEPOINTS: period[h] = p } hours_in_sample[h]),
+  0, 0, 0, 0, 
+  # NonPumped_Hydro_Variable_Cost_Incurred_Hourly
+  (sum {h in TIMEPOINTS: period[h] = p } 
+    ( Dispatch_NonPumped_Hydro[a, pid, h] * nonpumped_hydro_variable_o_m * economic_multiplier[a] * hours_in_sample[h] )
+  ) / (sum {h in TIMEPOINTS: period[h] = p } hours_in_sample[h])
+  >> (outfile);
+
+# Dispatch of pumped hydro watershed electrons. 
+printf {(a, pid) in PROJ_PUMPED_HYDRO, p in PERIODS} 
+  "%s	%d	%d	%d	%d	%s	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
+  scenario_id, carbon_cost, p, pid, load_area_id[a], a, week_num,
+  hydro_technology_id[a,pid,first(DATES)], "Hydro_Pumped", 0, 0, 0, 0, fuel_hydro, rps_fuel_category[fuel_hydro], 
+  (sum {h in TIMEPOINTS: period[h] = p } hours_in_sample[h])/card({h in TIMEPOINTS: period[h] = p }),
+  (sum {h in TIMEPOINTS: period[h] = p } Dispatch_Pumped_Hydro_Watershed_Electrons[a, pid, h]) / (sum {h in TIMEPOINTS: period[h] = p } hours_in_sample[h]),
+  0, 0, 0, 0, 
+  0 # Pumped Hydro has 0 Variable O&M costs, as they are wrapped up in Fixed O&M costs
+  >> (outfile);
+
+
+# Store all STORAGE DISPATCH decisions
+
+# Storage of pumped hydro. Don't have to pay variable O&M for storing at the moment.
+printf {(a, pid) in PROJ_PUMPED_HYDRO, p in PERIODS, fc in RPS_FUEL_CATEGORY: (sum {h in TIMEPOINTS: period[h] = p } -1 * Store_Pumped_Hydro[a, pid, h, fc]) >= 0.005 } 
+  "%s	%d	%d	%d	%d	%s	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
+  scenario_id, carbon_cost, p, pid, load_area_id[a], a, week_num,
+  hydro_technology_id[a,pid,first(DATES)], "Hydro_Pumped", 0, 0, 0, 1, 'Storage', fc, 
+  (sum {h in TIMEPOINTS: period[h] = p } hours_in_sample[h])/card({h in TIMEPOINTS: period[h] = p }),
+  (sum {h in TIMEPOINTS: period[h] = p } -1 * Store_Pumped_Hydro[a, pid, h, fc] * hours_in_sample[h]) / (sum {h in TIMEPOINTS: period[h] = p } hours_in_sample[h]),
+  0, 0, 0, 0, 0
+  >> (outfile);
+
+# Dispatch of stored pumped hydro.
+printf {(a, pid) in PROJ_PUMPED_HYDRO, p in PERIODS, fc in RPS_FUEL_CATEGORY: (sum {h in TIMEPOINTS: period[h] = p } Dispatch_Pumped_Hydro_Storage[a, pid, h, fc]) >= 0.005} 
+  "%s	%d	%d	%d	%d	%s	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
+  scenario_id, carbon_cost, p, pid, load_area_id[a], a, week_num,
+  hydro_technology_id[a,pid,first(DATES)], "Hydro_Pumped", 0, 0, 0, 1, 'Storage', fc, 
+  (sum {h in TIMEPOINTS: period[h] = p } hours_in_sample[h])/card({h in TIMEPOINTS: period[h] = p }),
+  (sum {h in TIMEPOINTS: period[h] = p } Dispatch_Pumped_Hydro_Storage[a, pid, h, fc] * hours_in_sample[h]) / (sum {h in TIMEPOINTS: period[h] = p } hours_in_sample[h]),
+  0, 0, 0, 0, 0
+  >> (outfile);
+  
+# New storage projects while storing energy. Don't have to pay variable O&M for storing at the moment.
+printf {(pid, a, t) in PROJ_STORAGE, p in PERIODS, fc in RPS_FUEL_CATEGORY: (sum {h in TIMEPOINTS: period[h] = p } StoreEnergy[pid, a, t, h, fc]) >= 0.005 } 
+  "%s	%d	%d	%d	%d	%s	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
+  scenario_id, carbon_cost, p, pid, load_area_id[a], a, week_num,
+  technology_id[t], t, 1, 0, 0, 1, 'Storage', fc, 
+  (sum {h in TIMEPOINTS: period[h] = p } hours_in_sample[h])/card({h in TIMEPOINTS: period[h] = p }),
+  (sum {h in TIMEPOINTS: period[h] = p } -1 * StoreEnergy[pid, a, t, h, fc] * hours_in_sample[h]) / (sum {h in TIMEPOINTS: period[h] = p } hours_in_sample[h]),
+  0, 0, 0, 0, 0
+  >> (outfile);
+
+# New storage projects while releasing energy.
+printf {(pid, a, t) in PROJ_STORAGE, p in PERIODS, fc in RPS_FUEL_CATEGORY: (sum {h in TIMEPOINTS: period[h] = p } ReleaseEnergy[pid, a, t, h, fc]) >= 0.005 } 
+  "%s	%d	%d	%d	%d	%s	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
+  scenario_id, carbon_cost, p, pid, load_area_id[a], a, week_num,
+  technology_id[t], t, 1, 0, 0, 1, 'Storage', fc, 
+  (sum {h in TIMEPOINTS: period[h] = p } hours_in_sample[h])/card({h in TIMEPOINTS: period[h] = p }),
+  (sum {h in TIMEPOINTS: period[h] = p } ReleaseEnergy[pid, a, t, h, fc] * hours_in_sample[h]) / (sum {h in TIMEPOINTS: period[h] = p } hours_in_sample[h]),
+  0, 0, 0, 0,
+  (sum {h in TIMEPOINTS: period[h] = p } ReleaseEnergy[pid, a, t, h, fc] * variable_o_m[pid, a, t] * hours_in_sample[h]) / (sum {h in TIMEPOINTS: period[h] = p } hours_in_sample[h])
+  >> (outfile);
+
+close (outfile);

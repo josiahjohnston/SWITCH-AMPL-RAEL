@@ -1,0 +1,63 @@
+# Save investment variables in tab files that can be read in for test sets that have the same investment periods and different timepoints.
+include windsun.run;
+
+param file_path symbolic;
+param cost_problem symbolic;
+param cost_solution_path symbolic;
+
+table TableInstallGen OUT "dispatch/common_inputs/InstallGen.tab": 
+  PROJECT_VINTAGES -> [ pid, a, t, p ], InstallGen;
+table TableBuildGenOrNot OUT "dispatch/common_inputs/BuildGenOrNot.tab": 
+  PROJ_MIN_BUILD_VINTAGES -> [pid, a, t, p], BuildGenOrNot;
+table TableOperateEPDuringPeriod OUT "dispatch/common_inputs/OperateEPDuringPeriod.tab": 
+  EP_PERIODS -> [a, e, p], OperateEPDuringPeriod;
+table TableInstallTrans OUT "dispatch/common_inputs/InstallTrans.tab":
+  {(a1, a2) in TRANSMISSION_LINES_NEW_BUILDS_ALLOWED, p in PERIODS} -> [a1, a2, p], InstallTrans;
+table TableInstallLocalTD OUT "dispatch/common_inputs/InstallLocalTD.tab":
+  {a in LOAD_AREAS, p in PERIODS} -> [a, p], InstallLocalTD;
+
+shell( "if [ ! -d dispatch/common_inputs ]; then mkdir dispatch/common_inputs; fi" );
+
+for {c in CARBON_COSTS} { 
+
+  let carbon_cost := c;
+  let cost_problem       := results_path & "sol" & carbon_cost & "cost";
+  let cost_solution_path := cost_problem & ".sol";
+  printf "\nLoading Cost solution from disk for a carbon cost of %d.\n", carbon_cost;
+  let curtime := time();
+  solution(cost_solution_path);
+  printf "%d seconds to create a problem instance and load a solution from disk.\n", (time() - curtime);
+
+
+  write table TableInstallGen;
+  close;
+  let file_path := "dispatch/common_inputs/InstallGen" & carbon_cost & ".tab";
+  shell( "mv dispatch/common_inputs/InstallGen.tab " & file_path );
+  
+  write table TableBuildGenOrNot;
+  close;
+  let file_path := "dispatch/common_inputs/BuildGenOrNot" & carbon_cost & ".tab";
+  shell( "mv dispatch/common_inputs/BuildGenOrNot.tab " & file_path );
+  
+  write table TableOperateEPDuringPeriod;
+  close;
+  let file_path := "dispatch/common_inputs/OperateEPDuringPeriod" & carbon_cost & ".tab";
+  shell( "mv dispatch/common_inputs/OperateEPDuringPeriod.tab " & file_path );
+  
+  write table TableInstallTrans;
+  close;
+  let file_path := "dispatch/common_inputs/InstallTrans" & carbon_cost & ".tab";
+  shell( "mv dispatch/common_inputs/InstallTrans.tab " & file_path );
+  
+  write table TableInstallLocalTD;
+  close;
+  let file_path := "dispatch/common_inputs/InstallLocalTD" & carbon_cost & ".tab";
+  shell( "mv dispatch/common_inputs/InstallLocalTD.tab " & file_path );
+  
+}
+
+
+# Read investment variables and fix them before solving.
+# On command line, switch over to the appropriate test subdirectory, then issue this ampl command:
+# include test.run
+
