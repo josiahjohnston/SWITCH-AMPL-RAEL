@@ -132,7 +132,10 @@ for week_num in $(mysql $connection_string --column-names=false -e "select disti
 	if [ ! -d $input_dir ]; then
 		mkdir $input_dir
 	fi
-	data_dir=$base_data_dir/$input_dir
+	data_dir=$base_data_dir/$week_path
+	if [ ! -d $data_dir ]; then
+		mkdir $data_dir
+	fi
 
 	##########################
 	# Make links to the common input files 
@@ -192,7 +195,7 @@ for week_num in $(mysql $connection_string --column-names=false -e "select disti
 	echo "	$f..."
 	if [ ! -f $data_dir/$f ]; then
 		echo ampl.tab 3 1 > $data_dir/$f
-		mysql $connection_string -e "select load_area, plant_code, study_hour as hour, cap_factor from  existing_intermittent_plant_cap_factor c join dispatch_weeks h on (h.hournum=c.hour) where $SAMPLE_RESTRICTIONS order by 1,2;" >> $data_dir/$f
+		mysql $connection_string -e "select project_id, load_area, study_hour as hour, cap_factor from  existing_intermittent_plant_cap_factor c join dispatch_weeks h on (h.hournum=c.hour) where $SAMPLE_RESTRICTIONS order by 1,2;" >> $data_dir/$f
 	fi
 	if [ ! -L $input_dir/$f ]; then
 		ln -s $data_dir/$f $input_dir/$f
@@ -201,8 +204,8 @@ for week_num in $(mysql $connection_string --column-names=false -e "select disti
 	f="hydro.tab"
 	echo "	$f..."
 	if [ ! -f $data_dir/$f ]; then
-		echo ampl.tab 3 4 > $input_dir/$f
-		mysql $connection_string -e "select load_area, project_id as hydro_project_id, study_date as date, technology, technology_id, capacity_mw, avg_output from hydro_monthly_limits l, (select distinct week_num, period, study_date, date_utc, month_of_year from dispatch_weeks where $SAMPLE_RESTRICTIONS) d where l.year = year(d.date_utc) and l.month=month(d.date_utc)order by 1, 2, month, year;" >> $input_dir/$f
+		echo ampl.tab 3 4 > $data_dir/$f
+		mysql $connection_string -e "select load_area, project_id as hydro_project_id, study_date as date, technology, technology_id, capacity_mw, avg_output from hydro_monthly_limits l, (select distinct week_num, period, study_date, date_utc, month_of_year from dispatch_weeks where $SAMPLE_RESTRICTIONS) d where l.year = year(d.date_utc) and l.month=month(d.date_utc)order by 1, 2, month, year;" >> $data_dir/$f
 	fi
 	if [ ! -L $input_dir/$f ]; then
 		ln -s $data_dir/$f $input_dir/$f
