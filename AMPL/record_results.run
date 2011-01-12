@@ -49,18 +49,18 @@ printf {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' and P
 
 
 # Existing Plants
-printf {(a, e, p, h) in EP_AVAILABLE_HOURS: ProducePowerEP[a, e, p, h] > 0.001} 
+printf {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: ProducePowerEP[pid, a, t, p, h] > 0.001} 
   "%s	%d	%d	%d	%d	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
-  scenario_id, carbon_cost, p, ep_project_id[a, e], load_area_id[a], a,
+  scenario_id, carbon_cost, p, pid, load_area_id[a], a,
   (if present_day_optimization then present_day_date[h] else date[h]),
   (if present_day_optimization then present_day_timepoint[h] else h),
-  technology_id[ep_technology[a, e]], ep_technology[a,e], 0, ep_baseload[a, e], ep_cogen[a, e], 0, ep_fuel[a, e], rps_fuel_category[ep_fuel[a, e]], hours_in_sample[h],
-  ProducePowerEP[a, e, p, h], 
-  EP_Carbon_Emissions[a, e, p, h],
-  ep_heat_rate[a, e], 
-  EP_Fuel_Cost_Incurred_Hourly[a, e, p, h],
-  EP_Carbon_Cost_Incurred_Hourly[a, e, p, h],
-  EP_Variable_Cost_Incurred_Hourly[a, e, p, h]
+  technology_id[t], t, 0, ep_baseload[pid, a, t], ep_cogen[pid, a, t], 0, ep_fuel[pid, a, t], rps_fuel_category[ep_fuel[pid, a, t]], hours_in_sample[h],
+  ProducePowerEP[pid, a, t, p, h], 
+  EP_Carbon_Emissions[pid, a, t, p, h],
+  ep_heat_rate[pid, a, t], 
+  EP_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h],
+  EP_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h],
+  EP_Variable_Cost_Incurred_Hourly[pid, a, t, p, h]
   >> (outfile);
 
 # Dispatch of non-pumped hydro. 
@@ -162,14 +162,13 @@ printf {(pid, a, t, p) in PROJECT_VINTAGES: InstallGenTotal[pid, a, t, p]  > 0.0
 # as cogen plants can have their life extended past ep_end_year,
 # their capital cost are included here only if they are operated past their normal lifetime
 # existing intermittent plants generally have low operational costs and are therefore kept running
-printf {(a, e, p) in EP_PERIODS}
+printf {(pid, a, t, p) in EP_PERIODS}
   "%s	%d	%d	%d	%d	%s	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%.2f\n",
-  scenario_id, carbon_cost, p, ep_project_id[a, e], load_area_id[a], a, technology_id[ep_technology[a,e]], ep_technology[a,e], e, 0, ep_baseload[a, e], ep_cogen[a, e], ep_fuel[a, e],
-  ( if ep_intermittent[a, e] then 1 else OperateEPDuringPeriod[a, e, p] ) * ep_size_mw[a, e],
-  # Capital costs
-  EP_Capital_Payments_by_Plant_and_Period[a, e, p], 
-  # Fixed O & M
-  EP_Fixed_OM_by_Plant_and_Period[a, e, p]
+  scenario_id, carbon_cost, p, pid, load_area_id[a], a, technology_id[t], t,
+  ep_plant_code[pid, a, t], 0, ep_baseload[pid, a, t], ep_cogen[pid, a, t], ep_fuel[pid, a, t],
+  ( if ep_intermittent[pid, a, t] then 1 else OperateEPDuringPeriod[pid, a, t, p] ) * ep_size_mw[pid, a, t],
+  EP_Capital_Payments_by_Plant_and_Period[pid, a, t, p], 
+  EP_Fixed_OM_by_Plant_and_Period[pid, a, t, p]
   >> (outfile);
 
 

@@ -215,6 +215,8 @@ create table generator_info (
 	intermittent boolean,
 	resource_limited boolean,
 	baseload boolean,
+	dispatchable boolean,
+	cogen boolean,
 	min_build_capacity float,
 	can_build_new tinyint,
 	ccs tinyint,
@@ -230,6 +232,12 @@ load data local infile
 	fields terminated by	','
 	optionally enclosed by '"'
 	ignore 1 lines;
+
+-- create a view for backwards compatibility - the tech ids are the important part
+use generator_info;
+DROP VIEW IF EXISTS generator_costs;
+CREATE VIEW generator_costs as select * from switch_inputs_wecc_v2_2.generator_info;
+use switch_inputs_wecc_v2_2;
 
 -- ---------------------------------------------------------------------
 --        REGION-SPECIFIC GENERATOR COSTS & AVAILIBILITY
@@ -475,7 +483,9 @@ insert into rps_load_area_targets ( area_id, load_area, compliance_year, complia
 			and		max_year_table.max_year = rps_load_area_targets.compliance_year
 			) as compliance_fraction_in_max_year_table
 	;
-					
+
+drop table integer_tmp;
+
 -- CARBON CAP INFO ---------------
 -- the current carbon cap in SWITCH is set by a linear decrease
 -- from 100% of 1990 levels in 2020 to 20% of 1990 levels in 2050
@@ -542,17 +552,17 @@ CREATE TABLE existing_plants (
 	plant_code varchar(40),
 	primemover varchar(10),
 	fuel varchar(20),
-	peak_mw double,
-	heat_rate double,
+	peak_mw float,
+	heat_rate float,
 	start_year year,
 	baseload boolean,
 	cogen boolean,
-	overnight_cost double,
-	fixed_o_m double,
-	variable_o_m double,
-	forced_outage_rate double,
-	scheduled_outage_rate double,
-	max_age double,
+	overnight_cost float,
+	fixed_o_m float,
+	variable_o_m float,
+	forced_outage_rate float,
+	scheduled_outage_rate float,
+	max_age float,
 	intermittent boolean,
 	technology varchar(64),
 	ccs_project_id int unsigned default null,
@@ -563,17 +573,30 @@ CREATE TABLE existing_plants (
 
  -- The << operation moves the numeric form of the letter "E" (for existing plants) over by 3 bytes, effectively making its value into the most significant digits.
 insert into existing_plants (project_id, area_id, ep_id, load_area, plant_code, primemover, fuel, peak_mw, heat_rate, start_year, baseload, cogen, overnight_cost, fixed_o_m, variable_o_m, forced_outage_rate, scheduled_outage_rate, max_age, intermittent, technology )
-	select 	existing_plants_agg.ep_id + (ascii( 'E' ) << 8*3),
-			load_area_info.area_id,
-			ep_id, load_area, plant_code, primemover, fuel, peak_mw, heat_rate,
-			start_year, baseload, cogen,
-			overnight_cost * economic_multiplier,
-			fixed_o_m * economic_multiplier,
-			variable_o_m * economic_multiplier,
-			forced_outage_rate, scheduled_outage_rate, max_age, intermittent, technology 
-			from generator_info.existing_plants_agg
-			join load_area_info using(load_area);
-
+	select 	e.ep_id + (ascii( 'E' ) << 8*3),
+			a.area_id,
+			e.ep_id,
+			e.load_area,
+			e.plant_code,
+			e.primemover,
+			e.fuel,
+			e.peak_mw,
+			e.heat_rate,
+			e.start_year,
+			g.baseload,
+			g.cogen,
+			g.overnight_cost * economic_multiplier,
+			g.fixed_o_m * economic_multiplier,
+			g.variable_o_m * economic_multiplier,
+			g.forced_outage_rate,
+			g.scheduled_outage_rate,
+			g.max_age_years,
+			g.intermittent,
+			technology 
+			from generator_info.existing_plants_agg e
+			join generator_info g using (technology)
+			join load_area_info a using (load_area);
+			
 drop table if exists _existing_intermittent_plant_cap_factor;
 create table _existing_intermittent_plant_cap_factor(
 		project_id int unsigned,
@@ -590,9 +613,8 @@ create table _existing_intermittent_plant_cap_factor(
 
 DROP VIEW IF EXISTS existing_intermittent_plant_cap_factor;
 CREATE VIEW existing_intermittent_plant_cap_factor as
-  SELECT cp.project_id, plant_code, load_area, cp.area_id, hour, cap_factor
+  SELECT cp.project_id, load_area, technology, hour, cap_factor
     FROM _existing_intermittent_plant_cap_factor cp join existing_plants using (project_id);
-
 
 insert into _existing_intermittent_plant_cap_factor
 SELECT      existing_plants.project_id,
@@ -603,7 +625,6 @@ SELECT      existing_plants.project_id,
             3tier.windfarms_existing_cap_factor
     where   technology = 'Wind_EP'
     and		concat('Wind_EP', '_', 3tier.windfarms_existing_cap_factor.windfarm_existing_id) = existing_plants.plant_code;
-
 
 
 -- ---------------------------------------------------------------------

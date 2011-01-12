@@ -294,8 +294,6 @@ from 	3tier.windfarms_existing_info_wecc join
 group by 3tier.windfarms_existing_info_wecc.windfarm_existing_id
 ;
 
-
-
 ----------------------------------------------------------------
 -- CANADA and MEXICO
 
@@ -487,79 +485,6 @@ update 	existing_plants_agg,
 			) as auto_num_table
 set plant_code = concat(plant_code, "_", auto_num)
 where existing_plants_agg.ep_id = auto_num_table.ep_id;
-
-------------------------------------------------------------
--- add costs, tabluated from the ReEDS input assumptions/ Black and Veatch for REFutures (12-02-09 update)
--- took the cost in 2000 (in $2007), as we don't have earlier data on plant costs.
--- took CoalOldScr costs, Gas ST = OGS = Oil Gas Steam 
--- set existing nuke lifetime to 60 years (was 30 in ReEDS) 
--- http://www.eia.doe.gov/oiaf/aeo/nuclear_power.html, but should consider making nukes pay for 40 year upgrades when we expand east.
-
--- WIND: costs from from the ReEDS input assumptions/ Black and Veatch for REFutures (12-02-09 update)
--- max age from base input spreadsheet for switch
--- fixed O+M,forced_outage_rate are from new wind
-
-
--- also, Geothermal lifetimes were very short at 20 years in ReEDS.. they are about 45 years in actuality.  Couldn't quickly find a better reference than below.
--- http://energyexperts.org/EnergySolutionsDatabase/ResourceDetail.aspx?id=2354
-
--- note: we assume that cogen plants have 3/4 of the capital cost of a pure-electric plant
--- (to reflect shared infrastructure for cogen), but the same operating costs.
--- TODO: find better costs for cogen plants
--- all units in MW, MWh and MBtu terms
-drop table if exists epcosts;
-create table epcosts (
-  primemover varchar(4),
-  fuel varchar(3),
-  overnight_cost double,
-  fixed_o_m double,
-  variable_o_m double,
-  forced_outage_rate double,
-  scheduled_outage_rate double,
-  max_age double,
-  index (primemover, fuel)
-  );
-
-insert into epcosts values
-	('BT','GEO',3397000,261269,0,0.075,0.0241,45),
-	('CC','NG',955000,11322,3.35,0.04,0.06,30),
-	('GT','NG',652000,11322,3.35,0.03,0.05,30),
-	('IC','NG',652000,30000,1,0.03,0.05,30),
-	('ST','COL',1322000,25703,3.73,0.06,0.10,60),
-	('ST','GEO',3397000,261269,0,0.075,0.0241,45),
-	('ST','NG',435000,27730,3.47,0.10,0.026,45),
-	('ST','NUC',3319000,90034,0.49,0.04,0.06,60),
-	('WND','WND',1724000,57790,0,0.015,0.003,30);
-
-
-update existing_plants_agg e join epcosts c using (primemover, fuel)
-  set e.overnight_cost=if(cogen, 0.75, 1)*c.overnight_cost,
-    e.fixed_o_m=c.fixed_o_m,
-    e.variable_o_m = c.variable_o_m,
-    e.fuel = c.fuel,
-    e.forced_outage_rate = c.forced_outage_rate,
-    e.scheduled_outage_rate = c.scheduled_outage_rate,
-    e.max_age = c.max_age;
-
--- make EIA (aer) fuels into SWITCH fuels
-update existing_plants_agg set fuel = 'Gas' where fuel like 'NG';
-update existing_plants_agg set fuel = 'Uranium' where fuel like 'NUC';
-update existing_plants_agg set fuel = 'Coal' where fuel like 'COL';
-update existing_plants_agg set fuel = 'Geothermal' where fuel like 'GEO';
-update existing_plants_agg set fuel = 'Wind' where fuel like 'WND';
-
-
-update existing_plants_agg set technology = concat(fuel, '_', primemover)
-where fuel <> 'Wind';
-
--- Update technology names - make these above in the future
-update existing_plants_agg set technology = 'Coal_Steam_Turbine_EP' where technology = 'Coal_ST';
-update existing_plants_agg set technology = 'Geothermal_EP' where technology in ('Geothermal_ST', 'Geothermal_BT');
-update existing_plants_agg set technology = 'Gas_Combustion_Turbine_EP' where technology in ('Gas_GT', 'Gas_IC');
-update existing_plants_agg set technology = 'Gas_Steam_Turbine_EP' where technology = 'Gas_ST';
-update existing_plants_agg set technology = 'CCGT_EP' where technology = 'Gas_CC';
-update existing_plants_agg set technology = 'Nuclear_EP' where technology = 'Uranium_ST';
-update existing_plants_agg set technology = replace(technology, "_EP", "_Cogen_EP") where cogen;
 
 
 
@@ -830,10 +755,111 @@ update hydro_monthly_limits_agg set avg_output = capacity_mw where avg_output > 
 
 
 
+
+-- add hydro to existing plants
+insert into existing_plants_agg (load_area, plant_code, primemover, fuel, peak_mw, heat_rate, start_year, baseload, cogen)
+select	p.load_area,
+		concat("WAT_", primemover, "_", plntcode) as plant_code,
+		primemover,
+		"WAT" as fuel,
+		sum( if( summcap > wintcap, summcap, wintcap ) ) as peak_mw,
+		0 as heat_rate,
+		if(invsyear = 0, 1900, invsyear) as start_year,
+		0 as baseload,
+		0 as cogen
+	from grid.eia860gen07_US g join generator_info.eia860plant07_postgresql p using (plntcode)
+	where primemover in ("HY", "PS")
+	and status like 'OP'
+	and p.load_area not like ''
+	group by load_area, plant_code, primemover, fuel, heat_rate, start_year, baseload, cogen;
+
+
+
+
+
 -- drop some temp tables... kept around above for debugging
 drop table if exists hydro_plantcap;
 drop table if exists hydro_gen;
 drop table if exists hydro_pumped_yearly_stream_flow;
 drop table if exists hydro_monthly_limits;
+
+
+
+
+
+------------------------------------------------------------
+-- add costs, tabluated from the ReEDS input assumptions/ Black and Veatch for REFutures (12-02-09 update)
+-- took the cost in 2000 (in $2007), as we don't have earlier data on plant costs.
+-- took CoalOldScr costs, Gas ST = OGS = Oil Gas Steam 
+-- set existing nuke lifetime to 60 years (was 30 in ReEDS) 
+-- http://www.eia.doe.gov/oiaf/aeo/nuclear_power.html, but should consider making nukes pay for 40 year upgrades when we expand east.
+
+-- WIND: costs from from the ReEDS input assumptions/ Black and Veatch for REFutures (12-02-09 update)
+-- max age from base input spreadsheet for switch
+-- fixed O+M,forced_outage_rate are from new wind
+
+
+-- also, Geothermal lifetimes were very short at 20 years in ReEDS.. they are about 45 years in actuality.  Couldn't quickly find a better reference than below.
+-- http://energyexperts.org/EnergySolutionsDatabase/ResourceDetail.aspx?id=2354
+
+-- note: we assume that cogen plants have 3/4 of the capital cost of a pure-electric plant
+-- (to reflect shared infrastructure for cogen), but the same operating costs.
+-- TODO: find better costs for cogen plants
+-- all units in MW, MWh and MBtu terms
+drop table if exists epcosts;
+create table epcosts (
+  primemover varchar(4),
+  fuel varchar(3),
+  overnight_cost double,
+  fixed_o_m double,
+  variable_o_m double,
+  forced_outage_rate double,
+  scheduled_outage_rate double,
+  max_age double,
+  index (primemover, fuel)
+  );
+
+insert into epcosts values
+	('BT','GEO',3397000,261269,0,0.075,0.0241,45),
+	('CC','NG',955000,11322,3.35,0.04,0.06,30),
+	('GT','NG',652000,11322,3.35,0.03,0.05,30),
+	('IC','NG',652000,30000,1,0.03,0.05,30),
+	('ST','COL',1322000,25703,3.73,0.06,0.10,60),
+	('ST','GEO',3397000,261269,0,0.075,0.0241,45),
+	('ST','NG',435000,27730,3.47,0.10,0.026,45),
+	('ST','NUC',3319000,90034,0.49,0.04,0.06,60),
+	('WND','WND',1724000,57790,0,0.015,0.003,30);
+
+
+update existing_plants_agg e join epcosts c using (primemover, fuel)
+  set e.overnight_cost=if(cogen, 0.75, 1)*c.overnight_cost,
+    e.fixed_o_m=c.fixed_o_m,
+    e.variable_o_m = c.variable_o_m,
+    e.fuel = c.fuel,
+    e.forced_outage_rate = c.forced_outage_rate,
+    e.scheduled_outage_rate = c.scheduled_outage_rate,
+    e.max_age = c.max_age;
+
+-- make EIA (aer) fuels into SWITCH fuels
+update existing_plants_agg set fuel = 'Gas' where fuel like 'NG';
+update existing_plants_agg set fuel = 'Uranium' where fuel like 'NUC';
+update existing_plants_agg set fuel = 'Coal' where fuel like 'COL';
+update existing_plants_agg set fuel = 'Geothermal' where fuel like 'GEO';
+update existing_plants_agg set fuel = 'Wind' where fuel like 'WND';
+
+
+update existing_plants_agg set technology = concat(fuel, '_', primemover)
+where fuel <> 'Wind';
+
+-- Update technology names - make these above in the future
+update existing_plants_agg set technology = 'Coal_Steam_Turbine_EP' where technology = 'Coal_ST';
+update existing_plants_agg set technology = 'Geothermal_EP' where technology in ('Geothermal_ST', 'Geothermal_BT');
+update existing_plants_agg set technology = 'Gas_Combustion_Turbine_EP' where technology = 'Gas_GT';
+update existing_plants_agg set technology = 'Gas_Internal_Combustion_Engine_EP' where technology = 'Gas_IC';
+update existing_plants_agg set technology = 'Gas_Steam_Turbine_EP' where technology = 'Gas_ST';
+update existing_plants_agg set technology = 'CCGT_EP' where technology = 'Gas_CC';
+update existing_plants_agg set technology = 'Nuclear_EP' where technology = 'Uranium_ST';
+update existing_plants_agg set technology = replace(technology, "_EP", "_Cogen_EP") where cogen;
+
 
 
