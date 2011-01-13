@@ -156,16 +156,16 @@ echo ampl.tab 2 2 > system_load.tab
 mysql $connection_string -e "select load_area, study_hour as hour, power(1.01, period + $number_of_years_per_period/2 - year(datetime_utc))*power as system_load, power(1.01, $present_year - year(datetime_utc))*power as present_day_system_load from system_load l join study_hours_all h on (h.hournum=l.hour) where $TIMESAMPLE order by study_hour, load_area;" >> system_load.tab
 
 echo '	existing_plants.tab...'
-echo ampl.tab 3 14 > existing_plants.tab
-mysql $connection_string -e "select project_id, load_area, technology, plant_code as ep_plant_code, peak_mw as size_mw, fuel, heat_rate, start_year, max_age, overnight_cost, fixed_o_m, variable_o_m, forced_outage_rate, scheduled_outage_rate, baseload, cogen, intermittent from existing_plants order by 1, 2;" >> existing_plants.tab
+echo ampl.tab 3 8 > existing_plants.tab
+mysql $connection_string -e "select project_id, load_area, technology, plant_name, eia_id, capacity_mw, heat_rate, start_year, overnight_cost, fixed_o_m, variable_o_m from existing_plants order by 1, 2, 3;" >> existing_plants.tab
 
 echo '	existing_intermittent_plant_cap_factor.tab...'
 echo ampl.tab 4 1 > existing_intermittent_plant_cap_factor.tab
-mysql $connection_string -e "select project_id, load_area, technology, study_hour as hour, cap_factor from  existing_intermittent_plant_cap_factor c join study_hours_all h on (h.hournum=c.hour) where $TIMESAMPLE order by 1,2;" >> existing_intermittent_plant_cap_factor.tab
+mysql $connection_string -e "select project_id, load_area, technology, study_hour as hour, cap_factor from  existing_intermittent_plant_cap_factor c join study_hours_all h on (h.hournum=c.hour) where $TIMESAMPLE order by 1, 2, 3, 4;" >> existing_intermittent_plant_cap_factor.tab
 
-echo '	hydro.tab...'
-echo ampl.tab 3 4 > hydro.tab
-mysql $connection_string -e "select load_area, project_id as hydro_project_id, study_date as date, technology, technology_id, capacity_mw, avg_output from hydro_monthly_limits l join study_dates_all d on l.year = year(d.date_utc) and l.month=month(d.date_utc) where $DATESAMPLE order by 1, 2, month, year;" >> hydro.tab
+echo '	hydro_monthly_limits.tab...'
+echo ampl.tab 4 1 > hydro_monthly_limits.tab
+mysql $connection_string -e "select project_id, load_area, technology, study_date as date, avg_output from hydro_monthly_limits l join study_dates_all d on l.year = year(d.date_utc) and l.month=month(d.date_utc) where $DATESAMPLE order by 1, 2, 3, 4;" >> hydro_monthly_limits.tab
 
 echo '	proposed_projects.tab...'
 echo ampl.tab 3 9 > proposed_projects.tab
@@ -180,8 +180,8 @@ if [ `cat competing_locations.tab | wc -l | sed 's/ //g'` -eq 1 ]; then
 fi
 
 echo '	generator_info.tab...'
-echo ampl.tab 1 23 > generator_info.tab
-mysql $connection_string -e "select technology, technology_id, min_build_year, fuel, heat_rate, construction_time_years, year_1_cost_fraction, year_2_cost_fraction, year_3_cost_fraction, year_4_cost_fraction, year_5_cost_fraction, year_6_cost_fraction, max_age_years, forced_outage_rate, scheduled_outage_rate, can_build_new, ccs, intermittent, resource_limited, baseload, min_build_capacity, storage, storage_efficiency, max_store_rate from generator_info where technology not like '%CCS_EP';" >> generator_info.tab
+echo ampl.tab 1 25 > generator_info.tab
+mysql $connection_string -e "select technology, technology_id, min_build_year, fuel, heat_rate, construction_time_years, year_1_cost_fraction, year_2_cost_fraction, year_3_cost_fraction, year_4_cost_fraction, year_5_cost_fraction, year_6_cost_fraction, max_age_years, forced_outage_rate, scheduled_outage_rate, can_build_new, ccs, intermittent, resource_limited, baseload, dispatchable, cogen, min_build_capacity, storage, storage_efficiency, max_store_rate from generator_info where technology not like '%CCS_EP';" >> generator_info.tab
 
 echo '	fuel_costs.tab...'
 echo ampl.tab 3 1 > fuel_costs.tab

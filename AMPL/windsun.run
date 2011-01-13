@@ -86,22 +86,19 @@ table system_load "inputs/system_load.tab" IN:
 read table system_load;
 
 table existing_plants "inputs/existing_plants.tab" IN: 
-  EXISTING_PLANTS <- [project_id, load_area, technology], ep_plant_code, 
-    ep_size_mw ~ size_mw, ep_fuel ~ fuel, ep_heat_rate ~ heat_rate, 
-    ep_vintage ~ start_year, ep_max_age_years ~ max_age, 
-    ep_overnight_cost ~ overnight_cost, ep_fixed_o_m ~ fixed_o_m, ep_variable_o_m ~ variable_o_m,
-    ep_forced_outage_rate ~ forced_outage_rate, ep_scheduled_outage_rate ~ scheduled_outage_rate, 
-    ep_baseload ~ baseload, ep_cogen ~ cogen, ep_intermittent ~ intermittent;
+  EXISTING_PLANTS <- [project_id, load_area, technology], 
+  	ep_plant_name ~ plant_name, ep_eia_id ~ eia_id,
+    ep_capacity_mw ~ capacity_mw, ep_heat_rate ~ heat_rate, ep_vintage ~ start_year,  
+    ep_overnight_cost ~ overnight_cost, ep_fixed_o_m ~ fixed_o_m, ep_variable_o_m ~ variable_o_m;
 read table existing_plants;
 
 table existing_intermittent_plant_cap_factor "inputs/existing_intermittent_plant_cap_factor.tab" IN: 
   EP_INTERMITTENT_HOURS <- [project_id, load_area, technology, hour], eip_cap_factor ~ cap_factor;
 read table existing_intermittent_plant_cap_factor;
 
-table hydro "inputs/hydro.tab" IN: 
-  PROJ_HYDRO_DATES <- [load_area, hydro_project_id, date], hydro_technology ~ technology, hydro_technology_id ~ technology_id, 
-  hydro_capacity_mw ~ capacity_mw, avg_hydro_output ~ avg_output;
-read table hydro;
+table hydro_monthly_limits "inputs/hydro_monthly_limits.tab" IN: 
+  PROJ_HYDRO_DATES <- [project_id, load_area, technology, date] avg_hydro_output ~ avg_output;
+read table hydro_monthly_limits;
 
 table proposed_projects "inputs/proposed_projects.tab" IN: 
   PROJECTS <- [project_id, load_area, technology], project_location ~ location_id, 
@@ -121,7 +118,7 @@ table generator_info "inputs/generator_info.tab" IN:
 	TECHNOLOGIES <- [technology], technology_id, min_build_year, fuel, heat_rate, construction_time_years,
  	year_1_cost_fraction, year_2_cost_fraction, year_3_cost_fraction, year_4_cost_fraction, year_5_cost_fraction, year_6_cost_fraction,
 	max_age_years, forced_outage_rate, scheduled_outage_rate,
-	can_build_new, ccs, intermittent, resource_limited, baseload, min_build_capacity, 
+	can_build_new, ccs, intermittent, resource_limited, baseload, dispatchable, cogen, min_build_capacity, 
 	storage, storage_efficiency, max_store_rate;
 read table generator_info;
 
@@ -179,11 +176,11 @@ param Capital_Payments_by_Plant_and_Period { (pid, a, t, p) in PROJECT_VINTAGES 
 param EP_Capital_Payments_by_Plant_and_Period { (pid, a, t, p) in EP_PERIODS }; 
 param Fixed_OM_by_Plant_and_Period { (pid, a, t, p) in PROJECT_VINTAGES };  
 param EP_Fixed_OM_by_Plant_and_Period { (pid, a, t, p) in EP_PERIODS }; 
-param NonPumped_Hydro_Capital_Payments_by_Plant_and_Period { (a, pid) in PROJ_NONPUMPED_HYDRO, p in PERIODS };
-param NonPumped_Hydro_Fixed_OM_by_Plant_and_Period  { (a, pid) in PROJ_NONPUMPED_HYDRO, p in PERIODS };
-param NonPumped_Hydro_Variable_Cost_Incurred_Hourly { (a, pid) in PROJ_NONPUMPED_HYDRO, h in TIMEPOINTS };
-param Pumped_Hydro_Capital_Payments_by_Plant_and_Period { (a, pid) in PROJ_PUMPED_HYDRO, p in PERIODS }; 
-param Pumped_Hydro_Fixed_OM_by_Plant_and_Period { (a, pid) in PROJ_PUMPED_HYDRO, p in PERIODS }; 
+param NonPumped_Hydro_Capital_Payments_by_Plant_and_Period { (pid, a, t, p) in NONPUMPED_HYDRO_PERIODS };
+param NonPumped_Hydro_Fixed_OM_by_Plant_and_Period  { (pid, a, t, p) in NONPUMPED_HYDRO_PERIODS };
+param NonPumped_Hydro_Variable_Cost_Incurred_Hourly { (pid, a, t, p, h) in NONPUMPED_HYDRO_AVAILABLE_HOURS };
+param Pumped_Hydro_Capital_Payments_by_Plant_and_Period { (pid, a, t, p) in PUMPED_HYDRO_PERIODS }; 
+param Pumped_Hydro_Fixed_OM_by_Plant_and_Period { (pid, a, t, p) in PUMPED_HYDRO_PERIODS }; 
 param Power_Produced { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }; 
 param Carbon_Emissions { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }; 
 param EP_Carbon_Emissions { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }; 
@@ -207,6 +204,4 @@ param Transmission_Losses_by_Period {p in PERIODS};
 param Distribution_Losses_by_Period {p in PERIODS};
 param Storage_Losses_by_Period {p in PERIODS};
 param system_load_discounted;
-
-
 

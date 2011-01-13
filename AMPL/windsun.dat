@@ -1,15 +1,6 @@
-# the year to which costs should be discounted
-param base_year := 2007;
-
 # planning reserve margin - fractional extra load the system must be able able to serve
 # when there are no forced outages
 param planning_reserve_margin := 0.15;
-
-# discount rate
-# a 7% real discount rate was chosen as per the recommendations of the Office of Managment and Budget
-# see http://www.whitehouse.gov/omb/rewrite/circulars/a094/a094.html#8 or subsequent revisions
-# (inflation is not included in a real discount rate so we're discounting constant year dollars here)
-param discount_rate := 0.07;
 
 # required rates of return (real) for generators and transmission lines
 # same rationale as above... Matthias had these as different variables... could remove at some point
@@ -35,31 +26,14 @@ param transmission_forced_outage_rate := 0.01;
 # parameters for intra-zone transmission and distribution
 param local_td_max_age_years := 20;
 
-# distribution losses
-param distribution_losses := .053;
-
-# forced outage rate for hydroelectric dams
-# this is used to de-rate the planned power production
-# Source: Black and Veach / NREL ReEDS
-param forced_outage_rate_hydro := 0.05;
-
 # round-trip efficiency for storing power via a pumped hydro system
 # from Samir Succar and Robert H. Williams: Compressed Air Energy Storage: Theory, Resources, And Applications For Wind Power, p. 39
 param pumped_hydro_efficiency := 0.74;
 
-# All of the solar technologies. If you change what they are called in the section immediately above, change them here too.
-set SOLAR_CSP_TECHNOLOGIES := CSP_Trough_No_Storage CSP_Trough_6h_Storage;
-set SOLAR_DIST_PV_TECHNOLOGIES := Residential_PV Commercial_PV;
+set BIO_SOLID_FUELS = Bio_Solid Bio_Solid_CCS;
 
-# biomass fuels... nonccs and ccs varieties
-set BIO_SOLID_FUELS := Bio_Solid Bio_Solid_CCS;
-
-# capital cost fractions during construction period and resulting annual payment streams
-# YEAR_OF_CONSTRUCTION set used to calculate time between first payment on each cost fraction and
-# the project end-year or the model base
-# this number is subtracted from the construction time in the discounting process
-
-set YEAR_OF_CONSTRUCTION :=  0, 1, 2, 3, 4, 5 ;
+set SOLAR_CSP_TECHNOLOGIES = CSP_Trough_No_Storage CSP_Trough_6h_Storage;
+set SOLAR_DIST_PV_TECHNOLOGIES = Residential_PV Commercial_PV;
 
 # cost of carbon emissions ($/tonneCO2)
 param carbon_cost;

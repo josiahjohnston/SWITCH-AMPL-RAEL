@@ -503,42 +503,6 @@ load data local infile
 	optionally enclosed by '"'
 	ignore 1 lines;
 
--- HYDRO-------------------
--- made in 'build existing plants table.sql'
-select 'Copying Hydro' as progress;
-
-drop table if exists hydro_monthly_limits;
-CREATE TABLE hydro_monthly_limits (
-  project_id int unsigned,
-  hydro_id mediumint unsigned,
-  area_id smallint unsigned,
-  load_area varchar(20),
-  technology varchar(64), 
-  technology_id tinyint unsigned NOT NULL,
-  year year,
-  month tinyint(4),
-  capacity_mw double,
-  avg_output double,
-  INDEX ym (year,month),
-  INDEX (area_id),
-  INDEX (project_id),
-  INDEX (technology),
-  PRIMARY KEY (project_id, year, month),
-  UNIQUE (area_id, technology_id, year, month),
-  FOREIGN KEY (area_id) REFERENCES load_area_info(area_id)
-) ROW_FORMAT=FIXED;
-
--- The << operation moves the numeric form of the letter "H" (for hydro) over by 3 bytes, effectively making its value into the most significant digits.
-insert into hydro_monthly_limits (project_id, hydro_id, area_id, load_area, technology, technology_id, year, month, capacity_mw, avg_output )
-	select 
-	  agg.hydro_id + (ascii( 'H' ) << 8*3),
-	  agg.hydro_id, area_id, agg.load_area,
-	  technology, technology_id,
-	  year, month, capacity_mw, avg_output
-	from generator_info, generator_info.hydro_monthly_limits_agg agg join load_area_info using(load_area)
-	where generator_info.technology = 	CASE WHEN agg.primemover = 'HY' THEN 'Hydro_NonPumped'
-										WHEN agg.primemover = 'PS' THEN 'Hydro_Pumped' END;
-
 -- EXISTING PLANTS---------
 -- made in 'build existing plants table.sql'
 select 'Copying existing_plants' as progress;
@@ -546,53 +510,50 @@ select 'Copying existing_plants' as progress;
 drop table if exists existing_plants;
 CREATE TABLE existing_plants (
     project_id int unsigned PRIMARY KEY,
-    ep_id mediumint unsigned,
-	area_id smallint unsigned,
-	load_area varchar(11),
-	plant_code varchar(40),
-	primemover varchar(10),
-	fuel varchar(20),
-	peak_mw float,
-	heat_rate float,
-	start_year year,
-	baseload boolean,
-	cogen boolean,
-	overnight_cost float,
-	fixed_o_m float,
-	variable_o_m float,
-	forced_outage_rate float,
-	scheduled_outage_rate float,
-	max_age float,
-	intermittent boolean,
-	technology varchar(64),
-	ccs_project_id int unsigned default null,
+	load_area varchar(11) NOT NULL,
+ 	technology varchar(64) NOT NULL,
+	ep_id mediumint unsigned NOT NULL,
+	area_id smallint unsigned NOT NULL,
+	plant_name varchar(40) NOT NULL,
+	eia_id int default 0,
+	primemover varchar(10) NOT NULL,
+	fuel varchar(20) NOT NULL,
+	capacity_mw float NOT NULL,
+	heat_rate float NOT NULL,
+	start_year year NOT NULL,
+	overnight_cost float NOT NULL,
+	fixed_o_m float NOT NULL,
+	variable_o_m float NOT NULL,
+	forced_outage_rate float NOT NULL,
+	scheduled_outage_rate float NOT NULL,
+	ccs_project_id int unsigned default 0,
+	UNIQUE (technology, plant_name, eia_id, primemover, fuel, start_year),
 	INDEX area_id (area_id),
 	FOREIGN KEY (area_id) REFERENCES load_area_info(area_id), 
-	INDEX load_area_plant_code (load_area, plant_code)
-) ROW_FORMAT=FIXED;
+	INDEX plant_name (plant_name)
+);
 
  -- The << operation moves the numeric form of the letter "E" (for existing plants) over by 3 bytes, effectively making its value into the most significant digits.
-insert into existing_plants (project_id, area_id, ep_id, load_area, plant_code, primemover, fuel, peak_mw, heat_rate, start_year, baseload, cogen, overnight_cost, fixed_o_m, variable_o_m, forced_outage_rate, scheduled_outage_rate, max_age, intermittent, technology )
+insert into existing_plants (project_id, load_area, technology, ep_id, area_id, plant_name, eia_id,
+								primemover, fuel, capacity_mw, heat_rate, start_year,
+								overnight_cost, fixed_o_m, variable_o_m, forced_outage_rate, scheduled_outage_rate )
 	select 	e.ep_id + (ascii( 'E' ) << 8*3),
-			a.area_id,
-			e.ep_id,
 			e.load_area,
-			e.plant_code,
+			technology,
+			e.ep_id,
+			a.area_id,
+			e.plant_name,
+			e.eia_id,
 			e.primemover,
 			e.fuel,
-			e.peak_mw,
+			e.capacity_mw,
 			e.heat_rate,
 			e.start_year,
-			g.baseload,
-			g.cogen,
 			g.overnight_cost * economic_multiplier,
 			g.fixed_o_m * economic_multiplier,
 			g.variable_o_m * economic_multiplier,
 			g.forced_outage_rate,
-			g.scheduled_outage_rate,
-			g.max_age_years,
-			g.intermittent,
-			technology 
+			g.scheduled_outage_rate
 			from generator_info.existing_plants_agg e
 			join generator_info g using (technology)
 			join load_area_info a using (load_area);
@@ -624,7 +585,57 @@ SELECT      existing_plants.project_id,
     from    existing_plants, 
             3tier.windfarms_existing_cap_factor
     where   technology = 'Wind_EP'
-    and		concat('Wind_EP', '_', 3tier.windfarms_existing_cap_factor.windfarm_existing_id) = existing_plants.plant_code;
+    and		concat('Wind_EP', '_', 3tier.windfarms_existing_cap_factor.windfarm_existing_id) = existing_plants.plant_name;
+
+
+-- HYDRO-------------------
+-- made in 'build existing plants table.sql'
+select 'Copying Hydro' as progress;
+
+
+drop table if exists hydro_monthly_limits;
+CREATE TABLE hydro_monthly_limits (
+  project_id int unsigned,
+  load_area varchar(11),
+  technology varchar(64),
+  year year,
+  month tinyint,
+  avg_output float,
+  INDEX (project_id),
+  PRIMARY KEY (project_id, year, month)
+);
+
+insert into hydro_monthly_limits
+select * from generator_info.hydro_monthly_limits_agg;
+
+-- TO BE IMPLEMENTED:
+-- drop table if exists _hydro_monthly_limits;
+-- CREATE TABLE _hydro_monthly_limits (
+--   project_id int unsigned,
+--   year year,
+--   month tinyint,
+--   avg_output float,
+--   INDEX (project_id),
+--   PRIMARY KEY (project_id, year, month),
+--   FOREIGN KEY (project_id) REFERENCES existing_plants (project_id)
+-- );
+-- 
+-- DROP VIEW IF EXISTS hydro_monthly_limits;
+-- CREATE VIEW hydro_monthly_limits as
+--   SELECT project_id, load_area, technology, year, month, avg_output
+--     FROM _hydro_monthly_limits join existing_plants using (project_id);
+-- 
+-- the join is long here in an attempt to reduce the # of numeric ids flying around
+-- insert into hydro_monthly_limits_tmp (project_id, year, month, avg_output )
+-- 	select 
+-- 	  project_id,
+-- 	  year,
+-- 	  month,
+-- 	  avg_output
+-- 	from generator_info.hydro_monthly_limits
+-- 	join existing_plants_tmp using (load_area, plant_name, eia_id, start_year, capacity_mw)
+-- 	where fuel = 'Water';
+
 
 
 -- ---------------------------------------------------------------------

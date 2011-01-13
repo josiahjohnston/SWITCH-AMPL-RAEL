@@ -65,7 +65,7 @@ problem Present_Day_Cost_Minimization:
 	update data;
   # all plants that are expected to be operational in present day are forced to be operational
   # cogen, geothermal and nuclear are given the option to continue running
-	fix {(pid, a, t, p) in EP_PERIODS: not ep_intermittent[pid, a, t] and not ep_could_be_operating_past_expected_lifetime[pid, a, t, p]} OperateEPDuringPeriod[pid, a, t, p] := 1;
+	fix {(pid, a, t, p) in EP_PERIODS: not intermittent[t] and not ep_could_be_operating_past_expected_lifetime[pid, a, t, p]} OperateEPDuringPeriod[pid, a, t, p] := 1;
 
   # make file names
 	param present_day_cost_problem symbolic = results_path & "sol" & "_present_day_cost";
