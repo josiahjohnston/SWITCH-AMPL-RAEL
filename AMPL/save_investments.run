@@ -19,7 +19,7 @@ shell( "if [ ! -d dispatch/common_inputs ]; then mkdir dispatch/common_inputs; f
 for {c in CARBON_COSTS} { 
 
   let carbon_cost := c;
-  let cost_problem       := results_path & "sol" & carbon_cost & "cost";
+  let cost_problem       := results_path & "sol" & carbon_cost & "_investment_cost";
   let cost_solution_path := cost_problem & ".sol";
   printf "\nLoading Cost solution from disk for a carbon cost of %d.\n", carbon_cost;
   let curtime := time();
