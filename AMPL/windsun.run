@@ -10,7 +10,7 @@ param scenario_id symbolic;
 # Utility Functions that interact with the operating system
 #
 # get_num_cores() determines how many processor cores are on the current machine. Works on OS X & Linux.
-function get_num_cores pipe "while read junk; do if [ `uname` == 'Darwin' ]; then sysctl hw.ncpu | awk '{print $2}'; elif [ `uname` == 'Linux' ]; then cat /proc/cpuinfo | grep processor | wc -l | awk '{print $1}'; else echo 1; fi; done;";
+function get_num_cores pipe "while read junk; do if [ `uname` = 'Darwin' ]; then sysctl hw.ncpu | awk '{print $2}'; elif [ `uname` = 'Linux' ]; then cat /proc/cpuinfo | grep processor | wc -l | awk '{print $1}'; else echo 1; fi; done;";
 # file_exists(file_path) determines whether a file exists at the specified path (relative or absolute). Returns a 1 or a 0. Works on OS X & Linux.
 function file_exists pipe 'while read file_path; do if [ -f "$file_path" ]; then echo 1; else echo 0; fi; done;';
 param num_workers default 1;
