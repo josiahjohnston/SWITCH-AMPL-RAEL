@@ -109,7 +109,7 @@ input_dir="common_inputs"
 if [ ! -d $input_dir ]; then
 	mkdir $input_dir
 fi
-for f in enable_rps.txt load_areas.tab rps_load_area_targets.tab transmission_lines.tab existing_plants.tab proposed_projects.tab competing_locations.tab generator_info.tab fuel_costs.tab fuel_info.tab fuel_qualifies_for_rps.tab misc_params.dat; do
+for f in enable_rps.txt load_areas.tab rps_load_area_targets.tab transmission_lines.tab existing_plants.tab proposed_projects.tab competing_locations.tab generator_info.tab fuel_costs.tab fuel_info.tab fuel_qualifies_for_rps.tab misc_params.dat carbon_cap_targets.tab biomass_supply_curve_breakpoint.tab biomass_supply_curve_slope.tab scenario_information.txt; do
 	if [ ! -L $input_dir/$f ]; then
 		ln -s ../../inputs/$f $input_dir/$f
 	fi
@@ -167,7 +167,8 @@ for week_num in $(mysql $connection_string --column-names=false -e "select disti
 	echo "$week_num" > $week_path/week_num.txt
 
 	SAMPLE_RESTRICTIONS="week_num=$week_num and FIND_IN_SET( period, '$EXCLUDE_PERIODS')=0"
-	
+	INTERMITTENT_PROJECTS_SELECTION="(( avg_cap_factor_percentile_by_intermittent_tech >= 0.75 or cumulative_avg_MW_tech_load_area <= 3 * total_yearly_load_mwh / 8766 or rank_by_tech_in_load_area <= 5 or avg_cap_factor_percentile_by_intermittent_tech is null) and technology <> 'Concentrating_PV')"
+
 	f="study_hours.tab"
 	echo "	$f..."
 	if [ ! -f $data_dir/$f ]; then
@@ -184,8 +185,8 @@ for week_num in $(mysql $connection_string --column-names=false -e "select disti
 	f="system_load.tab"
 	echo "	$f..."
 	if [ ! -f $data_dir/$f ]; then
-		echo ampl.tab 2 1 > $data_dir/$f
-		mysql $connection_string -e "select load_area, study_hour as hour, power(1.01, period + $number_of_years_per_period/2 - year(datetime_utc))*power as system_load from system_load l join dispatch_weeks h on (h.hournum=l.hour) where $SAMPLE_RESTRICTIONS order by study_hour, load_area;" >> $data_dir/$f
+		echo ampl.tab 2 2 > $data_dir/$f
+		mysql $connection_string -e "select load_area, study_hour as hour, power(1.01, period + $number_of_years_per_period/2 - year(datetime_utc))*power as system_load, power(1.01, $present_year - year(datetime_utc))*power as present_day_system_load from system_load l join dispatch_weeks h on (h.hournum=l.hour) where $SAMPLE_RESTRICTIONS order by study_hour, load_area;" >> $data_dir/$f
 	fi
 	if [ ! -L $input_dir/$f ]; then
 		ln -s $data_dir/$f $input_dir/$f
@@ -194,18 +195,18 @@ for week_num in $(mysql $connection_string --column-names=false -e "select disti
 	f="existing_intermittent_plant_cap_factor.tab"
 	echo "	$f..."
 	if [ ! -f $data_dir/$f ]; then
-		echo ampl.tab 3 1 > $data_dir/$f
-		mysql $connection_string -e "select project_id, load_area, study_hour as hour, cap_factor from  existing_intermittent_plant_cap_factor c join dispatch_weeks h on (h.hournum=c.hour) where $SAMPLE_RESTRICTIONS order by 1,2;" >> $data_dir/$f
+		echo ampl.tab 4 1 > $data_dir/$f
+		mysql $connection_string -e "select project_id, load_area, technology, study_hour as hour, cap_factor from  existing_intermittent_plant_cap_factor c join dispatch_weeks h on (h.hournum=c.hour) where $SAMPLE_RESTRICTIONS order by 1,2;" >> $data_dir/$f
 	fi
 	if [ ! -L $input_dir/$f ]; then
 		ln -s $data_dir/$f $input_dir/$f
 	fi
 	
-	f="hydro.tab"
+	f="hydro_monthly_limits.tab"
 	echo "	$f..."
 	if [ ! -f $data_dir/$f ]; then
-		echo ampl.tab 3 4 > $data_dir/$f
-		mysql $connection_string -e "select load_area, project_id as hydro_project_id, study_date as date, technology, technology_id, capacity_mw, avg_output from hydro_monthly_limits l, (select distinct week_num, period, study_date, date_utc, month_of_year from dispatch_weeks where $SAMPLE_RESTRICTIONS) d where l.year = year(d.date_utc) and l.month=month(d.date_utc)order by 1, 2, month, year;" >> $data_dir/$f
+		echo ampl.tab 4 1 > $data_dir/$f
+		mysql $connection_string -e "select project_id, load_area, technology, study_date as date, avg_output from hydro_monthly_limits l, (select distinct week_num, period, study_date, date_utc, month_of_year from dispatch_weeks where $SAMPLE_RESTRICTIONS) d where l.year = year(d.date_utc) and l.month=month(d.date_utc) order by 1, 2, month, year;" >> $data_dir/$f
 	fi
 	if [ ! -L $input_dir/$f ]; then
 		ln -s $data_dir/$f $input_dir/$f
@@ -215,8 +216,7 @@ for week_num in $(mysql $connection_string --column-names=false -e "select disti
 	echo "	$f..."
 	if [ ! -f $data_dir/$f ]; then
 		echo ampl.tab 4 1 > $data_dir/$f
-	#	mysql $connection_string -e "select project_id, proposed_projects.load_area, proposed_projects.technology, study_hour as hour, cap_factor from _cap_factor_intermittent_sites c join dispatch_weeks h on (h.hournum=c.hour) join proposed_projects using (project_id) join load_area_info using (area_id) where ( avg_cap_factor_percentile_by_intermittent_tech >= 0.75 or cumulative_avg_MW_tech_load_area <= 5 * total_yearly_load_mwh / 8766 or rank_by_tech_in_load_area <= 10 or technology = 'Wind') and $SAMPLE_RESTRICTIONS order by 1,4;" >> $data_dir/$f
-		mysql $connection_string -e "select old_project_id as project_id, proposed_projects.load_area, proposed_projects.technology, study_hour as hour, cap_factor from _cap_factor_intermittent_sites c join dispatch_weeks h on (h.hournum=c.hour) join proposed_projects using (project_id) join load_area_info using (area_id) join int_project_id_map using (project_id) where ( avg_cap_factor_percentile_by_intermittent_tech >= 0.75 or cumulative_avg_MW_tech_load_area <= 5 * total_yearly_load_mwh / 8766 or rank_by_tech_in_load_area <= 10 or technology = 'Wind' or old_project_id in (select * from export_these_projects)) and $SAMPLE_RESTRICTIONS order by 1,4;" >> $data_dir/$f
+		mysql $connection_string -e "select project_id, proposed_projects.load_area, proposed_projects.technology, study_hour as hour, cap_factor from _cap_factor_intermittent_sites c join dispatch_weeks h on (h.hournum=c.hour) join proposed_projects using (project_id) join load_area_info using (area_id) where $INTERMITTENT_PROJECTS_SELECTION and $SAMPLE_RESTRICTIONS;" >> $data_dir/$f
 	fi
 	if [ ! -L $input_dir/$f ]; then
 		ln -s $data_dir/$f $input_dir/$f

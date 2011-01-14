@@ -8,14 +8,15 @@ set EP_PERIODS_ALL dimen 3;
 set TRANSMISSION_LINE_VINTAGES_ALL dimen 3;
 set LocalTD_VINTAGES_ALL dimen 2;
 param InstallGen_Init {PROJECT_VINTAGES_ALL};
-param BuildGenOrNot_Init {PROJ_MIN_BUILD_VINTAGES_ALL} >= 0, <= 1, integer;;
 param OperateEPDuringPeriod_Init {EP_PERIODS_ALL} >= 0, <= 1, integer;
 param InstallTrans_Init {TRANSMISSION_LINE_VINTAGES_ALL} >= 0;
-param InstallLocalTD_Init {LocalTD_VINTAGES_ALL} >= 0;
+param InstallLocalTD_Init {a in LOAD_AREAS, p in PERIODS} >= 0;
 
 
-subject to Increase_Installation_Only {(pid, a, t, p) in PROJECT_VINTAGES_ALL}:
+subject to Increase_Gen_Only {(pid, a, t, p) in PROJECT_VINTAGES_ALL}:
 	InstallGen_Init[pid, a, t, p] <= InstallGen[pid, a, t, p];
+subject to Increase_TD_Only {a in LOAD_AREAS, p in PERIODS}:
+	InstallLocalTD_Init[a, p] <= InstallLocalTD[a, p];
 
 problem Dispatch_Only: 
   # Objective function 
@@ -27,8 +28,8 @@ problem Dispatch_Only:
   ConsumeNonDistributedPower, ConsumeDistributedPower, RedirectDistributedPower,
 	Conservation_Of_Energy_NonDistributed, Conservation_Of_Energy_Distributed,
 	
-	# Dispatch can install more peakers if the investments generate infeasibilities.
-	Increase_Installation_Only, 
+	# Dispatch can install more peakers or local T&D only if the investments generate infeasibilities.
+	Increase_Gen_Only, Increase_TD_Only, 
 
   # Dispatch Decisions
 	ProducePowerNonIntermittent, ProducePowerEP, DispatchTransFromXToY, StoreEnergy, ReleaseEnergy,
@@ -36,9 +37,8 @@ problem Dispatch_Only:
   # Dispatch Constraints
 	Power_From_Dispatchable_Plants, Power_From_Baseload_Plants,
 	EP_Power_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Baseload_Plants,
-	Maximum_DispatchTransFromXToY, 
-	Average_NonPumped_Hydro_Output,
-#	Maximum_Dispatch_NonPumped_Hydro, Average_NonPumped_Hydro_Output,        Minimum_Dispatch_NonPumped_Hydro, 
+	Maximum_DispatchTransFromXToY, Minimum_LocalTD, 
+	Maximum_Dispatch_NonPumped_Hydro, Average_NonPumped_Hydro_Output,        Minimum_Dispatch_NonPumped_Hydro, 
 	Maximum_Dispatch_Pumped_Hydro,    Average_Pumped_Hydro_Watershed_Output,
 	Maximum_Store_Pumped_Hydro, Conservation_Of_Stored_Pumped_Hydro_Electrons,
 	Maximum_Store_CAES, Maximum_Dispatch_CAES, Storage_Projects_Energy_Balance, CAES_Combined_Dispatch	
@@ -47,10 +47,8 @@ problem Dispatch_Only:
 
 table TableInstallGen IN "inputs/InstallGen.tab": 
 	PROJECT_VINTAGES_ALL <- [ pid, a, t, p ], InstallGen_Init ~ InstallGen;
-table TableBuildGenOrNot IN "inputs/BuildGenOrNot.tab": 
-	PROJ_MIN_BUILD_VINTAGES_ALL <- [pid, a, t, p], BuildGenOrNot_Init ~ BuildGenOrNot;
 table TableOperateEPDuringPeriod IN "inputs/OperateEPDuringPeriod.tab": 
-	EP_PERIODS_ALL <- [a, e, p], OperateEPDuringPeriod_Init ~ OperateEPDuringPeriod;
+	EP_PERIODS_ALL <- [pid, a, t, p], OperateEPDuringPeriod_Init ~ OperateEPDuringPeriod;
 table TableInstallTrans IN "inputs/InstallTrans.tab":
 	TRANSMISSION_LINE_VINTAGES_ALL <- [a1, a2, p], InstallTrans_Init ~ InstallTrans;
 table TableInstallLocalTD IN "inputs/InstallLocalTD.tab":
@@ -69,20 +67,16 @@ for {c in CARBON_COSTS} {
   ###############################
   # Load the investment decisions
   let curtime := time();
-  shell( "for f in InstallGen BuildGenOrNot OperateEPDuringPeriod InstallTrans InstallLocalTD; do p=inputs/$f.tab; if [ -L $p ]; then rm $p; fi; done" );
-  shell( "for f in InstallGen BuildGenOrNot OperateEPDuringPeriod InstallTrans InstallLocalTD; do ln -s ${f}" & carbon_cost & ".tab inputs/$f.tab; done" );
+  shell( "for f in InstallGen OperateEPDuringPeriod InstallTrans InstallLocalTD; do p=inputs/$f.tab; if [ -L $p ]; then rm $p; fi; done" );
+  shell( "for f in InstallGen OperateEPDuringPeriod InstallTrans InstallLocalTD; do ln -s ${f}" & carbon_cost & ".tab inputs/$f.tab; done" );
   read table TableInstallGen;
-  read table TableBuildGenOrNot;
   read table TableOperateEPDuringPeriod;
   read table TableInstallTrans;
   read table TableInstallLocalTD;
   close;
-  shell( "for f in InstallGen BuildGenOrNot OperateEPDuringPeriod InstallTrans InstallLocalTD; do p=inputs/$f.tab; if [ -L $p ]; then rm $p; fi; done" );
+  shell( "for f in InstallGen OperateEPDuringPeriod InstallTrans InstallLocalTD; do p=inputs/$f.tab; if [ -L $p ]; then rm $p; fi; done" );
   for {(pid, a, t, p) in PROJECT_VINTAGES} {
     let InstallGen[pid, a, t, p] := max(InstallGen_Init[pid, a, t, p], 0);
-  }
-  for {(pid, a, t, p) in PROJ_MIN_BUILD_VINTAGES} {
-    let BuildGenOrNot[pid, a, t, p] := BuildGenOrNot_Init[pid, a, t, p];
   }
   for {(a1, a2) in TRANSMISSION_LINES_NEW_BUILDS_ALLOWED, p in PERIODS} {
     let InstallTrans[a1, a2, p] := InstallTrans_Init[a1, a2, p];
@@ -90,8 +84,8 @@ for {c in CARBON_COSTS} {
   for {a in LOAD_AREAS, p in PERIODS} {
     let InstallLocalTD[a, p] := InstallLocalTD_Init[a, p];
   }
-  for {(a,e,p) in EP_PERIODS} {
-    let OperateEPDuringPeriod[a, e, p] := OperateEPDuringPeriod_Init[a, e, p];
+  for {(pid, a, t, p) in EP_PERIODS} {
+    let OperateEPDuringPeriod[pid, a, t, p] := OperateEPDuringPeriod_Init[pid, a, t, p];
   }
   printf "%d seconds to load investment decisions from disk for carbon cost %d.\n", (time() - curtime), carbon_cost;
   
@@ -121,7 +115,7 @@ for {c in CARBON_COSTS} {
   }
 
   if( solve_result = 'infeasible' ) then {
-    printf "Infeasible problem. Allowing installation of more peakers.\n";
+    printf "Infeasible problem. Allowing installation of more peakers and local T&D.\n";
 # Code to print infeasibilities. AMPL is a jerk and complains about the .iis suffix not being available if you have this code in a loop. It doesn't even try to enter the loop and load the solution file before it craps out.
 #    let infeasible_path := results_path & "infeasible_vars_" & carbon_cost & "_dispatch.csv";
 #    csvdisplay {i in 1.._nvars: _var[i].iis <> "non" }: "%s,%s\n", _varname[i], _var[i].iis > infeasible_path;
@@ -131,6 +125,7 @@ for {c in CARBON_COSTS} {
     for {(pid, a, t, p) in PROJECT_VINTAGES: t='Gas_Combustion_Turbine'} {
       unfix InstallGen[pid, a, t, p];
     }
+    unfix InstallLocalTD;
     let curtime := time();
     write ("b" & cost_problem_file);
     let cost_compile_time := time() - curtime;
@@ -139,8 +134,10 @@ for {c in CARBON_COSTS} {
     solve;
     let cost_sol_time := time() - curtime;
     printf "%d seconds to optimize dispatch for cost.\n", cost_sol_time;
-    printf {p in PERIODS} "%d: %.3f additional peakers installed.\n", p, (sum{(pid, a, t, p) in PROJECT_VINTAGES: t='Gas_Combustion_Turbine'} (InstallGen[pid, a, t, p] - InstallGen_Init[pid, a, t, p]));
+    printf {p in PERIODS} "%d: %.3f additional peakers installed.\n", p, (sum{(a, p) in LocalTD_VINTAGES_ALL: t='Gas_Combustion_Turbine'} (InstallGen[pid, a, t, p] - InstallGen_Init[pid, a, t, p]));
+    printf {p in PERIODS} "%d: %.3f additional T&D installed.\n", p, (sum{(a, p) in LocalTD_VINTAGES_ALL} (InstallLocalTD[pid, a, t, p] - InstallLocalTD_Init[pid, a, t, p]));
     fix InstallGen;
+    fix InstallLocalTD;
   }
 
   if( solve_result = 'infeasible' ) then {

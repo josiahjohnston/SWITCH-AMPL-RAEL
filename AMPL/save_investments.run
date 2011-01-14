@@ -7,10 +7,8 @@ param cost_solution_path symbolic;
 
 table TableInstallGen OUT "dispatch/common_inputs/InstallGen.tab": 
   PROJECT_VINTAGES -> [ pid, a, t, p ], InstallGen;
-table TableBuildGenOrNot OUT "dispatch/common_inputs/BuildGenOrNot.tab": 
-  PROJ_MIN_BUILD_VINTAGES -> [pid, a, t, p], BuildGenOrNot;
 table TableOperateEPDuringPeriod OUT "dispatch/common_inputs/OperateEPDuringPeriod.tab": 
-  EP_PERIODS -> [a, e, p], OperateEPDuringPeriod;
+  EP_PERIODS -> [pid, a, t, p], OperateEPDuringPeriod;
 table TableInstallTrans OUT "dispatch/common_inputs/InstallTrans.tab":
   {(a1, a2) in TRANSMISSION_LINES_NEW_BUILDS_ALLOWED, p in PERIODS} -> [a1, a2, p], InstallTrans;
 table TableInstallLocalTD OUT "dispatch/common_inputs/InstallLocalTD.tab":
@@ -34,11 +32,6 @@ for {c in CARBON_COSTS} {
   let file_path := "dispatch/common_inputs/InstallGen" & carbon_cost & ".tab";
   shell( "mv dispatch/common_inputs/InstallGen.tab " & file_path );
   
-  write table TableBuildGenOrNot;
-  close;
-  let file_path := "dispatch/common_inputs/BuildGenOrNot" & carbon_cost & ".tab";
-  shell( "mv dispatch/common_inputs/BuildGenOrNot.tab " & file_path );
-  
   write table TableOperateEPDuringPeriod;
   close;
   let file_path := "dispatch/common_inputs/OperateEPDuringPeriod" & carbon_cost & ".tab";
@@ -55,9 +48,3 @@ for {c in CARBON_COSTS} {
   shell( "mv dispatch/common_inputs/InstallLocalTD.tab " & file_path );
   
 }
-
-
-# Read investment variables and fix them before solving.
-# On command line, switch over to the appropriate test subdirectory, then issue this ampl command:
-# include test.run
-
