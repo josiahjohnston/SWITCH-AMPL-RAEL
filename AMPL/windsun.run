@@ -172,15 +172,16 @@ for { t in TECHNOLOGIES } {
 
 ###################################
 # parameters used for reporting total generation and transmission
+param Installed_To_Date { (pid, a, t, p) in PROJECT_VINTAGES };
 param Capital_Payments_by_Plant_and_Period { (pid, a, t, p) in PROJECT_VINTAGES }; 
 param EP_Capital_Payments_by_Plant_and_Period { (pid, a, t, p) in EP_PERIODS }; 
 param Fixed_OM_by_Plant_and_Period { (pid, a, t, p) in PROJECT_VINTAGES };  
 param EP_Fixed_OM_by_Plant_and_Period { (pid, a, t, p) in EP_PERIODS }; 
-param NonPumped_Hydro_Capital_Payments_by_Plant_and_Period { (pid, a, t, p) in NONPUMPED_HYDRO_PERIODS };
-param NonPumped_Hydro_Fixed_OM_by_Plant_and_Period  { (pid, a, t, p) in NONPUMPED_HYDRO_PERIODS };
+#param NonPumped_Hydro_Capital_Payments_by_Plant_and_Period { (pid, a, t, p) in NONPUMPED_HYDRO_PERIODS };
+#param NonPumped_Hydro_Fixed_OM_by_Plant_and_Period  { (pid, a, t, p) in NONPUMPED_HYDRO_PERIODS };
 param NonPumped_Hydro_Variable_Cost_Incurred_Hourly { (pid, a, t, p, h) in NONPUMPED_HYDRO_AVAILABLE_HOURS };
-param Pumped_Hydro_Capital_Payments_by_Plant_and_Period { (pid, a, t, p) in PUMPED_HYDRO_PERIODS }; 
-param Pumped_Hydro_Fixed_OM_by_Plant_and_Period { (pid, a, t, p) in PUMPED_HYDRO_PERIODS }; 
+#param Pumped_Hydro_Capital_Payments_by_Plant_and_Period { (pid, a, t, p) in PUMPED_HYDRO_PERIODS }; 
+#param Pumped_Hydro_Fixed_OM_by_Plant_and_Period { (pid, a, t, p) in PUMPED_HYDRO_PERIODS }; 
 param Power_Produced { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }; 
 param Carbon_Emissions { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }; 
 param EP_Carbon_Emissions { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }; 

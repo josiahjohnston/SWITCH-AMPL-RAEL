@@ -49,7 +49,7 @@ printf {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' and P
 
 
 # Existing Plants
-printf {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: ProducePowerEP[pid, a, t, p, h] > 0.001} 
+printf {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: not hydro[t] and ProducePowerEP[pid, a, t, p, h] > 0.001} 
   "%s	%d	%d	%d	%d	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
   scenario_id, carbon_cost, p, pid, load_area_id[a], a,
   (if present_day_optimization then present_day_date[h] else date[h]),
@@ -149,10 +149,10 @@ printf "scenario_id	carbon_cost	period	project_id	load_area_id	load_area	technol
 	> (outfile); }
 
 # New Plants, inclusive of new storage projects
-printf {(pid, a, t, p) in PROJECT_VINTAGES: InstallGenTotal[pid, a, t, p]  > 0.001}
+printf {(pid, a, t, p) in PROJECT_VINTAGES: Installed_To_Date[pid, a, t, p]  > 0.001}
   "%s	%d	%d	%d	%d	%s	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%.2f\n",
   scenario_id, carbon_cost, p, pid, load_area_id[a], a, technology_id[t], t, project_location[pid, a, t], 1, baseload[t], 0, fuel[t],
-  InstallGenTotal[pid, a, t, p],
+  Installed_To_Date[pid, a, t, p],
   Capital_Payments_by_Plant_and_Period[pid, a, t, p],
   Fixed_OM_by_Plant_and_Period[pid, a, t, p]
   >> (outfile);
@@ -166,33 +166,33 @@ printf {(pid, a, t, p) in EP_PERIODS}
   "%s	%d	%d	%d	%d	%s	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%.2f\n",
   scenario_id, carbon_cost, p, pid, load_area_id[a], a, technology_id[t], t,
   ep_plant_name[pid, a, t], 0, baseload[t], cogen[t], fuel[t],
-  ( if intermittent[t] then 1 else OperateEPDuringPeriod[pid, a, t, p] ) * ep_capacity_mw[pid, a, t],
+  ( if ( intermittent[t] or hydro[t] ) then 1 else OperateEPDuringPeriod[pid, a, t, p] ) * ep_capacity_mw[pid, a, t],
   EP_Capital_Payments_by_Plant_and_Period[pid, a, t, p], 
   EP_Fixed_OM_by_Plant_and_Period[pid, a, t, p]
   >> (outfile);
 
 
-# hydro plants (non-pumped)
-printf { (pid, a, t, p) in NONPUMPED_HYDRO_PERIODS }
-  "%s	%d	%d	%d	%d	%s	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%.2f\n",
-  scenario_id, carbon_cost, p, pid, load_area_id[a], a, technology_id[t], t, ep_plant_name[pid, a, t], 0, 0, 0, fuel[t],
-  ep_capacity_mw[pid, a, t],
-   # CAPITAL cost
-	NonPumped_Hydro_Capital_Payments_by_Plant_and_Period[pid, a, t, p],
-   # fixed O & M cost
- 	NonPumped_Hydro_Fixed_OM_by_Plant_and_Period[pid, a, t, p]
-  >> (outfile);
-
-# hydro plants (pumped)
-printf { (pid, a, t, p) in PUMPED_HYDRO_PERIODS }
-  "%s	%d	%d	%d	%d	%s	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%.2f\n",
-  scenario_id, carbon_cost, p, pid, load_area_id[a], a, technology_id[t], t, ep_plant_name[pid, a, t], 0, 0, 0, fuel[t],
-  ep_capacity_mw[pid, a, t],
-  # CAPITAL cost
-	Pumped_Hydro_Capital_Payments_by_Plant_and_Period[pid, a, t, p],
-  # fixed O & M cost
- 	Pumped_Hydro_Fixed_OM_by_Plant_and_Period[pid, a, t, p]
-  >> (outfile);
+# # hydro plants (non-pumped)
+# printf { (pid, a, t, p) in NONPUMPED_HYDRO_PERIODS }
+#   "%s	%d	%d	%d	%d	%s	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%.2f\n",
+#   scenario_id, carbon_cost, p, pid, load_area_id[a], a, technology_id[t], t, ep_plant_name[pid, a, t], 0, 0, 0, fuel[t],
+#   ep_capacity_mw[pid, a, t],
+#    # CAPITAL cost
+# 	NonPumped_Hydro_Capital_Payments_by_Plant_and_Period[pid, a, t, p],
+#    # fixed O & M cost
+#  	NonPumped_Hydro_Fixed_OM_by_Plant_and_Period[pid, a, t, p]
+#   >> (outfile);
+# 
+# # hydro plants (pumped)
+# printf { (pid, a, t, p) in PUMPED_HYDRO_PERIODS }
+#   "%s	%d	%d	%d	%d	%s	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%.2f\n",
+#   scenario_id, carbon_cost, p, pid, load_area_id[a], a, technology_id[t], t, ep_plant_name[pid, a, t], 0, 0, 0, fuel[t],
+#   ep_capacity_mw[pid, a, t],
+#   # CAPITAL cost
+# 	Pumped_Hydro_Capital_Payments_by_Plant_and_Period[pid, a, t, p],
+#   # fixed O & M cost
+#  	Pumped_Hydro_Fixed_OM_by_Plant_and_Period[pid, a, t, p]
+#   >> (outfile);
 
 close (outfile);
 

@@ -157,7 +157,7 @@ mysql $connection_string -e "select load_area, study_hour as hour, power(1.01, p
 
 echo '	existing_plants.tab...'
 echo ampl.tab 3 8 > existing_plants.tab
-mysql $connection_string -e "select project_id, load_area, technology, plant_name, eia_id, capacity_mw, heat_rate, start_year, overnight_cost, fixed_o_m, variable_o_m from existing_plants order by 1, 2, 3;" >> existing_plants.tab
+mysql $connection_string -e "select project_id, load_area, technology, plant_name, eia_id, capacity_mw, heat_rate, if(start_year = 0, 2000, start_year) as start_year, overnight_cost, fixed_o_m, variable_o_m from existing_plants order by 1, 2, 3;" >> existing_plants.tab
 
 echo '	existing_intermittent_plant_cap_factor.tab...'
 echo ampl.tab 4 1 > existing_intermittent_plant_cap_factor.tab

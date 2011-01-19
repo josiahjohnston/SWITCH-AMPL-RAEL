@@ -23,7 +23,7 @@ problem Present_Day_Cost_Minimization:
 	Conservation_Of_Energy_NonDistributed, Conservation_Of_Energy_Distributed,
     ConsumeNonDistributedPower, ConsumeDistributedPower, RedirectDistributedPower,
   # Installation Decisions - only gas combustion turbines for the present day optimization
-	InstallGen, InstallGenTotal,
+	InstallGen, 
   # Dispatch Decisions
 	DispatchGen, OperateEPDuringPeriod, ProducePowerEP, ConsumeBioSolid, DispatchTransFromXToY,
 	Dispatch_NonPumped_Hydro, Dispatch_Pumped_Hydro_Watershed_Electrons, Dispatch_Pumped_Hydro_Storage, Store_Pumped_Hydro,
@@ -65,7 +65,7 @@ problem Present_Day_Cost_Minimization:
 	update data;
   # all plants that are expected to be operational in present day are forced to be operational
   # cogen, geothermal and nuclear are given the option to continue running
-	fix {(pid, a, t, p) in EP_PERIODS: not intermittent[t] and not ep_could_be_operating_past_expected_lifetime[pid, a, t, p]} OperateEPDuringPeriod[pid, a, t, p] := 1;
+	fix {(pid, a, t, p) in EP_PERIODS: not intermittent[t] and not hydro[t] and not ep_could_be_operating_past_expected_lifetime[pid, a, t, p]} OperateEPDuringPeriod[pid, a, t, p] := 1;
 
   # make file names
 	param present_day_cost_problem symbolic = results_path & "sol" & "_present_day_cost";
@@ -138,7 +138,7 @@ problem Investment_Cost_Minimization:
 	Satisfy_RPS, Carbon_Cap,
 
   # Investment Decisions
-	InstallGen, InstallGenTotal, BuildGenOrNot, InstallTrans, InstallLocalTD, 
+	InstallGen, BuildGenOrNot, InstallTrans, InstallLocalTD, 
   # Installation Constraints
 	Maximum_Resource_Competing_Tech, Maximum_Resource_Location_Unspecified, Minimum_GenSize, BuildGenOrNot_Constraint, SymetricalTrans, Minimum_LocalTD, 
 

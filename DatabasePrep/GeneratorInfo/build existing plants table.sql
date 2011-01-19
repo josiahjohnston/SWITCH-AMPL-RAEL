@@ -783,6 +783,94 @@ insert into existing_plants_agg (technology, load_area, plant_name, eia_id, star
   			heatrate
   from canmexgen join existing_plant_technologies using (fuel, primemover, cogen);
 
+-- -----------------------------
+-- DEV
+
+drop table if exists existing_plants_agg_dev;
+CREATE TABLE existing_plants_agg_dev(
+	ep_id mediumint unsigned PRIMARY KEY AUTO_INCREMENT,
+	technology varchar(64) NOT NULL,
+	load_area varchar(11) NOT NULL,
+	plant_name varchar(64) NOT NULL,
+	eia_id varchar(64) default 0,
+	start_year year(4) NOT NULL,
+	primemover varchar(4) NOT NULL,
+	cogen boolean NOT NULL,
+	fuel varchar(20)  NOT NULL,
+	capacity_MW float NOT NULL,
+	heat_rate float NOT NULL default 0,
+	UNIQUE (plant_name, eia_id, primemover, cogen, fuel, start_year)
+);
+
+-- USA existing plants - wind and hydro excluded
+-- should we capacity weight heat rate??? 
+insert into existing_plants_agg_dev (technology, load_area, plant_name, eia_id, start_year,
+								primemover, cogen, fuel, capacity_MW, heat_rate)
+	select 	technology,
+			load_area,
+  			replace(plntname, " ", "_") as plant_name,
+  			plntcode as eia_id,
+  			start_year,
+			primemover,
+			cogen,
+  			fuel, 
+			sum(peak_mw) as capacity_MW,
+			avg(heat_rate) as heat_rate
+	from	existing_plants join existing_plant_technologies using (fuel, primemover, cogen)
+	group by 1,2,3,4,5,6,7,8;
+
+-- add existing windfarms
+insert into existing_plants_agg_dev (technology, load_area, plant_name, eia_id, start_year,
+								primemover, cogen, fuel, capacity_MW, heat_rate)
+select 	'Wind_EP' as technology,
+		load_area,
+		concat('Wind_EP', '_', 3tier.windfarms_existing_info_wecc.windfarm_existing_id) as plant_name,
+		0 as eia_id,
+		year_online as start_year,
+		'WND' as primemover,
+		0 as cogen,
+		'Wind' as fuel,
+		capacity_MW,
+		0 as heat_rate
+from 	3tier.windfarms_existing_info_wecc;
+
+-- add Canada and Mexico
+insert into existing_plants_agg_dev (technology, load_area, plant_name, eia_id, start_year,
+								primemover, cogen, fuel, capacity_MW, heat_rate)
+	select 	technology,
+			load_area,
+  			replace(name, " ", "_") as plant_name,
+  			0 as eia_id,
+   			start_year,
+ 			primemover,
+  			cogen, 
+  			fuel,
+  			peak_mw as capacity_MW,
+  			heatrate
+  from canmexgen join existing_plant_technologies using (fuel, primemover, cogen);
+  
+-- add hydro to existing plants
+-- we don't define an id for canadian plants (default 0) - they do have a name at least 
+insert into existing_plants_agg_dev (technology, load_area, plant_name, eia_id, start_year,
+								primemover, cogen, fuel, capacity_MW, heat_rate)
+	select 	distinct
+			technology,
+			load_area,
+			plant_name,
+			eia_id,
+			start_year,
+			primemover,
+			0 as cogen,
+			'Water' as fuel,
+			capacity_mw,
+			0 as heat_rate
+	from hydro_monthly_limits
+	join existing_plant_technologies using (primemover);
+  
+ 
+-- --------------------------------
+
+
 
 -- add hydro to existing plants... see below
 insert into existing_plants_agg (technology, load_area, plant_name, eia_id, start_year,

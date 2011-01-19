@@ -507,8 +507,8 @@ load data local infile
 -- made in 'build existing plants table.sql'
 select 'Copying existing_plants' as progress;
 
-drop table if exists existing_plants;
-CREATE TABLE existing_plants (
+drop table if exists existing_plants_dev;
+CREATE TABLE existing_plants_dev (
     project_id int unsigned PRIMARY KEY,
 	load_area varchar(11) NOT NULL,
  	technology varchar(64) NOT NULL,
@@ -534,7 +534,7 @@ CREATE TABLE existing_plants (
 );
 
  -- The << operation moves the numeric form of the letter "E" (for existing plants) over by 3 bytes, effectively making its value into the most significant digits.
-insert into existing_plants (project_id, load_area, technology, ep_id, area_id, plant_name, eia_id,
+insert into existing_plants_dev (project_id, load_area, technology, ep_id, area_id, plant_name, eia_id,
 								primemover, fuel, capacity_mw, heat_rate, start_year,
 								overnight_cost, fixed_o_m, variable_o_m, forced_outage_rate, scheduled_outage_rate )
 	select 	e.ep_id + (ascii( 'E' ) << 8*3),
@@ -554,9 +554,11 @@ insert into existing_plants (project_id, load_area, technology, ep_id, area_id, 
 			g.variable_o_m * economic_multiplier,
 			g.forced_outage_rate,
 			g.scheduled_outage_rate
-			from generator_info.existing_plants_agg e
+			from generator_info.existing_plants_agg_dev e
 			join generator_info g using (technology)
 			join load_area_info a using (load_area);
+
+
 			
 drop table if exists _existing_intermittent_plant_cap_factor;
 create table _existing_intermittent_plant_cap_factor(
@@ -608,32 +610,32 @@ CREATE TABLE hydro_monthly_limits (
 insert into hydro_monthly_limits
 select * from generator_info.hydro_monthly_limits_agg;
 
--- TO BE IMPLEMENTED:
--- drop table if exists _hydro_monthly_limits;
--- CREATE TABLE _hydro_monthly_limits (
+-- -- TO BE IMPLEMENTED:
+-- drop table if exists _hydro_monthly_limits_dev;
+-- CREATE TABLE _hydro_monthly_limits_dev (
 --   project_id int unsigned,
 --   year year,
 --   month tinyint,
 --   avg_output float,
 --   INDEX (project_id),
 --   PRIMARY KEY (project_id, year, month),
---   FOREIGN KEY (project_id) REFERENCES existing_plants (project_id)
+--   FOREIGN KEY (project_id) REFERENCES existing_plants_dev (project_id)
 -- );
 -- 
--- DROP VIEW IF EXISTS hydro_monthly_limits;
--- CREATE VIEW hydro_monthly_limits as
+-- DROP VIEW IF EXISTS hydro_monthly_limits_dev;
+-- CREATE VIEW hydro_monthly_limits_dev as
 --   SELECT project_id, load_area, technology, year, month, avg_output
---     FROM _hydro_monthly_limits join existing_plants using (project_id);
+--     FROM _hydro_monthly_limits_dev join existing_plants_dev using (project_id);
 -- 
--- the join is long here in an attempt to reduce the # of numeric ids flying around
--- insert into hydro_monthly_limits_tmp (project_id, year, month, avg_output )
+-- -- the join is long here in an attempt to reduce the # of numeric ids flying around
+-- insert into hydro_monthly_limits_dev (project_id, year, month, avg_output )
 -- 	select 
 -- 	  project_id,
 -- 	  year,
 -- 	  month,
 -- 	  avg_output
 -- 	from generator_info.hydro_monthly_limits
--- 	join existing_plants_tmp using (load_area, plant_name, eia_id, start_year, capacity_mw)
+-- 	join existing_plants_dev using (load_area, plant_name, eia_id, start_year, capacity_mw)
 -- 	where fuel = 'Water';
 
 
