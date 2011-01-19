@@ -52,10 +52,6 @@ data windsun.dat;
 data inputs/misc_params.dat;
 param outfile symbolic;
 
-# these params need to be defined for record_results.run, but have little meaning in the investment cost optimization
-param present_day_timepoint {TIMEPOINTS};
-param present_day_date {TIMEPOINTS};
-
 #########################
 # Read in data from tabs from mysql that are made by get_switch_input_tables.sh
 
@@ -122,17 +118,6 @@ table generator_info "inputs/generator_info.tab" IN:
 	storage, storage_efficiency, max_store_rate;
 read table generator_info;
 
-# Mark which technologies will be competing for space
-for { t in SOLAR_CSP_TECHNOLOGIES } {
-  let technologies_compete_for_space[t] := 1;
-}
-let technologies_compete_for_space['Central_PV'] := 1;
-let technologies_compete_for_space['Concentrating_PV'] := 1;
-let technologies_compete_for_space['Biomass_IGCC'] := 1;
-let technologies_compete_for_space['Biomass_IGCC_CCS'] := 1;
-let technologies_compete_for_space['Bio_Gas'] := 1;
-let technologies_compete_for_space['Bio_Gas_CCS'] := 1;
-
 table fuel_costs "inputs/fuel_costs.tab" IN:
 	[load_area, fuel, year], fuel_price;
 read table fuel_costs;
@@ -155,7 +140,9 @@ table fuel_qualifies_for_rps "inputs/fuel_qualifies_for_rps.tab" IN:
 read table fuel_qualifies_for_rps; 
 
 check;
+
 ###################################
+# update some params that can't be easily dealt with elsewhere
 
 # create cost fraction parameter for cost calculations and discounting for new and existing plants
 # param cost_fraction { t in TECHNOLOGIES, yr in YEAR_OF_CONSTRUCTION };
@@ -169,6 +156,16 @@ for { t in TECHNOLOGIES } {
 }
 ;
 
+# Mark which technologies will be competing for space
+for { t in SOLAR_CSP_TECHNOLOGIES } {
+  let technologies_compete_for_space[t] := 1;
+}
+let technologies_compete_for_space['Central_PV'] := 1;
+let technologies_compete_for_space['Concentrating_PV'] := 1;
+let technologies_compete_for_space['Biomass_IGCC'] := 1;
+let technologies_compete_for_space['Biomass_IGCC_CCS'] := 1;
+let technologies_compete_for_space['Bio_Gas'] := 1;
+let technologies_compete_for_space['Bio_Gas_CCS'] := 1;
 
 ###################################
 # parameters used for reporting total generation and transmission
@@ -177,11 +174,6 @@ param Capital_Payments_by_Plant_and_Period { (pid, a, t, p) in PROJECT_VINTAGES 
 param EP_Capital_Payments_by_Plant_and_Period { (pid, a, t, p) in EP_PERIODS }; 
 param Fixed_OM_by_Plant_and_Period { (pid, a, t, p) in PROJECT_VINTAGES };  
 param EP_Fixed_OM_by_Plant_and_Period { (pid, a, t, p) in EP_PERIODS }; 
-#param NonPumped_Hydro_Capital_Payments_by_Plant_and_Period { (pid, a, t, p) in NONPUMPED_HYDRO_PERIODS };
-#param NonPumped_Hydro_Fixed_OM_by_Plant_and_Period  { (pid, a, t, p) in NONPUMPED_HYDRO_PERIODS };
-param NonPumped_Hydro_Variable_Cost_Incurred_Hourly { (pid, a, t, p, h) in NONPUMPED_HYDRO_AVAILABLE_HOURS };
-#param Pumped_Hydro_Capital_Payments_by_Plant_and_Period { (pid, a, t, p) in PUMPED_HYDRO_PERIODS }; 
-#param Pumped_Hydro_Fixed_OM_by_Plant_and_Period { (pid, a, t, p) in PUMPED_HYDRO_PERIODS }; 
 param Power_Produced { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }; 
 param Carbon_Emissions { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }; 
 param EP_Carbon_Emissions { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }; 
@@ -205,4 +197,7 @@ param Transmission_Losses_by_Period {p in PERIODS};
 param Distribution_Losses_by_Period {p in PERIODS};
 param Storage_Losses_by_Period {p in PERIODS};
 param system_load_discounted;
+# these params need to be defined for record_results.run, but have little meaning in the investment cost optimization
+param present_day_timepoint {TIMEPOINTS};
+param present_day_date {TIMEPOINTS};
 

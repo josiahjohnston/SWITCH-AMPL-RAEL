@@ -49,7 +49,7 @@ printf {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' and P
 
 
 # Existing Plants
-printf {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: not hydro[t] and ProducePowerEP[pid, a, t, p, h] > 0.001} 
+printf {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: ProducePowerEP[pid, a, t, p, h] > 0.001} 
   "%s	%d	%d	%d	%d	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
   scenario_id, carbon_cost, p, pid, load_area_id[a], a,
   (if present_day_optimization then present_day_date[h] else date[h]),
@@ -63,52 +63,28 @@ printf {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: not hydro[t] and ProducePowerEP
   EP_Variable_Cost_Incurred_Hourly[pid, a, t, p, h]
   >> (outfile);
 
-# Dispatch of non-pumped hydro. 
-printf { (pid, a, t, p, h) in NONPUMPED_HYDRO_AVAILABLE_HOURS: Dispatch_NonPumped_Hydro[pid, a, t, p, h] > 0.001} 
-  "%s	%d	%d	%d	%d	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
-  scenario_id, carbon_cost, p, pid, load_area_id[a], a,
-  (if present_day_optimization then present_day_date[h] else date[h]),
-  (if present_day_optimization then present_day_timepoint[h] else h),
-  technology_id[t], t, 0, 0, 0, 0, fuel[t], rps_fuel_category_tech[t], hours_in_sample[h],
-  Dispatch_NonPumped_Hydro[pid, a, t, p, h],
-  0, 0, 0, 0, 
-  NonPumped_Hydro_Variable_Cost_Incurred_Hourly[pid, a, t, p, h]
-  >> (outfile);
-
-# Dispatch of pumped hydro watershed electrons. 
-printf { (pid, a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS: Dispatch_Pumped_Hydro_Watershed_Electrons[pid, a, t, p, h] > 0.001} 
-  "%s	%d	%d	%d	%d	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
-  scenario_id, carbon_cost, p, pid, load_area_id[a], a,
-  (if present_day_optimization then present_day_date[h] else date[h]),
-  (if present_day_optimization then present_day_timepoint[h] else h),
-  technology_id[t], t, 0, 0, 0, 0, fuel[t], rps_fuel_category_tech[t], hours_in_sample[h],
-  Dispatch_Pumped_Hydro_Watershed_Electrons[pid, a, t, p, h],
-  0, 0, 0, 0, 
-  0 # Pumped Hydro has 0 Variable O&M costs, as they are wrapped up in Fixed O&M costs
-  >> (outfile);
-
 
 # Store all STORAGE DISPATCH decisions
 
 # Storage of pumped hydro. Don't have to pay variable O&M for storing at the moment.
-printf { (pid, a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY: Store_Pumped_Hydro[pid, a, t, p, h, fc] > 0.001} 
+printf { (a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY: Store_Pumped_Hydro[a, t, p, h, fc] > 0.001} 
   "%s	%d	%d	%d	%d	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
-  scenario_id, carbon_cost, p, pid, load_area_id[a], a,
+  scenario_id, carbon_cost, p, 0, load_area_id[a], a,
   (if present_day_optimization then present_day_date[h] else date[h]),
   (if present_day_optimization then present_day_timepoint[h] else h),
   technology_id[t], t, 0, 0, 0, 1, 'Storage', fc, hours_in_sample[h],
-  -1 * Store_Pumped_Hydro[pid, a, t, p, h, fc],
+  -1 * Store_Pumped_Hydro[a, t, p, h, fc],
   0, 0, 0, 0, 0
   >> (outfile);
 
 # Dispatch of stored pumped hydro.
-printf { (pid, a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY: Dispatch_Pumped_Hydro_Storage[pid, a, t, p, h, fc]  > 0.001} 
+printf { (a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY: Dispatch_Pumped_Hydro_Storage[a, t, p, h, fc]  > 0.001} 
   "%s	%d	%d	%d	%d	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
-  scenario_id, carbon_cost, p, pid, load_area_id[a], a,
+  scenario_id, carbon_cost, p, 0, load_area_id[a], a,
   (if present_day_optimization then present_day_date[h] else date[h]),
   (if present_day_optimization then present_day_timepoint[h] else h),
   technology_id[t], t, 0, 0, 0, 1, 'Storage', fc, hours_in_sample[h],
-  Dispatch_Pumped_Hydro_Storage[pid, a, t, p, h, fc],
+  Dispatch_Pumped_Hydro_Storage[a, t, p, h, fc],
   0, 0, 0, 0, 0
   >> (outfile);
   
@@ -170,29 +146,6 @@ printf {(pid, a, t, p) in EP_PERIODS}
   EP_Capital_Payments_by_Plant_and_Period[pid, a, t, p], 
   EP_Fixed_OM_by_Plant_and_Period[pid, a, t, p]
   >> (outfile);
-
-
-# # hydro plants (non-pumped)
-# printf { (pid, a, t, p) in NONPUMPED_HYDRO_PERIODS }
-#   "%s	%d	%d	%d	%d	%s	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%.2f\n",
-#   scenario_id, carbon_cost, p, pid, load_area_id[a], a, technology_id[t], t, ep_plant_name[pid, a, t], 0, 0, 0, fuel[t],
-#   ep_capacity_mw[pid, a, t],
-#    # CAPITAL cost
-# 	NonPumped_Hydro_Capital_Payments_by_Plant_and_Period[pid, a, t, p],
-#    # fixed O & M cost
-#  	NonPumped_Hydro_Fixed_OM_by_Plant_and_Period[pid, a, t, p]
-#   >> (outfile);
-# 
-# # hydro plants (pumped)
-# printf { (pid, a, t, p) in PUMPED_HYDRO_PERIODS }
-#   "%s	%d	%d	%d	%d	%s	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%.2f\n",
-#   scenario_id, carbon_cost, p, pid, load_area_id[a], a, technology_id[t], t, ep_plant_name[pid, a, t], 0, 0, 0, fuel[t],
-#   ep_capacity_mw[pid, a, t],
-#   # CAPITAL cost
-# 	Pumped_Hydro_Capital_Payments_by_Plant_and_Period[pid, a, t, p],
-#   # fixed O & M cost
-#  	Pumped_Hydro_Fixed_OM_by_Plant_and_Period[pid, a, t, p]
-#   >> (outfile);
 
 close (outfile);
 

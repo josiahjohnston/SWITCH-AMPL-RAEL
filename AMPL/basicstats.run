@@ -1,8 +1,6 @@
 ############################################################
 # Update parameters for reporting results.  These are used to display basic stats below, as well as in record_results.run
 
-#  let Capital_Payments_by_Plant_and_Period[pid, a, t, p] :=
-#	Installed_To_Date[pid, a, t, p] * capital_cost_annual_payment[pid, a, t, p] * num_years_per_period;
 
 # Fixed Cash flows for each possible project for every period in the study.
 for { (pid, a, t, p) in PROJECT_VINTAGES } {
@@ -14,7 +12,7 @@ for { (pid, a, t, p) in PROJECT_VINTAGES } {
   let Fixed_OM_by_Plant_and_Period[pid, a, t, p] :=
 	Installed_To_Date[pid, a, t, p] * fixed_o_m[pid, a, t] * num_years_per_period;
 }
-# Fixed Cash flows for each existing non-hydro plant for every period in the study.
+# Fixed Cash flows for each existing plant for every period in the study.
 for { (pid, a, t, p) in EP_PERIODS } {
   let EP_Capital_Payments_by_Plant_and_Period[pid, a, t, p] := 
 	ep_capacity_mw[pid, a, t] * capital_cost_annual_payment[pid, a, t, p] 
@@ -29,19 +27,6 @@ for { (pid, a, t, p) in EP_PERIODS } {
 	( if ( intermittent[t] or hydro[t] ) then 1 else OperateEPDuringPeriod[pid, a, t, p] ) * ep_capacity_mw[pid, a, t] * ep_fixed_o_m[pid, a, t] * num_years_per_period;
 }
 
-# Fixed Cash flows for each hydro plant for every period in the study.
-# for { (pid, a, t, p) in NONPUMPED_HYDRO_PERIODS } {
-#   let NonPumped_Hydro_Capital_Payments_by_Plant_and_Period[pid, a, t, p] := 
-# 	ep_capacity_mw[pid, a, t] * nonpumped_hydro_capital * economic_multiplier[a] * num_years_per_period;
-#   let NonPumped_Hydro_Fixed_OM_by_Plant_and_Period[pid, a, t, p] := 
-# 	ep_capacity_mw[pid, a, t] * nonpumped_hydro_fixed_o_m * economic_multiplier[a] * num_years_per_period;
-# }
-# for { (pid, a, t, p) in PUMPED_HYDRO_PERIODS } {
-#   let Pumped_Hydro_Capital_Payments_by_Plant_and_Period[pid, a, t, p] := 
-# 	ep_capacity_mw[pid, a, t] * pumped_hydro_capital * economic_multiplier[a] * num_years_per_period;
-#   let Pumped_Hydro_Fixed_OM_by_Plant_and_Period[pid, a, t, p] := 
-# 	ep_capacity_mw[pid, a, t] * pumped_hydro_fixed_o_m * economic_multiplier[a] * num_years_per_period;
-# }
 for { a in LOAD_AREAS, h in TIMEPOINTS, p in PERIODS: period[h] = p and num_bio_breakpoints[a] > 0 } {
   let Biomass_Solid_Fuel_Cost[a, h] :=
 	if ConsumeBioSolid[a, p] = 0 then 0 else
@@ -77,7 +62,7 @@ for { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] } {
   let Storage_Variable_Cost_Incurred_Hourly[ pid, a, t, p, h ] := 
 	sum {fc in RPS_FUEL_CATEGORY} ReleaseEnergy[pid, a, t, p, h, fc] * variable_o_m[pid, a, t];
 }
-for { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: not hydro[t] } {
+for { (pid, a, t, p, h) in EP_AVAILABLE_HOURS } {
   let EP_Carbon_Emissions[pid, a, t, p, h] := 
 	ProducePowerEP[pid, a, t, p, h] * ep_heat_rate[pid, a, t] * carbon_content[fuel[t]];
   let EP_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] := 
@@ -87,10 +72,6 @@ for { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: not hydro[t] } {
   let EP_Variable_Cost_Incurred_Hourly[pid, a, t, p, h] := 
 	ProducePowerEP[pid, a, t, p, h] * ep_variable_o_m[pid, a, t];
 }
-for { (pid, a, t, p, h) in NONPUMPED_HYDRO_AVAILABLE_HOURS } {
-  let NonPumped_Hydro_Variable_Cost_Incurred_Hourly[pid, a, t, p, h] := 
-	( Dispatch_NonPumped_Hydro[pid, a, t, p, h] * ep_variable_o_m[pid, a, t] );
-}	
 
 # costs for existing local T&D
 for { a in LOAD_AREAS, p in PERIODS } {
@@ -134,22 +115,11 @@ for {p in PERIODS} {
 		EP_Capital_Payments_by_Plant_and_Period[pid, a, t, p] +
 		EP_Fixed_OM_by_Plant_and_Period[pid, a, t, p]
 	  ) + 
-	  sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: not hydro[t] } (
+	  sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS } (
 		EP_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] +
 		EP_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] +
 		EP_Variable_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h]
 	  ) + 
-# 	  sum { (pid, a, t, p) in NONPUMPED_HYDRO_PERIODS } (
-# 	    NonPumped_Hydro_Capital_Payments_by_Plant_and_Period[pid, a, t, p] +
-# 	    NonPumped_Hydro_Fixed_OM_by_Plant_and_Period[pid, a, t, p]
-# 	  ) +
-	  sum { (pid, a, t, p, h) in NONPUMPED_HYDRO_AVAILABLE_HOURS } (
-	   	NonPumped_Hydro_Variable_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h]
-	  ) + 
-# 	  sum { (pid, a, t, p) in PUMPED_HYDRO_PERIODS } (
-# 	    Pumped_Hydro_Capital_Payments_by_Plant_and_Period[pid, a, t, p] +
-# 	    Pumped_Hydro_Fixed_OM_by_Plant_and_Period[pid, a, t, p]
-# 	  ) + 
 	  sum { a in LOAD_AREAS } (
 	    Local_TD_Existing_Cost_Per_Period[a, p] + 
 	    Local_TD_New_Cost_Per_Period[a, p] + 
@@ -164,23 +134,21 @@ for {p in PERIODS} {
   let Yearly_Carbon_Emissions[p] :=
 	  sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }
 		  Carbon_Emissions[ pid, a, t, p, h ] * hours_in_sample[h] / num_years_per_period + 
-	  sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: not hydro[t] }
+	  sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }
 		  EP_Carbon_Emissions[pid, a, t, p, h] * hours_in_sample[h] / num_years_per_period;
   
   let Carbon_Costs_Per_Period_per_MWh[p] :=
 	( # Cash flow in the given period, discounted to the start of the period.
 	  sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }
 		Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h]
-	  + sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: not hydro[t] } 
+	  + sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS } 
 		EP_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h]
 	) / total_loads_by_period_weighted[p];
 	
   let Gross_Power_by_Period[p]  := 
 	sum{ a in LOAD_AREAS, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY: period[h] = p } 
 		( ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' and rps_fuel_category_tech[t] = fc } Power_Produced[pid, a, t, p, h] )
-		+ ( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: not hydro[t] and rps_fuel_category[fuel[t]] = fc } ProducePowerEP[pid, a, t, p, h] )
-		+ ( sum { (pid, a, t, p, h) in NONPUMPED_HYDRO_AVAILABLE_HOURS: rps_fuel_category_tech[t] = fc} Dispatch_NonPumped_Hydro[pid, a, t, p, h] )
-		+ ( sum { (pid, a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS: rps_fuel_category_tech[t] = fc} Dispatch_Pumped_Hydro_Watershed_Electrons[pid, a, t, p, h] )
+		+ ( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: rps_fuel_category[fuel[t]] = fc } ProducePowerEP[pid, a, t, p, h] )
 		) * hours_in_sample[h];
 
   let Transmission_Losses_by_Period[p] := 
@@ -197,8 +165,8 @@ for {p in PERIODS} {
 			);
 			
   let Storage_Losses_by_Period[p] :=
-	sum { (pid, a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY}
-		( Store_Pumped_Hydro[pid, a, t, p, h, fc] * ( 1 - pumped_hydro_efficiency ) * hours_in_sample[h] )
+	sum { (a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY}
+		( Store_Pumped_Hydro[a, t, p, h, fc] * ( 1 - storage_efficiency[t] ) * hours_in_sample[h] )
 	+ sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t]}
 		( StoreEnergy[pid, a, t, p, h, fc] * ( 1 - storage_efficiency[t] ) * hours_in_sample[h] );
 }
@@ -234,14 +202,8 @@ for {p in PERIODS} {
 		( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: fuel[t] = f and t <> 'Battery_Storage' } 
 			Power_Produced[pid, a, t, p, h] * hours_in_sample[h] )
 		# Power from existing plants
-		+ ( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: not hydro[t] and fuel[t] = f }
+		+ ( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: fuel[t] = f }
 			ProducePowerEP[pid, a, t, p, h] * hours_in_sample[h] )
-		# Hydro - doesn't include storage and dispatch of stored electrons because this sum is for generation only
-		+ ( sum { (pid, a, t, p, h) in NONPUMPED_HYDRO_AVAILABLE_HOURS: fuel[t] = f }
-				Dispatch_NonPumped_Hydro[pid, a, t, p, h] * hours_in_sample[h] )
-			# pumped hydro dispatch of water from upstream
-		+ ( sum { (pid, a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS: fuel[t] = f }
-				Dispatch_Pumped_Hydro_Watershed_Electrons[pid, a, t, p, h] * hours_in_sample[h] )
 	  )
 	  / Gross_Power_by_Period[p]
 	;
