@@ -494,7 +494,11 @@ check {(pid, a, t) in EXISTING_PLANTS: hydro[t]}:
 # especially because the daily flow through the turbine will be constrained to be within historical monthly averages below
 param min_nonpumped_hydro_dispatch_fraction = 0.25;
 
-# plant-hour combinations when hydro existing plants can be available. 
+# useful pumped hydro sets for recording results 
+set PUMPED_HYDRO_AVAILABLE_HOURS_BY_FC_AND_PID := { (pid, a, t, p, h) in EP_AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY: t = 'Hydro_Pumped' };
+set PUMPED_HYDRO_AVAILABLE_HOURS_BY_FC := setof { (pid, a, t, p, h, fc) in PUMPED_HYDRO_AVAILABLE_HOURS_BY_FC_AND_PID } (a, t, p, h, fc);
+
+# load_area-hour combinations when hydro existing plants can be available. 
 set NONPUMPED_HYDRO_AVAILABLE_HOURS := setof { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: t = 'Hydro_NonPumped' } (a, t, p, h);
 set PUMPED_HYDRO_AVAILABLE_HOURS := setof { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: t = 'Hydro_Pumped' } (a, t, p, h);
 set NONPUMPED_HYDRO_DATES := setof { (pid, a, t, p) in EP_PERIODS, d in DATES: t = 'Hydro_NonPumped' and period_of_date[d] = p } (a, t, p, d);
@@ -780,11 +784,10 @@ var ReleaseEnergy_Reserve {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t
 # note: Store_Pumped_Hydro represents the load on the grid so the amount of energy available for release
 # is Store_Pumped_Hydro * storage_efficiency[t]
 var DispatchHydro {HYDRO_AVAILABLE_HOURS} >= 0;
-var Dispatch_Pumped_Hydro_Storage {PUMPED_HYDRO_AVAILABLE_HOURS, RPS_FUEL_CATEGORY} >= 0;
-var Store_Pumped_Hydro {PUMPED_HYDRO_AVAILABLE_HOURS, RPS_FUEL_CATEGORY} >= 0;
+var Dispatch_Pumped_Hydro_Storage {PUMPED_HYDRO_AVAILABLE_HOURS_BY_FC} >= 0;
+var Store_Pumped_Hydro {PUMPED_HYDRO_AVAILABLE_HOURS_BY_FC} >= 0;
 # hydro reserve variables
-var Dispatch_NonPumped_Hydro_Reserve {NONPUMPED_HYDRO_AVAILABLE_HOURS} >= 0;
-var Dispatch_Pumped_Hydro_Watershed_Electrons_Reserve {PUMPED_HYDRO_AVAILABLE_HOURS} >= 0;
+var DispatchHydro_Reserve {HYDRO_AVAILABLE_HOURS} >= 0;
 var Dispatch_Pumped_Hydro_Storage_Reserve {PUMPED_HYDRO_AVAILABLE_HOURS} >= 0;
 var Store_Pumped_Hydro_Reserve {PUMPED_HYDRO_AVAILABLE_HOURS} >= 0;
 
@@ -998,12 +1001,9 @@ subject to Conservation_Of_Energy_NonDistributed_Reserve {a in LOAD_AREAS, h in 
 	+ ( sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: baseload[t]} 
 		OperateEPDuringPeriod[pid, a, t, p] * ep_capacity_mw[pid, a, t] * ( 1 - scheduled_outage_rate[t] ) )
 	#	HYDRO
-  # non pumped hydro dispatch
-	+ ( sum {(a, t, p, h) in NONPUMPED_HYDRO_AVAILABLE_HOURS}
-		Dispatch_NonPumped_Hydro_Reserve[a, t, p, h] )
-  # pumped hydro dispatch of water from upstream
-	+ ( sum {(a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS}
-		Dispatch_Pumped_Hydro_Watershed_Electrons_Reserve[a, t, p, h] )
+  # non-storage hydro dispatch (includes pumped storage watershed electrons)
+	+ ( sum {(a, t, p, h) in HYDRO_AVAILABLE_HOURS}
+		DispatchHydro_Reserve[a, t, p, h] )
   # pumped hydro storage and dispatch
 	+ ( sum {(a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS} (
 		Dispatch_Pumped_Hydro_Storage_Reserve[a, t, p, h] - Store_Pumped_Hydro_Reserve[a, t, p, h] ) )
@@ -1184,41 +1184,11 @@ subject to Storage_Projects_Energy_Balance_Reserve {(pid, a, t, p) in PROJECT_VI
 ################################################################################
 # HYDRO CONSTRAINTS
 
-# note: hydro streamflow dispatch (ProducePowerEP)
+# note: hydro streamflow dispatch
 # as done currently already includes scheduled and forced outages
 # because the EIA data is on historical generation, not resource potential,
 # therefore explicit outage rates are not included in hydro streamflow dispatch.
 # TODO: use historical USGS stream flow and dam height data to estimate available hydro resource
-
-#### NonPumped Hydro ####
-
-# for every hour, the amount of water released can't be more than the turbine capacity
-subject to Maximum_Dispatch_NonPumped_Hydro { (a, t, p, h) in NONPUMPED_HYDRO_AVAILABLE_HOURS }:
-  DispatchHydro[a, t, p, h] <= hydro_capacity_mw_in_load_area[a, t];
-
-# for every hour, the amount of water released can't be less than that necessary to maintain stream flow
-subject to Minimum_Dispatch_NonPumped_Hydro { (a, t, p, h) in NONPUMPED_HYDRO_AVAILABLE_HOURS }:
-  DispatchHydro[a, t, p, h] >= avg_hydro_output_load_area_agg[a, t, p, date[h]] * min_nonpumped_hydro_dispatch_fraction;
-
-# for every day, the historical monthly average flow must be met
-subject to Average_NonPumped_Hydro_Output { (a, t, p, d) in NONPUMPED_HYDRO_DATES }:
-  sum {h in TIMEPOINTS: date[h]=d} DispatchHydro[a, t, p, h] <= 
-# The sum below is equivalent to the daily hydro flow, but only over the study hours considered in each day
-  sum {h in TIMEPOINTS: date[h]=d} avg_hydro_output_load_area_agg[a, t, p, d];
-
-# NonPumped Hydro Reserve
-# as the amount of reserve available from hydro plants isn't infinite,
-# the reserve must be dispatched on similar terms to the actual energy dispatch
-subject to Maximum_Dispatch_NonPumped_Hydro_Reserve { (a, t, p, h) in NONPUMPED_HYDRO_AVAILABLE_HOURS }:
-  Dispatch_NonPumped_Hydro_Reserve[a, t, p, h] <= hydro_capacity_mw_in_load_area[a, t];
-subject to Minimum_Dispatch_NonPumped_Hydro_Reserve { (a, t, p, h) in NONPUMPED_HYDRO_AVAILABLE_HOURS }:
-  Dispatch_NonPumped_Hydro_Reserve[a, t, p, h] >= avg_hydro_output_load_area_agg[a, t, p, date[h]] * min_nonpumped_hydro_dispatch_fraction;
-subject to Average_NonPumped_Hydro_Output_Reserve { (a, t, p, d) in NONPUMPED_HYDRO_DATES }:
-  sum {h in TIMEPOINTS: date[h]=d} Dispatch_NonPumped_Hydro_Reserve[a, t, p, h] <= 
-  sum {h in TIMEPOINTS: date[h]=d} avg_hydro_output_load_area_agg[a, t, p, d];
-
-
-#### Pumped Hydro ####
 
 # The variable Store_Pumped_Hydro represents the MW of electricity required to pump water uphill (the load on the grid from pumping)
 # To represent efficiency losses, the electrons stored by Store_Pumped_Hydro are then derated by the storage_efficiency[t] when dispatched
@@ -1232,12 +1202,29 @@ subject to Average_NonPumped_Hydro_Output_Reserve { (a, t, p, d) in NONPUMPED_HY
 # for every hour, the amount of water released can't be more than the turbine capacity
 # the contribution from Dispatch_Pumped_Hydro_Storage is derated by the forced outage rate because storage decisions are completly internal to the model
 # (hydro streamflow decisions have the outage rates built in, but the storage dispatch decisions have been split off from these)
-# it's written somewhat strangely here because ProducePowerEP is not derated:
+# it's written somewhat strangely here because DispatchHydro is not derated:
 # dividing by gen_availability[t] effectivly takes up more of the dam capacity in any given hour than a non-derated dispatch variable would
-subject to Maximum_Dispatch_Pumped_Hydro { (a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS }:
+subject to Maximum_Dispatch_Hydro { (a, t, p, h) in HYDRO_AVAILABLE_HOURS }:
  	DispatchHydro[a, t, p, h]
-	+ sum{ fc in RPS_FUEL_CATEGORY } Dispatch_Pumped_Hydro_Storage[a, t, p, h, fc] / gen_availability[t]
+	+ 
+	(if t = 'Hydro_Pumped'
+		then ( sum{ fc in RPS_FUEL_CATEGORY } Dispatch_Pumped_Hydro_Storage[a, t, p, h, fc] / gen_availability[t] )
+		else 0 )
     <= hydro_capacity_mw_in_load_area[a, t];
+
+# for every hour, for NONPUMPED hydro,
+# the amount of water released can't be less than that necessary to maintain stream flow
+# there is no pumped minimum output from streamflow constraint
+# because water can be released from the lower reservoir at will into the stream
+subject to Minimum_Dispatch_Hydro { (a, t, p, h) in NONPUMPED_HYDRO_AVAILABLE_HOURS }:
+  DispatchHydro[a, t, p, h] >= avg_hydro_output_load_area_agg[a, t, p, date[h]] * min_nonpumped_hydro_dispatch_fraction;
+
+# for every day, the historical monthly average flow must be met to maintain downstream flow
+# these electrons will be labeled blue by other constraints
+subject to Average_Hydro_Output { (a, t, p, d) in HYDRO_DATES }:
+  sum {h in TIMEPOINTS: date[h]=d} DispatchHydro[a, t, p, h] <= 
+# The sum below is equivalent to the daily hydro flow, but only over the study hours considered in each day
+  sum {h in TIMEPOINTS: date[h]=d} avg_hydro_output_load_area_agg[a, t, p, d];
 
 # Can't pump more water uphill than the pump capacity (in MW)
 # As mentioned above, Store_Pumped_Hydro represents the grid load of storage
@@ -1250,16 +1237,6 @@ subject to Maximum_Dispatch_Pumped_Hydro { (a, t, p, h) in PUMPED_HYDRO_AVAILABL
 subject to Maximum_Store_Pumped_Hydro { (a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS }:
   sum {fc in RPS_FUEL_CATEGORY} Store_Pumped_Hydro[a, t, p, h, fc] <= hydro_capacity_mw_in_load_area[a, t] * gen_availability[t] ;
 
-# for every day, the historical monthly average flow must be met to maintain downstream flow
-# these electrons will be labeled blue by other constraints
-# as there is a lower resevoir below the dam for each pumped hydro project,
-# there is no accompanying minimum output from streamflow constraint (similar to Minimum_Dispatch_NonPumped_Hydro above)
-# because water can be released from the lower reservoir at will into the stream
-subject to Average_Pumped_Hydro_Watershed_Output { (a, t, p, d) in PUMPED_HYDRO_DATES }:
-  sum {h in TIMEPOINTS: date[h]=d} DispatchHydro[a, t, p, h] <= 
-# The sum below is equivalent to the daily hydro flow, but only over the study hours considered in each day
-  sum {h in TIMEPOINTS: date[h]=d} avg_hydro_output_load_area_agg[a, t, p, d];
-
 # Conservation of STORED electrons (electrons not from upstream) for pumped hydro
 # Pumped hydro has to dispatch all electrons it stored each day for each fuel type such that 
 # over the course of a day pumped hydro projects release the necessary amount of water downstream
@@ -1268,20 +1245,31 @@ subject to Conservation_Of_Stored_Pumped_Hydro_Electrons { (a, t, p, d) in PUMPE
 	sum {h in TIMEPOINTS: date[h]=d} Store_Pumped_Hydro[a, t, p, h, fc] * storage_efficiency[t];
 
 
-# Pumped Hydro Reserve
+# Hydro Reserve
 # This is an independent operational plan for hydro that can ensure average flow rates while maintain a reserve margin.
 # This contigency plan is overkill for short-lived events (hours) that require tapping into the reserve margin.
 # This contigency plan is needed for long-lasting events (days or weeks) that require maintenance of average stream flow.
 
+# as the amount of reserve available from hydro plants isn't infinite,
+# the reserve must be dispatched on similar terms to the actual energy dispatch
+
 # as the reserve margin doesn't have an RPS flavor, these constraints don't include the fuel type
 
 # as with other reserve margin constraints, gen_availability is removed here, because this is built into the reserve margin
-subject to Maximum_Dispatch_Pumped_Hydro_Reserve { (a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS }:
-	Dispatch_Pumped_Hydro_Watershed_Electrons_Reserve[a, t, p, h] + Dispatch_Pumped_Hydro_Storage_Reserve[a, t, p, h]
+subject to Maximum_Dispatch_Hydro_Reserve { (a, t, p, h) in HYDRO_AVAILABLE_HOURS }:
+ 	DispatchHydro_Reserve[a, t, p, h]
+	+ 
+	(if t = 'Hydro_Pumped'
+		then Dispatch_Pumped_Hydro_Storage_Reserve[a, t, p, h]
+		else 0 )
     <= hydro_capacity_mw_in_load_area[a, t];
-subject to Average_Pumped_Hydro_Watershed_Output_Reserve { (a, t, p, d) in PUMPED_HYDRO_DATES }:
-  sum {h in TIMEPOINTS: date[h]=d} Dispatch_Pumped_Hydro_Watershed_Electrons_Reserve[a, t, p, h] <= 
+subject to Minimum_Dispatch_Hydro_Reserve { (a, t, p, h) in NONPUMPED_HYDRO_AVAILABLE_HOURS }:
+  DispatchHydro_Reserve[a, t, p, h] >= avg_hydro_output_load_area_agg[a, t, p, date[h]] * min_nonpumped_hydro_dispatch_fraction;
+subject to Average_Hydro_Output_Reserve { (a, t, p, d) in HYDRO_DATES }:
+  sum {h in TIMEPOINTS: date[h]=d} DispatchHydro_Reserve[a, t, p, h] <= 
   sum {h in TIMEPOINTS: date[h]=d} avg_hydro_output_load_area_agg[a, t, p, d];
+
+# hydro reserve storage constraints
 subject to Conservation_Of_Stored_Pumped_Hydro_Electrons_Reserve { (a, t, p, d) in PUMPED_HYDRO_DATES }:
 	sum {h in TIMEPOINTS: date[h]=d} Dispatch_Pumped_Hydro_Storage_Reserve[a, t, p, h] <= 
 	sum {h in TIMEPOINTS: date[h]=d} Store_Pumped_Hydro_Reserve[a, t, p, h] * storage_efficiency[t];

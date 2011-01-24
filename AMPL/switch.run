@@ -31,8 +31,7 @@ problem Present_Day_Cost_Minimization:
 	Power_From_Dispatchable_Plants,
 	EP_Power_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Baseload_Plants, EP_Power_From_Hydro_Plants,
 	Maximum_DispatchTransFromXToY, 
-	Maximum_Dispatch_NonPumped_Hydro, Average_NonPumped_Hydro_Output, Minimum_Dispatch_NonPumped_Hydro, 
-	Maximum_Dispatch_Pumped_Hydro, Average_Pumped_Hydro_Watershed_Output,
+	Maximum_Dispatch_Hydro, Average_Hydro_Output, Minimum_Dispatch_Hydro, 
 	Maximum_Store_Pumped_Hydro, Conservation_Of_Stored_Pumped_Hydro_Electrons,
   # Local T&D
   	InstallLocalTD, Minimum_LocalTD
@@ -149,21 +148,19 @@ problem Investment_Cost_Minimization:
 	Power_From_Dispatchable_Plants,
 	EP_Operational_Continuity, EP_Power_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Baseload_Plants, EP_Power_From_Hydro_Plants,
 	Maximum_DispatchTransFromXToY, Maximum_DispatchTransFromXToY_Reserve, 
-	Maximum_Dispatch_NonPumped_Hydro, Average_NonPumped_Hydro_Output,        Minimum_Dispatch_NonPumped_Hydro, 
-	Maximum_Dispatch_Pumped_Hydro,    Average_Pumped_Hydro_Watershed_Output,
+	Maximum_Dispatch_Hydro, Minimum_Dispatch_Hydro, Average_Hydro_Output, 
 	Maximum_Store_Pumped_Hydro, Conservation_Of_Stored_Pumped_Hydro_Electrons,
 	CAES_Combined_Dispatch, Maximum_Store_Rate, Maximum_Release_Storage_Rate, Storage_Projects_Energy_Balance, 
 
   # Contigency Planning Variables (to ensure that a dispatch plan exists that can meet reserve margins)
 	DispatchTransFromXToY_Reserve, StoreEnergy_Reserve, ReleaseEnergy_Reserve, 
-	Dispatch_NonPumped_Hydro_Reserve, Dispatch_Pumped_Hydro_Watershed_Electrons_Reserve, Dispatch_Pumped_Hydro_Storage_Reserve, Store_Pumped_Hydro_Reserve, 
+	DispatchHydro_Reserve, Dispatch_Pumped_Hydro_Storage_Reserve, Store_Pumped_Hydro_Reserve, 
   # Contigency Planning constraints
 	Satisfy_Load_Reserve, 
 	Conservation_Of_Energy_NonDistributed_Reserve, Conservation_Of_Energy_Distributed_Reserve,
     ConsumeNonDistributedPower_Reserve, ConsumeDistributedPower_Reserve, RedirectDistributedPower_Reserve,
   # Dispatch Reserve Constraints
-	Maximum_Dispatch_NonPumped_Hydro_Reserve, Average_NonPumped_Hydro_Output_Reserve,        Minimum_Dispatch_NonPumped_Hydro_Reserve, 
-	Maximum_Dispatch_Pumped_Hydro_Reserve,    Average_Pumped_Hydro_Watershed_Output_Reserve,
+	Maximum_Dispatch_Hydro_Reserve, Average_Hydro_Output_Reserve, Minimum_Dispatch_Hydro_Reserve, 
 	Maximum_Store_Pumped_Hydro_Reserve, Conservation_Of_Stored_Pumped_Hydro_Electrons_Reserve,
 	Maximum_Store_Rate_Reserve, Maximum_Release_Storage_Rate_Reserve, Storage_Projects_Energy_Balance_Reserve
 ;

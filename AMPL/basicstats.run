@@ -57,11 +57,6 @@ for { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' } {
 	 Power_Produced[pid, a, t, p, h] * variable_o_m[pid, a, t];
 }
 
-# costs for storage are currently assumed to be incurred at dispatch only, not during the storage phase
-for { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] } {
-  let Storage_Variable_Cost_Incurred_Hourly[ pid, a, t, p, h ] := 
-	sum {fc in RPS_FUEL_CATEGORY} ReleaseEnergy[pid, a, t, p, h, fc] * variable_o_m[pid, a, t];
-}
 for { (pid, a, t, p, h) in EP_AVAILABLE_HOURS } {
   let EP_Carbon_Emissions[pid, a, t, p, h] := 
 	ProducePowerEP[pid, a, t, p, h] * ep_heat_rate[pid, a, t] * carbon_content[fuel[t]];
@@ -71,6 +66,28 @@ for { (pid, a, t, p, h) in EP_AVAILABLE_HOURS } {
 	ProducePowerEP[pid, a, t, p, h] * ep_heat_rate[pid, a, t] * fuel_cost_hourly[a, fuel[t], h];
   let EP_Variable_Cost_Incurred_Hourly[pid, a, t, p, h] := 
 	ProducePowerEP[pid, a, t, p, h] * ep_variable_o_m[pid, a, t];
+}
+
+# add back pid to pumped hydro dispatch
+for { (pid, a, t, p, h, fc) in PUMPED_HYDRO_AVAILABLE_HOURS_BY_FC_AND_PID } {
+  let Pumped_Hydro_Storage_Stored[pid, a, t, p, h, fc] :=
+		Store_Pumped_Hydro[a, t, p, h, fc] * ( ep_capacity_mw[pid, a, t] / hydro_capacity_mw_in_load_area[a, t] );
+  let Pumped_Hydro_Storage_Released[pid, a, t, p, h, fc] :=
+		Dispatch_Pumped_Hydro_Storage[a, t, p, h, fc] * ( ep_capacity_mw[pid, a, t] / hydro_capacity_mw_in_load_area[a, t] );
+}
+
+# costs for storage are currently assumed to be incurred at dispatch only, not during the storage phase
+for { (pid, a, t, p, h) in AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t] } {
+  let Storage_Net_Power[pid, a, t, p, h, fc] :=
+  	(	if can_build_new[t]
+		then ( ReleaseEnergy[pid, a, t, p, h, fc] - StoreEnergy[pid, a, t, p, h, fc] )
+		else ( Pumped_Hydro_Storage_Released[pid, a, t, p, h, fc] - Pumped_Hydro_Storage_Stored[pid, a, t, p, h, fc] )
+	);
+  let Storage_Variable_Cost_Incurred_Hourly[pid, a, t, p, h, fc] := 
+	(	if can_build_new[t]
+		then ( ReleaseEnergy[pid, a, t, p, h, fc] * variable_o_m[pid, a, t] )
+		else ( Pumped_Hydro_Storage_Released[pid, a, t, p, h, fc] * ep_variable_o_m[pid, a, t] )
+	);
 }
 
 # costs for existing local T&D
@@ -108,8 +125,8 @@ for {p in PERIODS} {
 		Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] +
 		Variable_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h]
 	  ) +
-	  sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] } (
-		Storage_Variable_Cost_Incurred_Hourly[ pid, a, t, p, h ]
+	  sum { (pid, a, t, p, h) in AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t] } (
+		Storage_Variable_Cost_Incurred_Hourly[ pid, a, t, p, h, fc ]
 	  ) +
 	  sum { (pid, a, t, p) in EP_PERIODS } (
 		EP_Capital_Payments_by_Plant_and_Period[pid, a, t, p] +

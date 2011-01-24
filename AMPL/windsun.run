@@ -183,7 +183,10 @@ param Biomass_Solid_Fuel_Cost { a in LOAD_AREAS, h in TIMEPOINTS: num_bio_breakp
 param Fuel_Cost_Incurred_Hourly { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }; 
 param EP_Fuel_Cost_Incurred_Hourly { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }; 
 param Variable_Cost_Incurred_Hourly { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }; 
-param Storage_Variable_Cost_Incurred_Hourly { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] }; 
+param Pumped_Hydro_Storage_Stored { PUMPED_HYDRO_AVAILABLE_HOURS_BY_FC_AND_PID };
+param Pumped_Hydro_Storage_Released { PUMPED_HYDRO_AVAILABLE_HOURS_BY_FC_AND_PID };
+param Storage_Net_Power { (pid, a, t, p, h) in AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t] };
+param Storage_Variable_Cost_Incurred_Hourly { (pid, a, t, p, h) in AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t] }; 
 param EP_Variable_Cost_Incurred_Hourly { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }; 
 param Local_TD_Existing_Cost_Per_Period { a in LOAD_AREAS, p in PERIODS };
 param Local_TD_New_Cost_Per_Period { a in LOAD_AREAS, p in PERIODS };

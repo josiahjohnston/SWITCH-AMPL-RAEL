@@ -64,51 +64,17 @@ printf {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: ProducePowerEP[pid, a, t, p, h]
   >> (outfile);
 
 
-# Store all STORAGE DISPATCH decisions
-
-# Storage of pumped hydro. Don't have to pay variable O&M for storing at the moment.
-printf { (a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY: Store_Pumped_Hydro[a, t, p, h, fc] > 0.001} 
-  "%s	%d	%d	%d	%d	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
-  scenario_id, carbon_cost, p, 0, load_area_id[a], a,
-  (if present_day_optimization then present_day_date[h] else date[h]),
-  (if present_day_optimization then present_day_timepoint[h] else h),
-  technology_id[t], t, 0, 0, 0, 1, 'Storage', fc, hours_in_sample[h],
-  -1 * Store_Pumped_Hydro[a, t, p, h, fc],
-  0, 0, 0, 0, 0
-  >> (outfile);
-
-# Dispatch of stored pumped hydro.
-printf { (a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY: Dispatch_Pumped_Hydro_Storage[a, t, p, h, fc]  > 0.001} 
-  "%s	%d	%d	%d	%d	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
-  scenario_id, carbon_cost, p, 0, load_area_id[a], a,
-  (if present_day_optimization then present_day_date[h] else date[h]),
-  (if present_day_optimization then present_day_timepoint[h] else h),
-  technology_id[t], t, 0, 0, 0, 1, 'Storage', fc, hours_in_sample[h],
-  Dispatch_Pumped_Hydro_Storage[a, t, p, h, fc],
-  0, 0, 0, 0, 0
-  >> (outfile);
-  
-# New storage projects while storing energy. Don't have to pay variable O&M for storing at the moment.
-printf {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t] and StoreEnergy[pid, a, t, p, h, fc]  > 0.001} 
+# Store all STORAGE DISPATCH decisions.  Don't have to pay variable O&M for storing at the moment.
+printf {  (pid, a, t, p, h) in AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t]
+				and not ( -0.01 < Storage_Net_Power[pid, a, t, p, h, fc] < 0.01 ) } 
   "%s	%d	%d	%d	%d	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
   scenario_id, carbon_cost, p, pid, load_area_id[a], a,
   (if present_day_optimization then present_day_date[h] else date[h]),
   (if present_day_optimization then present_day_timepoint[h] else h),
-  technology_id[t], t, 1, 0, 0, 1, 'Storage', fc, hours_in_sample[h],
-  -1 * StoreEnergy[pid, a, t, p, h, fc],
-  0, 0, 0, 0, 0
-  >> (outfile);
-
-# New storage projects while releasing energy.
-printf {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t] and ReleaseEnergy[pid, a, t, p, h, fc]  > 0.001} 
-  "%s	%d	%d	%d	%d	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
-  scenario_id, carbon_cost, p, pid, load_area_id[a], a,
-  (if present_day_optimization then present_day_date[h] else date[h]),
-  (if present_day_optimization then present_day_timepoint[h] else h),
-  technology_id[t], t, 1, 0, 0, 1, 'Storage', fc, hours_in_sample[h],
-  ReleaseEnergy[pid, a, t, p, h, fc],
+  technology_id[t], t, can_build_new[t], 0, 0, 1, 'Storage', fc, hours_in_sample[h],
+  Storage_Net_Power[pid, a, t, p, h, fc],
   0, 0, 0, 0,
-  ReleaseEnergy[pid, a, t, p, h, fc] * variable_o_m[pid, a, t]
+  Storage_Variable_Cost_Incurred_Hourly[pid, a, t, p, h, fc]
   >> (outfile);
 
 close (outfile);
