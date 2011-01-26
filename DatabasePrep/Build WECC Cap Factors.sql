@@ -740,7 +740,7 @@ where technology in ('CSP_Trough_No_Storage', 'CSP_Trough_6h_Storage');
  -- The << operation moves the numeric form of the letter "G" (for generic projects) over by 3 bytes, effectively making its value into the most significant digits.
 insert into _proposed_projects
 	(technology_id, technology, area_id, connect_cost_per_mw, price_and_dollar_year,
-	overnight_cost, fixed_o_m, variable_o_m, hear_rate, overnight_cost_change )
+	overnight_cost, fixed_o_m, variable_o_m, heat_rate, overnight_cost_change )
     select 	technology_id,
     		technology,
     		area_id,
@@ -757,14 +757,10 @@ insert into _proposed_projects
 	        generator_info.resource_limited = 0
 	order by 1,3;
 
--- regional generator restrictions
--- Coal_ST and Nuclear can't be built in CA. Nuclear can't be built in Mexico.
+-- regional generator restrictions: Coal and Nuclear can't be built in CA.
 delete from _proposed_projects
  	where 	(technology_id in (select technology_id from generator_info where fuel in ('Uranium', 'Coal', 'Coal_CCS')) and
 			area_id in (select area_id from load_area_info where primary_nerc_subregion like 'CA'));
-delete from _proposed_projects
- 	where 	(technology_id in (select technology_id from generator_info where fuel in ('Uranium')) and
-			area_id in (select area_id from load_area_info where primary_nerc_subregion like 'MX'));
 
 -- add new CCS projects
 insert into _proposed_projects (technology_id, technology, area_id,

@@ -513,10 +513,15 @@ param hydro_capacity_mw_in_load_area { (a, t) in HYDRO_TECH_LOAD_AREAS }
 	= sum{(pid, a, t) in EXISTING_PLANTS: hydro[t]} ep_capacity_mw[pid, a, t];
 
 # also sum up the hydro output to load area level because it's going to be dispatched at that level of aggregation
-param avg_hydro_output_load_area_agg { (a, t, p, d) in HYDRO_DATES }
+param avg_hydro_output_load_area_agg_unrestricted { (a, t, p, d) in HYDRO_DATES }
 	= sum {(pid, a, t) in EXISTING_PLANTS: hydro[t]} avg_hydro_output[pid, a, t, d];
-
-
+# as avg_hydro_output_load_area_agg_unrestricted has gen_availability[t] built in because it's from historical generation data,
+# it may exceed hydro_capacity_mw_in_load_area[a, t] * gen_availability[t],
+# so the param below restricts generation to the amount expected to be available in the future for each date 
+param avg_hydro_output_load_area_agg { (a, t, p, d) in HYDRO_DATES }
+	= 	if ( avg_hydro_output_load_area_agg_unrestricted[a, t, p, d] > hydro_capacity_mw_in_load_area[a, t] * gen_availability[t] )
+		then hydro_capacity_mw_in_load_area[a, t] * gen_availability[t]
+		else avg_hydro_output_load_area_agg_unrestricted[a, t, p, d];
 	
 ###############################################
 # Transmission lines
@@ -1058,6 +1063,7 @@ subject to EP_Power_From_Baseload_Plants { (pid, a, t, p, h) in EP_AVAILABLE_HOU
 
 # hydro dispatch is done on a load area basis, but it's helpful to have plant level decision variables
 # so the load area variables are apportioned to each plant by capacity (this assumes that each plant operates similarly)
+# DispatchHydro is derated by gen_availability[t] in the hydro constraints below
 subject to EP_Power_From_Hydro_Plants { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: hydro[t] }: 
 	ProducePowerEP[pid, a, t, p, h] = DispatchHydro[a, t, p, h] * ( ep_capacity_mw[pid, a, t] / hydro_capacity_mw_in_load_area[a, t] );
 
@@ -1113,6 +1119,45 @@ subject to Maximum_DispatchTransFromXToY_Reserve
 # Simple fix to the problem of asymetrical transmission build-out
 subject to SymetricalTrans
   {(a1, a2) in TRANSMISSION_LINES_NEW_BUILDS_ALLOWED, p in PERIODS }: InstallTrans[a1, a2, p] = InstallTrans[a2, a1, p];
+
+
+# Mexican exports are capped as to not power all of LA from Tijuana
+# The historical precedent for this constraint is that Baja has exported a small fraction of their power to the US in the past
+# In 2008, they had a load of 11418 GWh and exported a net of 857 GWh.
+# The growth rate of exports is capped at 3.2%, as this is historical growth rate from 2003-2008
+# (when they started to export power, rather than import).
+# this cap is imposed in the middle of the period
+# see the Mexico folder of in Switch_Input_Data for calculations and reference.
+
+# the net amount of power mexican baja california sent to the US in 2008, in MWh
+param mex_baja_net_export_in_2008 = 857000;
+param mex_baja_export_growth_rate = 0.032;
+param mex_baja_export_limit_mwh { p in PERIODS }
+	= sum { y in YEARS: y >= p and y < p + num_years_per_period } mex_baja_net_export_in_2008 * ( 1 + mex_baja_export_growth_rate ) ^ ( y - 2008 );
+	
+subject to Mexican_Export_Limit
+  { a in LOAD_AREAS, p in PERIODS: a = 'MEX_BAJA' }:
+	# transmission out of Baja Mexico
+	sum { (a, a1) in TRANSMISSION_LINES, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY: period[h] = p }
+		DispatchTransFromXToY[a, a1, h, fc] * hours_in_sample[h]
+	# transmission into Baja Mexico
+	- sum { (a1, a) in TRANSMISSION_LINES, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY: period[h] = p }
+		DispatchTransFromXToY[a1, a, h, fc] * transmission_efficiency[a1, a] * hours_in_sample[h]
+	<=
+	mex_baja_export_limit_mwh[p];
+
+# same on a reserve basis such that mexico doesn't export large amounts of reserve without actually exporting power (via Mexican_Export_Limit)
+subject to Mexican_Export_Limit_Reserve
+  { a in LOAD_AREAS, p in PERIODS: a = 'MEX_BAJA' }:
+	# transmission out of Baja Mexico
+	sum { (a, a1) in TRANSMISSION_LINES, h in TIMEPOINTS: period[h] = p }
+		DispatchTransFromXToY_Reserve[a, a1, h] * hours_in_sample[h]
+	# transmission into Baja Mexico
+	- sum { (a1, a) in TRANSMISSION_LINES, h in TIMEPOINTS: period[h] = p }
+		DispatchTransFromXToY_Reserve[a1, a, h] * transmission_efficiency[a1, a] * hours_in_sample[h]
+	<=
+	mex_baja_export_limit_mwh[p] * ( 1 + planning_reserve_margin );
+
 
 # make sure there's enough intra-zone transmission and distribution capacity
 # to handle the net distributed loads
@@ -1184,12 +1229,6 @@ subject to Storage_Projects_Energy_Balance_Reserve {(pid, a, t, p) in PROJECT_VI
 ################################################################################
 # HYDRO CONSTRAINTS
 
-# note: hydro streamflow dispatch
-# as done currently already includes scheduled and forced outages
-# because the EIA data is on historical generation, not resource potential,
-# therefore explicit outage rates are not included in hydro streamflow dispatch.
-# TODO: use historical USGS stream flow and dam height data to estimate available hydro resource
-
 # The variable Store_Pumped_Hydro represents the MW of electricity required to pump water uphill (the load on the grid from pumping)
 # To represent efficiency losses, the electrons stored by Store_Pumped_Hydro are then derated by the storage_efficiency[t] when dispatched
 # so the stock of MW available to be dispatched from pumping hydro projects 
@@ -1200,17 +1239,13 @@ subject to Storage_Projects_Energy_Balance_Reserve {(pid, a, t, p) in PROJECT_VI
 # also, any stored electron (less the storage_efficiency[t]) must retain its color - either brown or green 
 
 # for every hour, the amount of water released can't be more than the turbine capacity
-# the contribution from Dispatch_Pumped_Hydro_Storage is derated by the forced outage rate because storage decisions are completly internal to the model
-# (hydro streamflow decisions have the outage rates built in, but the storage dispatch decisions have been split off from these)
-# it's written somewhat strangely here because DispatchHydro is not derated:
-# dividing by gen_availability[t] effectivly takes up more of the dam capacity in any given hour than a non-derated dispatch variable would
 subject to Maximum_Dispatch_Hydro { (a, t, p, h) in HYDRO_AVAILABLE_HOURS }:
  	DispatchHydro[a, t, p, h]
 	+ 
 	(if t = 'Hydro_Pumped'
-		then ( sum{ fc in RPS_FUEL_CATEGORY } Dispatch_Pumped_Hydro_Storage[a, t, p, h, fc] / gen_availability[t] )
+		then ( sum{ fc in RPS_FUEL_CATEGORY } Dispatch_Pumped_Hydro_Storage[a, t, p, h, fc] )
 		else 0 )
-    <= hydro_capacity_mw_in_load_area[a, t];
+    <= hydro_capacity_mw_in_load_area[a, t] * gen_availability[t];
 
 # for every hour, for NONPUMPED hydro,
 # the amount of water released can't be less than that necessary to maintain stream flow
@@ -1233,7 +1268,6 @@ subject to Average_Hydro_Output { (a, t, p, d) in HYDRO_DATES }:
 # it's unclear whether these pumps can only take their capacity_mw in load,
 # or if they can take capacity_mw / storage_efficiency[t] in load thereby storing their capacity_mw uphill.
 # We'll take the conservative assumption here that they can only store capacity_mw * storage_efficiency[t]
-# Also, the maximum storage rate is derated by gen_availability[t], as these decisions are internal to the model
 subject to Maximum_Store_Pumped_Hydro { (a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS }:
   sum {fc in RPS_FUEL_CATEGORY} Store_Pumped_Hydro[a, t, p, h, fc] <= hydro_capacity_mw_in_load_area[a, t] * gen_availability[t] ;
 
