@@ -68,6 +68,11 @@ param load_area_id {LOAD_AREAS} >= 0;
 # system load (MW)
 param system_load {LOAD_AREAS, TIMEPOINTS} >= 0;
 
+# max system load (MW) - Used for determining max local T&D
+set PRESENT_YEAR = {present_year};
+set PERIODS_AND_PRESENT ordered = PRESENT_YEAR union PERIODS;
+param max_system_load {LOAD_AREAS, PERIODS_AND_PRESENT} >= 0;
+
 # the load in current day instead of a future investment period
 # this is used to calculate the present day cost of power
 # and will be referenced to present day timepoints in ??
@@ -145,8 +150,8 @@ param carbon_content {FUELS} default 0;
 
 # For now, all hours in each study period use the same fuel cost which averages annual prices over the course of each study period.
 # This could be updated to use fuel costs that vary by month, or for an hourly model, it could interpolate between annual forecasts 
-param fuel_cost_hourly {a in LOAD_AREAS, f in FUELS, h in TIMEPOINTS: f not in BIO_SOLID_FUELS} := 
-		( sum{ y in YEARS: y >= period[h] and y < period[h] + num_years_per_period } fuel_price[a, f, y] ) / num_years_per_period;
+param fuel_cost_nominal {a in LOAD_AREAS, t in TECHNOLOGIES, p in PERIODS: fuel[t] not in BIO_SOLID_FUELS} := 
+		( sum{ y in YEARS: y >= p and y < p + num_years_per_period } fuel_price[a, fuel[t], y] ) / num_years_per_period;
 
 # biomass supply curve params
 set LOAD_AREAS_AND_BIO_BREAKPOINTS dimen 2;
@@ -292,9 +297,7 @@ param cap_factor {PROJ_INTERMITTENT_HOURS};
 # project-vintage combinations that can be installed
 # Combustion turbines are assumed to be installable quickly to meet peak load in present day dispatch
 # as the historical existing plant data that SWITCH uses is always a year or two old
-set PROJECT_VINTAGES =
-	if present_day_optimization then { (pid, a, t) in PROJECTS, p in PERIODS: t = 'Gas_Combustion_Turbine' }
-	else { (pid, a, t) in PROJECTS, p in PERIODS: p >= min_build_year[t] + construction_time_years[t] };
+set PROJECT_VINTAGES = { (pid, a, t) in PROJECTS, p in PERIODS: p >= min_build_year[t] + construction_time_years[t] };
 
 # date when a plant of each type and vintage will stop being included in the simulation
 # note: if it would be expected to retire between study periods,
@@ -589,6 +592,13 @@ param existing_local_td {a in LOAD_AREAS} = max_coincident_load_for_local_td[a] 
 # the cost to maintin the existing local T&D infrustructure for each load area
 param local_td_sunk_annual_payment {LOAD_AREAS} >= 0;
 
+# amount of local transmission and distribution capacity
+# (to carry peak power from transmission network to distributed loads)
+param install_local_td {a in LOAD_AREAS, p in PERIODS} = 
+  max( 0, # This max ensures that the value will never fall below 0. 
+  (max_system_load[a,p] - existing_local_td[a] - sum { build in PERIODS: build < p } install_local_td[a, build] ) );
+
+
 #####################
 # calculate discounted costs for new plants
 
@@ -675,7 +685,7 @@ param variable_cost {(pid, a, t, p, h) in AVAILABLE_HOURS} =
 
 param fuel_cost {(pid, a, t, p, h) in AVAILABLE_HOURS: fuel[t] not in BIO_SOLID_FUELS } =
 	( if can_build_new[t] then heat_rate[t] else ep_heat_rate[pid, a, t] )
-  	* fuel_cost_hourly[a, fuel[t], h]
+  	* fuel_cost_nominal[a, t, p]
   	* ( hours_in_sample[h] / num_years_per_period )
     * discount_to_base_year[p];
 
@@ -806,10 +816,6 @@ var InstallTrans {TRANSMISSION_LINES_NEW_BUILDS_ALLOWED, PERIODS } >= 0;
 var DispatchTransFromXToY {TRANSMISSION_LINES, TIMEPOINTS, RPS_FUEL_CATEGORY} >= 0;
 var DispatchTransFromXToY_Reserve {TRANSMISSION_LINES, TIMEPOINTS} >= 0;
 
-# amount of local transmission and distribution capacity
-# (to carry peak power from transmission network to distributed loads)
-var InstallLocalTD {LOAD_AREAS, PERIODS} >= 0;
-
 
 #### OBJECTIVE ####
 
@@ -882,7 +888,7 @@ minimize Power_Cost:
 	+(sum {a in LOAD_AREAS, p in PERIODS} transmission_sunk_annual_payment[a] * discount_to_base_year[p])
 	# Calculate the cost of installing new local (intra-load area) transmission and distribution
 	+(sum {a in LOAD_AREAS, p in PERIODS}
-      InstallLocalTD[a, p] * local_td_cost_per_mw[a, p] )
+      install_local_td[a, p] * local_td_cost_per_mw[a, p] )
 	# Sunk costs of operating the existing local (intra-load area) transmission and distribution
 	+(sum {a in LOAD_AREAS, p in PERIODS} local_td_sunk_annual_payment[a] * discount_to_base_year[p])
 ;
@@ -1159,20 +1165,6 @@ subject to Mexican_Export_Limit_Reserve
 	mex_baja_export_limit_mwh[p] * ( 1 + planning_reserve_margin );
 
 
-# make sure there's enough intra-zone transmission and distribution capacity
-# to handle the net distributed loads
-# it is assumed that local T&D is needed up to the capacity planning margin
-# because even at peak all loads aren't coincident
-# and that local T&D is currently installed up to this margin (hence the max_coincident_load_for_local_td * (1 + planning_reserve_margin) ).
-# TODO: find better data on how much Local T&D is needed above peak load
-subject to Minimum_LocalTD 
-  {a in LOAD_AREAS, h in TIMEPOINTS}:
-  ( system_load[a, h]
-  	- sum { fc in RPS_FUEL_CATEGORY } ConsumeDistributedPower[a,h,fc]
-  	+ sum { fc in RPS_FUEL_CATEGORY } RedirectDistributedPower[a,h,fc] )
-  * ( 1 + planning_reserve_margin )
-	<= existing_local_td[a] + sum {(a, p, h) in LOCAL_TD_HOURS} InstallLocalTD[a, p];
-
 #################################
 # Installable (non pumped hydro) Storage constraints
 
@@ -1310,3 +1302,69 @@ subject to Conservation_Of_Stored_Pumped_Hydro_Electrons_Reserve { (a, t, p, d) 
 # Can't pump more water uphill than the pump capacity (in MW)
 subject to Maximum_Store_Pumped_Hydro_Reserve { (a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS }:
   Store_Pumped_Hydro_Reserve[a, t, p, h] <= hydro_capacity_mw_in_load_area[a, t];
+
+
+
+problem Investment_Cost_Minimization: 
+  # Objective function 
+	Power_Cost, 
+
+  # Satisfy Load and Power Consumption
+    Satisfy_Load,
+	Conservation_Of_Energy_NonDistributed, Conservation_Of_Energy_Distributed,
+    ConsumeNonDistributedPower, ConsumeDistributedPower, RedirectDistributedPower,
+  # Policy Constraints
+	Satisfy_RPS, Carbon_Cap,
+
+  # Investment Decisions
+	InstallGen, BuildGenOrNot, InstallTrans, 
+  # Installation Constraints
+	Maximum_Resource_Competing_Tech, Maximum_Resource_Location_Unspecified, Minimum_GenSize, BuildGenOrNot_Constraint, SymetricalTrans, 
+
+  # Dispatch Decisions
+	DispatchGen, OperateEPDuringPeriod, ProducePowerEP, ConsumeBioSolid, DispatchTransFromXToY, StoreEnergy, ReleaseEnergy,
+	DispatchHydro, Dispatch_Pumped_Hydro_Storage, Store_Pumped_Hydro,
+  # Dispatch Constraints
+	Power_From_Dispatchable_Plants,
+	EP_Operational_Continuity, EP_Power_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Baseload_Plants, EP_Power_From_Hydro_Plants,
+	Maximum_DispatchTransFromXToY, Maximum_DispatchTransFromXToY_Reserve, 
+	Mexican_Export_Limit, Mexican_Export_Limit_Reserve, 
+	Maximum_Dispatch_Hydro, Minimum_Dispatch_Hydro, Average_Hydro_Output, 
+	Maximum_Store_Pumped_Hydro, Conservation_Of_Stored_Pumped_Hydro_Electrons,
+	CAES_Combined_Dispatch, Maximum_Store_Rate, Maximum_Release_Storage_Rate, Storage_Projects_Energy_Balance, 
+
+  # Contigency Planning Variables (to ensure that a dispatch plan exists that can meet reserve margins)
+	DispatchTransFromXToY_Reserve, StoreEnergy_Reserve, ReleaseEnergy_Reserve, 
+	DispatchHydro_Reserve, Dispatch_Pumped_Hydro_Storage_Reserve, Store_Pumped_Hydro_Reserve, 
+  # Contigency Planning constraints
+	Satisfy_Load_Reserve, 
+	Conservation_Of_Energy_NonDistributed_Reserve, Conservation_Of_Energy_Distributed_Reserve,
+    ConsumeNonDistributedPower_Reserve, ConsumeDistributedPower_Reserve, RedirectDistributedPower_Reserve,
+  # Dispatch Reserve Constraints
+	Maximum_Dispatch_Hydro_Reserve, Average_Hydro_Output_Reserve, Minimum_Dispatch_Hydro_Reserve, 
+	Maximum_Store_Pumped_Hydro_Reserve, Conservation_Of_Stored_Pumped_Hydro_Electrons_Reserve,
+	Maximum_Store_Rate_Reserve, Maximum_Release_Storage_Rate_Reserve, Storage_Projects_Energy_Balance_Reserve
+;
+
+problem Present_Day_Cost_Minimization: 
+  # Objective function 
+	Power_Cost, 
+  # Satisfy Load and Power Consumption
+    Satisfy_Load,
+	Conservation_Of_Energy_NonDistributed, Conservation_Of_Energy_Distributed,
+    ConsumeNonDistributedPower, ConsumeDistributedPower, RedirectDistributedPower,
+  # Installation Decisions - only gas combustion turbines for the present day optimization
+	{(pid, a, t, p) in PROJECT_VINTAGES: t='Gas_Combustion_Turbine'} InstallGen[pid, a, t, p], 
+  # Dispatch Decisions
+	DispatchGen, ProducePowerEP, ConsumeBioSolid, DispatchTransFromXToY,
+	{(pid, a, t, p) in EP_PERIODS: not intermittent[t] and not hydro[t] and ep_could_be_operating_past_expected_lifetime[pid, a, t, p]} OperateEPDuringPeriod[pid, a, t, p],
+	DispatchHydro, Dispatch_Pumped_Hydro_Storage, Store_Pumped_Hydro,
+  # Dispatch Constraints
+	Power_From_Dispatchable_Plants,
+	EP_Power_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Baseload_Plants, EP_Power_From_Hydro_Plants,
+	Maximum_DispatchTransFromXToY,
+	Maximum_Dispatch_Hydro, Average_Hydro_Output, Minimum_Dispatch_Hydro, 
+	Maximum_Store_Pumped_Hydro, Conservation_Of_Stored_Pumped_Hydro_Electrons
+;
+
+

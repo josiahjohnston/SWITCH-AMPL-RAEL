@@ -1,59 +1,34 @@
-# note: this script should be called from a directory
-# holding all the tab files.
-
+# load.run
+# SYNOPSIS
+#   include load.run;
+# DESCRIPTION
+#   Loads the SWITCH model and input data that was exported with get_switch_input_tables.sh. Also sets policy options according to the input scenario.
 reset;
-option solver cplexamp;
-param scenario_id symbolic;
 
-############################################################
-#
-# Utility Functions that interact with the operating system
-#
-# get_num_cores() determines how many processor cores are on the current machine. Works on OS X & Linux.
-function get_num_cores pipe "while read junk; do if [ `uname` = 'Darwin' ]; then sysctl hw.ncpu | awk '{print $2}'; elif [ `uname` = 'Linux' ]; then cat /proc/cpuinfo | grep processor | wc -l | awk '{print $1}'; else echo 1; fi; done;";
-# file_exists(file_path) determines whether a file exists at the specified path (relative or absolute). Returns a 1 or a 0. Works on OS X & Linux.
-function file_exists pipe 'while read file_path; do if [ -f "$file_path" ]; then echo 1; else echo 0; fi; done;';
-param num_workers default 1;
-param worker_id default 0;
-param compile_mip_only default 0;
-
-option cplex_options (" lpdisplay=1 iisfind=1 mipdisplay=2 presolve=1 prestats=1 timing=1 nodefile=2 treememory=15000 threads=" & get_num_cores() );
-
-# Other options
-# Adding 'advance=2' might speed up solutions that work from a similar problem's solution
-option presolve 0;
-option presolve_eps 1e-10;
+###################################
+# These AMPL & cplex options must be set before the model is included. 
+option presolve 0, presolve_eps 1e-10;
 # Options to enable automatic substitution of variables without making the program non-linear
 option substout 1, linelim 1;
 # Options to enable timing of compilation
 # option show_stats 1, times 1, gentimes 1;
 # Options to print out auxiliary files from ampl of the compiled MIP - see p. 488 of the AMPL book for documentation
 # option auxfiles cfrsu;
+option solver cplexamp;
+option cplex_options (" lpdisplay=1 iisfind=1 mipdisplay=2 presolve=1 prestats=1 timing=1 nodefile=2 treememory=15000 threads=1" );
+option cplex_options > results/cplex_options;
 
-# parameter used to track execution times and other management stuff.
-param curtime;
-param present_day_cost_compile_time default -1;
-param present_day_cost_sol_time default -1;
-param investment_cost_compile_time default -1;
-param investment_cost_sol_time default -1;
-param solution_times_path symbolic = "results/run_times.txt";
-param results_path symbolic := 'results/';
-# Make the results directory if it doesn't exist.
-shell("if [ ! -d " & results_path & " ]; then mkdir " & results_path & "; fi");
 
-param present_day_optimization binary default 0;
-
-model windsun.mod;
-set RESULT_FILES;
-param result_file_path_templates{RESULT_FILES} symbolic;
-param result_header_paths{RESULT_FILES} symbolic;
-param output_section symbolic;
-data windsun.dat;
+# Include other AMPL code files. 
+model switch.mod;
+include define_params.run;
+data switch.dat;
 data inputs/misc_params.dat;
-param outfile symbolic;
+
+
 
 #########################
-# Read in data from tabs from mysql that are made by get_switch_input_tables.sh
+# Read in data from tab files exported from mysql by get_switch_input_tables.sh
 
 table study_hours "inputs/study_hours.tab" IN: 
   TIMEPOINTS <- [hour], period, date, hours_in_sample, month_of_year, hour_of_day;
@@ -80,6 +55,10 @@ read table transmission_lines;
 table system_load "inputs/system_load.tab" IN: 
   [load_area, hour], system_load, present_day_system_load;
 read table system_load;
+
+table max_system_loads "inputs/max_system_loads.tab" IN: 
+  [load_area, period], max_system_load;
+read table max_system_loads;
 
 table existing_plants "inputs/existing_plants.tab" IN: 
   EXISTING_PLANTS <- [project_id, load_area, technology], 
@@ -139,8 +118,6 @@ table fuel_qualifies_for_rps "inputs/fuel_qualifies_for_rps.tab" IN:
 	LOAD_AREAS_AND_FUEL_CATEGORY <- [load_area, rps_fuel_category], fuel_qualifies_for_rps ~ qualifies;
 read table fuel_qualifies_for_rps; 
 
-check;
-
 ###################################
 # update some params that can't be easily dealt with elsewhere
 
@@ -167,40 +144,43 @@ let technologies_compete_for_space['Biomass_IGCC_CCS'] := 1;
 let technologies_compete_for_space['Bio_Gas'] := 1;
 let technologies_compete_for_space['Bio_Gas_CCS'] := 1;
 
+
 ###################################
-# parameters used for reporting total generation and transmission
-param Installed_To_Date { (pid, a, t, p) in PROJECT_VINTAGES };
-param Capital_Payments_by_Plant_and_Period { (pid, a, t, p) in PROJECT_VINTAGES }; 
-param EP_Capital_Payments_by_Plant_and_Period { (pid, a, t, p) in EP_PERIODS }; 
-param Fixed_OM_by_Plant_and_Period { (pid, a, t, p) in PROJECT_VINTAGES };  
-param EP_Fixed_OM_by_Plant_and_Period { (pid, a, t, p) in EP_PERIODS }; 
-param Power_Produced { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }; 
-param Carbon_Emissions { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }; 
-param EP_Carbon_Emissions { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }; 
-param Carbon_Cost_Incurred_Hourly { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }; 
-param EP_Carbon_Cost_Incurred_Hourly { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }; 
-param Biomass_Solid_Fuel_Cost { a in LOAD_AREAS, h in TIMEPOINTS: num_bio_breakpoints[a] > 0 };
-param Fuel_Cost_Incurred_Hourly { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }; 
-param EP_Fuel_Cost_Incurred_Hourly { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }; 
-param Variable_Cost_Incurred_Hourly { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }; 
-param Pumped_Hydro_Storage_Stored { PUMPED_HYDRO_AVAILABLE_HOURS_BY_FC_AND_PID };
-param Pumped_Hydro_Storage_Released { PUMPED_HYDRO_AVAILABLE_HOURS_BY_FC_AND_PID };
-param Storage_Net_Power { (pid, a, t, p, h) in AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t] };
-param Storage_Variable_Cost_Incurred_Hourly { (pid, a, t, p, h) in AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t] }; 
-param EP_Variable_Cost_Incurred_Hourly { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }; 
-param Local_TD_Existing_Cost_Per_Period { a in LOAD_AREAS, p in PERIODS };
-param Local_TD_New_Cost_Per_Period { a in LOAD_AREAS, p in PERIODS };
-param Transmission_Existing_Cost_Per_Period { a in LOAD_AREAS, p in PERIODS };
-param Transmission_New_Cost_Per_Period { (a1, a2) in TRANSMISSION_LINES, p in PERIODS };
-param Power_Cost_Per_Period {p in PERIODS};
-param Carbon_Costs_Per_Period_per_MWh {p in PERIODS};
-param Yearly_Carbon_Emissions {p in PERIODS};
-param Gross_Power_by_Period {p in PERIODS}; 
-param Transmission_Losses_by_Period {p in PERIODS};
-param Distribution_Losses_by_Period {p in PERIODS};
-param Storage_Losses_by_Period {p in PERIODS};
-param system_load_discounted;
-# these params need to be defined for record_results.run, but have little meaning in the investment cost optimization
-param present_day_timepoint {TIMEPOINTS};
-param present_day_date {TIMEPOINTS};
+# Change the problem to remove policy constraints that are not in effect
+problem Investment_Cost_Minimization;
+if (enable_rps = 0) then { drop Satisfy_RPS; } 
+if (enable_carbon_cap = 0) then { drop Carbon_Cap; } 
+# Simplify transmission & storage if RPS is not in effect
+redeclare param rps_fuel_category {FUELS} symbolic;
+if (enable_rps = 0) then {
+  let LOAD_AREAS_AND_FUEL_CATEGORY := setof{a in LOAD_AREAS} (a,'na');
+  let {f in FUELS} rps_fuel_category[f] := 'na';
+} 
+redeclare param rps_fuel_category {FUELS} symbolic in RPS_FUEL_CATEGORY;
+
+
+############################################################
+# Utility Functions that interact with the operating system
+# get_num_cores() determines how many processor cores are on the current machine. Works on OS X & Linux.
+function get_num_cores pipe "while read junk; do if [ `uname` = 'Darwin' ]; then sysctl hw.ncpu | awk '{print $2}'; elif [ `uname` = 'Linux' ]; then cat /proc/cpuinfo | grep processor | wc -l | awk '{print $1}'; else echo 1; fi; done;";
+# file_exists(file_path) determines whether a file exists at the specified path (relative or absolute). Returns a 1 or a 0. Works on OS X & Linux.
+function file_exists pipe 'while read file_path; do if [ -f "$file_path" ]; then echo 1; else echo 0; fi; done;';
+############################################################
+
+###################################
+# Make directories for results and logs if they don't exist.
+shell("if [ ! -d " & results_path & " ]; then mkdir " & results_path & "; fi");
+shell("if [ ! -d logs ]; then mkdir logs; fi");
+# Make a file header for solution time if it doesn't exist.
+if ( file_exists(solution_times_path) == 0 )
+then {
+  printf "scenario_id	carbon_cost	process_type	completed_at	time_seconds\n"
+  > (solution_times_path);
+  close (solution_times_path);
+}
+
+
+###################################
+# Make sure the model has valid data
+check;
 

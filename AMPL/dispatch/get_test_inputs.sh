@@ -91,6 +91,9 @@ fi
 ###########################
 # These next variables determine which input data is used
 
+# get the present year that will make present day cost optimization possible
+present_year=`date "+%Y"`
+
 read SCENARIO_ID < ../scenario_id.txt
 
 REGIONAL_MULTIPLIER_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select regional_cost_multiplier_scenario_id from scenarios where scenario_id=$SCENARIO_ID;")

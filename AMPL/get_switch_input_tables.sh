@@ -155,6 +155,10 @@ echo '	system_load.tab...'
 echo ampl.tab 2 2 > system_load.tab
 mysql $connection_string -e "select load_area, study_hour as hour, power(1.01, period + $number_of_years_per_period/2 - year(datetime_utc))*power as system_load, power(1.01, $present_year - year(datetime_utc))*power as present_day_system_load from system_load l join study_hours_all h on (h.hournum=l.hour) where $TIMESAMPLE order by study_hour, load_area;" >> system_load.tab
 
+echo '	max_system_loads.tab...'
+echo ampl.tab 2 1 > max_system_loads.tab
+mysql $connection_string -e "select load_area, period, round(power(1.01, period + $number_of_years_per_period/2 - year(datetime_utc))*max_power,2) as max_system_load from (select load_area, (select datetime_utc from _system_load join hours on(hour=hournum) where area_id=sl.area_id order by power desc limit 1) as datetime_utc, max(power) as max_power from system_load sl group by 1) as max_loads join (select $present_year as period UNION select distinct period from study_dates_all where $DATESAMPLE) as periods;" >> max_system_loads.tab
+
 echo '	existing_plants.tab...'
 echo ampl.tab 3 8 > existing_plants.tab
 mysql $connection_string -e "select project_id, load_area, technology, plant_name, eia_id, capacity_mw, heat_rate, if(start_year = 0, 2000, start_year) as start_year, overnight_cost, fixed_o_m, variable_o_m from existing_plants order by 1, 2, 3;" >> existing_plants.tab

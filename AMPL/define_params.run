@@ -1,0 +1,65 @@
+# parameter used to track execution times and other management stuff.
+param curtime;
+param solution_times_path symbolic = "results/run_times.txt";
+param results_path symbolic := 'results/';
+param scenario_id symbolic;
+param num_workers default 1;
+param worker_id default 0;
+param compile_mip_only default 0;
+set RESULT_FILES;
+param result_file_path_templates{RESULT_FILES} symbolic;
+param result_header_paths{RESULT_FILES} symbolic;
+param output_section symbolic;
+param outfile symbolic;
+# These paths will be updated by AMPL to the current value of carbon_cost & results_path
+param problem_basename symbolic = results_path & "sol" & carbon_cost & "_investment_cost";
+param problem_path symbolic     = problem_basename & ".nl";
+param solution_path symbolic    = problem_basename & ".sol";
+param compile_time default -1;
+param sol_time default -1;
+param present_day_optimization binary default 0;
+param InstallGen_tab_path            symbolic := results_path & "InstallGen" & carbon_cost & ".tab";
+param OperateEPDuringPeriod_tab_path symbolic := results_path & "OperateEPDuringPeriod" & carbon_cost & ".tab";
+param InstallTrans_tab_path          symbolic := results_path & "InstallTrans" & carbon_cost & ".tab";
+param install_local_td_tab_path        symbolic := results_path & "install_local_td" & carbon_cost & ".tab";
+
+# these params need to be defined for export.run, but have little meaning in the investment cost optimization
+param present_day_timepoint {TIMEPOINTS};
+param present_day_date {TIMEPOINTS};
+set RELEVANT_PROJ_VINT_HOURS dimen 5;
+
+
+
+###################################
+# parameters used for reporting total generation and transmission
+param Installed_To_Date { (pid, a, t, p) in PROJECT_VINTAGES };
+param Capital_Payments_by_Plant_and_Period { (pid, a, t, p) in PROJECT_VINTAGES }; 
+param EP_Capital_Payments_by_Plant_and_Period { (pid, a, t, p) in EP_PERIODS }; 
+param Fixed_OM_by_Plant_and_Period { (pid, a, t, p) in PROJECT_VINTAGES };  
+param EP_Fixed_OM_by_Plant_and_Period { (pid, a, t, p) in EP_PERIODS }; 
+param Power_Produced { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }; 
+param Carbon_Emissions { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }; 
+param EP_Carbon_Emissions { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }; 
+param Carbon_Cost_Incurred_Hourly { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }; 
+param EP_Carbon_Cost_Incurred_Hourly { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }; 
+param Biomass_Solid_Fuel_Cost { a in LOAD_AREAS, h in TIMEPOINTS: num_bio_breakpoints[a] > 0 };
+param Fuel_Cost_Incurred_Hourly { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }; 
+param EP_Fuel_Cost_Incurred_Hourly { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }; 
+param Variable_Cost_Incurred_Hourly { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }; 
+param Pumped_Hydro_Storage_Stored { PUMPED_HYDRO_AVAILABLE_HOURS_BY_FC_AND_PID };
+param Pumped_Hydro_Storage_Released { PUMPED_HYDRO_AVAILABLE_HOURS_BY_FC_AND_PID };
+param Storage_Net_Power { (pid, a, t, p, h) in AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t] };
+param Storage_Variable_Cost_Incurred_Hourly { (pid, a, t, p, h) in AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t] }; 
+param EP_Variable_Cost_Incurred_Hourly { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }; 
+param Local_TD_Existing_Cost_Per_Period { a in LOAD_AREAS, p in PERIODS };
+param Local_TD_New_Cost_Per_Period { a in LOAD_AREAS, p in PERIODS };
+param Transmission_Existing_Cost_Per_Period { a in LOAD_AREAS, p in PERIODS };
+param Transmission_New_Cost_Per_Period { (a1, a2) in TRANSMISSION_LINES, p in PERIODS };
+param Power_Cost_Per_Period {p in PERIODS};
+param Carbon_Costs_Per_Period_per_MWh {p in PERIODS};
+param Yearly_Carbon_Emissions {p in PERIODS};
+param Gross_Power_by_Period {p in PERIODS}; 
+param Transmission_Losses_by_Period {p in PERIODS};
+param Distribution_Losses_by_Period {p in PERIODS};
+param Storage_Losses_by_Period {p in PERIODS};
+param system_load_discounted;

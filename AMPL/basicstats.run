@@ -3,18 +3,18 @@
 
 
 # Fixed Cash flows for each possible project for every period in the study.
-for { (pid, a, t, p) in PROJECT_VINTAGES } {
-  let Installed_To_Date [pid, a, t, p] :=
+let { (pid, a, t, p) in PROJECT_VINTAGES }
+  Installed_To_Date [pid, a, t, p] :=
 	sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= p < project_end_year[pid, a, t, install_yr] } InstallGen[pid, a, t, install_yr];
-  let Capital_Payments_by_Plant_and_Period[pid, a, t, p] :=
-	sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= p < project_end_year[pid, a, t, install_yr] } (
-	  InstallGen[pid, a, t, install_yr] * capital_cost_annual_payment [pid, a, t, install_yr] * num_years_per_period );
-  let Fixed_OM_by_Plant_and_Period[pid, a, t, p] :=
-	Installed_To_Date[pid, a, t, p] * fixed_o_m[pid, a, t] * num_years_per_period;
-}
+let { (pid, a, t, p) in PROJECT_VINTAGES }
+  Capital_Payments_by_Plant_and_Period[pid, a, t, p] :=
+  	sum {(pid, a, t, install_yr) in PROJECT_VINTAGES: install_yr <= p < project_end_year[pid, a, t, install_yr] } (
+	    InstallGen[pid, a, t, install_yr] * capital_cost_annual_payment [pid, a, t, install_yr] * num_years_per_period );
+let { (pid, a, t, p) in PROJECT_VINTAGES }
+	Fixed_OM_by_Plant_and_Period[pid, a, t, p] :=	Installed_To_Date[pid, a, t, p] * fixed_o_m[pid, a, t] * num_years_per_period;
+
 # Fixed Cash flows for each existing plant for every period in the study.
-for { (pid, a, t, p) in EP_PERIODS } {
-  let EP_Capital_Payments_by_Plant_and_Period[pid, a, t, p] := 
+let { (pid, a, t, p) in EP_PERIODS } EP_Capital_Payments_by_Plant_and_Period[pid, a, t, p] := 
 	ep_capacity_mw[pid, a, t] * capital_cost_annual_payment[pid, a, t, p] 
 	# Don't pay for plants that aren't operated beyond their expected lifetime, unless they're cogen or geothermal
 	* (if ( ep_could_be_operating_past_expected_lifetime[pid, a, t, p] and not ( t = 'Nuclear_EP' or hydro[t] ) )
@@ -23,98 +23,100 @@ for { (pid, a, t, p) in EP_PERIODS } {
 	   else 1
 	  ) 
 	* num_years_per_period;
-  let EP_Fixed_OM_by_Plant_and_Period[pid, a, t, p] := 
-	( if ( intermittent[t] or hydro[t] ) then 1 else OperateEPDuringPeriod[pid, a, t, p] ) * ep_capacity_mw[pid, a, t] * ep_fixed_o_m[pid, a, t] * num_years_per_period;
-}
+let { (pid, a, t, p) in EP_PERIODS } EP_Fixed_OM_by_Plant_and_Period[pid, a, t, p] := 
+  ( if ( intermittent[t] or hydro[t] ) then 1 else OperateEPDuringPeriod[pid, a, t, p] ) * ep_capacity_mw[pid, a, t] * ep_fixed_o_m[pid, a, t] * num_years_per_period;
 
-for { a in LOAD_AREAS, h in TIMEPOINTS, p in PERIODS: period[h] = p and num_bio_breakpoints[a] > 0 } {
-  let Biomass_Solid_Fuel_Cost[a, h] :=
-	if ConsumeBioSolid[a, p] = 0 then 0 else
-	# total cost in each load area in each period for biomass solid
-  		(<< { bp in 1..num_bio_breakpoints[a]-1 } breakpoint_mbtus_per_period[a, bp]; 
-	  	   { bp in 1..num_bio_breakpoints[a] } price_dollars_per_mbtu[a, bp] >>
-	   		ConsumeBioSolid[a, p])
-	# divided by the total fuel usage
-	   / ConsumeBioSolid[a, p];	   		
-}
+let { a in LOAD_AREAS, h in TIMEPOINTS, p in PERIODS: period[h] = p and num_bio_breakpoints[a] > 0 }
+  Biomass_Solid_Fuel_Cost[a, h] :=
+    if ConsumeBioSolid[a, p] = 0 then 0 else
+    # total cost in each load area in each period for biomass solid
+        (<< { bp in 1..num_bio_breakpoints[a]-1 } breakpoint_mbtus_per_period[a, bp]; 
+           { bp in 1..num_bio_breakpoints[a] } price_dollars_per_mbtu[a, bp] >>
+          ConsumeBioSolid[a, p])
+    # divided by the total fuel usage
+       / ConsumeBioSolid[a, p];	   		
 
-for { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' } {
-  # determine how much power was produced at each plant in each hour
-  let Power_Produced[pid, a, t, p, h] :=
-  		(	if	 	dispatchable[t] then DispatchGen[pid, a, t, p, h]
-			else if	intermittent[t] then Installed_To_Date[pid, a, t, p] * cap_factor[pid, a, t, h] * gen_availability[t]
-			else if	baseload[t] 	then Installed_To_Date[pid, a, t, p] * gen_availability[t] );
-  let Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := 
-		if fuel[t] in BIO_SOLID_FUELS
-		then Installed_To_Date[pid, a, t, p] * Biomass_Solid_Fuel_Cost[a, h] * gen_availability[t] * heat_rate[t]
-	# now on to all other fuels
-		else Power_Produced[pid, a, t, p, h] * heat_rate[t] * fuel_cost_hourly[a, fuel[t], h];
-  let Carbon_Emissions[pid, a, t, p, h] := 
-	 Power_Produced[pid, a, t, p, h] * heat_rate[t] * carbon_content[fuel[t]];
-  let Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] := 
-	 Power_Produced[pid, a, t, p, h] * carbon_content[fuel[t]] * carbon_cost;
-  let Variable_Cost_Incurred_Hourly[pid, a, t, p, h] := 
-	 Power_Produced[pid, a, t, p, h] * variable_o_m[pid, a, t];
-}
+# Speed up calculations by initially setting all these values to 0, then only calculate values for projects that have installed capacity
+let {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage'} Power_Produced[pid, a, t, p, h] := 0;
+let {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage'} Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := 0;
+let {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage'} Carbon_Emissions[pid, a, t, p, h] := 0;
+let {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage'} Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] := 0;
+let {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage'} Variable_Cost_Incurred_Hourly[pid, a, t, p, h] := 0;
+let RELEVANT_PROJ_VINT_HOURS := { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' and Installed_To_Date[pid, a, t, p] >= 0.005};
+let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: dispatchable[t] }
+  Power_Produced[pid, a, t, p, h] := DispatchGen[pid, a, t, p, h];
+let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: intermittent[t] }
+  Power_Produced[pid, a, t, p, h] := Installed_To_Date[pid, a, t, p] * cap_factor[pid, a, t, h] * gen_availability[t];
+let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: baseload[t] }
+  Power_Produced[pid, a, t, p, h] := Installed_To_Date[pid, a, t, p] * gen_availability[t];
+let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: fuel[t] in BIO_SOLID_FUELS}
+  Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := 
+    Installed_To_Date[pid, a, t, p] * Biomass_Solid_Fuel_Cost[a, h] * gen_availability[t] * heat_rate[t];
+let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: fuel[t] not in BIO_SOLID_FUELS}
+  Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := 
+    Power_Produced[pid, a, t, p, h] * heat_rate[t] * fuel_cost_nominal[a, t, p];
+let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS }
+  Carbon_Emissions[pid, a, t, p, h] :=  Power_Produced[pid, a, t, p, h] * heat_rate[t] * carbon_content[fuel[t]];
+let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS }
+  Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] := Carbon_Emissions[pid, a, t, p, h] * carbon_cost;
+let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS }
+  Variable_Cost_Incurred_Hourly[pid, a, t, p, h] := Power_Produced[pid, a, t, p, h] * variable_o_m[pid, a, t];
 
-for { (pid, a, t, p, h) in EP_AVAILABLE_HOURS } {
-  let EP_Carbon_Emissions[pid, a, t, p, h] := 
+let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }   EP_Carbon_Emissions[pid, a, t, p, h] := 
 	ProducePowerEP[pid, a, t, p, h] * ep_heat_rate[pid, a, t] * carbon_content[fuel[t]];
-  let EP_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] := 
-	ProducePowerEP[pid, a, t, p, h] * ep_heat_rate[pid, a, t] * carbon_content[fuel[t]] * carbon_cost;
-  let EP_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := 
-	ProducePowerEP[pid, a, t, p, h] * ep_heat_rate[pid, a, t] * fuel_cost_hourly[a, fuel[t], h];
-  let EP_Variable_Cost_Incurred_Hourly[pid, a, t, p, h] := 
+let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }   EP_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] := 
+	EP_Carbon_Emissions[pid, a, t, p, h] * carbon_cost;
+let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }   EP_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := 
+	ProducePowerEP[pid, a, t, p, h] * ep_heat_rate[pid, a, t] * fuel_cost_nominal[a, t, p];
+let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }   EP_Variable_Cost_Incurred_Hourly[pid, a, t, p, h] := 
 	ProducePowerEP[pid, a, t, p, h] * ep_variable_o_m[pid, a, t];
-}
 
 # add back pid to pumped hydro dispatch
-for { (pid, a, t, p, h, fc) in PUMPED_HYDRO_AVAILABLE_HOURS_BY_FC_AND_PID } {
-  let Pumped_Hydro_Storage_Stored[pid, a, t, p, h, fc] :=
+let { (pid, a, t, p, h, fc) in PUMPED_HYDRO_AVAILABLE_HOURS_BY_FC_AND_PID }
+  Pumped_Hydro_Storage_Stored[pid, a, t, p, h, fc] :=
 		Store_Pumped_Hydro[a, t, p, h, fc] * ( ep_capacity_mw[pid, a, t] / hydro_capacity_mw_in_load_area[a, t] );
-  let Pumped_Hydro_Storage_Released[pid, a, t, p, h, fc] :=
+let { (pid, a, t, p, h, fc) in PUMPED_HYDRO_AVAILABLE_HOURS_BY_FC_AND_PID }
+  Pumped_Hydro_Storage_Released[pid, a, t, p, h, fc] :=
 		Dispatch_Pumped_Hydro_Storage[a, t, p, h, fc] * ( ep_capacity_mw[pid, a, t] / hydro_capacity_mw_in_load_area[a, t] );
-}
 
 # costs for storage are currently assumed to be incurred at dispatch only, not during the storage phase
-for { (pid, a, t, p, h) in AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t] } {
-  let Storage_Net_Power[pid, a, t, p, h, fc] :=
-  	(	if can_build_new[t]
-		then ( ReleaseEnergy[pid, a, t, p, h, fc] - StoreEnergy[pid, a, t, p, h, fc] )
-		else ( Pumped_Hydro_Storage_Released[pid, a, t, p, h, fc] - Pumped_Hydro_Storage_Stored[pid, a, t, p, h, fc] )
-	);
-  let Storage_Variable_Cost_Incurred_Hourly[pid, a, t, p, h, fc] := 
-	(	if can_build_new[t]
-		then ( ReleaseEnergy[pid, a, t, p, h, fc] * variable_o_m[pid, a, t] )
-		else ( Pumped_Hydro_Storage_Released[pid, a, t, p, h, fc] * ep_variable_o_m[pid, a, t] )
-	);
-}
+let { (pid, a, t, p, h) in AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t] and can_build_new[t]}
+  Storage_Net_Power[pid, a, t, p, h, fc] :=
+		ReleaseEnergy[pid, a, t, p, h, fc] - StoreEnergy[pid, a, t, p, h, fc];
+let { (pid, a, t, p, h) in AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t] and not can_build_new[t]}
+  Storage_Net_Power[pid, a, t, p, h, fc] :=
+		Pumped_Hydro_Storage_Released[pid, a, t, p, h, fc] - Pumped_Hydro_Storage_Stored[pid, a, t, p, h, fc];
+let { (pid, a, t, p, h) in AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t] and can_build_new[t]}
+  Storage_Variable_Cost_Incurred_Hourly[pid, a, t, p, h, fc] := 
+    ReleaseEnergy[pid, a, t, p, h, fc] * variable_o_m[pid, a, t];
+let { (pid, a, t, p, h) in AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t] and not can_build_new[t]}
+  Storage_Variable_Cost_Incurred_Hourly[pid, a, t, p, h, fc] := 
+    Pumped_Hydro_Storage_Released[pid, a, t, p, h, fc] * ep_variable_o_m[pid, a, t];
 
 # costs for existing local T&D
-for { a in LOAD_AREAS, p in PERIODS } {
-  let Local_TD_Existing_Cost_Per_Period[a, p] :=
-	local_td_sunk_annual_payment[a] * num_years_per_period;
+let { a in LOAD_AREAS, p in PERIODS }
+  Local_TD_Existing_Cost_Per_Period[a, p] :=
+	  local_td_sunk_annual_payment[a] * num_years_per_period;
 # costs for new local T&D
-  let Local_TD_New_Cost_Per_Period[a, p] := 
-	sum { install_yr in PERIODS: install_yr <= p < local_td_end_year[install_yr] }
-	local_td_new_annual_payment_per_mw[a] * InstallLocalTD[a, install_yr] * num_years_per_period;
+let { a in LOAD_AREAS, p in PERIODS }
+  Local_TD_New_Cost_Per_Period[a, p] := 
+    sum { install_yr in PERIODS: install_yr <= p < local_td_end_year[install_yr] }
+    local_td_new_annual_payment_per_mw[a] * install_local_td[a, install_yr] * num_years_per_period;
 # costs for existing transmission
-  let Transmission_Existing_Cost_Per_Period[a, p] :=
-	transmission_sunk_annual_payment[a] * num_years_per_period;
-}
+let { a in LOAD_AREAS, p in PERIODS }
+  Transmission_Existing_Cost_Per_Period[a, p] :=
+	  transmission_sunk_annual_payment[a] * num_years_per_period;
 
-for { (a1, a2) in TRANSMISSION_LINES_NEW_BUILDS_ALLOWED, p in PERIODS } {
-  let Transmission_New_Cost_Per_Period[a1, a2, p] :=
-	sum { install_yr in PERIODS: install_yr <= p < transmission_end_year[install_yr] }
-	transmission_annual_payment[a1, a2] * InstallTrans[a1, a2, install_yr] * num_years_per_period;
-}
+let { (a1, a2) in TRANSMISSION_LINES_NEW_BUILDS_ALLOWED, p in PERIODS }
+  Transmission_New_Cost_Per_Period[a1, a2, p] :=
+    sum { install_yr in PERIODS: install_yr <= p < transmission_end_year[install_yr] }
+    transmission_annual_payment[a1, a2] * InstallTrans[a1, a2, install_yr] * num_years_per_period;
 
 
 ############################################################
 # Basic Stats - print out results for quick inspection of runs
 
-for {p in PERIODS} {
-  let Power_Cost_Per_Period[p] :=
+let {p in PERIODS} Power_Cost_Per_Period[p] :=
 	( # Cash flow in the given period, discounted to the start of the period.
 	  sum { (pid, a, t, p) in PROJECT_VINTAGES } (
 		Capital_Payments_by_Plant_and_Period[pid, a, t, p] +
@@ -148,13 +150,13 @@ for {p in PERIODS} {
 	)
 	/ total_loads_by_period_weighted[p];
 
-  let Yearly_Carbon_Emissions[p] :=
+let {p in PERIODS} Yearly_Carbon_Emissions[p] :=
 	  sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }
 		  Carbon_Emissions[ pid, a, t, p, h ] * hours_in_sample[h] / num_years_per_period + 
 	  sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }
 		  EP_Carbon_Emissions[pid, a, t, p, h] * hours_in_sample[h] / num_years_per_period;
   
-  let Carbon_Costs_Per_Period_per_MWh[p] :=
+let {p in PERIODS} Carbon_Costs_Per_Period_per_MWh[p] :=
 	( # Cash flow in the given period, discounted to the start of the period.
 	  sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }
 		Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h]
@@ -162,17 +164,17 @@ for {p in PERIODS} {
 		EP_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h]
 	) / total_loads_by_period_weighted[p];
 	
-  let Gross_Power_by_Period[p]  := 
+let {p in PERIODS} Gross_Power_by_Period[p]  := 
 	sum{ a in LOAD_AREAS, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY: period[h] = p } 
 		( ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' and rps_fuel_category_tech[t] = fc } Power_Produced[pid, a, t, p, h] )
 		+ ( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: rps_fuel_category[fuel[t]] = fc } ProducePowerEP[pid, a, t, p, h] )
 		) * hours_in_sample[h];
 
-  let Transmission_Losses_by_Period[p] := 
+let {p in PERIODS} Transmission_Losses_by_Period[p] := 
     sum {(a1, a2) in TRANSMISSION_LINES, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY: period[h] = p}
       DispatchTransFromXToY[a1, a2, h, fc] * ( 1 - transmission_efficiency[a1, a2] ) * hours_in_sample[h];
 
- let Distribution_Losses_by_Period[p] := 
+let {p in PERIODS} Distribution_Losses_by_Period[p] := 
 	sum {a in LOAD_AREAS, h in TIMEPOINTS: period[h] = p}
 		distribution_losses * hours_in_sample[h] * ( system_load[a, h]
 		 - (sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES}
@@ -181,16 +183,16 @@ for {p in PERIODS} {
 		   eip_cap_factor[pid, a, t, h] * ep_capacity_mw[pid, a, t] ) 
 			);
 			
-  let Storage_Losses_by_Period[p] :=
+let {p in PERIODS} Storage_Losses_by_Period[p] :=
 	sum { (a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY}
 		( Store_Pumped_Hydro[a, t, p, h, fc] * ( 1 - storage_efficiency[t] ) * hours_in_sample[h] )
 	+ sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t]}
 		( StoreEnergy[pid, a, t, p, h, fc] * ( 1 - storage_efficiency[t] ) * hours_in_sample[h] );
-}
+
 
 ######
 # "discounted" system load, for use in calculating levelized cost of power.
-  let system_load_discounted := 
+let system_load_discounted := 
 	sum { a in LOAD_AREAS, h in TIMEPOINTS } 
 	hours_in_sample[h] * system_load[a,h] * ( bring_annual_costs_to_start_of_period / num_years_per_period )
 	/ ( ( 1 + discount_rate )^( period[h] - base_year ) );

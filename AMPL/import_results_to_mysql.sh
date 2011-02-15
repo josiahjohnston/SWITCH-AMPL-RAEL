@@ -34,14 +34,10 @@ case $1 in
     password=$2
     shift 2
   ;;
-  -P)
+  -P | --port)
     port=$2
     shift 2
   ;;
-  --port)
-    port=$2
-    shift 2
-  ;;
   -D)
     DB_name=$2
     shift 2

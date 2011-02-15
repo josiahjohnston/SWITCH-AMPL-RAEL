@@ -1,0 +1,35 @@
+# SYNOPSIS:
+#   include load.run; include compile.run;
+# DESCRIPTION: 
+#   Compiles problems for each carbon cost. Can operate with several workers if the worker_id and num_workers parameters are set. 
+# ADVANCED USAGE:
+#   # Worker 1:
+#   include load.run; let worker_id := 0; let num_workers := 2; include compile.run;
+#   # Worker 2:
+#   include load.run; let worker_id := 1; let num_workers := 2; include compile.run;
+
+# Compile a binary problem file for each carbon cost.
+for {c in CARBON_COSTS} { 
+
+	if (ord(c) mod num_workers = worker_id )
+	then {
+		let carbon_cost := c;
+    
+    # Only compile this problem if neither the solution nor problem file exists. 
+		if ( (file_exists(solution_path) ==  0) and (file_exists(problem_path) == 0)) then {
+			printf "\nWriting Investment Cost problem for a carbon cost of %d.\n", carbon_cost;
+			let curtime := time();
+			# option auxfiles cfrsu; write ("m" & problem_basename);  # Uncomment this line to write the problem as text files (for debugging)
+			write ("b" & problem_basename);
+			let compile_time := time() - curtime;
+			printf "%d seconds to compile and write the problem file.\n", compile_time;		
+      printf "%d	%d	%s	%d\t%d\n", scenario_id, carbon_cost, "Investment_Cost_Compilation", time(), compile_time  >> (solution_times_path);
+      close (solution_times_path);
+		}
+	}
+}
+
+# Compile for present day optimization. 
+
+
+printf "Finished compiling.\n";

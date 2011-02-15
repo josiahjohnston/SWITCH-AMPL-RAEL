@@ -4,19 +4,18 @@ param do_not_solve = 1;
 
 set PROJECT_VINTAGES_ALL dimen 4;
 set PROJ_MIN_BUILD_VINTAGES_ALL dimen 4;
-set EP_PERIODS_ALL dimen 3;
+set EP_PERIODS_ALL dimen 4;
 set TRANSMISSION_LINE_VINTAGES_ALL dimen 3;
 set LocalTD_VINTAGES_ALL dimen 2;
 param InstallGen_Init {PROJECT_VINTAGES_ALL};
 param OperateEPDuringPeriod_Init {EP_PERIODS_ALL} >= 0, <= 1, integer;
 param InstallTrans_Init {TRANSMISSION_LINE_VINTAGES_ALL} >= 0;
-param InstallLocalTD_Init {a in LOAD_AREAS, p in PERIODS} >= 0;
+param cost_compile_time default -1; 
+param cost_sol_time default -1;
 
 
 subject to Increase_Gen_Only {(pid, a, t, p) in PROJECT_VINTAGES_ALL}:
 	InstallGen_Init[pid, a, t, p] <= InstallGen[pid, a, t, p];
-subject to Increase_TD_Only {a in LOAD_AREAS, p in PERIODS}:
-	InstallLocalTD_Init[a, p] <= InstallLocalTD[a, p];
 
 problem Dispatch_Only: 
   # Objective function 
@@ -29,19 +28,19 @@ problem Dispatch_Only:
 	Conservation_Of_Energy_NonDistributed, Conservation_Of_Energy_Distributed,
 	
 	# Dispatch can install more peakers or local T&D only if the investments generate infeasibilities.
-	Increase_Gen_Only, Increase_TD_Only, 
+	Increase_Gen_Only,  
 
   # Dispatch Decisions
-	ProducePowerNonIntermittent, ProducePowerEP, DispatchTransFromXToY, StoreEnergy, ReleaseEnergy,
+	DispatchGen, OperateEPDuringPeriod, ProducePowerEP, ConsumeBioSolid, DispatchTransFromXToY, StoreEnergy, ReleaseEnergy,
 	Dispatch_NonPumped_Hydro, Dispatch_Pumped_Hydro_Watershed_Electrons, Dispatch_Pumped_Hydro_Storage, Store_Pumped_Hydro,
   # Dispatch Constraints
-	Power_From_Dispatchable_Plants, Power_From_Baseload_Plants,
-	EP_Power_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Baseload_Plants,
+	Power_From_Dispatchable_Plants, 
+	EP_Operational_Continuity, EP_Power_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Baseload_Plants,
 	Maximum_DispatchTransFromXToY, Minimum_LocalTD, 
 	Maximum_Dispatch_NonPumped_Hydro, Average_NonPumped_Hydro_Output,        Minimum_Dispatch_NonPumped_Hydro, 
 	Maximum_Dispatch_Pumped_Hydro,    Average_Pumped_Hydro_Watershed_Output,
 	Maximum_Store_Pumped_Hydro, Conservation_Of_Stored_Pumped_Hydro_Electrons,
-	Maximum_Store_CAES, Maximum_Dispatch_CAES, Storage_Projects_Energy_Balance, CAES_Combined_Dispatch	
+	CAES_Combined_Dispatch, Maximum_Store_Rate, Maximum_Release_Storage_Rate, Storage_Projects_Energy_Balance	
 ;
 
 
@@ -51,8 +50,6 @@ table TableOperateEPDuringPeriod IN "inputs/OperateEPDuringPeriod.tab":
 	EP_PERIODS_ALL <- [pid, a, t, p], OperateEPDuringPeriod_Init ~ OperateEPDuringPeriod;
 table TableInstallTrans IN "inputs/InstallTrans.tab":
 	TRANSMISSION_LINE_VINTAGES_ALL <- [a1, a2, p], InstallTrans_Init ~ InstallTrans;
-table TableInstallLocalTD IN "inputs/InstallLocalTD.tab":
-	LocalTD_VINTAGES_ALL <- [a, p], InstallLocalTD_Init ~ InstallLocalTD;
 
 param cost_problem_file symbolic;
 param cost_solution_file symbolic;
@@ -67,24 +64,20 @@ for {c in CARBON_COSTS} {
   ###############################
   # Load the investment decisions
   let curtime := time();
-  shell( "for f in InstallGen OperateEPDuringPeriod InstallTrans InstallLocalTD; do p=inputs/$f.tab; if [ -L $p ]; then rm $p; fi; done" );
-  shell( "for f in InstallGen OperateEPDuringPeriod InstallTrans InstallLocalTD; do ln -s ${f}" & carbon_cost & ".tab inputs/$f.tab; done" );
+  shell( "for f in InstallGen OperateEPDuringPeriod InstallTrans; do p=inputs/$f.tab; if [ -L $p ]; then rm $p; fi; done" );
+  shell( "for f in InstallGen OperateEPDuringPeriod InstallTrans; do ln -s ${f}" & carbon_cost & ".tab inputs/$f.tab; done" );
   read table TableInstallGen;
   read table TableOperateEPDuringPeriod;
   read table TableInstallTrans;
-  read table TableInstallLocalTD;
   close;
-  shell( "for f in InstallGen OperateEPDuringPeriod InstallTrans InstallLocalTD; do p=inputs/$f.tab; if [ -L $p ]; then rm $p; fi; done" );
+  shell( "for f in InstallGen OperateEPDuringPeriod InstallTrans; do p=inputs/$f.tab; if [ -L $p ]; then rm $p; fi; done" );
   for {(pid, a, t, p) in PROJECT_VINTAGES} {
     let InstallGen[pid, a, t, p] := max(InstallGen_Init[pid, a, t, p], 0);
   }
   for {(a1, a2) in TRANSMISSION_LINES_NEW_BUILDS_ALLOWED, p in PERIODS} {
     let InstallTrans[a1, a2, p] := InstallTrans_Init[a1, a2, p];
   }
-  for {a in LOAD_AREAS, p in PERIODS} {
-    let InstallLocalTD[a, p] := InstallLocalTD_Init[a, p];
-  }
-  for {(pid, a, t, p) in EP_PERIODS} {
+  for {(pid, a, t, p) in EP_PERIODS_ALL} {
     let OperateEPDuringPeriod[pid, a, t, p] := OperateEPDuringPeriod_Init[pid, a, t, p];
   }
   printf "%d seconds to load investment decisions from disk for carbon cost %d.\n", (time() - curtime), carbon_cost;
@@ -125,7 +118,6 @@ for {c in CARBON_COSTS} {
     for {(pid, a, t, p) in PROJECT_VINTAGES: t='Gas_Combustion_Turbine'} {
       unfix InstallGen[pid, a, t, p];
     }
-    unfix InstallLocalTD;
     let curtime := time();
     write ("b" & cost_problem_file);
     let cost_compile_time := time() - curtime;
@@ -134,10 +126,8 @@ for {c in CARBON_COSTS} {
     solve;
     let cost_sol_time := time() - curtime;
     printf "%d seconds to optimize dispatch for cost.\n", cost_sol_time;
-    printf {p in PERIODS} "%d: %.3f additional peakers installed.\n", p, (sum{(a, p) in LocalTD_VINTAGES_ALL: t='Gas_Combustion_Turbine'} (InstallGen[pid, a, t, p] - InstallGen_Init[pid, a, t, p]));
-    printf {p in PERIODS} "%d: %.3f additional T&D installed.\n", p, (sum{(a, p) in LocalTD_VINTAGES_ALL} (InstallLocalTD[pid, a, t, p] - InstallLocalTD_Init[pid, a, t, p]));
+    printf {p in PERIODS} "%d: %.3f additional peakers installed.\n", p, (sum{(pid, a, t, p) in PROJECT_VINTAGES_ALL: t='Gas_Combustion_Turbine'} (InstallGen[pid, a, t, p] - InstallGen_Init[pid, a, t, p]));
     fix InstallGen;
-    fix InstallLocalTD;
   }
 
   if( solve_result = 'infeasible' ) then {
@@ -151,7 +141,7 @@ for {c in CARBON_COSTS} {
         solution( cost_solution_file );
       }
       let curtime := time();
-      include record_dispatch_sums.run;
+#      include record_dispatch_sums.run;
       printf "%d seconds to record dispatch sums.\n", time() - curtime;
     }
   }

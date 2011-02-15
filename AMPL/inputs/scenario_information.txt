@@ -1,6 +1,6 @@
 Scenario Information
-scenario_id	scenario_name	training_set_id	exclude_peaks	exclude_periods	period_reduced_by	regional_cost_multiplier_scenario_id	regional_fuel_cost_scenario_id	regional_gen_price_scenario_id	months_between_samples	start_month	hours_between_samples	start_hour	enable_rps	enable_carbon_cap	notes	num_timepoints	_datesample	_timesample	_hours_in_sample
-2130	t1_p_regids1_1_1_m12_0_h4_0	2	0		1	1	1	1	12	0	4	0	1	1	NULL	48	FIND_IN_SET( period, "")=0 and MOD(month_of_year, 12) = 0 and training_set_id = 2	FIND_IN_SET( period, "")=0 and MOD(month_of_year, 12) = 0 and training_set_id = 2 and MOD(hour_of_day, 4) = 0	hours_in_sample*1*12*4
+scenario_id	scenario_name	training_set_id	exclude_peaks	exclude_periods	period_reduced_by	regional_cost_multiplier_scenario_id	regional_fuel_cost_scenario_id	regional_gen_price_scenario_id	months_between_samples	start_month	hours_between_samples	start_hour	enable_rps	enable_carbon_cap	notes	num_timepoints	_datesample	_timesample	_hours_in_sample	model_version	inputs_adjusted
+2130	t1_p_regids1_1_1_m12_0_h4_0	2	0		1	1	1	1	12	0	4	0	1	1	NULL	48	FIND_IN_SET( period, "")=0 and MOD(month_of_year, 12) = 0 and training_set_id = 2	FIND_IN_SET( period, "")=0 and MOD(month_of_year, 12) = 0 and training_set_id = 2 and MOD(hour_of_day, 4) = 0	hours_in_sample*1*12*4		no
 Training Set Information
 training_set_id	base_year	years_per_period	number_of_periods	selection_method	notes
 2	2015	10	4	MEDIAN	Starting in 2015, with 10 years per period, For each month, the day with peak load and a representative day with near-median load were selected. The peak day was selected by average hourly consumption (system-wide), while the median was based on total consumption during the day.
