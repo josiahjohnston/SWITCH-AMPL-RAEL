@@ -15,7 +15,7 @@ option substout 1, linelim 1;
 # Options to print out auxiliary files from ampl of the compiled MIP - see p. 488 of the AMPL book for documentation
 # option auxfiles cfrsu;
 option solver cplexamp;
-option cplex_options (" lpdisplay=1 iisfind=1 mipdisplay=2 presolve=1 prestats=1 timing=1 nodefile=2 treememory=15000 threads=1" );
+option cplex_options (" lpdisplay=1 iisfind=1 mipdisplay=2 presolve=1 prestats=1 timing=1 nodefile=2 treememory=15000 threads=6" );
 option cplex_options > results/cplex_options;
 
 
@@ -137,12 +137,9 @@ for { t in TECHNOLOGIES } {
 for { t in SOLAR_CSP_TECHNOLOGIES } {
   let technologies_compete_for_space[t] := 1;
 }
-let technologies_compete_for_space['Central_PV'] := 1;
-let technologies_compete_for_space['Concentrating_PV'] := 1;
-let technologies_compete_for_space['Biomass_IGCC'] := 1;
-let technologies_compete_for_space['Biomass_IGCC_CCS'] := 1;
-let technologies_compete_for_space['Bio_Gas'] := 1;
-let technologies_compete_for_space['Bio_Gas_CCS'] := 1;
+set COMPETING_TECHNOLOGIES = {'Central_PV', 'Concentrating_PV', 'Biomass_IGCC', 'Biomass_IGCC_CCS', 'Bio_Gas', 'Bio_Gas_CCS' };
+let {t in COMPETING_TECHNOLOGIES: t in TECHNOLOGIES} 
+  technologies_compete_for_space[t] := 1;
 
 
 ###################################
