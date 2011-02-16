@@ -10,6 +10,7 @@
 # INPUTS
 # 	--num_workers X          The cplex part of the optimization workload will be spread between X simultaneous processes, where each process is working on a different carbon cost scenario. 
 # 	--help                   Print this usage information
+#		--threads_per_cplex X    Allow CPLEX to use up to X threads for its parallel mode. This will increase the memory requirements by a factor of X.
 # OPTIONAL INPUTS FOR A CLUSTER ENVIRONMENT
 # 	--workers_per_node Y     Do not start more than Y workers on a node. 
 # 	--email foo@berkeley.edu Send emails on the job progress to this email
