@@ -13,8 +13,8 @@ write_over_prior_results="IGNORE"
 results_graphing_dir="results_for_graphing"
 # check if results_for_graphing directory exists and make it if it does not
 if [ ! -d $results_graphing_dir ]; then
-	echo "Making Results Directory For Output Graphing"
-	mkdir $results_graphing_dir
+  echo "Making Results Directory For Output Graphing"
+  mkdir $results_graphing_dir
 fi 
 results_dir="results"
 
@@ -35,9 +35,9 @@ case $1 in
     shift 2
   ;;
   -P | --port)
-    port=$2
-    shift 2
-  ;;
+    port=$2
+    shift 2
+  ;;
   -D)
     DB_name=$2
     shift 2
@@ -47,8 +47,8 @@ case $1 in
     shift 2
   ;;
   --FlushPriorResults) 
-	FlushPriorResults=1
-	shift 1
+  FlushPriorResults=1
+  shift 1
   ;;
   --SkipImport) 
     SkipImport=1;
@@ -89,19 +89,19 @@ fi
 ##########################
 # Get the user name and password 
 # Note that passing the password to mysql via a command line parameter is considered insecure
-#	http://dev.mysql.com/doc/refman/5.0/en/password-security.html
+# http://dev.mysql.com/doc/refman/5.0/en/password-security.html
 if [ ! -n "$user" ]
 then 
-	echo "User name for MySQL $DB_name on $db_server? "
-	read user
+  echo "User name for MySQL $DB_name on $db_server? "
+  read user
 fi
 if [ ! -n "$password" ]
 then 
-	echo "Password for MySQL $DB_name on $db_server? "
-	stty_orig=`stty -g`   # Save screen settings
-	stty -echo            # To keep the password vaguely secure, don't let it show to the screen
-	read password
-	stty $stty_orig       # Restore screen settings
+  echo "Password for MySQL $DB_name on $db_server? "
+  stty_orig=`stty -g`   # Save screen settings
+  stty -echo            # To keep the password vaguely secure, don't let it show to the screen
+  read password
+  stty $stty_orig       # Restore screen settings
 fi
 
 connection_string="-h $db_server --port $port -u $user -p$password $DB_name"
@@ -139,25 +139,25 @@ if [ $SkipImport = 0 ]; then
   do
    for file_name in `ls $results_dir/${file_base_name}_*txt | grep "[[:digit:]]"` 
    do
-	file_path="$current_dir/$file_name"
-	echo "    ${file_name}  ->  ${DB_name}._${file_base_name}"
-	# Import the file in question into the DB
-	case $file_base_name in
-	  gen_cap) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" $write_over_prior_results into table _gen_cap ignore 1 lines (scenario_id, carbon_cost, period, project_id, area_id, @junk, technology_id, @junk, @junk, new, baseload, cogen, fuel, capacity, capital_cost, fixed_o_m_cost);") 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
-		;;
-	  trans_cap) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" $write_over_prior_results into table _trans_cap ignore 1 lines (scenario_id,carbon_cost,period,transmission_line_id, start_id,end_id,@junk,@junk,new,trans_mw,fixed_cost);") 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
-		;;
-	  local_td_cap) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" $write_over_prior_results into table _local_td_cap ignore 1 lines (scenario_id, carbon_cost, period, area_id, @junk, new, local_td_mw, fixed_cost);" ) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
-		;;
-	  transmission_dispatch) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" $write_over_prior_results into table _transmission_dispatch ignore 1 lines (scenario_id, carbon_cost, period, transmission_line_id, receive_id, send_id, @junk, @junk, study_date, study_hour, rps_fuel_category, power_sent, power_received, hours_in_sample);" ) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
-		;;
-	  system_load) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" $write_over_prior_results into table _system_load ignore 1 lines (scenario_id, carbon_cost, period, area_id, @junk, study_date, study_hour, hours_in_sample, power, satisfy_load_reduced_cost, satisfy_load_reserve_reduced_cost);" ) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
-		;;
-	  existing_trans_cost_and_rps_reduced_cost) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" $write_over_prior_results into table _existing_trans_cost_and_rps_reduced_cost ignore 1 lines (scenario_id, carbon_cost, period, area_id, @junk, existing_trans_cost, rps_reduced_cost);" ) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
-		;;
-	  generator_and_storage_dispatch) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" $write_over_prior_results into table _generator_and_storage_dispatch ignore 1 lines (scenario_id, carbon_cost, period, project_id, area_id, @junk, study_date, study_hour, technology_id, @junk, new, baseload, cogen, storage, fuel, fuel_category, hours_in_sample, power, co2_tons, heat_rate, fuel_cost, carbon_cost_incurred, variable_o_m_cost);" ) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
-		;;
-	 esac
+  file_path="$current_dir/$file_name"
+  echo "    ${file_name}  ->  ${DB_name}._${file_base_name}"
+  # Import the file in question into the DB
+  case $file_base_name in
+    gen_cap) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" $write_over_prior_results into table _gen_cap ignore 1 lines (scenario_id, carbon_cost, period, project_id, area_id, @junk, technology_id, @junk, @junk, new, baseload, cogen, fuel, capacity, capital_cost, fixed_o_m_cost);") 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
+    ;;
+    trans_cap) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" $write_over_prior_results into table _trans_cap ignore 1 lines (scenario_id,carbon_cost,period,transmission_line_id, start_id,end_id,@junk,@junk,new,trans_mw,fixed_cost);") 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
+    ;;
+    local_td_cap) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" $write_over_prior_results into table _local_td_cap ignore 1 lines (scenario_id, carbon_cost, period, area_id, @junk, new, local_td_mw, fixed_cost);" ) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
+    ;;
+    transmission_dispatch) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" $write_over_prior_results into table _transmission_dispatch ignore 1 lines (scenario_id, carbon_cost, period, transmission_line_id, receive_id, send_id, @junk, @junk, study_date, study_hour, rps_fuel_category, power_sent, power_received, hours_in_sample);" ) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
+    ;;
+    system_load) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" $write_over_prior_results into table _system_load ignore 1 lines (scenario_id, carbon_cost, period, area_id, @junk, study_date, study_hour, hours_in_sample, power, satisfy_load_reduced_cost, satisfy_load_reserve_reduced_cost);" ) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
+    ;;
+    existing_trans_cost_and_rps_reduced_cost) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" $write_over_prior_results into table _existing_trans_cost_and_rps_reduced_cost ignore 1 lines (scenario_id, carbon_cost, period, area_id, @junk, existing_trans_cost, rps_reduced_cost);" ) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
+    ;;
+    generator_and_storage_dispatch) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" $write_over_prior_results into table _generator_and_storage_dispatch ignore 1 lines (scenario_id, carbon_cost, period, project_id, area_id, @junk, study_date, study_hour, technology_id, @junk, new, baseload, cogen, storage, fuel, fuel_category, hours_in_sample, power, co2_tons, heat_rate, fuel_cost, carbon_cost_incurred, variable_o_m_cost);" ) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
+    ;;
+   esac
    done
   done
 else
@@ -193,7 +193,7 @@ mysql $connection_string --column-names=false -e "select distinct(period) from g
 # Build a long query that will make one column for each investment period
 select_gen_summary="SELECT distinct g.scenario_id, technology, g.carbon_cost"
 while read inv_period; do 
-	select_gen_summary=$select_gen_summary", IFNULL((select round(avg_power) from $DB_name._gen_summary_tech where technology_id = g.technology_id and period = '$inv_period' and carbon_cost = g.carbon_cost and scenario_id = g.scenario_id),0) as '$inv_period'"
+  select_gen_summary=$select_gen_summary", IFNULL((select round(avg_power) from $DB_name._gen_summary_tech where technology_id = g.technology_id and period = '$inv_period' and carbon_cost = g.carbon_cost and scenario_id = g.scenario_id),0) as '$inv_period'"
 done < $invest_periods_path
 select_gen_summary=$select_gen_summary" FROM $DB_name._gen_summary_tech g join $DB_name.technologies using(technology_id);"
 mysql $connection_string -e "CREATE OR REPLACE VIEW gen_summary_tech_by_period AS $select_gen_summary"
@@ -202,7 +202,7 @@ mysql $connection_string -e "CREATE OR REPLACE VIEW gen_summary_tech_by_period A
 # Build a long query that will make one column for each investment period
 select_gen_summary="SELECT distinct g.scenario_id, g.fuel, g.carbon_cost"
 while read inv_period; do 
-	select_gen_summary=$select_gen_summary", IFNULL((select round(avg_power) from $DB_name.gen_summary_fuel where fuel = g.fuel and period = '$inv_period' and carbon_cost = g.carbon_cost and scenario_id = g.scenario_id),0) as '$inv_period'"
+  select_gen_summary=$select_gen_summary", IFNULL((select round(avg_power) from $DB_name.gen_summary_fuel where fuel = g.fuel and period = '$inv_period' and carbon_cost = g.carbon_cost and scenario_id = g.scenario_id),0) as '$inv_period'"
 done < $invest_periods_path
 select_gen_summary=$select_gen_summary" FROM $DB_name.gen_summary_fuel g;"
 mysql $connection_string -e "CREATE OR REPLACE VIEW gen_summary_fuel_by_period AS $select_gen_summary"
@@ -212,7 +212,7 @@ mysql $connection_string -e "CREATE OR REPLACE VIEW gen_summary_fuel_by_period A
 # Build a long query that will make one column for each investment period
 select_gen_cap_summary="SELECT distinct g.scenario_id, technology, g.carbon_cost"
 while read inv_period; do 
-	select_gen_cap_summary=$select_gen_cap_summary", IFNULL((select round(capacity) from $DB_name._gen_cap_summary_tech where technology_id = g.technology_id and period = '$inv_period' and carbon_cost = g.carbon_cost and scenario_id = g.scenario_id),0) as '$inv_period'"
+  select_gen_cap_summary=$select_gen_cap_summary", IFNULL((select round(capacity) from $DB_name._gen_cap_summary_tech where technology_id = g.technology_id and period = '$inv_period' and carbon_cost = g.carbon_cost and scenario_id = g.scenario_id),0) as '$inv_period'"
 done < $invest_periods_path
 select_gen_cap_summary=$select_gen_cap_summary" FROM $DB_name._gen_cap_summary_tech g join $DB_name.technologies using(technology_id);"
 mysql $connection_string -e "CREATE OR REPLACE VIEW gen_cap_summary_tech_by_period AS $select_gen_cap_summary"
@@ -221,7 +221,7 @@ mysql $connection_string -e "CREATE OR REPLACE VIEW gen_cap_summary_tech_by_peri
 # Build a long query that will make one column for each investment period
 select_gen_cap_summary="SELECT distinct g.scenario_id, g.fuel, g.carbon_cost"
 while read inv_period; do 
-	select_gen_cap_summary=$select_gen_cap_summary", IFNULL((select round(capacity) from $DB_name.gen_cap_summary_fuel where fuel = g.fuel and period = '$inv_period' and carbon_cost = g.carbon_cost and scenario_id = g.scenario_id),0) as '$inv_period'"
+  select_gen_cap_summary=$select_gen_cap_summary", IFNULL((select round(capacity) from $DB_name.gen_cap_summary_fuel where fuel = g.fuel and period = '$inv_period' and carbon_cost = g.carbon_cost and scenario_id = g.scenario_id),0) as '$inv_period'"
 done < $invest_periods_path
 select_gen_cap_summary=$select_gen_cap_summary" FROM $DB_name.gen_cap_summary_fuel g;"
 mysql $connection_string -e "CREATE OR REPLACE VIEW gen_cap_summary_fuel_by_period AS $select_gen_cap_summary"
@@ -239,7 +239,7 @@ mysql $connection_string --column-names=false -e "select technology_id, technolo
 # gen_cap_summary_by_tech
 select_gen_cap_summary="SELECT distinct g.scenario_id, g.carbon_cost, g.period"
 while read technology_id technology; do 
-	select_gen_cap_summary="$select_gen_cap_summary"", IFNULL((select round(capacity) FROM $DB_name._gen_cap_summary_tech where technology_id='$technology_id' and scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and period = g.period),0) as '$technology'"
+  select_gen_cap_summary="$select_gen_cap_summary"", IFNULL((select round(capacity) FROM $DB_name._gen_cap_summary_tech where technology_id='$technology_id' and scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and period = g.period),0) as '$technology'"
 done < $tech_path
 select_gen_cap_summary="$select_gen_cap_summary"" FROM $DB_name._gen_cap_summary_tech g order by scenario_id, carbon_cost, period;"
 mysql $connection_string -e "CREATE OR REPLACE VIEW gen_cap_summary_by_tech AS $select_gen_cap_summary"
@@ -247,7 +247,7 @@ mysql $connection_string -e "CREATE OR REPLACE VIEW gen_cap_summary_by_tech AS $
 # gen_cap_summary_by_tech_la
 select_dispatch_summary="SELECT distinct g.scenario_id, g.carbon_cost, g.period, load_area"
 while read technology_id technology; do 
-	select_dispatch_summary="$select_dispatch_summary"", IFNULL((select round(capacity) FROM $DB_name._gen_cap_summary_tech_la where technology_id='$technology_id' and scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and period = g.period and area_id = g.area_id),0) as '$technology'"
+  select_dispatch_summary="$select_dispatch_summary"", IFNULL((select round(capacity) FROM $DB_name._gen_cap_summary_tech_la where technology_id='$technology_id' and scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and period = g.period and area_id = g.area_id),0) as '$technology'"
 done < $tech_path
 select_dispatch_summary="$select_dispatch_summary"" FROM $DB_name._gen_cap_summary_tech_la g join load_areas using (area_id) order by scenario_id, carbon_cost, period, load_area;"
 mysql $connection_string -e "CREATE OR REPLACE VIEW gen_cap_summary_by_tech_la AS $select_dispatch_summary"
@@ -257,7 +257,7 @@ mysql $connection_string -e "CREATE OR REPLACE VIEW gen_cap_summary_by_tech_la A
 # gen_summary_by_tech
 select_dispatch_summary="SELECT distinct g.scenario_id, g.carbon_cost, g.period"
 while read technology_id technology; do 
-	select_dispatch_summary="$select_dispatch_summary"", IFNULL((select round(avg_power) FROM $DB_name._gen_summary_tech where technology_id='$technology_id' and scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and period = g.period),0) as '$technology'"
+  select_dispatch_summary="$select_dispatch_summary"", IFNULL((select round(avg_power) FROM $DB_name._gen_summary_tech where technology_id='$technology_id' and scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and period = g.period),0) as '$technology'"
 done < $tech_path
 select_dispatch_summary="$select_dispatch_summary"" FROM $DB_name._gen_summary_tech g order by scenario_id, carbon_cost, period;"
 mysql $connection_string -e "CREATE OR REPLACE VIEW gen_summary_by_tech AS $select_dispatch_summary"
@@ -265,7 +265,7 @@ mysql $connection_string -e "CREATE OR REPLACE VIEW gen_summary_by_tech AS $sele
 # gen_summary_by_tech_la
 select_dispatch_summary="SELECT distinct g.scenario_id, g.carbon_cost, g.period, load_area"
 while read technology_id technology; do 
-	select_dispatch_summary="$select_dispatch_summary"", IFNULL((select round(avg_power) FROM $DB_name._gen_summary_tech_la where technology_id='$technology_id' and scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and period = g.period and area_id = g.area_id),0) as '$technology'"
+  select_dispatch_summary="$select_dispatch_summary"", IFNULL((select round(avg_power) FROM $DB_name._gen_summary_tech_la where technology_id='$technology_id' and scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and period = g.period and area_id = g.area_id),0) as '$technology'"
 done < $tech_path
 select_dispatch_summary="$select_dispatch_summary"" FROM $DB_name._gen_summary_tech_la g join load_areas using (area_id) order by scenario_id, carbon_cost, period, load_area;"
 mysql $connection_string -e "CREATE OR REPLACE VIEW gen_summary_by_tech_la AS $select_dispatch_summary"
@@ -273,7 +273,7 @@ mysql $connection_string -e "CREATE OR REPLACE VIEW gen_summary_by_tech_la AS $s
 # gen_hourly_summary_by_tech
 select_dispatch_summary="SELECT distinct g.scenario_id, g.carbon_cost, g.study_hour, (select period FROM $DB_name._gen_hourly_summary_tech where scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and study_hour = g.study_hour limit 1) as 'period', (select study_date FROM $DB_name._gen_hourly_summary_tech where scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and study_hour = g.study_hour limit 1) as 'study_date', (select hours_in_sample FROM $DB_name._gen_hourly_summary_tech where scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and study_hour = g.study_hour limit 1) as 'hours_in_sample', (select month FROM $DB_name._gen_hourly_summary_tech where scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and study_hour = g.study_hour limit 1) as 'month', (select hour_of_day_UTC FROM $DB_name._gen_hourly_summary_tech where scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and study_hour = g.study_hour limit 1) as 'hour_of_day_UTC', (select mod(hour_of_day_UTC+16,24) FROM $DB_name._gen_hourly_summary_tech where scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and study_hour = g.study_hour limit 1) as 'hour_of_day_PST'"
 while read technology_id technology; do 
-	select_dispatch_summary="$select_dispatch_summary"", IFNULL((select round(power) FROM $DB_name._gen_hourly_summary_tech where technology_id='$technology_id' and scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and study_hour = g.study_hour ),0) as '$technology'"
+  select_dispatch_summary="$select_dispatch_summary"", IFNULL((select round(power) FROM $DB_name._gen_hourly_summary_tech where technology_id='$technology_id' and scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and study_hour = g.study_hour ),0) as '$technology'"
 done < $tech_path
 select_dispatch_summary="$select_dispatch_summary"" FROM $DB_name._gen_hourly_summary_tech g order by scenario_id, carbon_cost, period, month, study_date, hour_of_day_UTC;"
 mysql $connection_string -e "CREATE OR REPLACE VIEW gen_hourly_summary_by_tech AS $select_dispatch_summary"
@@ -281,7 +281,7 @@ mysql $connection_string -e "CREATE OR REPLACE VIEW gen_hourly_summary_by_tech A
 # gen_hourly_summary_la_by_tech
 select_dispatch_summary="SELECT distinct g.scenario_id, g.carbon_cost, g.study_hour, g.area_id, load_area, (select period FROM $DB_name._gen_hourly_summary_tech where scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and study_hour = g.study_hour and area_id = g.area_id limit 1) as 'period', (select study_date FROM $DB_name._gen_hourly_summary_tech where scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and study_hour = g.study_hour and area_id = g.area_id limit 1) as 'study_date', (select hours_in_sample FROM $DB_name._gen_hourly_summary_tech where scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and study_hour = g.study_hour and area_id = g.area_id limit 1) as 'hours_in_sample', (select month FROM $DB_name._gen_hourly_summary_tech where scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and study_hour = g.study_hour and area_id = g.area_id limit 1) as 'month', (select hour_of_day_UTC FROM $DB_name._gen_hourly_summary_tech where scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and study_hour = g.study_hour and area_id = g.area_id limit 1) as 'hour_of_day_UTC', (select mod(hour_of_day_UTC+16,24) FROM $DB_name._gen_hourly_summary_tech where scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and study_hour = g.study_hour and area_id = g.area_id limit 1) as 'hour_of_day_PST'"
 while read technology_id technology; do 
-	select_dispatch_summary="$select_dispatch_summary"", IFNULL((select round(power) FROM $DB_name._gen_hourly_summary_tech_la where technology_id='$technology_id' and scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and study_hour = g.study_hour and area_id = g.area_id),0) as '$technology'"
+  select_dispatch_summary="$select_dispatch_summary"", IFNULL((select round(power) FROM $DB_name._gen_hourly_summary_tech_la where technology_id='$technology_id' and scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and study_hour = g.study_hour and area_id = g.area_id),0) as '$technology'"
 done < $tech_path
 select_dispatch_summary="$select_dispatch_summary"" FROM $DB_name._gen_hourly_summary_tech_la g join $DB_name.load_areas using(area_id) order by scenario_id, carbon_cost, period, month, study_date, hour_of_day_UTC;"
 mysql $connection_string -e "CREATE OR REPLACE VIEW gen_hourly_summary_la_by_tech AS $select_dispatch_summary"
@@ -300,7 +300,7 @@ mysql $connection_string --column-names=false -e "select distinct(fuel) from $DB
 # gen_cap_summary_by_fuel
 select_gen_cap_summary="SELECT distinct g.scenario_id, g.carbon_cost, g.period"
 while read fuel; do 
-	select_gen_cap_summary="$select_gen_cap_summary"", IFNULL((select round(capacity) FROM $DB_name.gen_cap_summary_fuel where fuel='$fuel' and scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and period = g.period),0) as '$fuel'"
+  select_gen_cap_summary="$select_gen_cap_summary"", IFNULL((select round(capacity) FROM $DB_name.gen_cap_summary_fuel where fuel='$fuel' and scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and period = g.period),0) as '$fuel'"
 done < $fuel_path
 select_gen_cap_summary="$select_gen_cap_summary"" FROM $DB_name.gen_cap_summary_fuel g order by scenario_id, carbon_cost, period;"
 mysql $connection_string -e "CREATE OR REPLACE VIEW gen_cap_summary_by_fuel AS $select_gen_cap_summary"
@@ -308,7 +308,7 @@ mysql $connection_string -e "CREATE OR REPLACE VIEW gen_cap_summary_by_fuel AS $
 # gen_cap_summary_by_fuel_la
 select_dispatch_summary="SELECT distinct g.scenario_id, g.carbon_cost, g.period, g.load_area"
 while read fuel; do 
-	select_dispatch_summary="$select_dispatch_summary"", IFNULL((select round(capacity) FROM $DB_name.gen_cap_summary_fuel_la where fuel='$fuel' and scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and period = g.period and load_area = g.load_area),0) as '$fuel'"
+  select_dispatch_summary="$select_dispatch_summary"", IFNULL((select round(capacity) FROM $DB_name.gen_cap_summary_fuel_la where fuel='$fuel' and scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and period = g.period and load_area = g.load_area),0) as '$fuel'"
 done < $fuel_path
 select_dispatch_summary="$select_dispatch_summary"" FROM $DB_name.gen_cap_summary_fuel_la g order by scenario_id, carbon_cost, period, load_area;"
 mysql $connection_string -e "CREATE OR REPLACE VIEW gen_cap_summary_by_fuel_la AS $select_dispatch_summary"
@@ -317,7 +317,7 @@ mysql $connection_string -e "CREATE OR REPLACE VIEW gen_cap_summary_by_fuel_la A
 # gen_summary_by_fuel 
 select_dispatch_summary="SELECT distinct g.scenario_id, g.carbon_cost, g.period"
 while read fuel; do 
-	select_dispatch_summary="$select_dispatch_summary"", IFNULL((select round(avg_power) FROM $DB_name.gen_summary_fuel where fuel='$fuel' and scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and period = g.period),0) as '$fuel'"
+  select_dispatch_summary="$select_dispatch_summary"", IFNULL((select round(avg_power) FROM $DB_name.gen_summary_fuel where fuel='$fuel' and scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and period = g.period),0) as '$fuel'"
 done < $fuel_path
 select_dispatch_summary="$select_dispatch_summary"" FROM $DB_name.gen_summary_fuel g order by scenario_id, carbon_cost, period;"
 mysql $connection_string -e "CREATE OR REPLACE VIEW gen_summary_by_fuel AS $select_dispatch_summary"
@@ -326,7 +326,7 @@ mysql $connection_string -e "CREATE OR REPLACE VIEW gen_summary_by_fuel AS $sele
 # gen_summary_by_fuel_la
 select_dispatch_summary="SELECT distinct g.scenario_id, g.carbon_cost, g.period, g.load_area"
 while read fuel; do 
-	select_dispatch_summary="$select_dispatch_summary"", IFNULL((select round(avg_power) FROM $DB_name.gen_summary_fuel_la where fuel='$fuel' and scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and period = g.period and load_area = g.load_area),0) as '$fuel'"
+  select_dispatch_summary="$select_dispatch_summary"", IFNULL((select round(avg_power) FROM $DB_name.gen_summary_fuel_la where fuel='$fuel' and scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and period = g.period and load_area = g.load_area),0) as '$fuel'"
 done < $fuel_path
 select_dispatch_summary="$select_dispatch_summary"" FROM $DB_name.gen_summary_fuel_la g order by scenario_id, carbon_cost, period, load_area;"
 mysql $connection_string -e "CREATE OR REPLACE VIEW gen_summary_by_fuel_la AS $select_dispatch_summary"
@@ -335,7 +335,7 @@ mysql $connection_string -e "CREATE OR REPLACE VIEW gen_summary_by_fuel_la AS $s
 # gen_hourly_summary_by_fuel, 
 select_dispatch_summary="SELECT distinct g.scenario_id, g.carbon_cost, g.study_hour, (select period FROM $DB_name._gen_hourly_summary_fuel where scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and study_hour = g.study_hour limit 1) as 'period', (select study_date FROM $DB_name._gen_hourly_summary_fuel where scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and study_hour = g.study_hour limit 1) as 'study_date', (select hours_in_sample FROM $DB_name._gen_hourly_summary_fuel where scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and study_hour = g.study_hour limit 1) as 'hours_in_sample', (select month FROM $DB_name._gen_hourly_summary_fuel where scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and study_hour = g.study_hour limit 1) as 'month', (select hour_of_day_UTC FROM $DB_name._gen_hourly_summary_fuel where scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and study_hour = g.study_hour limit 1) as 'hour_of_day_UTC', (select mod(hour_of_day_UTC+16,24) FROM $DB_name._gen_hourly_summary_fuel where scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and study_hour = g.study_hour limit 1) as 'hour_of_day_PST'"
 while read fuel; do 
-	select_dispatch_summary="$select_dispatch_summary"", IFNULL((select round(power) FROM $DB_name._gen_hourly_summary_fuel where fuel='$fuel' and scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and study_hour = g.study_hour ),0) as '$fuel'"
+  select_dispatch_summary="$select_dispatch_summary"", IFNULL((select round(power) FROM $DB_name._gen_hourly_summary_fuel where fuel='$fuel' and scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and study_hour = g.study_hour ),0) as '$fuel'"
 done < $fuel_path
 select_dispatch_summary="$select_dispatch_summary"" FROM $DB_name._gen_hourly_summary_fuel g order by scenario_id, carbon_cost, period, month, study_date, hour_of_day_UTC;"
 mysql $connection_string -e "CREATE OR REPLACE VIEW gen_hourly_summary_by_fuel AS $select_dispatch_summary"
@@ -343,7 +343,7 @@ mysql $connection_string -e "CREATE OR REPLACE VIEW gen_hourly_summary_by_fuel A
 # gen_hourly_summary_la_by_fuel
 select_dispatch_summary="SELECT distinct g.scenario_id, g.carbon_cost, g.study_hour, g.area_id, load_area, (select period FROM $DB_name._gen_hourly_summary_fuel where scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and study_hour = g.study_hour and area_id = g.area_id limit 1) as 'period', (select study_date FROM $DB_name._gen_hourly_summary_fuel where scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and study_hour = g.study_hour and area_id = g.area_id limit 1) as 'study_date', (select hours_in_sample FROM $DB_name._gen_hourly_summary_fuel where scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and study_hour = g.study_hour and area_id = g.area_id limit 1) as 'hours_in_sample', (select month FROM $DB_name._gen_hourly_summary_fuel where scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and study_hour = g.study_hour and area_id = g.area_id limit 1) as 'month', (select hour_of_day_UTC FROM $DB_name._gen_hourly_summary_fuel where scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and study_hour = g.study_hour and area_id = g.area_id limit 1) as 'hour_of_day_UTC', (select mod(hour_of_day_UTC+16,24) FROM $DB_name._gen_hourly_summary_fuel where scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and study_hour = g.study_hour and area_id = g.area_id limit 1) as 'hour_of_day_PST'"
 while read fuel; do 
-	select_dispatch_summary="$select_dispatch_summary"", IFNULL((select round(power) FROM $DB_name._gen_hourly_summary_fuel_la where fuel='$fuel' and scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and study_hour = g.study_hour and area_id = g.area_id),0) as '$fuel'"
+  select_dispatch_summary="$select_dispatch_summary"", IFNULL((select round(power) FROM $DB_name._gen_hourly_summary_fuel_la where fuel='$fuel' and scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and study_hour = g.study_hour and area_id = g.area_id),0) as '$fuel'"
 done < $fuel_path
 select_dispatch_summary="$select_dispatch_summary"" FROM $DB_name._gen_hourly_summary_fuel_la g join $DB_name.load_areas using(area_id) order by scenario_id, carbon_cost, period, month, study_date, hour_of_day_UTC;"
 mysql $connection_string -e "CREATE OR REPLACE VIEW gen_hourly_summary_la_by_fuel AS $select_dispatch_summary"
