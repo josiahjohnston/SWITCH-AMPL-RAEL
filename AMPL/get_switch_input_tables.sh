@@ -95,8 +95,7 @@ fi
 # get the present year that will make present day cost optimization possible
 present_year=`date "+%Y"`
 
-INTERMITTENT_PROJECTS_SELECTION="(( avg_cap_factor_percentile_by_intermittent_tech >= 0.75 or cumulative_avg_MW_tech_load_area <= 5 * total_yearly_load_mwh / 8766 or rank_by_tech_in_load_area <= 10 or 
-avg_cap_factor_percentile_by_intermittent_tech is null) and technology <> 'Concentrating_PV')"
+INTERMITTENT_PROJECTS_SELECTION="(( avg_cap_factor_percentile_by_intermittent_tech >= 0.75 or cumulative_avg_MW_tech_load_area <= 3 * total_yearly_load_mwh / 8766 or rank_by_tech_in_load_area <= 5 or avg_cap_factor_percentile_by_intermittent_tech is null) and technology <> 'Concentrating_PV')"
 
 read SCENARIO_ID < scenario_id.txt
 
@@ -187,8 +186,7 @@ fi
 
 echo '	generator_info.tab...'
 echo ampl.tab 1 25 > generator_info.tab
-mysql $connection_string -e "select technology, technology_id, min_build_year, fuel, heat_rate, construction_time_years, year_1_cost_fraction, year_2_cost_fraction, year_3_cost_fraction, 
-year_4_cost_fraction, year_5_cost_fraction, year_6_cost_fraction, max_age_years, forced_outage_rate, scheduled_outage_rate, can_build_new, ccs, intermittent, resource_limited, baseload, dispatchable, cogen, min_build_capacity, storage, storage_efficiency, max_store_rate from generator_info where technology not like '%CCS%';" >> generator_info.tab
+mysql $connection_string -e "select technology, technology_id, min_build_year, fuel, heat_rate, construction_time_years, year_1_cost_fraction, year_2_cost_fraction, year_3_cost_fraction, year_4_cost_fraction, year_5_cost_fraction, year_6_cost_fraction, max_age_years, forced_outage_rate, scheduled_outage_rate, can_build_new, ccs, intermittent, resource_limited, baseload, dispatchable, cogen, min_build_capacity, storage, storage_efficiency, max_store_rate from generator_info where technology not like '%CCS_EP';" >> generator_info.tab
 
 echo '	fuel_costs.tab...'
 echo ampl.tab 3 1 > fuel_costs.tab
