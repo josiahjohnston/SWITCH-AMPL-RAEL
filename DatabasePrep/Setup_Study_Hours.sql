@@ -286,8 +286,10 @@ CREATE TABLE IF NOT EXISTS scenarios (
   _datesample TEXT,
   _timesample TEXT,
   _hours_in_sample TEXT,
+  model_version varchar(16) NOT NULL,
+  inputs_adjusted varchar(16) NOT NULL DEFAULT 'no',
   PRIMARY KEY (scenario_id), 
-  UNIQUE INDEX unique_params(training_set_id, exclude_peaks, exclude_periods, period_reduced_by, regional_cost_multiplier_scenario_id, regional_fuel_cost_scenario_id, gen_price_scenario_id, months_between_samples, start_month, hours_between_samples, start_hour, enable_rps, enable_carbon_cap), 
+  UNIQUE KEY unique_params (training_set_id, exclude_peaks, exclude_periods, period_reduced_by, regional_cost_multiplier_scenario_id, regional_fuel_cost_scenario_id, gen_price_scenario_id, months_between_samples, start_month, hours_between_samples, start_hour, enable_rps, enable_carbon_cap, model_version, inputs_adjusted), 
   CONSTRAINT training_set_id FOREIGN KEY training_set_id (training_set_id)
     REFERENCES training_sets (training_set_id), 
   CONSTRAINT regional_cost_multiplier_scenario_id FOREIGN KEY regional_cost_multiplier_scenario_id (regional_cost_multiplier_scenario_id)
@@ -374,6 +376,25 @@ BEGIN
   
   DROP TEMPORARY TABLE switch_inputs_wecc_v2_2.__set_scenarios_sql_columns;
   RETURN (SELECT count(*) FROM switch_inputs_wecc_v2_2.scenarios WHERE scenario_id >= target_scenario_id);
+END$$
+
+DROP FUNCTION IF EXISTS clone_scenario$$
+CREATE FUNCTION clone_scenario (name varchar(128), model_v varchar(16), inputs_diff varchar(16), source_scenario_id int ) RETURNS int
+BEGIN
+
+DECLARE new_id INT DEFAULT 0;
+INSERT INTO scenarios (scenario_name, training_set_id, exclude_peaks, exclude_periods, period_reduced_by, regional_cost_multiplier_scenario_id, regional_fuel_cost_scenario_id, regional_gen_price_scenario_id, months_between_samples, start_month, hours_between_samples, start_hour, enable_rps, enable_carbon_cap, notes, num_timepoints, _datesample, _timesample, _hours_in_sample, model_version, inputs_adjusted)
+
+  SELECT name, training_set_id, exclude_peaks, exclude_periods, period_reduced_by, regional_cost_multiplier_scenario_id, regional_fuel_cost_scenario_id, regional_gen_price_scenario_id, months_between_samples, start_month, hours_between_samples, start_hour, enable_rps, enable_carbon_cap, notes, num_timepoints, _datesample, _timesample, _hours_in_sample, 
+
+  model_v, inputs_diff
+  FROM scenarios where scenario_id=source_scenario_id;
+
+  SELECT LAST_INSERT_ID() into new_id;
+
+  SELECT set_scenarios_sql_columns(new_id) into @cnt;
+
+  RETURN (new_id);
 END$$
 
 DELIMITER ;
