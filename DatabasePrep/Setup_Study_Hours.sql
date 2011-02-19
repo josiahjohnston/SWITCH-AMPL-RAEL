@@ -274,7 +274,7 @@ CREATE TABLE IF NOT EXISTS scenarios (
   period_reduced_by float NOT NULL DEFAULT 1 COMMENT 'If you exclude 2 of four periods, set this value to 4/2=2. If you do not exclude any periods, this will default to 1. The "hours_in_sample" are multiplied by this factor to scale them appropriately.',
   regional_cost_multiplier_scenario_id INT NOT NULL DEFAULT 1, 
   regional_fuel_cost_scenario_id INT NOT NULL DEFAULT 1, 
-  regional_gen_price_scenario_id INT NOT NULL DEFAULT 1, 
+  gen_price_scenario_id MEDIUMINT NOT NULL DEFAULT 1, 
   months_between_samples INT NOT NULL DEFAULT 6, 
   start_month INT NOT NULL DEFAULT 3 COMMENT 'The value of START_MONTH should be between 0 and one less than the value of NUM_HOURS_BETWEEN_SAMPLES. 0 means sampling starts in Jan, 1 means Feb, 2 -> March, 3 -> April', 
   hours_between_samples INT NOT NULL DEFAULT 24, 
@@ -287,15 +287,15 @@ CREATE TABLE IF NOT EXISTS scenarios (
   _timesample TEXT,
   _hours_in_sample TEXT,
   PRIMARY KEY (scenario_id), 
-  UNIQUE INDEX unique_params(training_set_id, exclude_peaks, exclude_periods, period_reduced_by, regional_cost_multiplier_scenario_id, regional_fuel_cost_scenario_id, regional_gen_price_scenario_id, months_between_samples, start_month, hours_between_samples, start_hour, enable_rps, enable_carbon_cap), 
+  UNIQUE INDEX unique_params(training_set_id, exclude_peaks, exclude_periods, period_reduced_by, regional_cost_multiplier_scenario_id, regional_fuel_cost_scenario_id, gen_price_scenario_id, months_between_samples, start_month, hours_between_samples, start_hour, enable_rps, enable_carbon_cap), 
   CONSTRAINT training_set_id FOREIGN KEY training_set_id (training_set_id)
     REFERENCES training_sets (training_set_id), 
   CONSTRAINT regional_cost_multiplier_scenario_id FOREIGN KEY regional_cost_multiplier_scenario_id (regional_cost_multiplier_scenario_id)
     REFERENCES regional_economic_multiplier (scenario_id), 
   CONSTRAINT regional_fuel_cost_scenario_id FOREIGN KEY regional_fuel_cost_scenario_id (regional_fuel_cost_scenario_id)
     REFERENCES regional_fuel_prices (scenario_id), 
-  CONSTRAINT regional_gen_price_scenario_id FOREIGN KEY regional_gen_price_scenario_id (regional_gen_price_scenario_id)
-    REFERENCES regional_generator_costs (scenario_id)
+  CONSTRAINT gen_price_scenario_id FOREIGN KEY gen_price_scenario_id (gen_price_scenario_id)
+    REFERENCES generator_price_scenarios (gen_price_scenario_id)
 )
 COMMENT = 'Each record in this table is a specification of how to compile a set of inputs for a specific run. Several fields specify how to subselect timepoints from a given training_set. Other fields indicate which set of regional price data to use.';
 
@@ -363,7 +363,7 @@ BEGIN
              concat( 'xp_', replace(exclude_periods,',','_' ) ),
              ''
            ), 
-           'regids', regional_cost_multiplier_scenario_id, '_', regional_fuel_cost_scenario_id, '_', regional_gen_price_scenario_id, '_', 
+           'regids', regional_cost_multiplier_scenario_id, '_', regional_fuel_cost_scenario_id, '_', gen_price_scenario_id, '_', 
            'm', months_between_samples, '_', start_month, '_',
            'h', hours_between_samples, '_', start_hour
         )

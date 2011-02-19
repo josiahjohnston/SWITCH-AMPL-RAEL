@@ -239,6 +239,35 @@ DROP VIEW IF EXISTS generator_costs;
 CREATE VIEW generator_costs as select * from switch_inputs_wecc_v2_2.generator_info;
 use switch_inputs_wecc_v2_2;
 
+CREATE TABLE IF NOT EXISTS generator_price_scenarios (
+	gen_price_scenario_id mediumint unsigned PRIMARY KEY AUTO_INCREMENT,
+	notes varchar(256) NOT NULL UNIQUE
+);
+CREATE TABLE IF NOT EXISTS  generator_price_adjuster (
+	gen_price_scenario_id mediumint unsigned NOT NULL,
+	technology_id tinyint unsigned NOT NULL,
+	overnight_adjuster float NOT NULL,
+	PRIMARY KEY (gen_price_scenario_id, technology_id)
+);
+DELIMITER $$
+DROP FUNCTION IF EXISTS create_generator_price_scenario$$
+CREATE FUNCTION create_generator_price_scenario (notes_dat varchar(1024)) RETURNS mediumint 
+BEGIN
+	INSERT INTO generator_price_scenarios (notes) VALUES (notes_dat);
+	SELECT last_insert_id() into @gen_price_scenario_id;
+	INSERT INTO generator_price_adjuster 
+		SELECT @gen_price_scenario_id, technology_id, 1 from generator_info;
+	RETURN @gen_price_scenario_id;
+END$$
+DELIMITER $$
+DROP PROCEDURE IF EXISTS adjust_generator_price$$
+CREATE PROCEDURE adjust_generator_price (gen_scenario_id mediumint unsigned, technology_name varchar(64), capital_adjuster float)
+BEGIN
+   UPDATE generator_price_adjuster SET overnight_adjuster=capital_adjuster
+     WHERE gen_price_scenario_id=gen_scenario_id AND technology_id=(select technology_id from generator_info where technology=technology_name);
+END$$
+DELIMITER ;
+
 -- ---------------------------------------------------------------------
 --        REGION-SPECIFIC GENERATOR COSTS & AVAILIBILITY
 -- ---------------------------------------------------------------------

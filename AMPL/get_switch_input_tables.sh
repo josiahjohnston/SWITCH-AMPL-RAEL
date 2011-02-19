@@ -95,13 +95,14 @@ fi
 # get the present year that will make present day cost optimization possible
 present_year=`date "+%Y"`
 
-INTERMITTENT_PROJECTS_SELECTION="(( avg_cap_factor_percentile_by_intermittent_tech >= 0.75 or cumulative_avg_MW_tech_load_area <= 3 * total_yearly_load_mwh / 8766 or rank_by_tech_in_load_area <= 5 or avg_cap_factor_percentile_by_intermittent_tech is null) and technology <> 'Concentrating_PV')"
+INTERMITTENT_PROJECTS_SELECTION="(( avg_cap_factor_percentile_by_intermittent_tech >= 0.75 or cumulative_avg_MW_tech_load_area <= 5 * total_yearly_load_mwh / 8766 or rank_by_tech_in_load_area <= 10 or 
+avg_cap_factor_percentile_by_intermittent_tech is null) and technology <> 'Concentrating_PV')"
 
 read SCENARIO_ID < scenario_id.txt
 
 export REGIONAL_MULTIPLIER_SCENARIO_ID=`mysql $connection_string --column-names=false -e "select regional_cost_multiplier_scenario_id from scenarios where scenario_id=$SCENARIO_ID;"` 
 export REGIONAL_FUEL_COST_SCENARIO_ID=`mysql $connection_string --column-names=false -e "select regional_fuel_cost_scenario_id from scenarios where scenario_id=$SCENARIO_ID;"` 
-export REGIONAL_GEN_PRICE_SCENARIO_ID=`mysql $connection_string --column-names=false -e "select regional_gen_price_scenario_id from scenarios where scenario_id=$SCENARIO_ID;"` 
+export GEN_PRICE_SCENARIO_ID=`mysql $connection_string --column-names=false -e "select gen_price_scenario_id from scenarios where scenario_id=$SCENARIO_ID;"` 
 export SCENARIO_NAME=`mysql $connection_string --column-names=false -e "select scenario_name from scenarios where scenario_id=$SCENARIO_ID;"` 
 export DATESAMPLE=`mysql $connection_string --column-names=false -e "select _datesample from scenarios where scenario_id=$SCENARIO_ID;"` 
 export TIMESAMPLE=`mysql $connection_string --column-names=false -e "select _timesample from scenarios where scenario_id=$SCENARIO_ID;"` 
@@ -173,7 +174,8 @@ mysql $connection_string -e "select project_id, load_area, technology, study_dat
 
 echo '	proposed_projects.tab...'
 echo ampl.tab 3 9 > proposed_projects.tab
-mysql $connection_string -e "select project_id, proposed_projects.load_area, technology, if(location_id is NULL, 0, location_id) as location_id, if(capacity_limit is NULL, 0, capacity_limit) as capacity_limit, capacity_limit_conversion, connect_cost_per_mw, price_and_dollar_year, overnight_cost, fixed_o_m, variable_o_m, overnight_cost_change from proposed_projects join load_area_info using (area_id) where technology not like '%CCS_EP' and $INTERMITTENT_PROJECTS_SELECTION;" >> proposed_projects.tab
+mysql $connection_string -e "select project_id, proposed_projects.load_area, technology, if(location_id is NULL, 0, location_id) as location_id, if(capacity_limit is NULL, 0, capacity_limit) as 
+capacity_limit, capacity_limit_conversion, connect_cost_per_mw, price_and_dollar_year, overnight_cost*overnight_adjuster, fixed_o_m, variable_o_m, overnight_cost_change from proposed_projects join load_area_info using (area_id) join generator_price_adjuster using (technology_id) where generator_price_adjuster.gen_price_scenario_id=$GEN_PRICE_SCENARIO_ID and technology not like '%CCS%' and $INTERMITTENT_PROJECTS_SELECTION;" >> proposed_projects.tab
 
 echo '	competing_locations.tab...'
 echo ampl.tab 2 > competing_locations.tab
@@ -185,7 +187,8 @@ fi
 
 echo '	generator_info.tab...'
 echo ampl.tab 1 25 > generator_info.tab
-mysql $connection_string -e "select technology, technology_id, min_build_year, fuel, heat_rate, construction_time_years, year_1_cost_fraction, year_2_cost_fraction, year_3_cost_fraction, year_4_cost_fraction, year_5_cost_fraction, year_6_cost_fraction, max_age_years, forced_outage_rate, scheduled_outage_rate, can_build_new, ccs, intermittent, resource_limited, baseload, dispatchable, cogen, min_build_capacity, storage, storage_efficiency, max_store_rate from generator_info where technology not like '%CCS_EP';" >> generator_info.tab
+mysql $connection_string -e "select technology, technology_id, min_build_year, fuel, heat_rate, construction_time_years, year_1_cost_fraction, year_2_cost_fraction, year_3_cost_fraction, 
+year_4_cost_fraction, year_5_cost_fraction, year_6_cost_fraction, max_age_years, forced_outage_rate, scheduled_outage_rate, can_build_new, ccs, intermittent, resource_limited, baseload, dispatchable, cogen, min_build_capacity, storage, storage_efficiency, max_store_rate from generator_info where technology not like '%CCS%';" >> generator_info.tab
 
 echo '	fuel_costs.tab...'
 echo ampl.tab 3 1 > fuel_costs.tab
