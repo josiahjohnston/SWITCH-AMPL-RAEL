@@ -1,6 +1,8 @@
 CREATE DATABASE IF NOT EXISTS switch_results_wecc_v2_2;
 USE switch_results_wecc_v2_2;
 
+
+-- create views that get data from the inputs database
 CREATE OR REPLACE VIEW technologies as 
 	select technology_id, technology, fuel, storage, can_build_new from switch_inputs_wecc_v2_2.generator_info;
 CREATE OR REPLACE VIEW load_areas as 
@@ -9,8 +11,7 @@ CREATE OR REPLACE VIEW load_areas as
 	select area_id, load_area from switch_inputs_wecc_v2_2.load_area_info;
 CREATE OR REPLACE VIEW sites as 
   SELECT project_id, location_id as site from switch_inputs_wecc_v2_2.proposed_projects UNION
-  SELECT project_id, plant_code as site from switch_inputs_wecc_v2_2.existing_plants UNION 
-  SELECT distinct project_id, hydro_id from switch_inputs_wecc_v2_2.hydro_monthly_limits;
+  SELECT project_id, ep_id as site from switch_inputs_wecc_v2_2.existing_plants;
 CREATE OR REPLACE VIEW transmission_lines as 
 	select 	transmission_line_id, load_area_start, load_area_end,
 			la1.area_id as start_id, la2.area_id as end_id
@@ -230,7 +231,7 @@ CREATE TABLE IF NOT EXISTS _gen_hourly_summary_tech_la (
   INDEX area_id (area_id),
   FOREIGN KEY (area_id) REFERENCES load_areas(area_id), 
   FOREIGN KEY (technology_id) REFERENCES technologies(technology_id),
-  PRIMARY KEY (scenario_id, carbon_cost, study_hour, area_id, technology_id)
+  PRIMARY KEY (scenario_id, carbon_cost, study_hour, area_id, technology_id, fuel)
 ) ROW_FORMAT=FIXED;
 CREATE OR REPLACE VIEW gen_hourly_summary_tech_la as
   SELECT 	scenario_id, carbon_cost, period, load_area, study_date, study_hour, hours_in_sample, month, month_name,
@@ -644,6 +645,25 @@ CREATE OR REPLACE VIEW system_load as
   			hours_in_sample, power, satisfy_load_reduced_cost, satisfy_load_reserve_reduced_cost
     FROM _system_load join load_areas using(area_id);
 
+CREATE TABLE IF NOT EXISTS system_load_summary_hourly (
+  scenario_id int,
+  carbon_cost smallint,
+  period year,
+  study_date int,
+  study_hour int,
+  month int,
+  hour_of_day_UTC tinyint unsigned,
+  hour_of_day_PST tinyint unsigned,
+  hours_in_sample double,
+  system_load double,
+  satisfy_load_reduced_cost double,
+  satisfy_load_reserve_reduced_cost double,
+  INDEX carbon_cost (carbon_cost),
+  INDEX period (period),
+  INDEX study_hour (study_hour),
+  PRIMARY KEY (scenario_id, carbon_cost, period, study_hour)
+) ROW_FORMAT=FIXED;
+    
 CREATE TABLE IF NOT EXISTS system_load_summary (
   scenario_id int,
   carbon_cost smallint,
@@ -668,41 +688,68 @@ CREATE TABLE IF NOT EXISTS run_times (
   PRIMARY KEY (scenario_id, carbon_cost, process_type)
 );
 
+CREATE TABLE IF NOT EXISTS sum_hourly_weights_per_period_table (
+	scenario_id int,
+	period year,
+	sum_hourly_weights_per_period double,
+	years_per_period double,
+	PRIMARY KEY (scenario_id, period)
+);
 
-DELIMITER $$
 
-DROP FUNCTION IF EXISTS `clear_scenario_results`$$
-CREATE FUNCTION `clear_scenario_results` (target_scenario_id int) RETURNS INT 
-BEGIN
-  
-  DELETE FROM _generator_and_storage_dispatch WHERE scenario_id = target_scenario_id;
-  DELETE FROM _existing_trans_cost_and_rps_reduced_cost WHERE scenario_id = target_scenario_id;
-  DELETE FROM _gen_cap WHERE scenario_id = target_scenario_id;
-  DELETE FROM _gen_cap_summary_fuel_la WHERE scenario_id = target_scenario_id;
-  DELETE FROM _gen_cap_summary_tech WHERE scenario_id = target_scenario_id;
-  DELETE FROM _gen_cap_summary_tech_la WHERE scenario_id = target_scenario_id;
-  DELETE FROM _gen_hourly_summary_fuel WHERE scenario_id = target_scenario_id;
-  DELETE FROM _gen_hourly_summary_fuel_la WHERE scenario_id = target_scenario_id;
-  DELETE FROM _gen_hourly_summary_tech WHERE scenario_id = target_scenario_id;
-  DELETE FROM _gen_hourly_summary_tech_la WHERE scenario_id = target_scenario_id;
-  DELETE FROM _gen_summary_fuel_la WHERE scenario_id = target_scenario_id;
-  DELETE FROM _gen_summary_tech WHERE scenario_id = target_scenario_id;
-  DELETE FROM _gen_summary_tech_la WHERE scenario_id = target_scenario_id;
-  DELETE FROM _local_td_cap WHERE scenario_id = target_scenario_id;
-  DELETE FROM _system_load WHERE scenario_id = target_scenario_id;
-  DELETE FROM _trans_cap WHERE scenario_id = target_scenario_id;
-  DELETE FROM _trans_loss WHERE scenario_id = target_scenario_id;
-  DELETE FROM _trans_summary WHERE scenario_id = target_scenario_id;
-  DELETE FROM _transmission_avg_directed WHERE scenario_id = target_scenario_id;
-  DELETE FROM _transmission_directed_hourly WHERE scenario_id = target_scenario_id;
-  DELETE FROM _transmission_dispatch WHERE scenario_id = target_scenario_id;
-  DELETE FROM co2_cc WHERE scenario_id = target_scenario_id;
-  DELETE FROM gen_cap_summary_fuel WHERE scenario_id = target_scenario_id;
-  DELETE FROM gen_summary_fuel WHERE scenario_id = target_scenario_id;
-  DELETE FROM power_cost WHERE scenario_id = target_scenario_id;
-  DELETE FROM system_load_summary WHERE scenario_id = target_scenario_id;
-  DELETE FROM run_times WHERE scenario_id = target_scenario_id;
-  
-  RETURN 1;
-END
-$$
+
+-- create a procedure that clears all results for the scenario target_scenario_id
+-- by finding all columns in the results database with a scenario_id column
+-- and deleteing all entries for the target_scenario_id
+	DROP PROCEDURE IF EXISTS clear_scenario_results;
+	
+	delimiter $$
+	create procedure clear_scenario_results
+		(IN target_scenario_id int) 
+	BEGIN
+	
+	-- query the inner workings of mysql for a list of tables to clear
+	drop table if exists tables_to_clear;
+	create temporary table tables_to_clear as 
+		select table_name
+		from information_schema.tables join
+			(select table_name
+				from information_schema.columns
+				where table_schema = 'switch_results_wecc_v2_2'
+				and column_name = 'scenario_id') as columns_query
+			using (table_name)
+		where table_schema ='switch_results_wecc_v2_2'
+		and table_type like 'Base Table'
+		;
+	
+	table_clearing_loop: LOOP
+	
+	set @current_table_name = (select table_name from tables_to_clear limit 1);
+	
+	select @current_table_name as progress;
+	
+	set @clear_statment =
+		concat( 'delete from ',
+				@current_table_name,
+				' where scenario_id = ',
+				target_scenario_id,
+				';'
+				);
+	
+	PREPARE stmt_name FROM @clear_statment;
+	EXECUTE stmt_name;
+	DEALLOCATE PREPARE stmt_name;
+	
+	delete from tables_to_clear where table_name = @current_table_name;
+	
+	IF ( ( select count(*) from tables_to_clear ) = 0)
+	    THEN LEAVE table_clearing_loop;
+	        END IF;
+	END LOOP table_clearing_loop;
+
+	select 'Finished Clearing Results' as progress;
+	
+	END;
+	$$
+	delimiter ;
+

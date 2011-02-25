@@ -8,7 +8,6 @@ DB_name='switch_results_wecc_v2_2'
 db_server='switch-db1.erg.berkeley.edu'
 port=3306
 current_dir=`pwd`
-write_over_prior_results="IGNORE"
 
 results_graphing_dir="results_for_graphing"
 # check if results_for_graphing directory exists and make it if it does not
@@ -20,9 +19,7 @@ results_dir="results"
 
 ###################################################
 # Detect optional command-line arguments
-FlushPriorResults=0
-SkipImport=0
-SkipCrunch=0
+ExportOnly=0
 help=0
 while [ -n "$1" ]; do
 case $1 in
@@ -46,17 +43,8 @@ case $1 in
     db_server=$2
     shift 2
   ;;
-  --FlushPriorResults) 
-  FlushPriorResults=1
-  shift 1
-  ;;
-  --SkipImport) 
-    SkipImport=1;
-    shift 1
-  ;;
   --ExportOnly) 
-    SkipImport=1;
-    SkipCrunch=1
+    ExportOnly=1
     shift 1
   ;;
   --help)
@@ -79,8 +67,6 @@ then
   echo "  -D [DB name]"
   echo "  -P/--port [port number]"
   echo "  -h [DB server]"
-  echo "  --FlushPriorResults      Delete all prior results for this scenario before importing."
-  echo "  --SkipImport             Just crunch the results, don't import any files"
   echo "  --ExportOnly             Only export summaries of the results, don't import or crunch data in the DB"
   echo "All arguments are optional. "
   exit 0
@@ -113,26 +99,21 @@ then
   exit 0
 fi
 
-
-###################################################
-# Clear out the prior instance of this run if requested
-# You can do this manually with this SQL command: select clear_scenario_results(SCENARIO_ID);
-if [ $FlushPriorResults = 1 ]; then
-  rewrite_results="REPLACE"
-  echo "Flushing Prior results for scenario ${SCENARIO_ID}"
-  mysql $connection_string --column-names=false -e "select clear_scenario_results(${SCENARIO_ID});"
-fi
-
 ###################################################
 # Import all of the results files into the DB
-if [ $SkipImport = 0 ]; then
-  echo 'Importing results files...'
+if [ $ExportOnly = 0 ]; then
 
+# First clear out the prior instance of this run
+# You can do this manually with this SQL command: call clear_scenario_results(SCENARIO_ID);
+  echo "Flushing Prior results for scenario ${SCENARIO_ID}"
+  mysql $connection_string --column-names=false -e "call clear_scenario_results(${SCENARIO_ID});"
+
+  echo 'Importing results files...'
   ###################################################
   # import a summary of run times for various processes
   # To do: add time for database export, storing results, compiling, etc.
   echo 'Importing run times...'
-  printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$results_dir/run_times.txt\" $write_over_prior_results into table run_times ignore 1 lines (scenario_id, carbon_cost, process_type, time_seconds);") 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$results_dir/run_times.txt" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
+  printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$results_dir/run_times.txt\" REPLACE into table run_times ignore 1 lines (scenario_id, carbon_cost, process_type, time_seconds);") 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$results_dir/run_times.txt" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
   
   # now import all of the non-runtime results
   for file_base_name in gen_cap trans_cap local_td_cap transmission_dispatch system_load existing_trans_cost_and_rps_reduced_cost generator_and_storage_dispatch
@@ -143,30 +124,26 @@ if [ $SkipImport = 0 ]; then
   echo "    ${file_name}  ->  ${DB_name}._${file_base_name}"
   # Import the file in question into the DB
   case $file_base_name in
-    gen_cap) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" $write_over_prior_results into table _gen_cap ignore 1 lines (scenario_id, carbon_cost, period, project_id, area_id, @junk, technology_id, @junk, @junk, new, baseload, cogen, fuel, capacity, capital_cost, fixed_o_m_cost);") 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
+    gen_cap) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" into table _gen_cap ignore 1 lines (scenario_id, carbon_cost, period, project_id, area_id, @junk, technology_id, @junk, @junk, new, baseload, cogen, fuel, capacity, capital_cost, fixed_o_m_cost);") 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
     ;;
-    trans_cap) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" $write_over_prior_results into table _trans_cap ignore 1 lines (scenario_id,carbon_cost,period,transmission_line_id, start_id,end_id,@junk,@junk,new,trans_mw,fixed_cost);") 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
+    trans_cap) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" into table _trans_cap ignore 1 lines (scenario_id,carbon_cost,period,transmission_line_id, start_id,end_id,@junk,@junk,new,trans_mw,fixed_cost);") 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
     ;;
-    local_td_cap) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" $write_over_prior_results into table _local_td_cap ignore 1 lines (scenario_id, carbon_cost, period, area_id, @junk, new, local_td_mw, fixed_cost);" ) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
+    local_td_cap) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" into table _local_td_cap ignore 1 lines (scenario_id, carbon_cost, period, area_id, @junk, new, local_td_mw, fixed_cost);" ) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
     ;;
-    transmission_dispatch) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" $write_over_prior_results into table _transmission_dispatch ignore 1 lines (scenario_id, carbon_cost, period, transmission_line_id, receive_id, send_id, @junk, @junk, study_date, study_hour, rps_fuel_category, power_sent, power_received, hours_in_sample);" ) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
+    transmission_dispatch) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" into table _transmission_dispatch ignore 1 lines (scenario_id, carbon_cost, period, transmission_line_id, receive_id, send_id, @junk, @junk, study_date, study_hour, rps_fuel_category, power_sent, power_received, hours_in_sample);" ) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
     ;;
-    system_load) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" $write_over_prior_results into table _system_load ignore 1 lines (scenario_id, carbon_cost, period, area_id, @junk, study_date, study_hour, hours_in_sample, power, satisfy_load_reduced_cost, satisfy_load_reserve_reduced_cost);" ) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
+    system_load) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" into table _system_load ignore 1 lines (scenario_id, carbon_cost, period, area_id, @junk, study_date, study_hour, hours_in_sample, power, satisfy_load_reduced_cost, satisfy_load_reserve_reduced_cost);" ) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
     ;;
-    existing_trans_cost_and_rps_reduced_cost) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" $write_over_prior_results into table _existing_trans_cost_and_rps_reduced_cost ignore 1 lines (scenario_id, carbon_cost, period, area_id, @junk, existing_trans_cost, rps_reduced_cost);" ) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
+    existing_trans_cost_and_rps_reduced_cost) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" into table _existing_trans_cost_and_rps_reduced_cost ignore 1 lines (scenario_id, carbon_cost, period, area_id, @junk, existing_trans_cost, rps_reduced_cost);" ) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
     ;;
-    generator_and_storage_dispatch) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" $write_over_prior_results into table _generator_and_storage_dispatch ignore 1 lines (scenario_id, carbon_cost, period, project_id, area_id, @junk, study_date, study_hour, technology_id, @junk, new, baseload, cogen, storage, fuel, fuel_category, hours_in_sample, power, co2_tons, heat_rate, fuel_cost, carbon_cost_incurred, variable_o_m_cost);" ) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
+    generator_and_storage_dispatch) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" into table _generator_and_storage_dispatch ignore 1 lines (scenario_id, carbon_cost, period, project_id, area_id, @junk, study_date, study_hour, technology_id, @junk, new, baseload, cogen, storage, fuel, fuel_category, hours_in_sample, power, co2_tons, heat_rate, fuel_cost, carbon_cost_incurred, variable_o_m_cost);" ) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
     ;;
    esac
    done
   done
-else
-  echo 'Skipping Import.'
-fi
 
 ###################################################
 # Crunch through the data
-if [ $SkipCrunch = 0 ]; then
   echo 'Crunching the data...'
   data_crunch_path=tmp_data_crunch$$.sql
   echo "set @scenario_id := ${SCENARIO_ID};" >> $data_crunch_path
@@ -174,7 +151,7 @@ if [ $SkipCrunch = 0 ]; then
   mysql $connection_string < $data_crunch_path
   rm $data_crunch_path
 else
-  echo 'Skipping data crunching.'
+  echo 'Skipping data import and crunching.'
 fi
 
 ###################################################
@@ -275,7 +252,7 @@ select_dispatch_summary="SELECT distinct g.scenario_id, g.carbon_cost, g.study_h
 while read technology_id technology; do 
   select_dispatch_summary="$select_dispatch_summary"", IFNULL((select round(power) FROM $DB_name._gen_hourly_summary_tech where technology_id='$technology_id' and scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and study_hour = g.study_hour ),0) as '$technology'"
 done < $tech_path
-select_dispatch_summary="$select_dispatch_summary"" FROM $DB_name._gen_hourly_summary_tech g order by scenario_id, carbon_cost, period, month, study_date, hour_of_day_UTC;"
+select_dispatch_summary="$select_dispatch_summary"", system_load FROM $DB_name._gen_hourly_summary_tech g join system_load_summary_hourly using (scenario_id, carbon_cost, study_hour) order by scenario_id, carbon_cost, period, month, study_date, hour_of_day_UTC;"
 mysql $connection_string -e "CREATE OR REPLACE VIEW gen_hourly_summary_by_tech AS $select_dispatch_summary"
 
 # gen_hourly_summary_la_by_tech
@@ -283,7 +260,7 @@ select_dispatch_summary="SELECT distinct g.scenario_id, g.carbon_cost, g.study_h
 while read technology_id technology; do 
   select_dispatch_summary="$select_dispatch_summary"", IFNULL((select round(power) FROM $DB_name._gen_hourly_summary_tech_la where technology_id='$technology_id' and scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and study_hour = g.study_hour and area_id = g.area_id),0) as '$technology'"
 done < $tech_path
-select_dispatch_summary="$select_dispatch_summary"" FROM $DB_name._gen_hourly_summary_tech_la g join $DB_name.load_areas using(area_id) order by scenario_id, carbon_cost, period, month, study_date, hour_of_day_UTC;"
+select_dispatch_summary="$select_dispatch_summary"", _system_load.power FROM $DB_name._gen_hourly_summary_tech_la g join $DB_name.load_areas using(area_id) join _system_load using (scenario_id, carbon_cost, study_hour, area_id) order by scenario_id, carbon_cost, period, month, study_date, hour_of_day_UTC;"
 mysql $connection_string -e "CREATE OR REPLACE VIEW gen_hourly_summary_la_by_tech AS $select_dispatch_summary"
 
 
@@ -337,7 +314,7 @@ select_dispatch_summary="SELECT distinct g.scenario_id, g.carbon_cost, g.study_h
 while read fuel; do 
   select_dispatch_summary="$select_dispatch_summary"", IFNULL((select round(power) FROM $DB_name._gen_hourly_summary_fuel where fuel='$fuel' and scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and study_hour = g.study_hour ),0) as '$fuel'"
 done < $fuel_path
-select_dispatch_summary="$select_dispatch_summary"" FROM $DB_name._gen_hourly_summary_fuel g order by scenario_id, carbon_cost, period, month, study_date, hour_of_day_UTC;"
+select_dispatch_summary="$select_dispatch_summary"", system_load FROM $DB_name._gen_hourly_summary_fuel g join system_load_summary_hourly using (scenario_id, carbon_cost, study_hour) order by scenario_id, carbon_cost, period, month, study_date, hour_of_day_UTC;"
 mysql $connection_string -e "CREATE OR REPLACE VIEW gen_hourly_summary_by_fuel AS $select_dispatch_summary"
 
 # gen_hourly_summary_la_by_fuel
@@ -345,7 +322,7 @@ select_dispatch_summary="SELECT distinct g.scenario_id, g.carbon_cost, g.study_h
 while read fuel; do 
   select_dispatch_summary="$select_dispatch_summary"", IFNULL((select round(power) FROM $DB_name._gen_hourly_summary_fuel_la where fuel='$fuel' and scenario_id = g.scenario_id and carbon_cost = g.carbon_cost and study_hour = g.study_hour and area_id = g.area_id),0) as '$fuel'"
 done < $fuel_path
-select_dispatch_summary="$select_dispatch_summary"" FROM $DB_name._gen_hourly_summary_fuel_la g join $DB_name.load_areas using(area_id) order by scenario_id, carbon_cost, period, month, study_date, hour_of_day_UTC;"
+select_dispatch_summary="$select_dispatch_summary"", _system_load.power FROM $DB_name._gen_hourly_summary_fuel_la g join $DB_name.load_areas using(area_id) join _system_load using (scenario_id, carbon_cost, study_hour, area_id) order by scenario_id, carbon_cost, period, month, study_date, hour_of_day_UTC;"
 mysql $connection_string -e "CREATE OR REPLACE VIEW gen_hourly_summary_la_by_fuel AS $select_dispatch_summary"
 
 
@@ -401,6 +378,9 @@ mysql $connection_string -e "select * from power_cost where scenario_id = $SCENA
 
 echo 'Exporting system_load_summary.txt...'
 mysql $connection_string -e "select * from system_load_summary where scenario_id = $SCENARIO_ID;" > $results_graphing_dir/system_load_summary.txt
+
+echo 'Exporting system_load_summary_hourly.txt...'
+mysql $connection_string -e "select * from system_load_summary_hourly where scenario_id = $SCENARIO_ID;" > $results_graphing_dir/system_load_summary_hourly.txt
 
 echo 'Exporting trans_cap_summary.txt...'
 mysql $connection_string -e "select * from trans_cap_summary where scenario_id = $SCENARIO_ID;" > $results_graphing_dir/trans_cap_summary.txt
