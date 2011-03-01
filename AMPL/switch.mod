@@ -397,6 +397,10 @@ param ep_capacity_mw {EXISTING_PLANTS} >= 0;
 # heat rate (in MBtu/MWh)
 param ep_heat_rate {EXISTING_PLANTS} >= 0;
 
+# the amount of thermal cogeneration that is produced per MWh of electricity produced (in MBtu/MWh)
+# ep_heat_rate + ep_cogen_thermal_demand = total Mbtus used by the cogen plant
+param ep_cogen_thermal_demand {EXISTING_PLANTS} >= 0;
+
 # year when the plant was built (used to calculate annual capital cost and retirement date)
 param ep_vintage {EXISTING_PLANTS} >= 0;
 
@@ -1095,7 +1099,7 @@ subject to Maximum_Resource_Competing_Tech {p in PERIODS, (l, a) in LOCATIONS_WI
 		/ capacity_limit_conversion[pid, a, t] ) )
 	+ ( sum { (pid, a, t, p) in EP_PERIODS: competes_for_space[t] and ep_location_id[pid, a, t] = l
 			and ( fuel[t] = 'Bio_Solid' or fuel[t] = 'Bio_Liquid' or fuel[t] = 'Bio_Gas' ) } 
-		( OperateEPDuringPeriod[pid, a, t, p] * ep_capacity_mw[pid, a, t] * gen_availability[t] * ep_heat_rate[pid, a, t] ) )
+		( OperateEPDuringPeriod[pid, a, t, p] * ep_capacity_mw[pid, a, t] * gen_availability[t] * ( ep_heat_rate[pid, a, t] + ep_cogen_thermal_demand[pid, a, t] ) ) )
 		 <= capacity_limit_by_location[l, a];
 
 subject to Maximum_Resource_Location_Unspecified { (pid, a, t, p) in PROJECT_VINTAGES: resource_limited[t] and not competes_for_space[t] }:

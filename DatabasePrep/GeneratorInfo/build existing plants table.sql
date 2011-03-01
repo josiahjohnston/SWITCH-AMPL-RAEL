@@ -86,6 +86,7 @@ create table existing_plants_860_gen (
 	fuel varchar(3) NOT NULL,
 	start_year year NOT NULL,
 	capacity_MW double NOT NULL,
+	total_fuel_consumption_mmbtus double,
 	elec_fuel_consumption_mmbtus double,
 	net_generation_megawatthours double,
 	PRIMARY KEY (plntcode, primemover, cogen, fuel)
@@ -111,6 +112,7 @@ create table existing_plants_906(
 	primemover varchar(4) NOT NULL,
 	cogen boolean NOT NULL,
 	fuel varchar(3) NOT NULL,
+	total_fuel_consumption_mmbtus double NOT NULL,
 	elec_fuel_consumption_mmbtus double NOT NULL,
 	net_generation_megawatthours double NOT NULL,
 	PRIMARY KEY (plntcode, primemover, cogen, fuel)
@@ -124,11 +126,12 @@ create table existing_plants_906(
 -- Municipal Solid Waste doesn't match because in eia860gen07 it's MSW
 -- and in eia906_07_US it's a combination of biogenic and nonbiogenic components, MSB and MSN
 -- we'll call it all MSW and call it bio solid for Switch
-insert into existing_plants_906 (plntcode, primemover, cogen, fuel, elec_fuel_consumption_mmbtus, net_generation_megawatthours)
+insert into existing_plants_906 (plntcode, primemover, cogen, fuel, total_fuel_consumption_mmbtus, elec_fuel_consumption_mmbtus, net_generation_megawatthours)
 select 	plntcode,
 		primemover,
 		if(Combined_Heat_And_Power_Plant = 'Y', 1, 0) as cogen,
 		if(Reported_Fuel_Type_Code in ('MSB', 'MSN'), 'MSW', Reported_Fuel_Type_Code) as fuel,
+		sum(total_fuel_consumption_mmbtus) as total_fuel_consumption_mmbtus,
 		sum(elec_fuel_consumption_mmbtus) as elec_fuel_consumption_mmbtus,
 		sum(net_generation_megawatthours) as net_generation_megawatthours
 from grid.eia906_07_US
@@ -155,7 +158,8 @@ update existing_plants_860_gen set fuel = 'BIT' where fuel = 'SUB' and plntcode 
 
 -- now join on plant-primemover-cogen-fuel
 update existing_plants_860_gen join existing_plants_906 using (plntcode, primemover, cogen, fuel)
-set existing_plants_860_gen.elec_fuel_consumption_mmbtus = existing_plants_906.elec_fuel_consumption_mmbtus,
+set existing_plants_860_gen.total_fuel_consumption_mmbtus = existing_plants_906.total_fuel_consumption_mmbtus,
+existing_plants_860_gen.elec_fuel_consumption_mmbtus = existing_plants_906.elec_fuel_consumption_mmbtus,
 existing_plants_860_gen.net_generation_megawatthours = existing_plants_906.net_generation_megawatthours;
 
 -- remove all plant-primemover-cogen-fuel combinations that didn't generate anything
@@ -170,6 +174,7 @@ create temporary table combined_cycle_agg as
 			fuel,
 			max(start_year) as start_year,
 			sum(capacity_MW) as capacity_MW,
+			sum(total_fuel_consumption_mmbtus) as total_fuel_consumption_mmbtus,
 			sum(elec_fuel_consumption_mmbtus) as elec_fuel_consumption_mmbtus,
 			sum(net_generation_megawatthours) as net_generation_megawatthours
 	from existing_plants_860_gen
@@ -191,6 +196,7 @@ create temporary table biogas_agg as
 			fuel,
 			max(start_year) as start_year,
 			sum(capacity_MW) as capacity_MW,
+			sum(total_fuel_consumption_mmbtus) as total_fuel_consumption_mmbtus,
 			sum(elec_fuel_consumption_mmbtus) as elec_fuel_consumption_mmbtus,
 			sum(net_generation_megawatthours) as net_generation_megawatthours
 	from existing_plants_860_gen
@@ -214,20 +220,22 @@ create table existing_plants(
 	start_year year NOT NULL,
 	capacity_MW double NOT NULL,
 	heat_rate double,
+	cogen_thermal_demand_mmbtus_per_mwh double default 0,
 	PRIMARY KEY (plntcode, primemover, cogen)
 	);	
 
 -- find the fuel with the most generation below
 -- this could in theory give multiple fuels if they had the exact same net_generation_megawatthours,
 -- but the primary key above will throw an error if this is the case
-insert into existing_plants (plntcode, primemover, cogen, fuel, start_year, capacity_MW, heat_rate)
+insert into existing_plants (plntcode, primemover, cogen, fuel, start_year, capacity_MW, heat_rate, cogen_thermal_demand_mmbtus_per_mwh)
 SELECT	plntcode,
 		primemover,
 		cogen,
 		fuel,
 		start_year,
 		capacity_MW,
-		elec_fuel_consumption_mmbtus / net_generation_megawatthours as heat_rate
+		elec_fuel_consumption_mmbtus / net_generation_megawatthours as heat_rate,
+		(total_fuel_consumption_mmbtus - elec_fuel_consumption_mmbtus) / net_generation_megawatthours as cogen_thermal_demand_mmbtus_per_mwh
 from existing_plants_860_gen join
 	( select 	plntcode,
 				primemover,
@@ -454,6 +462,29 @@ and		canmexgen.cogen = avg_heat_rate_table.cogen
 and		(canmexgen.cogen = 1 or canmexgen.fuel = 'GEO')
 ;
 
+-- also add capacity-weighted cogen thermal demand
+alter table canmexgen add column cogen_thermal_demand_mmbtus_per_mwh double default 0;
+update 	canmexgen,
+	(select 	primemover,
+				cogen,
+				fuel,
+				sum(capacity_MW * cogen_thermal_demand_mmbtus_per_mwh)/sum_capacity_MW as avg_cogen_thermal_demand_mmbtus_per_mwh
+		from 	existing_plants join
+			(select primemover,
+					cogen,
+					fuel,
+					sum(capacity_MW) as sum_capacity_MW
+				from existing_plants
+				group by primemover, cogen, fuel ) as sum_cap_table
+			using (primemover, cogen, fuel)		
+		group by primemover, cogen, fuel) as avg_cogen_thermal_demand_mmbtus_per_mwh_table
+set cogen_thermal_demand_mmbtus_per_mwh = avg_cogen_thermal_demand_mmbtus_per_mwh
+where 	canmexgen.primemover = avg_cogen_thermal_demand_mmbtus_per_mwh_table.primemover
+and		canmexgen.fuel = avg_cogen_thermal_demand_mmbtus_per_mwh_table.fuel
+and		canmexgen.cogen = avg_cogen_thermal_demand_mmbtus_per_mwh_table.cogen
+and		canmexgen.cogen = 1
+;
+
 
 -- HYDRO----------
 
@@ -660,7 +691,7 @@ and 	hydro_monthly_limits.year 		= pumped_hydro_yearly_stream_flow.year
 
 update hydro_monthly_limits set avg_output = capacity_mw where avg_output > capacity_mw;
 
-
+-- TODO: a few dams have start_years < 1900, which gives 0 here... update them to 1900ish
 -- ------------------------------
 -- CANADIAN HYDRO
 
@@ -810,13 +841,14 @@ CREATE TABLE existing_plants_agg(
 	cogen boolean NOT NULL,
 	fuel varchar(64)  NOT NULL,
 	capacity_MW float NOT NULL,
-	heat_rate float NOT NULL default 0,
+	heat_rate float default 0,
+	cogen_thermal_demand_mmbtus_per_mwh float default 0,
 	UNIQUE (plant_name, eia_id, primemover, cogen, fuel, start_year)
 );
 
 -- add existing windfarms
 insert into existing_plants_agg (technology, load_area, plant_name, eia_id, start_year,
-								primemover, cogen, fuel, capacity_MW, heat_rate)
+								primemover, cogen, fuel, capacity_MW, heat_rate, cogen_thermal_demand_mmbtus_per_mwh)
 select 	'Wind_EP' as technology,
 		load_area,
 		concat('Wind_EP', '_', 3tier.windfarms_existing_info_wecc.windfarm_existing_id) as plant_name,
@@ -826,13 +858,14 @@ select 	'Wind_EP' as technology,
 		0 as cogen,
 		'Wind' as fuel,
 		capacity_MW,
-		0 as heat_rate
+		0 as heat_rate,
+		0 as cogen_thermal_demand_mmbtus_per_mwh
 from 	3tier.windfarms_existing_info_wecc;
 
 -- add hydro to existing plants
 -- we don't define an id for canadian plants (default 0) - they do have a name at least 
 insert into existing_plants_agg (technology, load_area, plant_name, eia_id, start_year,
-								primemover, cogen, fuel, capacity_MW, heat_rate)
+								primemover, cogen, fuel, capacity_MW, heat_rate, cogen_thermal_demand_mmbtus_per_mwh)
 	select 	distinct
 			technology,
 			load_area,
@@ -843,14 +876,15 @@ insert into existing_plants_agg (technology, load_area, plant_name, eia_id, star
 			0 as cogen,
 			'Water' as fuel,
 			capacity_mw,
-			0 as heat_rate
+			0 as heat_rate,
+			0 as cogen_thermal_demand_mmbtus_per_mwh
 	from hydro_monthly_limits
 	join existing_plant_technologies using (primemover);
   
 
 -- USA existing plants - wind and hydro excluded
 insert into existing_plants_agg (technology, load_area, plant_name, eia_id, start_year,
-								primemover, cogen, fuel, capacity_MW, heat_rate)
+								primemover, cogen, fuel, capacity_MW, heat_rate, cogen_thermal_demand_mmbtus_per_mwh)
 	select 	technology,
 			load_area,
   			replace(plntname, " ", "_") as plant_name,
@@ -860,13 +894,14 @@ insert into existing_plants_agg (technology, load_area, plant_name, eia_id, star
 			cogen,
   			fuel, 
 			capacity_MW,
-			heat_rate
+			heat_rate,
+			cogen_thermal_demand_mmbtus_per_mwh
 	from	existing_plants join existing_plant_technologies using (primemover, fuel, cogen);
 
 	
 -- add Canada and Mexico
 insert into existing_plants_agg (technology, load_area, plant_name, eia_id, start_year,
-								primemover, cogen, fuel, capacity_MW, heat_rate)
+								primemover, cogen, fuel, capacity_MW, heat_rate, cogen_thermal_demand_mmbtus_per_mwh)
 	select 	technology,
 			load_area,
   			replace(name, " ", "_") as plant_name,
@@ -876,9 +911,7 @@ insert into existing_plants_agg (technology, load_area, plant_name, eia_id, star
   			cogen, 
   			fuel,
   			capacity_MW,
-  			heat_rate
+  			heat_rate,
+  			cogen_thermal_demand_mmbtus_per_mwh
   from canmexgen join existing_plant_technologies using (fuel, primemover, cogen);
   
-
-
-

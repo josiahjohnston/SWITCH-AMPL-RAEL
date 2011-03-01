@@ -578,6 +578,7 @@ CREATE TABLE existing_plants (
 	fuel varchar(64) NOT NULL,
 	capacity_mw double NOT NULL,
 	heat_rate double NOT NULL,
+	cogen_thermal_demand_mmbtus_per_mwh double NOT NULL,
 	start_year year NOT NULL,
 	overnight_cost float NOT NULL,
 	fixed_o_m double NOT NULL,
@@ -594,7 +595,7 @@ CREATE TABLE existing_plants (
 
  -- The << operation moves the numeric form of the letter "E" (for existing plants) over by 3 bytes, effectively making its value into the most significant digits.
 insert into existing_plants (project_id, load_area, technology, ep_id, area_id, plant_name, eia_id,
-								primemover, fuel, capacity_mw, heat_rate, start_year,
+								primemover, fuel, capacity_mw, heat_rate, cogen_thermal_demand_mmbtus_per_mwh, start_year,
 								overnight_cost, fixed_o_m, variable_o_m, forced_outage_rate, scheduled_outage_rate )
 	select 	e.ep_id + (ascii( 'E' ) << 8*3),
 			e.load_area,
@@ -605,8 +606,9 @@ insert into existing_plants (project_id, load_area, technology, ep_id, area_id, 
 			e.eia_id,
 			e.primemover,
 			e.fuel,
-			round(e.capacity_mw, 1) as capacity_mw
+			round(e.capacity_mw, 1) as capacity_mw,
 			e.heat_rate,
+			e.cogen_thermal_demand_mmbtus_per_mwh,
 			e.start_year,
 			g.overnight_cost * economic_multiplier,
 			g.fixed_o_m * economic_multiplier,
@@ -892,29 +894,29 @@ insert into _proposed_projects (original_dataset_id, technology_id, technology, 
 UPDATE _proposed_projects SET project_id = gen_info_project_id + (ascii( 'G' ) << 8*3) where project_id is null;
 
 
--- run this query to make sure that existing bio projects don't have much more capacity than new ones (they're constrained to have the same amount in AMPL)
--- select *, new_capacity_MW - ep_capacity_MW as diff from (
--- 		select  load_area,
--- 				fuel,
--- 				round(sum(capacity_MW), 1) as ep_capacity_MW,
--- 				count(capacity_MW) as num_existing_plants,
--- 				new_capacity_MW
--- 		from existing_plants join
--- 			(select technology, load_area, fuel, capacity_limit * capacity_limit_conversion as new_capacity_MW
--- 					from proposed_projects
--- 					join generator_info using (technology)
--- 					where technology like 'Bio%' and technology not like '%CCS') as new_bio_cap
--- 		using (load_area, fuel)
--- 		where existing_plants.technology like 'Bio%' group by 1,2
--- 		) as new_existing_bio
--- order by diff
-
 -- now go back to the existing plants table and add the ID of the CCS project associated with each existing plant
 update existing_plants, _proposed_projects
 set existing_plants.ccs_project_id = _proposed_projects.project_id
 where existing_plants.ep_id = _proposed_projects.original_dataset_id
 and _proposed_projects.technology like '%_CCS_EP';	
 
+
+-- select *, new_capacity_MMBTUs - ep_capacity_MMBTUs as diff from (
+--  		select  load_area,
+--  				fuel,
+--  				round(sum(capacity_MW*(cogen_thermal_demand_mmbtus_per_mwh + heat_rate)), 1) as ep_capacity_MMBTUs,
+--  				count(capacity_MW) as num_existing_plants,
+--  				new_capacity_MMBTUs
+--  		from existing_plants join
+--  			(select technology, load_area, fuel, capacity_limit as new_capacity_MMBTUs
+--  					from proposed_projects
+--  					join generator_info using (technology)
+--  					where technology like 'Bio%' and technology not like '%CCS') as new_bio_cap
+--  		using (load_area, fuel)
+--  		where existing_plants.technology like 'Bio%' group by 1,2
+--  		) as new_existing_bio
+--  order by diff
+ 
 -- also update the existing plants with the location_id of bio projects as this will be used
 -- to constrain the total amount of biomass in a load area
 update existing_plants, proposed_projects join generator_info using (technology)
