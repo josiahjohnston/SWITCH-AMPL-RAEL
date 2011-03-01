@@ -232,7 +232,7 @@ param ccs {TECHNOLOGIES} binary;
 param min_build_capacity {TECHNOLOGIES} >= 0;
 
 # Whether or not technologies located at the same place will compete for space
-param technologies_compete_for_space {TECHNOLOGIES} >= 0, <= 1 default 0;
+param competes_for_space {TECHNOLOGIES} binary;
 
 # Solar-based technologies
 set SOLAR_TECHNOLOGIES = {t in TECHNOLOGIES: fuel[t] = 'Solar'};
@@ -409,6 +409,10 @@ param ep_fixed_o_m {EXISTING_PLANTS} >= 0;
 # variable O&M ($/MWh)
 param ep_variable_o_m {EXISTING_PLANTS} >= 0;
 
+# location_id, which links existing bio projects with new bio projects through competing locations
+# a location_id of zero is null.
+param ep_location_id {EXISTING_PLANTS} >= 0;
+
 ###############################################
 # Existing intermittent generators (existing wind, csp and pv)
 
@@ -434,7 +438,7 @@ param ep_end_year {(pid, a, t) in EXISTING_PLANTS} =
 # plant-period combinations when existing plants can run
 # these are the times when a decision must be made about whether a plant will be kept available for the year
 # or mothballed to save on fixed O&M (or fuel, for baseload plants)
-# cogen and geothermal plants can be operated past their normal lifetime by paying O & M costs during each period, plus paying into a capital replacement fund
+# cogen, geothermal and Bio_Liquid plants can be operated past their normal lifetime by paying O & M costs during each period, plus paying into a capital replacement fund
 # existing nuclear plants are assumed to be kept operational indefinitely, as their O&M costs generally keep them in really good condition
 # hydro plants are kept operational indefinitely
 set EP_PERIODS :=
@@ -443,7 +447,8 @@ set EP_PERIODS :=
   		( cogen[t] ) or
 		( hydro[t] ) or
   		( t = 'Geothermal_EP' ) or
-  		( t = 'Nuclear_EP' ) };
+  		( t = 'Nuclear_EP' ) or
+  		( fuel[t] = 'Bio_Liquid' ) };
 
 # if a period exists that is >= ep_end_year[pid, a, t], then this plant can be operational past the expected lifetime of the plant
 param ep_could_be_operating_past_expected_lifetime { (pid, a, t, p) in EP_PERIODS } =
@@ -875,9 +880,12 @@ minimize Power_Cost:
 	# Calculate fixed costs for all existing plants
 	+(sum {(pid, a, t, p) in EP_PERIODS} 
        ( if ( intermittent[t] or hydro[t] ) then 1 else OperateEPDuringPeriod[pid, a, t, p] ) * ep_capacity_mw[pid, a, t] * fixed_o_m_by_period[pid, a, t, p] )
-	# Calculate variable costs for all existing plants
+	# Calculate variable and carbon costs for all existing plants
 	+(sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS}
-	  ProducePowerEP[pid, a, t, p, h] * ( variable_cost[pid, a, t, p, h] + fuel_cost[pid, a, t, p, h] + carbon_cost_per_mwh[pid, a, t, p, h] ) )
+	  ProducePowerEP[pid, a, t, p, h] * ( variable_cost[pid, a, t, p, h] + carbon_cost_per_mwh[pid, a, t, p, h] ) )
+	# Calculate fuel costs for all existing plants except for bio_solid - that's included in the supply curve
+	+(sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: fuel[t] not in BIO_SOLID_FUELS}
+	  ProducePowerEP[pid, a, t, p, h] * fuel_cost[pid, a, t, p, h] )
 
 	########################################
 	#    TRANSMISSION & DISTRIBUTION
@@ -1077,12 +1085,20 @@ subject to EP_Power_From_Hydro_Plants { (pid, a, t, p, h) in EP_AVAILABLE_HOURS:
 # GENERATOR INSTALLATION CONSTRAINTS           
 # there are limits on total installations in certain projects
 # for solar, these are in the form of land area
+# for bio, these are in MMBtu/hr which is then converted into MW via the heat rate
+# (capacity_limit_conversion=(1/heat_rate for proposed_projects)
 subject to Maximum_Resource_Competing_Tech {p in PERIODS, (l, a) in LOCATIONS_WITH_COMPETING_TECHNOLOGIES}:
-	sum {(pid, a, t, p) in PROJECT_VINTAGES: technologies_compete_for_space[t] = 1 and project_location[pid, a, t] = l} 
-	( sum { (pid, a, t, install_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, install_yr] ) / capacity_limit_conversion[pid, a, t] 
+	( sum { (pid, a, t, p) in PROJECT_VINTAGES: competes_for_space[t] and project_location[pid, a, t] = l } 
+		( ( sum { (pid, a, t, install_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, install_yr] )
+			* ( if ( fuel[t] = 'Bio_Solid' or fuel[t] = 'Bio_Liquid' or fuel[t] = 'Bio_Gas' )
+				then gen_availability[t] else 1 )
+		/ capacity_limit_conversion[pid, a, t] ) )
+	+ ( sum { (pid, a, t, p) in EP_PERIODS: competes_for_space[t] and ep_location_id[pid, a, t] = l
+			and ( fuel[t] = 'Bio_Solid' or fuel[t] = 'Bio_Liquid' or fuel[t] = 'Bio_Gas' ) } 
+		( OperateEPDuringPeriod[pid, a, t, p] * ep_capacity_mw[pid, a, t] * gen_availability[t] * ep_heat_rate[pid, a, t] ) )
 		 <= capacity_limit_by_location[l, a];
 
-subject to Maximum_Resource_Location_Unspecified { (pid, a, t, p) in PROJECT_VINTAGES: resource_limited[t] and technologies_compete_for_space[t] = 0 }:
+subject to Maximum_Resource_Location_Unspecified { (pid, a, t, p) in PROJECT_VINTAGES: resource_limited[t] and not competes_for_space[t] }:
   ( sum { (pid, a, t, install_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, install_yr] ) <= capacity_limit[pid, a, t] * capacity_limit_conversion[pid, a, t];
 
 # Some generators (currently only Nuclear) have a minimum build size. This enforces that constraint

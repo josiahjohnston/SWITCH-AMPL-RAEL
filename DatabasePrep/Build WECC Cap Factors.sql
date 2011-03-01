@@ -219,6 +219,7 @@ create table generator_info (
 	cogen boolean,
 	min_build_capacity float,
 	can_build_new tinyint,
+	competes_for_space tinyint,
 	ccs tinyint,
 	storage tinyint,
 	storage_efficiency float,
@@ -232,6 +233,9 @@ load data local infile
 	fields terminated by	','
 	optionally enclosed by '"'
 	ignore 1 lines;
+
+-- we're not quite ready for existing plant ccs yet....
+delete from generator_info where technology like '%CCS_EP';
 
 -- create a view for backwards compatibility - the tech ids are the important part
 use generator_info;
@@ -274,6 +278,7 @@ DELIMITER ;
 
 -- FUEL PRICES-------------
 -- run 'v2 wecc fuel price import no elasticity.sql' first
+-- biomass fuel costs come from the biomass supply curve and thus aren't added here
 
 drop table if exists _fuel_prices_regional;
 CREATE TABLE _fuel_prices_regional (
@@ -300,8 +305,6 @@ insert into _fuel_prices_regional
         fuel_price
     from fuel_prices.regional_fuel_prices, load_area_info
     where load_area_info.load_area = fuel_prices.regional_fuel_prices.load_area
-    and fuel not like 'DistillateFuelOil'
-    and fuel not like 'ResidualFuelOil'
     and fuel not like 'Bio_Solid';
 
 -- add fuel price forcasts out to 2100 and beyond
@@ -425,28 +428,54 @@ drop table if exists fuel_info;
 create table fuel_info(
 	fuel varchar(64),
 	rps_fuel_category varchar(10), 
-	carbon_content float COMMENT 'carbon content (tonnes CO2 per million Btu)'
+	carbon_content float COMMENT 'carbon content (tonnes CO2 per million Btu)',
+	carbon_content_without_carbon_accounting float COMMENT 'carbon content before you account for the biomass being NET carbon neutral (or carbon negative for biomass CCS) (tonnes CO2 per million Btu)'
 );
 
--- gas converted from http://www.eia.doe.gov/oiaf/1605/coefficients.html
--- this page says nevada and arizona coal are around 205-208 pounds per million Btu: http://www.eia.doe.gov/cneaf/coal/quarterly/co2_article/co2.html
--- Nuclear, Geothermal, Biomass, Water, Wind and Solar have non-zero LCA emissions. To model those emissions, we'd need to divide carbon content into capital, fixed, 
---   and variable emissions. Currently, this only lists variable emissions. 
-insert into fuel_info (fuel, rps_fuel_category, carbon_content) values
-	('Gas', 'fossilish', 0.0531),
+-- carbon content in tCO2/MMBtu from http://www.eia.doe.gov/oiaf/1605/coefficients.html:
+-- Voluntary Reporting of Greenhouse Gases Program (Voluntary Reporting of Greenhouse Gases Program Fuel Carbon Dioxide Emission Coefficients)
+
+-- Nuclear, Geothermal, Biomass, Water, Wind and Solar have non-zero LCA emissions
+-- To model those emissions, we'd need to divide carbon content into capital, fixed, and variable emissions. Currently, this only lists variable emissions. 
+
+-- carbon_content_without_carbon_accounting represents the amount of carbon actually emitted by a technology
+-- before you sequester carbon or before you account for the biomass being NET carbon neutral (or carbon negative for biomass CCS)
+-- the Bio_Solid value comes from: Biomass integrated gasiﬁcation combined cycle with reduced CO2emissions: Performance analysis and life cycle assessment (LCA), A. Corti, L. Lombardi / Energy 29 (2004) 2109–2124
+-- on page 2119 they say that biomass STs are 23% efficient and emit 1400 kg CO2=MWh, which converts to .094345 tCO2/MMBtu
+-- the Bio_Liquid value is derived from http://www.ipst.gatech.edu/faculty/ragauskas_art/technical_reviews/Black%20Liqour.pdf
+-- in the spreadsheet /Volumes/1TB_RAID/Models/GIS/Biomass/black_liquor_emissions_calc.xlsx
+-- Bio_Gas (landfill gas) is almost all methane and CO2... we'll therefore use the natural gas value
+-- though it should be noted that the CO2 that comes along with biogas
+-- could/would be sequestered as well, and at a lower cost... for future work
+
+insert into fuel_info (fuel, rps_fuel_category, carbon_content_without_carbon_accounting) values
+	('Gas', 'fossilish', 0.05306),
+	('DistillateFuelOil', 'fossilish', 0.07315),
+	('ResidualFuelOil', 'fossilish', 0.07880),
 	('Wind', 'renewable', 0),
 	('Solar', 'renewable', 0),
-	('Bio_Solid', 'renewable', 0),
-	('Bio_Gas', 'renewable', 0),
-	('Coal', 'fossilish', 0.0939),
+	('Bio_Solid', 'renewable', 0.094345),
+	('Bio_Liquid', 'renewable', 0.07695),
+	('Bio_Gas', 'renewable', 0.05306),
+	('Coal', 'fossilish', 0.09552),
 	('Uranium', 'fossilish', 0),
 	('Geothermal', 'renewable', 0),
-	('Water', 'fossilish', 0),
-	('Gas_CCS', 'fossilish', 0.00817),
-	('Coal_CCS', 'fossilish', 0.00144),
-	('Bio_Solid_CCS', 'renewable', -0.12),
-	('Bio_Gas_CCS', 'renewable',-0.06);
+	('Water', 'fossilish', 0);
 
+update fuel_info set carbon_content = if(fuel like 'Bio%', 0, carbon_content_without_carbon_accounting);
+
+-- currently we assume that CCS captures all but 15% of the carbon emissions of a plant
+-- this is consistent with ReEDs input assumptions, but should be revisited in the future.
+insert into fuel_info (fuel, rps_fuel_category, carbon_content, carbon_content_without_carbon_accounting)
+select 	concat(fuel, '_CCS') as fuel,
+		rps_fuel_category,
+		if(fuel like 'Bio%',
+			( -1 * ( 1 - 0.15) * carbon_content_without_carbon_accounting ),
+			( 0.15 * carbon_content_without_carbon_accounting )
+			) as carbon_content,
+		carbon_content_without_carbon_accounting
+	from fuel_info
+	where ( fuel like 'Bio%' or fuel in ('Gas', 'DistillateFuelOil', 'ResidualFuelOil', 'Coal') );
 
 
 drop table if exists fuel_qualifies_for_rps;
@@ -546,16 +575,17 @@ CREATE TABLE existing_plants (
 	plant_name varchar(40) NOT NULL,
 	eia_id int default 0,
 	primemover varchar(10) NOT NULL,
-	fuel varchar(20) NOT NULL,
-	capacity_mw float NOT NULL,
-	heat_rate float NOT NULL,
+	fuel varchar(64) NOT NULL,
+	capacity_mw double NOT NULL,
+	heat_rate double NOT NULL,
 	start_year year NOT NULL,
 	overnight_cost float NOT NULL,
-	fixed_o_m float NOT NULL,
-	variable_o_m float NOT NULL,
-	forced_outage_rate float NOT NULL,
-	scheduled_outage_rate float NOT NULL,
+	fixed_o_m double NOT NULL,
+	variable_o_m double NOT NULL,
+	forced_outage_rate double NOT NULL,
+	scheduled_outage_rate double NOT NULL,
 	ccs_project_id int unsigned default 0,
+	ep_location_id int unsigned default 0,
 	UNIQUE (technology, plant_name, eia_id, primemover, fuel, start_year),
 	INDEX area_id (area_id),
 	FOREIGN KEY (area_id) REFERENCES load_area_info(area_id), 
@@ -575,7 +605,7 @@ insert into existing_plants (project_id, load_area, technology, ep_id, area_id, 
 			e.eia_id,
 			e.primemover,
 			e.fuel,
-			e.capacity_mw,
+			round(e.capacity_mw, 1) as capacity_mw
 			e.heat_rate,
 			e.start_year,
 			g.overnight_cost * economic_multiplier,
@@ -855,17 +885,44 @@ insert into _proposed_projects (original_dataset_id, technology_id, technology, 
     		existing_plants
     join    load_area_info using (area_id)
 	where 	replace(existing_plants.technology, '_EP', '_CCS_EP') = generator_info.technology
-	and 	existing_plants.fuel in ('Gas', 'Coal', 'Bio_Solid', 'Bio_Gas', 'DistillateFuelOil', 'ResidualFuelOil')
+	and 	existing_plants.fuel in ('Gas', 'Coal', 'Bio_Solid', 'Bio_Liquid', 'Bio_Gas', 'DistillateFuelOil', 'ResidualFuelOil')
 ;	
 
 -- make a unique identifier for all proposed projects
 UPDATE _proposed_projects SET project_id = gen_info_project_id + (ascii( 'G' ) << 8*3) where project_id is null;
+
+
+-- run this query to make sure that existing bio projects don't have much more capacity than new ones (they're constrained to have the same amount in AMPL)
+-- select *, new_capacity_MW - ep_capacity_MW as diff from (
+-- 		select  load_area,
+-- 				fuel,
+-- 				round(sum(capacity_MW), 1) as ep_capacity_MW,
+-- 				count(capacity_MW) as num_existing_plants,
+-- 				new_capacity_MW
+-- 		from existing_plants join
+-- 			(select technology, load_area, fuel, capacity_limit * capacity_limit_conversion as new_capacity_MW
+-- 					from proposed_projects
+-- 					join generator_info using (technology)
+-- 					where technology like 'Bio%' and technology not like '%CCS') as new_bio_cap
+-- 		using (load_area, fuel)
+-- 		where existing_plants.technology like 'Bio%' group by 1,2
+-- 		) as new_existing_bio
+-- order by diff
 
 -- now go back to the existing plants table and add the ID of the CCS project associated with each existing plant
 update existing_plants, _proposed_projects
 set existing_plants.ccs_project_id = _proposed_projects.project_id
 where existing_plants.ep_id = _proposed_projects.original_dataset_id
 and _proposed_projects.technology like '%_CCS_EP';	
+
+-- also update the existing plants with the location_id of bio projects as this will be used
+-- to constrain the total amount of biomass in a load area
+update existing_plants, proposed_projects join generator_info using (technology)
+set existing_plants.ep_location_id = proposed_projects.location_id
+where existing_plants.fuel like 'Bio%'
+and generator_info.fuel = existing_plants.fuel
+and existing_plants.load_area = proposed_projects.load_area;
+ 
 
 
 DROP VIEW IF EXISTS proposed_projects;

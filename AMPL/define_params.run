@@ -1,7 +1,5 @@
 # parameter used to track execution times and other management stuff.
 param curtime;
-param solution_times_path symbolic = "results/run_times.txt";
-param results_path symbolic := 'results/';
 param scenario_id symbolic;
 param num_workers default 1;
 param worker_id default 0;

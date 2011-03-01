@@ -1,260 +1,334 @@
 -- build a table of data on existing plants
--- Assumptions:
--- eia_sector = 3, 5, or 7 for cogen plants; others are electricity-only
--- dispatchable plants are eia_sector 1, 2, 6 with the main fuel = "NG" (gas)
--- baseload plants are all others, if fuel is "COL", "GEO", "NUC"
-
--- efficiency of plants is based on net_gen_mwh and elec_fuel_mbtu
--- efficiency and fuel are based on the predominant fuel and the sum of all primemovers at each plant
 
 
--- first, get data (aggregated to plant-primemover level) from eia906 database
--- this includes the primary fuel, heat rate when using the primary fuel, and total net_gen_mwh for all fuels
+-- dispatchable plants are non-cogen natural gas plants
+-- baseload plants are all others
 
--- gets all of the plants in wecc, as assigned in grid.eia860gen07_us from postgresql
--- we appear to lose one very small (net_generation__mwh=1077) NG plant (plntcode = 56508) because it doesn't appear in grid.eia860gen07_us... don't think this should be a problem.
--- note: does not remove retired or out of service generators yet.  This will be done when summing up the generation and fuel consumption because some plants have parts that are operational and some that aren't.
+-- efficiency of plants (heat rate) is based on net_gen_mwh and elec_fuel_mbtu, using the predominant fuel from 2007 generation
 
---########################
+-- gets all of the plants in wecc, as assigned in eia860plant07_postgresql from postgresql
+
+-- ########################
 
 use generator_info;
+
+
+-- create the existing plants table for EIA form 860, which contains info about plants, and their generating units
+-- here we insert a seperate line for each possible fuel that each plant-primemover-cogen combination could burn
+-- then aggregate the total capacity up to plant-primemover-cogen-fuel
+-- and then use EIA form 960 data to pick only the plant-primemover-cogen-fuel combination that generated the most electricity in 2007
+-- (the assumption being that this plant will continue to use the same fuel as its primary fuel)
+
+-- first correct errors made by the eia:
+update eia860gen07 set Cogenerator = 'N' where plntcode = 10755;
+update eia860gen07 set Cogenerator = 'Y' where plntcode = 7552;
+update grid.eia906_07_US set Combined_Heat_And_Power_Plant = 'Y' where plntcode = 7552;
+
+-- no primary key here because we're going to use this table to pick a distinct fuel for each generator
+drop table if exists existing_plants_860_gen_tmp;
+create table existing_plants_860_gen_tmp (
+	plntcode int NOT NULL,
+	primemover varchar(4) NOT NULL,
+	cogen boolean NOT NULL,
+	fuel varchar(3) NOT NULL,
+	start_year year NOT NULL,
+	capacity_MW double NOT NULL,
+	INDEX (plntcode, primemover, cogen, fuel)
+	);
+
+
+-- make a procedure that pivots the energy_source_1-6 into the existing_plants_860_gen format
+	DROP PROCEDURE IF EXISTS pivot_860_energy_source;
+	
+	delimiter $$
+	create procedure pivot_860_energy_source()
+	BEGIN
+	
+	set @energy_source_tmp = 1;
+	
+	energy_source_loop: LOOP
+	
+	set @each_energy_source_insert_statment =
+		concat( 'insert into existing_plants_860_gen_tmp (plntcode, primemover, cogen, fuel, start_year, capacity_MW) ',
+				'select Plntcode as plntcode, Primemover as primemover, if(Cogenerator like \'Y\', 1, 0) as cogen, Energy_Source_',
+				@energy_source_tmp,
+				' as fuel, max(Operating_Year) as start_year, sum(nameplate) as capacity_MW ',
+				'from eia860gen07 where Status like \'OP\' and Energy_Source_',
+				@energy_source_tmp,
+				' not like \'\' group by plntcode, primemover, cogen, fuel;'
+				);
+
+	PREPARE stmt_name FROM @each_energy_source_insert_statment;
+	EXECUTE stmt_name;
+	DEALLOCATE PREPARE stmt_name;
+	
+	set @energy_source_tmp = @energy_source_tmp + 1;
+	
+	IF (@energy_source_tmp > 6)
+	    THEN LEAVE energy_source_loop;
+	        END IF;
+	END LOOP energy_source_loop;
+	
+	END;
+	$$
+	delimiter ;
+
+
+	call pivot_860_energy_source();
+	drop procedure pivot_860_energy_source;
+
+-- now actually aggregate to plant-primemover-cogen-fuel
+drop table if exists existing_plants_860_gen;
+create table existing_plants_860_gen (
+	plntcode int NOT NULL,
+	primemover varchar(4) NOT NULL,
+	cogen boolean NOT NULL,
+	fuel varchar(3) NOT NULL,
+	start_year year NOT NULL,
+	capacity_MW double NOT NULL,
+	elec_fuel_consumption_mmbtus double,
+	net_generation_megawatthours double,
+	PRIMARY KEY (plntcode, primemover, cogen, fuel)
+	);
+
+
+insert into existing_plants_860_gen (plntcode, primemover, cogen, fuel, start_year, capacity_MW)
+select 	plntcode,
+		primemover,
+		cogen,
+		fuel,
+		max(start_year) as start_year,
+		sum(capacity_MW) as capacity_MW
+from existing_plants_860_gen_tmp
+group by plntcode, primemover, cogen, fuel;
+
+-- EIA Form 906 ------------
+-- now aggregate generation data from 2007 to calculate plant-primemover-cogen-fuel heat rates (in MMBtu per MWh)
+-- to then be joined with plant capacity and start year data from existing_plants_860_gen
+drop table if exists existing_plants_906;
+create table existing_plants_906(
+	plntcode int NOT NULL,
+	primemover varchar(4) NOT NULL,
+	cogen boolean NOT NULL,
+	fuel varchar(3) NOT NULL,
+	elec_fuel_consumption_mmbtus double NOT NULL,
+	net_generation_megawatthours double NOT NULL,
+	PRIMARY KEY (plntcode, primemover, cogen, fuel)
+	);
+
+-- don't calculate heat rates for non-thermalish generators (hydro, solar, wind), as they're not used.
+-- also, exclude fuels that Switch can't deal with yet (OTH, DFO, JF, KER, PC, RFO, WO)
+-- also, don't calculate heat rates for units that didn't produce any electricity
+-- but we want to keep units that didn't use any fuel as the steam turbine part of combined cycle plants may not use fuel directly
+
+-- Municipal Solid Waste doesn't match because in eia860gen07 it's MSW
+-- and in eia906_07_US it's a combination of biogenic and nonbiogenic components, MSB and MSN
+-- we'll call it all MSW and call it bio solid for Switch
+insert into existing_plants_906 (plntcode, primemover, cogen, fuel, elec_fuel_consumption_mmbtus, net_generation_megawatthours)
+select 	plntcode,
+		primemover,
+		if(Combined_Heat_And_Power_Plant = 'Y', 1, 0) as cogen,
+		if(Reported_Fuel_Type_Code in ('MSB', 'MSN'), 'MSW', Reported_Fuel_Type_Code) as fuel,
+		sum(elec_fuel_consumption_mmbtus) as elec_fuel_consumption_mmbtus,
+		sum(net_generation_megawatthours) as net_generation_megawatthours
+from grid.eia906_07_US
+where net_generation_megawatthours > 0
+and ( elec_fuel_consumption_mmbtus > 0 or primemover in ('CT', 'CA', 'CS') )
+-- and Reported_Fuel_Type_Code in ('BIT', 'LIG', 'SUB', 'WC', 'SC', 'NG', 'NUC', 'AB', 'MSB', 'OBS', 'TDF', 'WDS', 'LFG', 'OBG', 'GEO', 'MSN')
+and Reported_Fuel_Type_Code not in ('WAT', 'SUN', 'WND', 'PUR', 'WH', 'OTH')
+group by plntcode, primemover, cogen, fuel;
+
+-- the EIA messed up some of the primemovers of geothermal plants between 860 and 906
+-- we're going to trust eia860gen07 as it has specific info on the generating units
+-- this means that some ST generators in 906 become BT in 860
+-- there is a single plant (plntcode 10018) that has both BT and ST in eia860gen07, so it's excluded from the update
+update existing_plants_906 join existing_plants_860_gen using (plntcode, cogen, fuel)
+set existing_plants_906.primemover = existing_plants_860_gen.primemover
+where plntcode != 10018
+and fuel = 'GEO';
+
+-- the EIA also didn't label coal as BIT/SUB correctly for a few plants... this is corrected here
+update existing_plants_860_gen set fuel = 'SUB' where fuel = 'BIT' and plntcode in (113, 2442) and primemover = 'ST' and cogen = 0;
+update existing_plants_860_gen set fuel = 'BIT' where fuel = 'SUB' and plntcode in (126) and primemover = 'ST' and cogen = 0;
+update existing_plants_860_gen set fuel = 'BIT' where fuel = 'SUB' and plntcode in (10673, 10768, 54318, 54960) and primemover = 'ST' and cogen = 1;
+
+
+-- now join on plant-primemover-cogen-fuel
+update existing_plants_860_gen join existing_plants_906 using (plntcode, primemover, cogen, fuel)
+set existing_plants_860_gen.elec_fuel_consumption_mmbtus = existing_plants_906.elec_fuel_consumption_mmbtus,
+existing_plants_860_gen.net_generation_megawatthours = existing_plants_906.net_generation_megawatthours;
+
+-- remove all plant-primemover-cogen-fuel combinations that didn't generate anything
+delete from existing_plants_860_gen where net_generation_megawatthours is null;
+
+-- aggregate combined cycle generators because their primemovers are labeled as either 'CT', 'CA', or 'CS' depending on plant config
+drop table if exists combined_cycle_agg;
+create temporary table combined_cycle_agg as
+	select 	plntcode,
+			'CC' as primemover,
+			cogen,
+			fuel,
+			max(start_year) as start_year,
+			sum(capacity_MW) as capacity_MW,
+			sum(elec_fuel_consumption_mmbtus) as elec_fuel_consumption_mmbtus,
+			sum(net_generation_megawatthours) as net_generation_megawatthours
+	from existing_plants_860_gen
+	where primemover in ('CT', 'CA', 'CS')
+	group by plntcode, cogen, fuel;
+	
+
+delete from existing_plants_860_gen where primemover in ('CT', 'CA', 'CS');
+insert into existing_plants_860_gen select * from combined_cycle_agg;
+
+
+-- also aggregate a few biogas plants whose primemovers are GTs or OTs instead of ICs...
+-- they're functionally the same in Switch and similar in real life so we'll rename them here to IC
+drop table if exists biogas_agg;
+create temporary table biogas_agg as
+		select 	plntcode,
+			'IC' as primemover,
+			cogen,
+			fuel,
+			max(start_year) as start_year,
+			sum(capacity_MW) as capacity_MW,
+			sum(elec_fuel_consumption_mmbtus) as elec_fuel_consumption_mmbtus,
+			sum(net_generation_megawatthours) as net_generation_megawatthours
+	from existing_plants_860_gen
+	where primemover in ('OT', 'GT', 'IC')
+	and fuel in ('LFG', 'OBG')
+	group by plntcode, cogen, fuel;
+	
+delete from existing_plants_860_gen where primemover in ('OT', 'GT', 'IC') and fuel in ('LFG', 'OBG');
+insert into existing_plants_860_gen select * from biogas_agg;
+
+
+-- now actually pick the primary fuel for each generating unit, along with the concomiant start year, capacity and heat rate
+drop table existing_plants;
+create table existing_plants(
+	load_area varchar(11),
+	plntname varchar(50),
+	plntcode int NOT NULL,
+	primemover varchar(4) NOT NULL,
+	cogen boolean NOT NULL,
+	fuel varchar(64) NOT NULL,
+	start_year year NOT NULL,
+	capacity_MW double NOT NULL,
+	heat_rate double,
+	PRIMARY KEY (plntcode, primemover, cogen)
+	);	
+
+-- find the fuel with the most generation below
+-- this could in theory give multiple fuels if they had the exact same net_generation_megawatthours,
+-- but the primary key above will throw an error if this is the case
+insert into existing_plants (plntcode, primemover, cogen, fuel, start_year, capacity_MW, heat_rate)
+SELECT	plntcode,
+		primemover,
+		cogen,
+		fuel,
+		start_year,
+		capacity_MW,
+		elec_fuel_consumption_mmbtus / net_generation_megawatthours as heat_rate
+from existing_plants_860_gen join
+	( select 	plntcode,
+				primemover,
+				cogen,
+				max(net_generation_megawatthours) as net_generation_megawatthours
+		from existing_plants_860_gen
+		group by plntcode, primemover, cogen
+		) as max_gen
+	using (plntcode, primemover, cogen, net_generation_megawatthours)
+;
+
+
+-- two generators have heat rates < 3.413 (the conversion factor for MMBtu to MWh)
+-- which means they're creating energy out of nothing. These are the error of the EIA,
+-- so we'll insert the capacity-weighted average heat rate for their primemover-cogen-fuel combo here
+update existing_plants,
+	(select 	primemover,
+				cogen,
+				fuel,
+				sum(capacity_MW * heat_rate)/sum_capacity_MW as avg_heat_rate
+		from 	existing_plants join
+			(select primemover,
+					cogen,
+					fuel,
+					sum(capacity_MW) as sum_capacity_MW
+				from existing_plants
+				where 	heat_rate > 3.413
+				group by primemover, cogen, fuel ) as sum_cap_table
+			using (primemover, cogen, fuel)		
+		where 	heat_rate > 3.413
+		group by primemover, cogen, fuel) as avg_heat_rate_table
+set heat_rate = avg_heat_rate
+where heat_rate < 3.413;
+
+
+-- add plntname and load_area ---------
 
 -- a few generators are left out of the load area identifiation because they're in the ocean, most importantly a 2GW nuke near San Diego.
 -- this updates their load_areas...
 update eia860plant07_postgresql set load_area = 'CA_SCE_S' where plntcode = 56051;
 update eia860plant07_postgresql set load_area = 'CA_SDGE' where plntcode = 360;
 
-	
-drop table if exists weccplants;
-create table weccplants
-	select 	distinct(eia860plant07_postgresql.plntcode),
-			eia860plant07_postgresql.load_area
+-- get all plants in wecc, along with their load areas
+drop table if exists existing_plants_860_plant;
+create table existing_plants_860_plant (
+	plntcode int primary key,
+	plntname varchar(50) NOT NULL,
+	load_area varchar(11) NOT NULL
+	);
+
+-- remove spaces and dashes from the plntname to make it all nice
+insert into existing_plants_860_plant (plntcode, plntname, load_area)
+	select 	distinct
+			plntcode,
+			replace(replace(replace(replace(plntname, ' ', '_'), '-', '_'), '/', '_'), '#', '_') as plntname,
+			load_area
 	from eia860plant07_postgresql
 	where load_area is not null
 	and load_area not like ''
 	order by plntcode;
-	
--- netgenerators gets the non-hydro plant-primemovers for which the net generation in 2007 was greater than zero.
-drop table if exists maxgen;
-create table maxgen 
-	SELECT 	grid.eia906_07_US.plntcode,
-			grid.eia906_07_US.primemover,
-			grid.eia906_07_US.aer_fuel_type_code,
-			max(grid.eia906_07_US.net_generation_megawatthours) as net_generation_megawatthours,
-			weccplants.load_area
-			FROM 	grid.eia906_07_US,
-					weccplants,
-					(select *
-					from (SELECT 	plntcode,
-									primemover,
-									sum(net_generation_megawatthours) as netmwh
-									FROM grid.eia906_07_US
-									where primemover not in ('HY', 'PS')
-									group by plntcode, primemover)
-					as generators where netmwh > 0) as netgenerators
-	 where grid.eia906_07_US.primemover not in ('HY', 'PS')
-	 and grid.eia906_07_US.plntcode = weccplants.plntcode
-	 and netgenerators.plntcode = grid.eia906_07_US.plntcode
-	 and netgenerators.primemover = grid.eia906_07_US.primemover
-	 and grid.eia906_07_US.net_generation_megawatthours > 0
-	 group by 1,2,3
-	 order by plntcode;
 
--- finds plant-primemovers that use multiple fuels by the table 'count'
--- note that net_generation_megawatthours is a handle for figuring out which fuel type is the primary type
--- it will later be aggreagted to be the maximum generation by all units of a plant that share the same primemover and fuel.
-drop table if exists primaryfuel_for_multigen;
-create table primaryfuel_for_multigen
-	select maxgen.*
-	from
-		maxgen,
-		(select single_or_multifuel.plntcode,
-				single_or_multifuel.primemover,
-				max(maxgen.net_generation_megawatthours) as maxgen_mwh
-		from 	maxgen,
-				(SELECT plntcode,
-						primemover,
-						aer_fuel_type_code,
-						count(plntcode) as count
-					FROM maxgen
-					group by plntcode, primemover) as single_or_multifuel
-		where count > 1
-		and single_or_multifuel.plntcode = maxgen.plntcode
-		and single_or_multifuel.primemover = maxgen.primemover
-		group by 1,2) as multifuel_plants_maxgen
-where multifuel_plants_maxgen.maxgen_mwh = maxgen.net_generation_megawatthours
-and multifuel_plants_maxgen.plntcode = maxgen.plntcode
-and multifuel_plants_maxgen.primemover = maxgen.primemover;
+-- actually update existing_plants
+update existing_plants join existing_plants_860_plant using (plntcode)
+set existing_plants.load_area = existing_plants_860_plant.load_area,
+existing_plants.plntname = existing_plants_860_plant.plntname;
 
--- now replace the entries in maxgen for multifuel plant-primemovers with the fuel type that generates the most power.
-delete from maxgen
-	where (maxgen.plntcode, maxgen.primemover) in (select plntcode, primemover from primaryfuel_for_multigen);
-insert into maxgen (select * from primaryfuel_for_multigen);
-
--- deletes any fuel type that Switch can't handle yet... should include more in the future.
-delete FROM maxgen where aer_fuel_type_code not in ("NUC", "COL", "NG", "GEO");
--- deletes the only very small NG (net_generation_mwh=8) plant that has a primemover of 'OT'
-delete FROM maxgen where primemover like 'OT';
-
--- adds a column for fuel consumption
--- inserts aggregated fuel consumption and electricty production to prepare to caluclate heat rate.
-alter table maxgen add column elec_fuel_consumption_mmbtus double;
-update 	maxgen,
-		(SELECT plntcode,
-				primemover,
-				aer_fuel_type_code,
-				sum(elec_fuel_consumption_mmbtus) as elec_fuel_consumption_mmbtus,
-				sum(net_generation_megawatthours) as net_generation_megawatthours
-		FROM grid.eia906_07_US
-		group by 1,2,3) as fuel_consumption_generation
-set maxgen.elec_fuel_consumption_mmbtus = fuel_consumption_generation.elec_fuel_consumption_mmbtus,
-maxgen.net_generation_megawatthours = fuel_consumption_generation.net_generation_megawatthours
-where fuel_consumption_generation.plntcode = maxgen.plntcode
-and fuel_consumption_generation.primemover = maxgen.primemover
-and fuel_consumption_generation.aer_fuel_type_code = maxgen.aer_fuel_type_code;
-
--- lookup the total power generated by each plant-primemover
--- (for the model, we will assume that all of this is generated using the predominant fuel)
-alter table maxgen add column avg_gen_mw double;
-update maxgen set avg_gen_mw = net_generation_megawatthours/8760;
-
--- add nameplate capacity
--- excludes retired ('re') and out of service ('os') plants
-alter table maxgen add column nameplate_mw double;
-
-update maxgen, 
-		(select plntcode, primemover, sum(nameplate) as nameplate_mw from grid.eia860gen07_US where status not like 're' and status not like 'os' group by plntcode, primemover) as calcnameplate
-set maxgen.nameplate_mw = calcnameplate.nameplate_mw
-where maxgen.plntcode = calcnameplate.plntcode
-and maxgen.primemover = calcnameplate.primemover;
-
--- for rouge plants (ones that don't match on primemover), the nameplate code can't find the nameplate capacity, so it's updated seperatly here.
-update 	maxgen,
-			(SELECT 	plntcode,
-					sum(nameplate) as nameplate_mw
-			from eia860gen07
-			where plntcode in (select plntcode from maxgen where nameplate_mw is null)
-			group by plntcode) as rouge_plant_table
-set maxgen.nameplate_mw = rouge_plant_table.nameplate_mw
-where rouge_plant_table.plntcode = maxgen.plntcode;
-
--- one really small plant (1077 MWh) doesn't match, so we delete it here...
-delete from maxgen where nameplate_mw is null;
-
--- updates eia sector number and cogen
-alter table maxgen add column eia_sector_number int;
-alter table maxgen add column cogen char(1);
-
-update maxgen,
-	(select plntcode, primemover, eia_sector_number, combined_heat_and_power_plant as cogen from grid.eia906_07_US group by 1, 2) as sector_cogen
-set maxgen.eia_sector_number = sector_cogen.eia_sector_number,
-maxgen.cogen = sector_cogen.cogen
-where sector_cogen.plntcode = maxgen.plntcode
-and sector_cogen.primemover = maxgen.primemover;
-
--- the model doesn't currently run existing combustion turbines because they're aggregated by this code
--- and mislabeled as CCs.... the actual running of them won't change... should be fixed in ther larger existing plant revision
-drop table if exists combined_cycle_update;
-create temporary table combined_cycle_update
-	select 	maxgen.plntcode,
-			'CC' as primemover,
-			aer_fuel_type_code,
-			sum(net_generation_megawatthours) as net_generation_megawatthours,
-			load_area,
-			sum(elec_fuel_consumption_mmbtus) as elec_fuel_consumption_mmbtus,
-			sum(avg_gen_mw) as avg_gen_mw,
-			sum(nameplate_mw) as nameplate_mw,
-			eia_sector_number,
-			cogen
-		from maxgen
-where maxgen.primemover in ('CA', 'CT', 'CS')
-group by maxgen.plntcode;
-
-delete from maxgen where primemover in ('CA', 'CT', 'CS');
-
-insert into maxgen
-select * from combined_cycle_update;
+-- delete all non-wecc plants
+delete from existing_plants where load_area is null;
 
 
--- the latest year is chosen for plant-primemovers that have generators that came online in many years.
--- might lose a CC or two, but this will be filled out in the plant update.
-drop table if exists existing_plants;
-create table existing_plants (
-	plntname varchar(64) NOT NULL,
-	plntcode int NOT NULL,
-	primemover varchar(4) NOT NULL,
-	fuel varchar(20)  NOT NULL,
-	net_gen_mwh float,
-	fuel_consumption float,
-	eia_sector_number int,
-	cogen boolean,
-	load_area varchar(11),
-	nameplate float,
-	peak_mw float,
-	start_year year,
-	baseload boolean,
-	PRIMARY KEY (plntcode, primemover, fuel, eia_sector_number, cogen, start_year, nameplate)
-	);
-	
-	
-insert into existing_plants (plntname, plntcode, primemover, fuel, net_gen_mwh, fuel_consumption, eia_sector_number,
-							cogen, load_area, nameplate, peak_mw, start_year)
-select 	eia860gen07.plntname,
-		maxgen.plntcode,
-		maxgen.primemover,
-		maxgen.aer_fuel_type_code as fuel,
-		maxgen.net_generation_megawatthours as net_gen_mwh,
-		maxgen.elec_fuel_consumption_mmbtus as fuel_consumption,
-		maxgen.eia_sector_number,
-		if(maxgen.cogen like 'Y', 1, 0) as cogen,
-		maxgen.load_area,
-		sum(eia860gen07.nameplate) as nameplate,
-		sum((eia860gen07.Summer_Capacity+eia860gen07.Winter_Capacity)/2) as peak_mw,
---		eia860gen07.Operating_Year as start_year
-		max(eia860gen07.Operating_Year) as start_year
-from maxgen, eia860gen07
-where maxgen.plntcode = eia860gen07.plntcode
-and (maxgen.primemover = eia860gen07.primemover
-	or (maxgen.primemover like 'CC' and eia860gen07.primemover in ('CA', 'CT', 'CS') and maxgen.plntcode = eia860gen07.plntcode))
-group by eia860gen07.plntcode, eia860gen07.primemover, fuel, cogen, eia_sector_number;
--- group by eia860gen07.plntcode, eia860gen07.primemover, eia860gen07.Operating_Year;
+-- UPDATE FUELS to SWITCH FUELS ----------
 
--- fill in baseload (as described at top of file)
-update existing_plants set baseload = if(eia_sector_number in (1, 2, 6) and fuel="NG", 0, 1);
+-- aggregate other biogas with landfill gas
+-- many biomass solids
+-- many biomass liquids
+-- waste coal and petroleum coke with coal
+update existing_plants
+set fuel = 	CASE
+			WHEN fuel in ('BIT', 'LIG', 'SUB', 'WC', 'SC', 'PC') THEN 'Coal'
+			WHEN fuel in ('NG', 'BFG', 'OG', 'PG') THEN 'Gas'
+			WHEN fuel in ('DFO', 'JF', 'KER') THEN 'DistillateFuelOil'
+			WHEN fuel in ('RFO', 'WO') THEN 'ResidualFuelOil'
+			WHEN fuel = 'NUC' THEN 'Uranium'
+			WHEN fuel in ('AB', 'MSB', 'OBS', 'TDF', 'WDS', 'MSN', 'MSW' ) THEN 'Bio_Solid'
+			WHEN fuel in ('BLQ', 'OBL', 'SLW', 'WDL') THEN 'Bio_Liquid'
+			WHEN fuel in ('LFG', 'OBG') then 'Bio_Gas'
+			WHEN fuel = 'GEO' THEN 'Geothermal'
+END;
 
 
--- get heat rate for each plant-primemover-fuel-year combination
-alter table existing_plants add column heat_rate float;
-update	existing_plants e, 
-		(SELECT plntcode,
- 				primemover,
- 				fuel,
- 				start_year,
- 				sum(fuel_consumption)/sum(net_gen_mwh) as heat_rate
- 			FROM existing_plants
- 			group by plntcode, primemover, fuel, start_year) as h 
-set e.heat_rate = h.heat_rate
-where e.plntcode = h.plntcode
-and e.primemover = h.primemover
-and e.fuel = h.fuel
-and e.start_year = h.start_year;
 
--- two GTs have heat_rates of ~1000, not the ~10000 that they should have..
--- I'm assuming that this is because someone (not me... I checked) messed up a decimal point somewhere
--- I therefore multiply their heat rates by 10, which returns a normal heat rate for GTs
-update existing_plants set heat_rate = 10 * heat_rate where heat_rate < 2;
-
-
---select mn.plntcode, mn.primemover, mxyr, mnyr, mxyr- mnyr as mxdiff from
---(select plntcode, primemover, max(Operating_Year) as mxyr from 
+-- select mn.plntcode, mn.primemover, mxyr, mnyr, mxyr- mnyr as mxdiff from
+-- (select plntcode, primemover, max(Operating_Year) as mxyr from 
 --  (select plntcode, primemover, count(*) as cnt from existing_plants group by 1,2 order by cnt desc) g join 
 --  existing_plants using (plntcode, primemover) group by 1,2) as mx,
---(select plntcode, primemover, min(Operating_Year) as mnyr from 
+-- (select plntcode, primemover, min(Operating_Year) as mnyr from 
 --  (select plntcode, primemover, count(*) as cnt from existing_plants group by 1,2 order by cnt desc) g join 
 --  existing_plants using (plntcode, primemover) group by 1,2) as mn
---where mn.plntcode = mx.plntcode and mn.primemover = mx.primemover
---and mxyr- mnyr > 0
---order by mxdiff desc
+-- where mn.plntcode = mx.plntcode and mn.primemover = mx.primemover
+-- and mxyr- mnyr > 0
+-- order by mxdiff desc
 --
 -- --------------------------------------------------------------
 -- CANADA and MEXICO
@@ -266,7 +340,7 @@ update existing_plants set heat_rate = 10 * heat_rate where heat_rate < 2;
 
 -- selects out generators that we want.
 -- we took out SynCrude plants... they are a few hundred MW of generation in Alberta but we don't have time to deal with them at the moment... should be put in at some point
--- some generators strangly have min and max cap switched... this means that avg_mw > peak_mw
+-- some generators strangly have min and max cap switched... this means that avg_mw > capacity_MW
 drop table if exists canmexgen;
 create table canmexgen
 SELECT 	name,
@@ -274,8 +348,8 @@ SELECT 	name,
 		categoryname,
 		upper(left(categoryname, 2)) as primemover,
 		year(commissiondate) as start_year,
-		if(mincap > maxcap, mincap, maxcap) as peak_mw,
-		heatrate
+		if(mincap > maxcap, mincap, maxcap) as capacity_MW,
+		heatrate as heat_rate
 FROM grid.TEPPC_Generators
 where area in ('cfe', 'bctc', 'aeso')
 and categoryname not in ('canceled', 'conventional hydro', 'wind', 'Other Steam', 'Synthetic Crude', 'CT Old Oil')
@@ -283,24 +357,27 @@ and categoryname not like '%RPS'
 and categoryname not like '%Future'
 and year(commissionDate) < 2010
 and year(retirementdate) > 2010
-and peak_mw > 0
-order by categoryname
+and if(mincap > maxcap, mincap, maxcap) > 0
+order by categoryname;
 
--- switches v1 WECC load areas to v2 WECC load areas
+-- a few plants have made it to canmexgen that probably aren't real (they have generic names).. these plants get deleted here
+delete from canmexgen where name = 'Gen @'; 
+
+-- switches TEPPC load areas to v2 WECC load areas
 update canmexgen set load_area = 'MEX_BAJA' where load_area = 'cfe';
 update canmexgen set load_area = 'CAN_BC' where load_area = 'bctc';
 update canmexgen set load_area = 'CAN_ALB' where load_area = 'aeso';
 
 -- get the correct heat rates from the TEPPC_Generator_Categories table
 update canmexgen, grid.TEPPC_Generator_Categories
-set canmexgen.heatrate = grid.TEPPC_Generator_Categories.heatrate
+set canmexgen.heat_rate = grid.TEPPC_Generator_Categories.heatrate
 where canmexgen.categoryname = grid.TEPPC_Generator_Categories.name;
 
 -- get fuels
-alter table canmexgen add column fuel varchar(10);
-update canmexgen set fuel = 'GEO' where categoryname like 'Geothermal';
-update canmexgen set fuel = 'COL' where primemover like 'CO';
-update canmexgen set fuel = 'NG' where fuel is null;
+alter table canmexgen add column fuel varchar(64);
+update canmexgen set fuel = 'Geothermal' where categoryname like 'Geothermal';
+update canmexgen set fuel = 'Coal' where primemover like 'CO';
+update canmexgen set fuel = 'Gas' where fuel is null;
 
 -- change a few primemovers to look like the US existing plants 'CT' to 'CC'
 -- need to find if the Mexican Geothermal plants are 'ST' or 'BT'... put them as ST here.
@@ -310,21 +387,11 @@ update canmexgen set primemover = 'ST' where primemover like 'GE';
 update canmexgen set primemover = 'GT' where primemover like 'CT';
 
 
-alter table canmexgen add column baseload boolean;
-alter table canmexgen add column cogen boolean default 0;
-
--- this sets the baseload and cogen values based on our regretably limited knowledge of especially the latter in Canada and Mexico now
-update canmexgen set baseload = '1' where fuel in ('GEO', 'COL');
-update canmexgen set baseload = '0' where fuel not in ('GEO', 'COL');
-
 -- the following fixes some zero and null values in the TEPPC dataset by digging into other TEPPC tables
--- the two coded out below we don't think are real, so we're not going to include them.
--- update canmexgen set peak_mw = '280' where name like 'CCGT%'; 
--- update canmexgen set peak_mw = '48' where name like 'G-L_CG%';
-update canmexgen set peak_mw = '46' where name like 'PANCAN 9_2';
-update canmexgen set peak_mw = '48' where name like 'NEXENG%';
-update canmexgen set peak_mw = '48' where name like 'MEGENER2'; 
-update canmexgen set peak_mw = '128' where name like 'VancIsland1'; 
+update canmexgen set capacity_MW = '46' where name like 'PANCAN 9_2';
+update canmexgen set capacity_MW = '48' where name like 'NEXENG%';
+update canmexgen set capacity_MW = '48' where name like 'MEGENER2'; 
+update canmexgen set capacity_MW = '128' where name like 'VancIsland1'; 
  
 -- looked up cogen status of a bunch of canmex generators.  References on following lines.
 -- couldn't find any info about Mexican cogen.
@@ -336,9 +403,10 @@ update canmexgen set peak_mw = '128' where name like 'VancIsland1';
 
 -- also here is very nice
 -- http://www2.cieedac.sfu.ca/media/publications/Cogeneration%20Report%202010%20Final.pdf
+alter table canmexgen add column cogen boolean default 0;
+
 update canmexgen
-set cogen = 1,
-baseload = 1
+set cogen = 1
 where name in
 (	'Primros1', 'DowChmcl1', 'DowChmcl2', 'Rainbw4', 'JoffrCgnP',
 	'NovaJffr1A', 'NovaJffr1B', 'AirLiqd1', 'MedcnHt10', 'Cavalier1',
@@ -348,8 +416,8 @@ where name in
 	'SC_FirebagS3_2', 'IslndCgn', 'VancIsland1', 'WstCstn1', 'WstCstn2',
 	'Cancarb1', 'Redwater', 'BrrrdTh5', 'Weldwood1', 'Weldwood2' )
 or categoryname like 'gtc'
-or name like 'PANCAN%',
-or name like 'NEXENG%',
+or name like 'PANCAN%'
+or name like 'NEXENG%'
 or name like 'MEGEN%'
 ;
 
@@ -357,26 +425,28 @@ or name like 'MEGEN%'
 update canmexgen set start_year = 2002 where name = 'IslndCgn';
 
 -- http://www.intergen.com/global/larosita.php... start year 2003
-update canmexgen set start_year = 2003 where name = 'LaRosit1'
-
--- a few plants have made it through the process thusfar that probably aren't real (they have generic names)
--- these plants get deleted here
-delete from canmexgen where name = 'Gen @'; 
+update canmexgen set start_year = 2003 where name = 'LaRosit1';
 
 -- the geothermal and cogen plants don't have heat rates,
 -- so we just use the average US ones for each primemover-fuel-cogen combination.
 -- if the average US cogen heat rate comes in higher than the heat rate listed in the TEPPC database,
 -- take the TEPPC heat rate instead
 update 	canmexgen,
-		(select primemover,
-				fuel,
+	(select 	primemover,
 				cogen,
-				avg(heat_rate) as avg_heat_rate
-			from existing_plants_agg
-			group by 1,2,3
-		) as avg_heat_rate_table
-set heatrate =  if(heatrate = 0 or heatrate = null, avg_heat_rate,
-					if(heatrate > avg_heat_rate, avg_heat_rate, heatrate)
+				fuel,
+				sum(capacity_MW * heat_rate)/sum_capacity_MW as avg_heat_rate
+		from 	existing_plants join
+			(select primemover,
+					cogen,
+					fuel,
+					sum(capacity_MW) as sum_capacity_MW
+				from existing_plants
+				group by primemover, cogen, fuel ) as sum_cap_table
+			using (primemover, cogen, fuel)		
+		group by primemover, cogen, fuel) as avg_heat_rate_table
+set heat_rate =  if(heat_rate = 0 or heat_rate = null, avg_heat_rate,
+					if(heat_rate > avg_heat_rate, avg_heat_rate, heat_rate)
 				)
 where 	canmexgen.primemover = avg_heat_rate_table.primemover
 and		canmexgen.fuel = avg_heat_rate_table.fuel
@@ -694,29 +764,37 @@ insert into hydro_monthly_limits ( load_area, canada_plant_code, plant_name, pri
 drop table if exists existing_plant_technologies;
 create table existing_plant_technologies (
 	technology varchar(64),
-	fuel varchar(20),
+	fuel varchar(64),
 	primemover varchar(4),
 	cogen boolean,
 	PRIMARY KEY (fuel, primemover, cogen),
 	INDEX tech (technology) );
 	
 insert into existing_plant_technologies (technology, fuel, primemover, cogen) values
-	('Gas_Steam_Turbine_EP', 'NG', 'ST', 0),
-	('Gas_Steam_Turbine_Cogen_EP', 'NG', 'ST', 1),
-	('Gas_Combustion_Turbine_EP', 'NG', 'GT', 0),
-	('Gas_Combustion_Turbine_Cogen_EP', 'NG', 'GT', 1),
-	('Gas_Internal_Combustion_Engine_EP', 'NG', 'IC', 0),
-	('Gas_Internal_Combustion_Engine_Cogen_EP', 'NG', 'IC', 1),
-	('CCGT_EP', 'NG', 'CC', 0),
-	('CCGT_Cogen_EP', 'NG', 'CC', 1),
-	('Coal_Steam_Turbine_EP', 'COL', 'ST', 0),
-	('Coal_Steam_Turbine_Cogen_EP', 'COL', 'ST', 1),
-	('Nuclear_EP', 'NUC', 'ST', 0),
-	('Geothermal_EP', 'GEO', 'ST', 0),
-	('Geothermal_EP', 'GEO', 'BT', 0),
-	('Wind_EP', 'WND', 'WND', 0),
-	('Hydro_NonPumped', 'WAT', 'HY', 0),
-	('Hydro_Pumped', 'WAT', 'PS', 0)
+	('DistillateFuelOil_Combustion_Turbine_EP', 'DistillateFuelOil', 'GT', 0),
+	('DistillateFuelOil_Internal_Combustion_Engine_EP', 'DistillateFuelOil', 'IC', 0),
+	('Gas_Steam_Turbine_EP', 'Gas', 'ST', 0),
+	('Gas_Steam_Turbine_Cogen_EP', 'Gas', 'ST', 1),
+	('Gas_Combustion_Turbine_EP', 'Gas', 'GT', 0),
+	('Gas_Combustion_Turbine_Cogen_EP', 'Gas', 'GT', 1),
+	('Gas_Internal_Combustion_Engine_EP', 'Gas', 'IC', 0),
+	('Gas_Internal_Combustion_Engine_Cogen_EP', 'Gas', 'IC', 1),
+	('CCGT_EP', 'Gas', 'CC', 0),
+	('CCGT_Cogen_EP', 'Gas', 'CC', 1),
+	('Coal_Steam_Turbine_EP', 'Coal', 'ST', 0),
+	('Coal_Steam_Turbine_Cogen_EP', 'Coal', 'ST', 1),
+	('Nuclear_EP', 'Uranium', 'ST', 0),
+	('Geothermal_EP', 'Geothermal', 'ST', 0),
+	('Geothermal_EP', 'Geothermal', 'BT', 0),
+	('Wind_EP', 'Wind', 'WND', 0),
+	('Hydro_NonPumped', 'Water', 'HY', 0),
+	('Hydro_Pumped', 'Water', 'PS', 0),
+	('Bio_Gas_Internal_Combustion_Engine_EP', 'Bio_Gas', 'IC', 0),
+	('Bio_Gas_Internal_Combustion_Engine_Cogen_EP', 'Bio_Gas', 'IC', 1),
+	('Bio_Gas_Steam_Turbine_EP', 'Bio_Gas', 'ST', 0),
+	('Bio_Liquid_Steam_Turbine_Cogen_EP', 'Bio_Liquid', 'ST', 1),
+	('Bio_Solid_Steam_Turbine_EP', 'Bio_Solid', 'ST', 0),
+	('Bio_Solid_Steam_Turbine_Cogen_EP', 'Bio_Solid', 'ST', 1)
 	;
 
 
@@ -730,29 +808,11 @@ CREATE TABLE existing_plants_agg(
 	start_year year(4) NOT NULL,
 	primemover varchar(4) NOT NULL,
 	cogen boolean NOT NULL,
-	fuel varchar(20)  NOT NULL,
+	fuel varchar(64)  NOT NULL,
 	capacity_MW float NOT NULL,
 	heat_rate float NOT NULL default 0,
 	UNIQUE (plant_name, eia_id, primemover, cogen, fuel, start_year)
 );
-
-
--- USA existing plants - wind and hydro excluded
--- should we capacity weight heat rate??? 
-insert into existing_plants_agg (technology, load_area, plant_name, eia_id, start_year,
-								primemover, cogen, fuel, capacity_MW, heat_rate)
-	select 	technology,
-			load_area,
-  			replace(plntname, " ", "_") as plant_name,
-  			plntcode as eia_id,
-  			start_year,
-			primemover,
-			cogen,
-  			fuel, 
-			sum(peak_mw) as capacity_MW,
-			avg(heat_rate) as heat_rate
-	from	existing_plants join existing_plant_technologies using (fuel, primemover, cogen)
-	group by 1,2,3,4,5,6,7,8;
 
 -- add existing windfarms
 insert into existing_plants_agg (technology, load_area, plant_name, eia_id, start_year,
@@ -769,21 +829,6 @@ select 	'Wind_EP' as technology,
 		0 as heat_rate
 from 	3tier.windfarms_existing_info_wecc;
 
--- add Canada and Mexico
-insert into existing_plants_agg (technology, load_area, plant_name, eia_id, start_year,
-								primemover, cogen, fuel, capacity_MW, heat_rate)
-	select 	technology,
-			load_area,
-  			replace(name, " ", "_") as plant_name,
-  			0 as eia_id,
-   			start_year,
- 			primemover,
-  			cogen, 
-  			fuel,
-  			peak_mw as capacity_MW,
-  			heatrate
-  from canmexgen join existing_plant_technologies using (fuel, primemover, cogen);
-  
 -- add hydro to existing plants
 -- we don't define an id for canadian plants (default 0) - they do have a name at least 
 insert into existing_plants_agg (technology, load_area, plant_name, eia_id, start_year,
@@ -803,17 +848,37 @@ insert into existing_plants_agg (technology, load_area, plant_name, eia_id, star
 	join existing_plant_technologies using (primemover);
   
 
--- make EIA (aer) fuels into SWITCH fuels
-update existing_plants_agg
-set fuel = 	CASE WHEN fuel like 'NG' THEN 'Gas'
-			WHEN fuel like 'NUC' THEN 'Uranium'
-			WHEN fuel like 'COL' THEN 'Coal'
-			WHEN fuel like 'GEO' THEN 'Geothermal'
-			WHEN fuel like 'WND' THEN 'Wind'
-			WHEN fuel like 'WAT' THEN 'Water'
-			WHEN fuel like 'DFO' THEN 'DistillateFuelOil'
-			WHEN fuel like 'RFO' THEN 'ResidualFuelOil'
-			ELSE fuel
-END;
+-- USA existing plants - wind and hydro excluded
+insert into existing_plants_agg (technology, load_area, plant_name, eia_id, start_year,
+								primemover, cogen, fuel, capacity_MW, heat_rate)
+	select 	technology,
+			load_area,
+  			replace(plntname, " ", "_") as plant_name,
+  			plntcode as eia_id,
+  			start_year,
+			primemover,
+			cogen,
+  			fuel, 
+			capacity_MW,
+			heat_rate
+	from	existing_plants join existing_plant_technologies using (primemover, fuel, cogen);
+
+	
+-- add Canada and Mexico
+insert into existing_plants_agg (technology, load_area, plant_name, eia_id, start_year,
+								primemover, cogen, fuel, capacity_MW, heat_rate)
+	select 	technology,
+			load_area,
+  			replace(name, " ", "_") as plant_name,
+  			0 as eia_id,
+   			start_year,
+ 			primemover,
+  			cogen, 
+  			fuel,
+  			capacity_MW,
+  			heat_rate
+  from canmexgen join existing_plant_technologies using (fuel, primemover, cogen);
+  
+
 
 

@@ -5,6 +5,27 @@
 #   Loads the SWITCH model and input data that was exported with get_switch_input_tables.sh. Also sets policy options according to the input scenario.
 reset;
 
+############################################################
+# Utility Functions that interact with the operating system
+# get_num_cores() determines how many processor cores are on the current machine. Works on OS X & Linux.
+function get_num_cores pipe "while read junk; do if [ `uname` = 'Darwin' ]; then sysctl hw.ncpu | awk '{print $2}'; elif [ `uname` = 'Linux' ]; then cat /proc/cpuinfo | grep processor | wc -l | awk '{print $1}'; else echo 1; fi; done;";
+# file_exists(file_path) determines whether a file exists at the specified path (relative or absolute). Returns a 1 or a 0. Works on OS X & Linux.
+function file_exists pipe 'while read file_path; do if [ -f "$file_path" ]; then echo 1; else echo 0; fi; done;';
+
+###################################
+# Make directories for results and logs if they don't exist.
+param results_path symbolic := 'results/';
+param solution_times_path symbolic = "results/run_times.txt";
+shell("if [ ! -d " & results_path & " ]; then mkdir " & results_path & "; fi");
+shell("if [ ! -d logs ]; then mkdir logs; fi");
+# Make a file header for solution time if it doesn't exist.
+if ( file_exists(solution_times_path) == 0 )
+then {
+  printf "scenario_id	carbon_cost	process_type	completed_at	time_seconds\n"
+  > (solution_times_path);
+  close (solution_times_path);
+}
+
 ###################################
 # These AMPL & cplex options must be set before the model is included. 
 option presolve 0, presolve_eps 1e-10;
@@ -64,7 +85,8 @@ table existing_plants "inputs/existing_plants.tab" IN:
   EXISTING_PLANTS <- [project_id, load_area, technology], 
   	ep_plant_name ~ plant_name, ep_eia_id ~ eia_id,
     ep_capacity_mw ~ capacity_mw, ep_heat_rate ~ heat_rate, ep_vintage ~ start_year,  
-    ep_overnight_cost ~ overnight_cost, ep_fixed_o_m ~ fixed_o_m, ep_variable_o_m ~ variable_o_m;
+    ep_overnight_cost ~ overnight_cost, ep_fixed_o_m ~ fixed_o_m, ep_variable_o_m ~ variable_o_m,
+    ep_location_id;
 read table existing_plants;
 
 table existing_intermittent_plant_cap_factor "inputs/existing_intermittent_plant_cap_factor.tab" IN: 
@@ -93,7 +115,7 @@ table generator_info "inputs/generator_info.tab" IN:
 	TECHNOLOGIES <- [technology], technology_id, min_build_year, fuel, heat_rate, construction_time_years,
  	year_1_cost_fraction, year_2_cost_fraction, year_3_cost_fraction, year_4_cost_fraction, year_5_cost_fraction, year_6_cost_fraction,
 	max_age_years, forced_outage_rate, scheduled_outage_rate,
-	can_build_new, ccs, intermittent, resource_limited, baseload, dispatchable, cogen, min_build_capacity, 
+	can_build_new, ccs, intermittent, resource_limited, baseload, dispatchable, cogen, min_build_capacity, competes_for_space,
 	storage, storage_efficiency, max_store_rate;
 read table generator_info;
 
@@ -133,15 +155,6 @@ for { t in TECHNOLOGIES } {
 }
 ;
 
-# Mark which technologies will be competing for space
-for { t in SOLAR_CSP_TECHNOLOGIES } {
-  let technologies_compete_for_space[t] := 1;
-}
-set COMPETING_TECHNOLOGIES = {'Central_PV', 'Concentrating_PV', 'Biomass_IGCC', 'Biomass_IGCC_CCS', 'Bio_Gas', 'Bio_Gas_CCS' };
-let {t in COMPETING_TECHNOLOGIES: t in TECHNOLOGIES} 
-  technologies_compete_for_space[t] := 1;
-
-
 ###################################
 # Change the problem to remove policy constraints that are not in effect
 problem Investment_Cost_Minimization;
@@ -157,27 +170,7 @@ redeclare param rps_fuel_category {FUELS} symbolic in RPS_FUEL_CATEGORY;
 
 
 ############################################################
-# Utility Functions that interact with the operating system
-# get_num_cores() determines how many processor cores are on the current machine. Works on OS X & Linux.
-function get_num_cores pipe "while read junk; do if [ `uname` = 'Darwin' ]; then sysctl hw.ncpu | awk '{print $2}'; elif [ `uname` = 'Linux' ]; then cat /proc/cpuinfo | grep processor | wc -l | awk '{print $1}'; else echo 1; fi; done;";
-# file_exists(file_path) determines whether a file exists at the specified path (relative or absolute). Returns a 1 or a 0. Works on OS X & Linux.
-function file_exists pipe 'while read file_path; do if [ -f "$file_path" ]; then echo 1; else echo 0; fi; done;';
-############################################################
 
-###################################
-# Make directories for results and logs if they don't exist.
-shell("if [ ! -d " & results_path & " ]; then mkdir " & results_path & "; fi");
-shell("if [ ! -d logs ]; then mkdir logs; fi");
-# Make a file header for solution time if it doesn't exist.
-if ( file_exists(solution_times_path) == 0 )
-then {
-  printf "scenario_id	carbon_cost	process_type	completed_at	time_seconds\n"
-  > (solution_times_path);
-  close (solution_times_path);
-}
-
-
-###################################
 # Make sure the model has valid data
 check;
 
