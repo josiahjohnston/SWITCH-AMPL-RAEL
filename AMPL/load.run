@@ -33,8 +33,6 @@ option presolve 0, presolve_eps 1e-10;
 option substout 1, linelim 1;
 # Options to enable timing of compilation
 # option show_stats 1, times 1, gentimes 1;
-# Options to print out auxiliary files from ampl of the compiled MIP - see p. 488 of the AMPL book for documentation
-# option auxfiles cfrsu;
 option solver cplexamp;
 option cplex_options (" lpdisplay=1 iisfind=1 mipdisplay=2 presolve=1 prestats=1 timing=1 nodefile=2 treememory=15000 threads=6" );
 option cplex_options > results/cplex_options;
@@ -99,21 +97,17 @@ table hydro_monthly_limits "inputs/hydro_monthly_limits.tab" IN:
 read table hydro_monthly_limits;
 
 table proposed_projects "inputs/proposed_projects.tab" IN: 
-  PROJECTS <- [project_id, load_area, technology], project_location ~ location_id, 
-    capacity_limit, capacity_limit_conversion, connect_cost_per_mw, price_and_dollar_year, 
+  PROJECTS <- [project_id, load_area, technology], project_location ~ location_id, ep_project_replacement_id,
+    capacity_limit, capacity_limit_conversion, heat_rate, connect_cost_per_mw, price_and_dollar_year, 
     overnight_cost, fixed_o_m, variable_o_m, overnight_cost_change;
 read table proposed_projects;
-
-table competing_locations "inputs/competing_locations.tab" IN:
-	LOCATIONS_WITH_COMPETING_TECHNOLOGIES <- [location_id, load_area];
-read table competing_locations;
 
 table cap_factor "inputs/cap_factor.tab" IN: 
   PROJ_INTERMITTENT_HOURS <- [project_id, load_area, technology, hour], cap_factor;
 read table cap_factor;
 
 table generator_info "inputs/generator_info.tab" IN:  
-	TECHNOLOGIES <- [technology], technology_id, min_build_year, fuel, heat_rate, construction_time_years,
+	TECHNOLOGIES <- [technology], technology_id, min_build_year, fuel, construction_time_years,
  	year_1_cost_fraction, year_2_cost_fraction, year_3_cost_fraction, year_4_cost_fraction, year_5_cost_fraction, year_6_cost_fraction,
 	max_age_years, forced_outage_rate, scheduled_outage_rate,
 	can_build_new, ccs, intermittent, resource_limited, baseload, dispatchable, cogen, min_build_capacity, competes_for_space,
@@ -133,7 +127,7 @@ table biomass_supply_curve_breakpoint "inputs/biomass_supply_curve_breakpoint.ta
 read table biomass_supply_curve_breakpoint;
 
 table fuel_info "inputs/fuel_info.tab" IN:
-	FUELS <- [fuel], rps_fuel_category, carbon_content;
+	FUELS <- [fuel], rps_fuel_category, biofuel, carbon_content;
 read table fuel_info;
 let FUELS := FUELS union {"Storage"};
 

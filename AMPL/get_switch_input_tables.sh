@@ -172,27 +172,12 @@ echo ampl.tab 4 1 > hydro_monthly_limits.tab
 mysql $connection_string -e "select project_id, load_area, technology, study_date as date, avg_output from hydro_monthly_limits l join study_dates_all d on l.year = year(d.date_utc) and l.month=month(d.date_utc) where $DATESAMPLE order by 1, 2, 3, 4;" >> hydro_monthly_limits.tab
 
 echo '	proposed_projects.tab...'
-echo ampl.tab 3 9 > proposed_projects.tab
-mysql $connection_string -e "select project_id, proposed_projects.load_area, technology, 
-if(location_id is NULL, 0, location_id) as location_id, if(capacity_limit is NULL, 0, capacity_limit) as  capacity_limit, 
-capacity_limit_conversion, connect_cost_per_mw, price_and_dollar_year, round(overnight_cost*overnight_adjuster) as overnight_cost, 
-fixed_o_m, variable_o_m, overnight_cost_change 
-from proposed_projects
-	join load_area_info using (area_id) 
-	join generator_price_adjuster using (technology_id) 
-	where generator_price_adjuster.gen_price_scenario_id=$GEN_PRICE_SCENARIO_ID and technology not like '%CCS_EP' and $INTERMITTENT_PROJECTS_SELECTION and technology_id in (select technology_id from generator_info);" >> proposed_projects.tab
-
-echo '	competing_locations.tab...'
-echo ampl.tab 2 > competing_locations.tab
-mysql $connection_string -e "select distinct location_id, load_area from _proposed_projects join load_area_info using (area_id) where $INTERMITTENT_PROJECTS_SELECTION and location_id!=0 and technology_id in (SELECT technology_id FROM generator_info where competes_for_space = 1);" >> competing_locations.tab
-# If there aren't any competing locations, mysql won't print the column header, which in turn causes an error in AMPL. The following if statement will ensure the column header is present in the file as per AMPL's expectations.
-if [ `cat competing_locations.tab | wc -l | sed 's/ //g'` -eq 1 ]; then
-  echo location_id, load_area >> competing_locations.tab
-fi
+echo ampl.tab 3 11 > proposed_projects.tab
+mysql $connection_string -e "select project_id, proposed_projects.load_area, technology, if(location_id is NULL, 0, location_id) as location_id, if(ep_project_replacement_id is NULL, 0, ep_project_replacement_id) as ep_project_replacement_id, if(capacity_limit is NULL, 0, capacity_limit) as capacity_limit, capacity_limit_conversion, heat_rate, connect_cost_per_mw, price_and_dollar_year, round(overnight_cost*overnight_adjuster) as overnight_cost, fixed_o_m, variable_o_m, overnight_cost_change from proposed_projects join load_area_info using (area_id) join generator_price_adjuster using (technology_id) where generator_price_adjuster.gen_price_scenario_id=$GEN_PRICE_SCENARIO_ID and technology not like '%CCS_EP' and $INTERMITTENT_PROJECTS_SELECTION;" >> proposed_projects.tab
 
 echo '	generator_info.tab...'
-echo ampl.tab 1 26 > generator_info.tab
-mysql $connection_string -e "select technology, technology_id, min_build_year, fuel, heat_rate, construction_time_years, year_1_cost_fraction, year_2_cost_fraction, year_3_cost_fraction, year_4_cost_fraction, year_5_cost_fraction, year_6_cost_fraction, max_age_years, forced_outage_rate, scheduled_outage_rate, can_build_new, ccs, intermittent, resource_limited, baseload, dispatchable, cogen, min_build_capacity, competes_for_space, storage, storage_efficiency, max_store_rate from generator_info where technology not like '%CCS_EP';" >> generator_info.tab
+echo ampl.tab 1 25 > generator_info.tab
+mysql $connection_string -e "select technology, technology_id, min_build_year, fuel, construction_time_years, year_1_cost_fraction, year_2_cost_fraction, year_3_cost_fraction, year_4_cost_fraction, year_5_cost_fraction, year_6_cost_fraction, max_age_years, forced_outage_rate, scheduled_outage_rate, can_build_new, ccs, intermittent, resource_limited, baseload, dispatchable, cogen, min_build_capacity, competes_for_space, storage, storage_efficiency, max_store_rate from generator_info where technology not like '%CCS_EP';" >> generator_info.tab
 
 echo '	fuel_costs.tab...'
 echo ampl.tab 3 1 > fuel_costs.tab
@@ -207,8 +192,8 @@ echo ampl.tab 2 1 > biomass_supply_curve_breakpoint.tab
 mysql $connection_string -e "select load_area, breakpoint_id, breakpoint_mbtus_per_year from biomass_solid_supply_curve where breakpoint_mbtus_per_year is not null order by load_area, breakpoint_id" >> biomass_supply_curve_breakpoint.tab
 
 echo '	fuel_info.tab...'
-echo ampl.tab 1 2 > fuel_info.tab
-mysql $connection_string -e "select fuel, rps_fuel_category, carbon_content from fuel_info;" >> fuel_info.tab
+echo ampl.tab 1 3 > fuel_info.tab
+mysql $connection_string -e "select fuel, rps_fuel_category, biofuel, carbon_content from fuel_info;" >> fuel_info.tab
 
 echo '	fuel_qualifies_for_rps.tab...'
 echo ampl.tab 2 1 > fuel_qualifies_for_rps.tab

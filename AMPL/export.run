@@ -54,7 +54,7 @@ for {c in CARBON_COSTS} {
         technology_id[t], t, 1, baseload[t], 0, 0, fuel[t], rps_fuel_category[fuel[t]], hours_in_sample[h],
         Power_Produced[pid, a, t, p, h], 
         Carbon_Emissions[pid, a, t, p, h],
-        heat_rate[t], 
+        heat_rate[pid, a, t], 
         Fuel_Cost_Incurred_Hourly[pid, a, t, p, h],
         Carbon_Cost_Incurred_Hourly[pid, a, t, p, h],
         Variable_Cost_Incurred_Hourly[pid, a, t, p, h]

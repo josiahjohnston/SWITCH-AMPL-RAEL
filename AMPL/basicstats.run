@@ -50,11 +50,11 @@ let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: intermittent[t] }
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: baseload[t] }
   Power_Produced[pid, a, t, p, h] := Installed_To_Date[pid, a, t, p] * gen_availability[t];
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: fuel[t] in BIO_SOLID_FUELS}
-  Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := Power_Produced[pid, a, t, p, h] * heat_rate[t] * Biomass_Solid_Fuel_Cost[a, h];
+  Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := Power_Produced[pid, a, t, p, h] * heat_rate[pid, a, t] * Biomass_Solid_Fuel_Cost[a, h];
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: fuel[t] not in BIO_SOLID_FUELS}
-  Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := Power_Produced[pid, a, t, p, h] * heat_rate[t] * fuel_cost_nominal[a, t, p];
+  Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := Power_Produced[pid, a, t, p, h] * heat_rate[pid, a, t] * fuel_cost_nominal[a, t, p];
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS }
-  Carbon_Emissions[pid, a, t, p, h] :=  Power_Produced[pid, a, t, p, h] * heat_rate[t] * carbon_content[fuel[t]];
+  Carbon_Emissions[pid, a, t, p, h] :=  Power_Produced[pid, a, t, p, h] * heat_rate[pid, a, t] * carbon_content[fuel[t]];
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS }
   Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] := Carbon_Emissions[pid, a, t, p, h] * carbon_cost;
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS }
@@ -66,7 +66,7 @@ let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }
   EP_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] := EP_Carbon_Emissions[pid, a, t, p, h] * carbon_cost;
 let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: fuel[t] in BIO_SOLID_FUELS }
   EP_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := ProducePowerEP[pid, a, t, p, h] * ep_heat_rate[pid, a, t] * Biomass_Solid_Fuel_Cost[a, h];
-let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: fuel[t] not in BIO_SOLID_FUELS  }
+let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: fuel[t] not in BIO_SOLID_FUELS }
   EP_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := ProducePowerEP[pid, a, t, p, h] * ep_heat_rate[pid, a, t] * fuel_cost_nominal[a, t, p];
 let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }
   EP_Variable_Cost_Incurred_Hourly[pid, a, t, p, h] := ProducePowerEP[pid, a, t, p, h] * ep_variable_o_m[pid, a, t];

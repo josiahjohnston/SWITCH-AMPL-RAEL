@@ -19,6 +19,7 @@ for {c in CARBON_COSTS} {
 		if ( (file_exists(solution_path) ==  0) and (file_exists(problem_path) == 0)) then {
 			printf "\nWriting Investment Cost problem for a carbon cost of %d.\n", carbon_cost;
 			let curtime := time();
+			# Options to print out auxiliary files from ampl of the compiled MIP - see p. 488 of the AMPL book for documentation
 			# option auxfiles cfrsu; write ("m" & problem_basename);  # Uncomment this line to write the problem as text files (for debugging)
 			write ("b" & problem_basename);
 			let compile_time := time() - curtime;
