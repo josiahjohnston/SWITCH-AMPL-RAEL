@@ -207,7 +207,7 @@ printf "\n";
 
 function cpu_usage() {
 	pid=$1
-	tmp_path=$(tempfile)
+	tmp_path='logs/tmp.txt'
 	ps S -o ppid,pid,pcpu,pmem > $tmp_path
 	pid_list=$pid
 	op=""
