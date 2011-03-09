@@ -173,8 +173,14 @@ mysql $connection_string -e "select project_id, load_area, technology, study_dat
 
 echo '	proposed_projects.tab...'
 echo ampl.tab 3 9 > proposed_projects.tab
-mysql $connection_string -e "select project_id, proposed_projects.load_area, technology, if(location_id is NULL, 0, location_id) as location_id, if(capacity_limit is NULL, 0, capacity_limit) as 
-capacity_limit, capacity_limit_conversion, connect_cost_per_mw, price_and_dollar_year, round(overnight_cost*overnight_adjuster) as overnight_cost, fixed_o_m, variable_o_m, overnight_cost_change from proposed_projects join load_area_info using (area_id) join generator_price_adjuster using (technology_id) where generator_price_adjuster.gen_price_scenario_id=$GEN_PRICE_SCENARIO_ID and technology not like '%CCS_EP' and $INTERMITTENT_PROJECTS_SELECTION;" >> proposed_projects.tab
+mysql $connection_string -e "select project_id, proposed_projects.load_area, technology, 
+if(location_id is NULL, 0, location_id) as location_id, if(capacity_limit is NULL, 0, capacity_limit) as  capacity_limit, 
+capacity_limit_conversion, connect_cost_per_mw, price_and_dollar_year, round(overnight_cost*overnight_adjuster) as overnight_cost, 
+fixed_o_m, variable_o_m, overnight_cost_change 
+from proposed_projects
+	join load_area_info using (area_id) 
+	join generator_price_adjuster using (technology_id) 
+	where generator_price_adjuster.gen_price_scenario_id=$GEN_PRICE_SCENARIO_ID and technology not like '%CCS_EP' and $INTERMITTENT_PROJECTS_SELECTION and technology_id in (select technology_id from generator_info);" >> proposed_projects.tab
 
 echo '	competing_locations.tab...'
 echo ampl.tab 2 > competing_locations.tab
