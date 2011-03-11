@@ -472,7 +472,7 @@ param project_end_year {(pid, a, t, p) in PROJECT_VINTAGES} =
 
 # a set that easily enables the summing over periods to represent the total installed capacity of a project
 set PROJECT_VINTAGE_INSTALLED_PERIODS :=
-	{ (pid, a, t, install_yr) in PROJECT_VINTAGES, p in PERIODS: install_yr <= p < project_end_year[pid, a, t, install_yr] };
+	{ (pid, a, t, online_yr) in PROJECT_VINTAGES, p in PERIODS: online_yr <= p < project_end_year[pid, a, t, online_yr] };
 
 # union new projects and existing plants
 set AVAILABLE_VINTAGES = PROJECT_VINTAGES union EP_PERIODS;
@@ -549,81 +549,9 @@ param avg_hydro_output_load_area_agg { (a, t, p, d) in HYDRO_DATES }
 		then hydro_capacity_mw_in_load_area[a, t] * gen_availability[t]
 		else avg_hydro_output_load_area_agg_unrestricted[a, t, p, d];
 	
-###############################################
-# Transmission lines
-
-# $ cost per mw-km for transmission lines
-# because transmission lines are built in one direction only and then constrained to have the same capacity in both directions
-# the per direction value needs to be half of what it would cost to install each line
-param transmission_cost_per_mw_km = 1000;
-param transmission_cost_per_mw_km_per_direction = transmission_cost_per_mw_km / 2;
-
-# should also at some point include costs for transmission maintenance: 
-# which is quoted as 3% of the installation cost in the 2009 WREZ transmission model transmission data
-# param transmission_annual_payment_per_mw_km := 0.03 * transmission_cost_per_mw_km;
-
-# the cost to maintin the existing transmission infrustructure over all of WECC
-param transmission_sunk_annual_payment {LOAD_AREAS} >= 0;
-
-# financial age for transmission lines - from the 2009 WREZ transmission model transmission data
-param transmission_max_age_years = 20;
-
-# forced outage rate for transmission lines, used for probabilistic dispatch(!)
-param transmission_forced_outage_rate = 0.01;
-
-# possible transmission lines are listed in advance;
-# these include all possible combinations of LOAD_AREAS, with no double-counting
-# The model could be simplified by only allowing lines to be built between neighboring zones.
-set TRANSMISSION_LINES in {LOAD_AREAS, LOAD_AREAS};
-
-# length of each transmission line
-param transmission_length_km {TRANSMISSION_LINES};
-
-# delivery efficiency on each transmission line
-param transmission_efficiency {TRANSMISSION_LINES};
-
-# are new builds of transmission lines allowed along this transmission corridor?
-param new_transmission_builds_allowed {TRANSMISSION_LINES} binary;
-
-set TRANSMISSION_LINES_NEW_BUILDS_ALLOWED := { (a1, a2) in TRANSMISSION_LINES: new_transmission_builds_allowed[a1, a2] };
-
-# distribution losses, expressed as percentage of system load
-# this is not applied to distributed solar PV systems, which are assumed to be located within the distribution system, close to load
-# we took 5.3% losses value from ReEDS Solar Vision documentation, http://www1.eere.energy.gov/solar/pdfs/svs_appendix_a_model_descriptions_data.pdf
-param distribution_losses = 0.053;
-
-# the rating of existing lines in MW (can be different for the two directions, but each direction is
-# represented by an individual entry in the table)
-param existing_transfer_capacity_mw {TRANSMISSION_LINES} >= 0 default 0;
-
-# unique ID for each transmission line, used for reporting results
-param transmission_line_id {TRANSMISSION_LINES};
-
-# parameters for local transmission and distribution from the large-scale network to distributed loads
-param local_td_max_age_years = 20;
-param local_td_new_annual_payment_per_mw {LOAD_AREAS} >= 0;
-
-# the max_coincident_load_for_local_td is used to determine the amount of new local t&d needed in a load area
-# this param represents the max coincident load in 2010 for each load area
-param max_coincident_load_for_local_td {LOAD_AREAS} >= 0; 
-
-# it is assumed that local T&D is currently installed up to the capacity margin
-# (hence the max_coincident_load_for_local_td * ( 1 + planning_reserve_margin ) ).
-# TODO: find better data on how much Local T&D is already installed above peak load
-param existing_local_td {a in LOAD_AREAS} = max_coincident_load_for_local_td[a] * ( 1 + planning_reserve_margin );
-
-# the cost to maintin the existing local T&D infrustructure for each load area
-param local_td_sunk_annual_payment {LOAD_AREAS} >= 0;
-
-# amount of local transmission and distribution capacity
-# (to carry peak power from transmission network to distributed loads)
-param install_local_td {a in LOAD_AREAS, p in PERIODS} = 
-  max( 0, # This max ensures that the value will never fall below 0. 
-  (max_system_load[a,p] - existing_local_td[a] - sum { build in PERIODS: build < p } install_local_td[a, build] ) );
-
 
 #####################
-# calculate discounted costs for new plants
+# calculate discounted costs for plants
 
 # apply projected annual real cost changes to each technology,
 # to get the capital, fixed and variable costs if it is installed 
@@ -718,31 +646,30 @@ param carbon_cost_per_mwh {(pid, a, t, p, h) in AVAILABLE_HOURS} =
 	) / num_years_per_period
 	* discount_to_base_year[p];
 
-########
-# now get discounted costs per MW for transmission lines and local T&D on similar terms
+###############################################
+# Local T&D
 
-# cost per MW for transmission lines
-# TODO: Move the regional cost adjustment into the database. 
-param transmission_annual_payment {(a1, a2) in TRANSMISSION_LINES_NEW_BUILDS_ALLOWED } = 
-  discount_rate / ( 1 - ( 1 + discount_rate ) ^ ( -1 * transmission_max_age_years ) ) 
-  * transmission_cost_per_mw_km_per_direction * ( (economic_multiplier[a1] + economic_multiplier[a2]) / 2 )
-  * transmission_length_km[a1, a2];
+# parameters for local transmission and distribution from the large-scale network to distributed loads
+param local_td_max_age_years = 20;
+param local_td_new_annual_payment_per_mw {LOAD_AREAS} >= 0;
 
-# date when a transmission line built of each vintage will stop being included in the simulation
-# note: if it would be expected to retire between study periods,
-# it is kept running (and annual payments continue to be made).
-param transmission_end_year {p in PERIODS} =
-  min(end_year, p + ceil(transmission_max_age_years/num_years_per_period)*num_years_per_period);
+# the max_coincident_load_for_local_td is used to determine the amount of new local t&d needed in a load area
+# this param represents the max coincident load in 2010 for each load area
+param max_coincident_load_for_local_td {LOAD_AREAS} >= 0; 
 
-# trans_line-vintage-hour combinations for which dispatch decisions must be made
-set TRANS_VINTAGE_HOURS := 
-  {(a1, a2) in TRANSMISSION_LINES_NEW_BUILDS_ALLOWED, p in PERIODS, h in TIMEPOINTS: p <= period[h] < transmission_end_year[p]};
+# it is assumed that local T&D is currently installed up to the capacity margin
+# (hence the max_coincident_load_for_local_td * ( 1 + planning_reserve_margin ) ).
+# TODO: find better data on how much Local T&D is already installed above peak load
+param existing_local_td {a in LOAD_AREAS} = max_coincident_load_for_local_td[a] * ( 1 + planning_reserve_margin );
 
-# discounted transmission cost per MW
-param transmission_cost_per_mw {(a1, a2) in TRANSMISSION_LINES_NEW_BUILDS_ALLOWED, install_yr in PERIODS } =
-  sum {p in PERIODS: install_yr <= p < transmission_end_year[p]}
-  transmission_annual_payment[a1, a2]
-  * discount_to_base_year[p];
+# the cost to maintin the existing local T&D infrustructure for each load area
+param local_td_sunk_annual_payment {LOAD_AREAS} >= 0;
+
+# amount of local transmission and distribution capacity
+# (to carry peak power from transmission network to distributed loads)
+param install_local_td {a in LOAD_AREAS, p in PERIODS} = 
+  max( 0, # This max ensures that the value will never fall below 0. 
+  (max_system_load[a,p] - existing_local_td[a] - sum { build in PERIODS: build < p } install_local_td[a, build] ) );
 
 # date when a when local T&D infrastructure of each vintage will stop being included in the simulation
 # note: if it would be expected to retire between study periods,
@@ -752,16 +679,105 @@ param local_td_end_year {p in PERIODS} =
 
 # discounted cost per MW for local T&D
 # the costs are already regionalized, so no need to do it again here
-param local_td_cost_per_mw {a in LOAD_AREAS, install_yr in PERIODS} = 
-  sum {p in PERIODS: install_yr <= p < transmission_end_year[p]}
+param local_td_cost_per_mw {a in LOAD_AREAS, online_yr in PERIODS} = 
+  sum {p in PERIODS: online_yr <= p < local_td_end_year[p]}
   local_td_new_annual_payment_per_mw[a]
   * discount_to_base_year[p];
 
-# local_td-vintage-hour combinations which must be reconciled
-set LOCAL_TD_HOURS := 
-  {a in LOAD_AREAS, p in PERIODS, h in TIMEPOINTS: p <= period[h] < local_td_end_year[p]};
+# distribution losses, expressed as percentage of system load
+# this is not applied to distributed solar PV systems, which are assumed to be located within the distribution system, close to load
+# we took 5.3% losses value from ReEDS Solar Vision documentation, http://www1.eere.energy.gov/solar/pdfs/svs_appendix_a_model_descriptions_data.pdf
+param distribution_losses = 0.053;
 
-######## VARIABLES ########
+###############################################
+# Transmission lines
+
+# the cost to maintin the existing transmission infrustructure over all of WECC
+param transmission_sunk_annual_payment {LOAD_AREAS} >= 0;
+
+# forced outage rate for transmission lines, used for probabilistic dispatch(!)
+param transmission_forced_outage_rate = 0.01;
+
+# possible transmission lines are listed in advance;
+# these include all possible combinations of LOAD_AREAS, with no double-counting
+# The model could be simplified by only allowing lines to be built between neighboring zones.
+set TRANSMISSION_LINES in {LOAD_AREAS, LOAD_AREAS};
+
+# unique ID for each transmission line, used for reporting results
+param transmission_line_id {TRANSMISSION_LINES};
+
+# length of each transmission line
+param transmission_length_km {TRANSMISSION_LINES};
+
+# delivery efficiency on each transmission line
+param transmission_efficiency {TRANSMISSION_LINES};
+
+# the rating of existing lines in MW 
+param existing_transfer_capacity_mw {TRANSMISSION_LINES} >= 0 default 0;
+
+# are new builds of transmission lines allowed along this transmission corridor?
+param new_transmission_builds_allowed {TRANSMISSION_LINES} binary;
+set TRANSMISSION_LINES_NEW_BUILDS_ALLOWED := { (a1, a2) in TRANSMISSION_LINES: new_transmission_builds_allowed[a1, a2] };
+
+# now get discounted costs per MW for transmission lines
+
+# $ cost per mw-km for new transmission lines
+# because transmission lines are built in one direction only and then constrained to have the same capacity in both directions
+# the per direction value needs to be half of what it would cost to install each line
+param transmission_capital_cost_per_mw_km = 1000;
+param transmission_capital_cost_per_mw_km_per_direction = transmission_capital_cost_per_mw_km / 2;
+
+# costs for transmission maintenance, which is quoted as 3% of the installation cost in the 2009 WREZ transmission model transmission data
+# costs for existing transmission maintenance is included in the transmission_sunk_annual_payment (most of the lines are old, so this is primarily O&M costs)
+param transmission_fixed_o_m_annual_payment { (a1, a2) in TRANSMISSION_LINES_NEW_BUILDS_ALLOWED } =
+	0.03 * transmission_capital_cost_per_mw_km_per_direction * transmission_length_km[a1, a2]
+		 * ( (economic_multiplier[a1] + economic_multiplier[a2]) / 2 );
+
+# financial age for transmission lines - from the 2009 WREZ transmission model transmission data
+param transmission_max_age_years = 20;
+
+# the time it takes to construct transmission lines.  An expedited permitting process is assumed here, making this value 5 years.
+param transmission_construction_time_years = 5;
+
+# date when a transmission line of each vintage will stop paying capital costs in the simulation
+# it will continue to pay O&M costs because transmission lines are rarely retired (and are not allowed to be retired in SWITCH)
+param transmission_end_year {p in PERIODS} =
+  min( end_year, p + ceil( transmission_max_age_years / num_years_per_period ) * num_years_per_period );
+
+# cost per MW for transmission lines
+param transmission_capital_cost_annual_payment { (a1, a2) in TRANSMISSION_LINES_NEW_BUILDS_ALLOWED } = 
+  discount_rate / ( 1 - ( 1 + discount_rate ) ^ ( -1 * transmission_max_age_years ) ) 
+  * transmission_capital_cost_per_mw_km_per_direction * transmission_length_km[a1, a2]
+  * ( (economic_multiplier[a1] + economic_multiplier[a2]) / 2 );
+
+# the set of all periods in which transmission decisions must be made
+set TRANSMISSION_LINE_PERIODS := { (a1, a2) in TRANSMISSION_LINES, p in PERIODS };
+
+# the set of periods in which new transmission lines can be built
+set TRANSMISSION_LINE_NEW_PERIODS := { (a1, a2, p) in TRANSMISSION_LINE_PERIODS:
+		(a1, a2) in TRANSMISSION_LINES_NEW_BUILDS_ALLOWED and p >= present_year + transmission_construction_time_years };
+
+# trans_line-vintage-hour combinations for which dispatch decisions must be made
+set TRANSMISSION_LINE_HOURS := { (a1, a2, p) in TRANSMISSION_LINE_PERIODS, h in TIMEPOINTS: p = period[h] };
+
+# discounted transmission cost per MW up to their financial lifetime - the non-discounted cost of transmission doesn't decrease (or increase) by period
+param transmission_cost_per_mw { (a1, a2, online_yr) in TRANSMISSION_LINE_NEW_PERIODS } =
+  sum { p in PERIODS: online_yr <= p < transmission_end_year[p] } transmission_capital_cost_annual_payment[a1, a2] * discount_to_base_year[p];
+
+# Fixed annual O&M costs that are paid while the transmission line is operating (up to the end of the study period)
+param transmission_fixed_o_m_by_period { (a1, a2, online_yr) in TRANSMISSION_LINE_NEW_PERIODS } = 
+  sum { p in PERIODS: online_yr <= p } transmission_fixed_o_m_annual_payment[a1, a2] * discount_to_base_year[p];
+
+######## TRANSMISSION VARIABLES ########
+
+# number of MW to install in each transmission corridor at each vintage
+var InstallTrans { TRANSMISSION_LINE_NEW_PERIODS } >= 0;
+
+# number of MW to transmit through each transmission corridor in each hour
+var DispatchTransFromXToY { TRANSMISSION_LINE_HOURS, RPS_FUEL_CATEGORY} >= 0;
+var DispatchTransFromXToY_Reserve { TRANSMISSION_LINE_HOURS } >= 0;
+
+######## GENERATOR AND STORAGE VARIABLES ########
 
 # Number of MW of power consumed in each load area in each hour for non distributed and distributed projects
 # in terms of actual load met - distribution losses are NOT consumed
@@ -804,7 +820,7 @@ var ProducePowerEP { (pid, a, t, p, h) in EP_AVAILABLE_HOURS } >= 0;
 var ConsumeBioSolid {a in LOAD_AREAS, p in PERIODS: num_bio_breakpoints[a] > 0 }
 	= sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: fuel[t] in BIO_SOLID_FUELS } 
 	# the hourly MWh output of biomass solid projects in baseload mode is below
-		( ( sum {(pid, a, t, install_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, install_yr] ) * gen_availability[t]
+		( ( sum {(pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] ) * gen_availability[t]
 	# weight each hour to get the total biomass consumed
       	* hours_in_sample[h] * heat_rate[pid, a, t] );
 
@@ -829,16 +845,6 @@ var DispatchHydro_Reserve {HYDRO_AVAILABLE_HOURS} >= 0;
 var Dispatch_Pumped_Hydro_Storage_Reserve {PUMPED_HYDRO_AVAILABLE_HOURS} >= 0;
 var Store_Pumped_Hydro_Reserve {PUMPED_HYDRO_AVAILABLE_HOURS} >= 0;
 
-#############################
-# Transmission and Local T&D variables
-
-# number of MW to install in each transmission corridor at each vintage
-var InstallTrans {TRANSMISSION_LINES_NEW_BUILDS_ALLOWED, PERIODS } >= 0;
-
-# number of MW to transmit through each transmission corridor in each hour
-var DispatchTransFromXToY {TRANSMISSION_LINES, TIMEPOINTS, RPS_FUEL_CATEGORY} >= 0;
-var DispatchTransFromXToY_Reserve {TRANSMISSION_LINES, TIMEPOINTS} >= 0;
-
 
 #### OBJECTIVE ####
 
@@ -855,70 +861,72 @@ minimize Power_Cost:
 	#############################
 	#    NEW PLANTS
 	# Capital costs
-     (sum {(pid, a, t, p) in PROJECT_VINTAGES} 
+      ( sum {(pid, a, t, p) in PROJECT_VINTAGES} 
         InstallGen[pid, a, t, p] * capital_cost[pid, a, t, p] )
 	# Fixed Costs
-	+(sum {(pid, a, t, p) in PROJECT_VINTAGES} 
-	    ( sum { (pid, a, t, install_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, install_yr] )
+	+ ( sum {(pid, a, t, p) in PROJECT_VINTAGES} 
+	    ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
 	    	* fixed_o_m_by_period[pid, a, t, p] )
 	# Variable costs for non-storage projects and the natural gas part of CAES
-	+(sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t]} 
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t]} 
 		DispatchGen[pid, a, t, p, h] * ( variable_cost[pid, a, t, p, h] + carbon_cost_per_mwh[pid, a, t, p, h] + fuel_cost[pid, a, t, p, h] ) )
-	+(sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: intermittent[t]} 
-		( sum { (pid, a, t, install_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, install_yr] )
+	+ ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: intermittent[t]} 
+		( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
 			* cap_factor[pid, a, t, h] * gen_availability[t] * ( variable_cost[pid, a, t, p, h] + carbon_cost_per_mwh[pid, a, t, p, h] ) )
-	+(sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t]} 
-	    ( sum { (pid, a, t, install_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, install_yr] )
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t]} 
+		( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
 	    	* gen_availability[t] * ( variable_cost[pid, a, t, p, h] + carbon_cost_per_mwh[pid, a, t, p, h] ) )
 	# Fuel costs - intermittent generators don't have fuel costs as they're either solar or wind
-	+(sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t] and fuel[t] not in BIO_SOLID_FUELS} 
-	    ( sum { (pid, a, t, install_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, install_yr] )
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t] and fuel[t] not in BIO_SOLID_FUELS} 
+		( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
 	    	* gen_availability[t] * fuel_cost[pid, a, t, p, h] )
 	# BioSolid fuel costs - ConsumeBioSolid is the Mbtus of biomass consumed per period per load area
 	# so this is annualized because costs in the objective function are annualized for proper discounting
-	+(sum {a in LOAD_AREAS, p in PERIODS: num_bio_breakpoints[a] > 0} 
+	+ ( sum {a in LOAD_AREAS, p in PERIODS: num_bio_breakpoints[a] > 0} 
 		<< { bp in 1..num_bio_breakpoints[a]-1 } breakpoint_mbtus_per_period[a, bp]; 
-	   { bp in 1..num_bio_breakpoints[a] } price_dollars_per_mbtu[a, bp] >>
+		   { bp in 1..num_bio_breakpoints[a] } price_dollars_per_mbtu[a, bp] >>
 	   		ConsumeBioSolid[a, p] * ( 1 / num_years_per_period ) * discount_to_base_year[p]  )
 
 	# Variable costs for storage projects: currently attributed to the dispatch side of storage
 	# for CAES, power output is apportioned between DispatchGen and ReleaseEnergy by storage_efficiency_caes through the constraint CAES_Combined_Dispatch
-	+(sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t]} 
-	    ReleaseEnergy[pid, a, t, p, h, fc] * variable_cost[pid, a, t, p, h])
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t]} 
+		ReleaseEnergy[pid, a, t, p, h, fc] * variable_cost[pid, a, t, p, h])
       
 	#############################
 	#    EXISTING PLANTS
 	# Capital costs (sunk cost)
-	+(sum {(pid, a, t, p) in EP_PERIODS: not ep_could_be_operating_past_expected_lifetime[pid, a, t, p]}
-	  ep_capacity_mw[pid, a, t] * ep_capital_cost[pid, a, t, p] )
+	+ ( sum {(pid, a, t, p) in EP_PERIODS: not ep_could_be_operating_past_expected_lifetime[pid, a, t, p]}
+		ep_capacity_mw[pid, a, t] * ep_capital_cost[pid, a, t, p] )
 	# Calculate capital costs for all plants that are operated beyond their expected retirement. 
 	# This can be thought of as making payments into a capital replacement fund
-	+(sum {(pid, a, t, p) in EP_PERIODS: not intermittent[t] and not hydro[t] and ep_could_be_operating_past_expected_lifetime[pid, a, t, p]} 
-      OperateEPDuringPeriod[pid, a, t, p] * ep_capacity_mw[pid, a, t] * ep_capital_cost[pid, a, t, p] )
+	+ ( sum {(pid, a, t, p) in EP_PERIODS: not intermittent[t] and not hydro[t] and ep_could_be_operating_past_expected_lifetime[pid, a, t, p]} 
+		OperateEPDuringPeriod[pid, a, t, p] * ep_capacity_mw[pid, a, t] * ep_capital_cost[pid, a, t, p] )
 	# Calculate fixed costs for all existing plants
-	+(sum {(pid, a, t, p) in EP_PERIODS} 
-       ( if ( intermittent[t] or hydro[t] ) then 1 else OperateEPDuringPeriod[pid, a, t, p] ) * ep_capacity_mw[pid, a, t] * fixed_o_m_by_period[pid, a, t, p] )
+	+ ( sum {(pid, a, t, p) in EP_PERIODS} 
+		( if ( intermittent[t] or hydro[t] ) then 1 else OperateEPDuringPeriod[pid, a, t, p] ) * ep_capacity_mw[pid, a, t] * fixed_o_m_by_period[pid, a, t, p] )
 	# Calculate variable and carbon costs for all existing plants
-	+(sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS}
-	  ProducePowerEP[pid, a, t, p, h] * ( variable_cost[pid, a, t, p, h] + carbon_cost_per_mwh[pid, a, t, p, h] ) )
+	+ ( sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS}
+		ProducePowerEP[pid, a, t, p, h] * ( variable_cost[pid, a, t, p, h] + carbon_cost_per_mwh[pid, a, t, p, h] ) )
 	# Calculate fuel costs for all existing plants except for bio_solid - that's included in the supply curve
-	+(sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: fuel[t] not in BIO_SOLID_FUELS}
-	  ProducePowerEP[pid, a, t, p, h] * fuel_cost[pid, a, t, p, h] )
+	+ ( sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: fuel[t] not in BIO_SOLID_FUELS}
+		ProducePowerEP[pid, a, t, p, h] * fuel_cost[pid, a, t, p, h] )
 
 	########################################
 	#    TRANSMISSION & DISTRIBUTION
-	# Calculate the cost of installing new transmission lines between load areas
-	+(sum {(a1, a2) in TRANSMISSION_LINES_NEW_BUILDS_ALLOWED, p in PERIODS } 
-      InstallTrans[a1, a2, p] * transmission_cost_per_mw[a1, a2, p] )
 	# Sunk costs of operating the existing transmission grid
-	+(sum {a in LOAD_AREAS, p in PERIODS} transmission_sunk_annual_payment[a] * discount_to_base_year[p])
+	+ ( sum {a in LOAD_AREAS, p in PERIODS}
+		transmission_sunk_annual_payment[a] * discount_to_base_year[p] )
+	# Calculate the cost of installing new transmission lines between load areas
+	+ ( sum { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS } 
+		InstallTrans[a1, a2, p] * transmission_cost_per_mw[a1, a2, p] )
+	+ ( sum { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS } 
+		InstallTrans[a1, a2, p] * transmission_fixed_o_m_by_period[a1, a2, p] )
 	# Calculate the cost of installing new local (intra-load area) transmission and distribution
-	+(sum {a in LOAD_AREAS, p in PERIODS}
-      install_local_td[a, p] * local_td_cost_per_mw[a, p] )
+	+ ( sum {a in LOAD_AREAS, p in PERIODS}
+		install_local_td[a, p] * local_td_cost_per_mw[a, p] )
 	# Sunk costs of operating the existing local (intra-load area) transmission and distribution
-	+(sum {a in LOAD_AREAS, p in PERIODS} local_td_sunk_annual_payment[a] * discount_to_base_year[p])
+	+ ( sum {a in LOAD_AREAS, p in PERIODS} local_td_sunk_annual_payment[a] * discount_to_base_year[p] )
 ;
-
 
 ############## CONSTRAINTS ##############
 
@@ -939,7 +947,7 @@ subject to Satisfy_RPS {a in LOAD_AREAS, p in PERIODS: rps_compliance_fraction_i
 subject to Carbon_Cap {p in PERIODS}:
 	# Carbon emissions from new plants - none from intermittent plants
 	  ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t]} DispatchGen[pid, a, t, p, h] * heat_rate[pid, a, t] * carbon_content[fuel[t]] * hours_in_sample[h] )
-	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t]} ( sum { (pid, a, t, install_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, install_yr] )
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t]} ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
 		* gen_availability[t] * heat_rate[pid, a, t] * carbon_content[fuel[t]] * hours_in_sample[h] )
 	# Carbon emissions from existing plants
 	+ ( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS } ProducePowerEP[pid, a, t, p, h] * ep_heat_rate[pid, a, t] * carbon_content[fuel[t]] * hours_in_sample[h] )
@@ -965,10 +973,10 @@ subject to Conservation_Of_Energy_NonDistributed {a in LOAD_AREAS, h in TIMEPOIN
 	# power produced from new non-battery-storage projects  
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t] and rps_fuel_category_tech[t] = fc} DispatchGen[pid, a, t, p, h] )
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: intermittent[t] and t not in SOLAR_DIST_PV_TECHNOLOGIES and rps_fuel_category_tech[t] = fc }
-		( sum { (pid, a, t, install_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, install_yr] )
+		( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
 			* cap_factor[pid, a, t, h] * gen_availability[t] )
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t] and rps_fuel_category_tech[t] = fc }
-		( sum { (pid, a, t, install_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, install_yr] )
+		( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
 			* gen_availability[t] )
 	# power from new storage
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t]} ( ReleaseEnergy[pid, a, t, p, h, fc] - StoreEnergy[pid, a, t, p, h, fc] ) )
@@ -977,8 +985,8 @@ subject to Conservation_Of_Energy_NonDistributed {a in LOAD_AREAS, h in TIMEPOIN
 	# power from existing (pumped hydro) storage
  	+ ( sum { (a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS} ( Dispatch_Pumped_Hydro_Storage[a, t, p, h, fc] - Store_Pumped_Hydro[a, t, p, h, fc] ) )
 	# transmission in and out of each load area
-	+ ( sum {(a2, a) in TRANSMISSION_LINES} DispatchTransFromXToY[a2, a, h, fc] * transmission_efficiency[a2, a] )
-	- ( sum {(a, a1) in TRANSMISSION_LINES} DispatchTransFromXToY[a, a1, h, fc] )
+	+ ( sum { (a2, a, p, h) in TRANSMISSION_LINE_HOURS } DispatchTransFromXToY[a2, a, p, h, fc] * transmission_efficiency[a2, a] )
+	- ( sum { (a, a1, p, h) in TRANSMISSION_LINE_HOURS } DispatchTransFromXToY[a, a1, p, h, fc] )
   	);
 
 # distributed power production doesn't experience distribution losses
@@ -988,7 +996,7 @@ subject to Conservation_Of_Energy_Distributed {a in LOAD_AREAS, h in TIMEPOINTS,
   ConsumeDistributedPower[a,h,fc] + RedirectDistributedPower[a,h,fc] * (1 + distribution_losses)
   <= 
 	  (sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES and rps_fuel_category_tech[t] = fc}
-          ( sum { (pid, a, t, install_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, install_yr] )
+          ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
           	* gen_availability[t] * cap_factor[pid, a, t, h])
 	+ (sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES and rps_fuel_category_tech[t] = fc}
    	      ep_capacity_mw[pid, a, t] * gen_availability[t] * eip_cap_factor[pid, a, t, h] ) 
@@ -1014,14 +1022,14 @@ subject to Conservation_Of_Energy_NonDistributed_Reserve {a in LOAD_AREAS, h in 
 	#    NEW PLANTS
   # new dispatchable capacity (no need to decide how to dispatch it; we just need to know it's available)
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t] and not storage[t]}
-		( sum { (pid, a, t, install_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, install_yr] ) )
+		( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] ) )
   # output from new intermittent projects. 
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: intermittent[t] and t not in SOLAR_DIST_PV_TECHNOLOGIES} 
-		( sum { (pid, a, t, install_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, install_yr] )
+		( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
 			* cap_factor[pid, a, t, h] )
   # new baseload plants
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t]} 
-		( sum { (pid, a, t, install_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, install_yr] )
+		( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
 			* ( 1 - scheduled_outage_rate[t] ) )
   # new storage projects
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t]} (
@@ -1047,11 +1055,11 @@ subject to Conservation_Of_Energy_NonDistributed_Reserve {a in LOAD_AREAS, h in 
 	########################################
 	#    TRANSMISSION
   # Imports (have experienced transmission losses)
-	+ ( sum {(a2, a) in TRANSMISSION_LINES}
-		DispatchTransFromXToY_Reserve[a2, a, h] * transmission_efficiency[a2, a])
+	+ ( sum { (a2, a, p, h) in TRANSMISSION_LINE_HOURS }
+		DispatchTransFromXToY_Reserve[a2, a, p, h] * transmission_efficiency[a2, a])
   # Exports (have not experienced transmission losses)
-	- ( sum {(a, a1) in TRANSMISSION_LINES}
-		DispatchTransFromXToY_Reserve[a, a1, h] )
+	- ( sum {(a, a1, p, h) in TRANSMISSION_LINE_HOURS}
+		DispatchTransFromXToY_Reserve[a, a1, p, h] )
 	);
 
 
@@ -1059,7 +1067,7 @@ subject to Conservation_Of_Energy_Distributed_Reserve {a in LOAD_AREAS, h in TIM
   ConsumeDistributedPower_Reserve[a, h] + RedirectDistributedPower_Reserve[a, h] * (1 + distribution_losses)
   <= 
 	  ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES}
-          ( sum { (pid, a, t, install_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, install_yr] )
+          ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
           	* cap_factor[pid, a, t, h] )
 	+ ( sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES}
    	      eip_cap_factor[pid, a, t, h] * ep_capacity_mw[pid, a, t] ) 
@@ -1074,7 +1082,7 @@ subject to Conservation_Of_Energy_Distributed_Reserve {a in LOAD_AREAS, h in TIM
 subject to Power_From_Dispatchable_Plants 
 	{(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t]}:
 	DispatchGen[pid, a, t, p, h] <=
-		( sum { (pid, a, t, install_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, install_yr] )
+		( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
 			* gen_availability[t];
 
 subject to EP_Operational_Continuity {(pid, a, t, p) in EP_PERIODS: p > first(PERIODS) and not intermittent[t] and not hydro[t]}:
@@ -1106,7 +1114,7 @@ subject to EP_Power_From_Hydro_Plants { (pid, a, t, p, h) in EP_AVAILABLE_HOURS:
 # for solar, these are in the form of land area (capacity_limit_by_location) and the capacity_limit_conversion denotes the MW/km^2
 subject to Maximum_Resource_Central_Station_Solar { p in PERIODS, (l, a) in CENTRAL_STATION_SOLAR_LOCATIONS }:
 	( sum { (pid, a, t, p) in PROJECT_VINTAGES: project_location[pid, a, t] = l } 
-		( sum { (pid, a, t, install_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, install_yr] )
+		( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
 		/ capacity_limit_conversion[pid, a, t] )
 		 <= capacity_limit_by_location[l, a];
 
@@ -1116,7 +1124,7 @@ subject to Maximum_Resource_Central_Station_Solar { p in PERIODS, (l, a) in CENT
 # so dividing by this # gives the total heat demanded as a function of installed capacity
 subject to Maximum_Resource_Bio {p in PERIODS, (l, a) in BIO_LOCATIONS}:
 	( sum { (pid, a, t, p) in PROJECT_VINTAGES: biofuel[fuel[t]] and project_location[pid, a, t] = l } 
-		( ( sum { (pid, a, t, install_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, install_yr] ) * gen_availability[t]
+		( ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] ) * gen_availability[t]
 		/ capacity_limit_conversion[pid, a, t] ) )
 	+ ( sum { (pid, a, t, p) in EP_PERIODS: biofuel[fuel[t]] and ep_location_id[pid, a, t] = l } 
 		( OperateEPDuringPeriod[pid, a, t, p] * ep_capacity_mw[pid, a, t] * gen_availability[t] * ( ep_heat_rate[pid, a, t] + ep_cogen_thermal_demand[pid, a, t] ) ) )
@@ -1126,13 +1134,13 @@ subject to Maximum_Resource_Bio {p in PERIODS, (l, a) in BIO_LOCATIONS}:
 # the max resource is plant specific and is given by capacity_limit * capacity_limit_conversion
 # for PROJECT_EP_REPLACMENTS, this is just the old plant capacity
 subject to Maximum_Resource_Single_Location { (pid, a, t, p) in PROJECT_VINTAGES: ( resource_limited[t] and not competes_for_space[t] ) or ( (pid, a, t) in PROJECT_EP_REPLACMENTS ) }:
-  ( sum { (pid, a, t, install_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, install_yr] ) <= capacity_limit[pid, a, t] * capacity_limit_conversion[pid, a, t];
+  ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] ) <= capacity_limit[pid, a, t] * capacity_limit_conversion[pid, a, t];
 
 
 #subject to EP_Replacements { (pid, a, t, p) in PROJECT_VINTAGES: (pid, a, t) in PROJECT_EP_REPLACMENTS }:
 ## sum { (pid_ep, a_ep, t_ep) in EXISTING_PLANTS: pid_ep = ep_project_replacement_id[pid, a, t] }
 #		OperateEPDuringPeriod[pid_ep, a_ep, t_ep, p] * ep_capacity_mw[pid_ep, a_ep, t_ep] )
-#	+ ( sum { (pid, a, t, install_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, install_yr] )
+#	+ ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
 #	<= capacity_limit[pid, a, t] * capacity_limit_conversion[pid, a, t]
 #	;
 
@@ -1154,29 +1162,24 @@ subject to BuildGenOrNot_Constraint
 
 
 ########################################
-# TRANSMISSION AND LOCAL T&D CONSTRAINTS
+# TRANSMISSION CONSTRAINTS
 
-# system can only use as much transmission as is expected to be available
-# note: transmission up and down the line both enter positively,
-# but the form of the model allows them to both be reduced or increased by a constant,
-# so they will both be held low enough to stay within the installed capacity
-# (if there were a variable cost of operating, one of them would always go to zero)
-# a quick follow-up model run minimizing transmission usage will push one of these to zero.
+# the system can only use as much transmission as is expected to be available, which is availability * ( existing + new )
 subject to Maximum_DispatchTransFromXToY
-  {(a1, a2) in TRANSMISSION_LINES, h in TIMEPOINTS}:
-  ( sum { fc in RPS_FUEL_CATEGORY } DispatchTransFromXToY[a1, a2, h, fc] )
-    <= (1-transmission_forced_outage_rate) * 
-          (existing_transfer_capacity_mw[a1, a2] + sum {(a1, a2, p, h) in TRANS_VINTAGE_HOURS} InstallTrans[a1, a2, p]);
+  { (a1, a2, p, h) in TRANSMISSION_LINE_HOURS }:
+  ( sum { fc in RPS_FUEL_CATEGORY } DispatchTransFromXToY[a1, a2, p, h, fc] )
+    <= ( 1 - transmission_forced_outage_rate ) * 
+          ( existing_transfer_capacity_mw[a1, a2] + sum { (a1, a2, online_yr) in TRANSMISSION_LINE_NEW_PERIODS: online_yr <= p } InstallTrans[a1, a2, online_yr] );
 
 # same on a reserve margin basis, but without the rps fuel category as rps doesn't apply to reserve margins
 subject to Maximum_DispatchTransFromXToY_Reserve
-  {(a1, a2) in TRANSMISSION_LINES, h in TIMEPOINTS}:
-  DispatchTransFromXToY_Reserve[a1, a2, h]
-    <= (existing_transfer_capacity_mw[a1, a2] + sum {(a1, a2, p, h) in TRANS_VINTAGE_HOURS} InstallTrans[a1, a2, p]);
+  { (a1, a2, p, h) in TRANSMISSION_LINE_HOURS }:
+  DispatchTransFromXToY_Reserve[a1, a2, p, h]
+    <= (existing_transfer_capacity_mw[a1, a2] + sum { (a1, a2, online_yr) in TRANSMISSION_LINE_NEW_PERIODS: online_yr <= p } InstallTrans[a1, a2, online_yr] );
 
 # Simple fix to the problem of asymetrical transmission build-out
 subject to SymetricalTrans
-  {(a1, a2) in TRANSMISSION_LINES_NEW_BUILDS_ALLOWED, p in PERIODS }: InstallTrans[a1, a2, p] = InstallTrans[a2, a1, p];
+  { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS }: InstallTrans[a1, a2, p] = InstallTrans[a2, a1, p];
 
 
 # Mexican exports are capped as to not power all of LA from Tijuana
@@ -1197,10 +1200,10 @@ subject to Mexican_Export_Limit
   { a in LOAD_AREAS, p in PERIODS: a = 'MEX_BAJA' }:
 	# transmission out of Baja Mexico
 	sum { (a, a1) in TRANSMISSION_LINES, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY: period[h] = p }
-		DispatchTransFromXToY[a, a1, h, fc] * hours_in_sample[h]
+		DispatchTransFromXToY[a, a1, p, h, fc] * hours_in_sample[h]
 	# transmission into Baja Mexico
 	- sum { (a1, a) in TRANSMISSION_LINES, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY: period[h] = p }
-		DispatchTransFromXToY[a1, a, h, fc] * transmission_efficiency[a1, a] * hours_in_sample[h]
+		DispatchTransFromXToY[a1, a, p, h, fc] * transmission_efficiency[a1, a] * hours_in_sample[h]
 	<=
 	mex_baja_export_limit_mwh[p];
 
@@ -1209,10 +1212,10 @@ subject to Mexican_Export_Limit_Reserve
   { a in LOAD_AREAS, p in PERIODS: a = 'MEX_BAJA' }:
 	# transmission out of Baja Mexico
 	sum { (a, a1) in TRANSMISSION_LINES, h in TIMEPOINTS: period[h] = p }
-		DispatchTransFromXToY_Reserve[a, a1, h] * hours_in_sample[h]
+		DispatchTransFromXToY_Reserve[a, a1, p, h] * hours_in_sample[h]
 	# transmission into Baja Mexico
 	- sum { (a1, a) in TRANSMISSION_LINES, h in TIMEPOINTS: period[h] = p }
-		DispatchTransFromXToY_Reserve[a1, a, h] * transmission_efficiency[a1, a] * hours_in_sample[h]
+		DispatchTransFromXToY_Reserve[a1, a, p, h] * transmission_efficiency[a1, a] * hours_in_sample[h]
 	<=
 	mex_baja_export_limit_mwh[p] * ( 1 + planning_reserve_margin );
 
@@ -1231,7 +1234,7 @@ subject to CAES_Combined_Dispatch { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: 
 # StoreEnergy represents the load on the grid from storing electrons
 subject to Maximum_Store_Rate {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t]}:
   	sum {fc in RPS_FUEL_CATEGORY} StoreEnergy[pid, a, t, p, h, fc]
-  		<= ( sum { (pid, a, t, install_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, install_yr] )
+  		<= ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
   				* max_store_rate[t] * gen_availability[t];
 
 # Maximum dispatch rate, derated for occasional forced outages
@@ -1240,7 +1243,7 @@ subject to Maximum_Store_Rate {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: stora
 subject to Maximum_Release_Storage_Rate { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] }:
   	(sum {fc in RPS_FUEL_CATEGORY} ReleaseEnergy[pid, a, t, p, h, fc] ) +
   		( if t = 'Compressed_Air_Energy_Storage' then DispatchGen[pid, a, t, p, h] else 0 )
-  		<= ( sum { (pid, a, t, install_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, install_yr] )
+  		<= ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
   				* gen_availability[t];
 
   # Energy balance
@@ -1259,10 +1262,10 @@ subject to Storage_Projects_Energy_Balance {(pid, a, t, p) in PROJECT_VINTAGES, 
 # RESERVE - the same as above on a reserve margin basis
 subject to Maximum_Store_Rate_Reserve { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] }:
   	StoreEnergy_Reserve[pid, a, t, p, h]
-  		<= max_store_rate[t] * ( sum { (pid, a, t, install_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, install_yr] );
+  		<= max_store_rate[t] * ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] );
 subject to Maximum_Release_Storage_Rate_Reserve { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] }:
   	ReleaseEnergy_Reserve[pid, a, t, p, h]
-  		<= ( sum { (pid, a, t, install_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, install_yr] );
+  		<= ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] );
 # all energy from CAES in the reserve margin is coming from ReleaseEnergy_Reserve, with the use of natural gas included.
 subject to Storage_Projects_Energy_Balance_Reserve {(pid, a, t, p) in PROJECT_VINTAGES, d in DATES: storage[t] and period_of_date[d] = p}:
   	sum {h in TIMEPOINTS: date[h] = d} ReleaseEnergy_Reserve[pid, a, t, p, h]

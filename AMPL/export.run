@@ -139,18 +139,19 @@ for {c in CARBON_COSTS} {
       # existing lines
       # the cost of the existing transmission grid is calculated in the param transmission_sunk_cost and is not included here
       # because it includes all lines, not just the lines between load areas
-      printf {(a1, a2) in TRANSMISSION_LINES, p in PERIODS}:
+      printf { (a1, a2, p) in TRANSMISSION_LINE_PERIODS}:
         "%s	%d	%d	%d	%d	%d	%s	%s	%d	%.2f	%d\n",
         scenario_id, carbon_cost, p, transmission_line_id[a1, a2], load_area_id[a1], load_area_id[a2], a1, a2, 0,
         existing_transfer_capacity_mw[a1, a2], 0
         >> (outfile);
       
       # new lines
-      printf {(a1, a2) in TRANSMISSION_LINES_NEW_BUILDS_ALLOWED, p in PERIODS }:
+      # the fixed cost here includes capital and O&M - could be disaggregated at some point
+      printf { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS }:
         "%s	%d	%d	%d	%d	%d	%s	%s	%d	%.2f	%d\n",
         scenario_id, carbon_cost, p, transmission_line_id[a1, a2], load_area_id[a1], load_area_id[a2], a1, a2, 1, 
-        sum {install_yr in PERIODS: install_yr <= p < transmission_end_year[install_yr]} InstallTrans[a1, a2, install_yr],
-        Transmission_New_Cost_Per_Period[a1, a2, p]
+        Transmission_Installed_To_Date[a1, a2, p],
+        Transmission_New_Capital_Cost_Per_Period[a1, a2, p] + Transmission_Fixed_OM_Per_Period[a1, a2, p]
         >> (outfile);
       
       close (outfile);
@@ -165,13 +166,13 @@ for {c in CARBON_COSTS} {
         > (outfile); }
       
       # detailed imports & exports
-      printf {(x, y) in TRANSMISSION_LINES, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY: DispatchTransFromXToY[x, y, h, fc] > 0.001} 
+      printf { (a1, a2, p, h) in TRANSMISSION_LINE_HOURS, fc in RPS_FUEL_CATEGORY: DispatchTransFromXToY[a1, a2, p, h, fc] > 0.001} 
         "%s	%d	%d	%d	%d	%d	%s	%s	%d	%d	%s	%.2f	%.2f	%.2f\n",
-        scenario_id, carbon_cost, period[h], transmission_line_id[x, y], load_area_id[y], load_area_id[x], y, x,
+        scenario_id, carbon_cost, period[h], transmission_line_id[a1, a2], load_area_id[a2], load_area_id[a1], a2, a1,
         (if present_day_optimization then present_day_date[h] else date[h]),
         (if present_day_optimization then present_day_timepoint[h] else h),
-        fc, DispatchTransFromXToY[x, y, h, fc],
-        DispatchTransFromXToY[x, y, h, fc] * transmission_efficiency[x, y],
+        fc, DispatchTransFromXToY[a1, a2, p, h, fc],
+        DispatchTransFromXToY[a1, a2, p, h, fc] * transmission_efficiency[a1, a2],
         hours_in_sample[h]
         >> (outfile);
       close (outfile);
@@ -228,7 +229,7 @@ for {c in CARBON_COSTS} {
       printf {a in LOAD_AREAS, p in PERIODS}:
         "%s	%d	%d	%d	%s	%d	%.2f	%.2f\n",
         scenario_id, carbon_cost, p, load_area_id[a], a, 1,
-        sum {install_yr in PERIODS: install_yr <= p < local_td_end_year[install_yr]} install_local_td[a, install_yr],
+        sum {online_yr in PERIODS: online_yr <= p < local_td_end_year[online_yr]} install_local_td[a, online_yr],
         Local_TD_New_Cost_Per_Period[a, p]
         >> (outfile);
       
@@ -272,7 +273,7 @@ for {c in CARBON_COSTS} {
       # Installed Transmission
       printf "ampl.tab 3 1\na1	a2	p	InstallTrans\n"
         > (InstallTrans_tab_path);
-      printf {(a1, a2) in TRANSMISSION_LINES_NEW_BUILDS_ALLOWED, p in PERIODS} 
+      printf { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS } 
         "%s	%s	%d	%.2f\n",
         a1, a2, p, InstallTrans[a1, a2, p]
         >> (InstallTrans_tab_path);

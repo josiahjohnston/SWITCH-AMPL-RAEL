@@ -52,7 +52,9 @@ param EP_Variable_Cost_Incurred_Hourly { (pid, a, t, p, h) in EP_AVAILABLE_HOURS
 param Local_TD_Existing_Cost_Per_Period { a in LOAD_AREAS, p in PERIODS };
 param Local_TD_New_Cost_Per_Period { a in LOAD_AREAS, p in PERIODS };
 param Transmission_Existing_Cost_Per_Period { a in LOAD_AREAS, p in PERIODS };
-param Transmission_New_Cost_Per_Period { (a1, a2) in TRANSMISSION_LINES, p in PERIODS };
+param Transmission_Installed_To_Date { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS };
+param Transmission_New_Capital_Cost_Per_Period { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS };
+param Transmission_Fixed_OM_Per_Period { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS };
 param Power_Cost_Per_Period {p in PERIODS};
 param Carbon_Costs_Per_Period_per_MWh {p in PERIODS};
 param Yearly_Carbon_Emissions {p in PERIODS};
