@@ -87,6 +87,13 @@ param total_loads_by_period {p in PERIODS} =
 param total_loads_by_period_weighted {p in PERIODS} = 
 	sum {a in LOAD_AREAS, h in TIMEPOINTS: period[h]=p} system_load[a, h] * hours_in_sample[h];
 
+# Balancing areas are the unit -- each including multiple load areas -- at which operating reserves are met in the model. Those are currently the same as the primary NERC subregions.
+set BALANCING_AREAS;
+
+# Balancing areas param in LOAD_AREAS
+param balancing_area {LOAD_AREAS} symbolic in BALANCING_AREAS;
+
+
 ###################
 # Financial data
 
@@ -474,7 +481,10 @@ param project_end_year {(pid, a, t, p) in PROJECT_VINTAGES} =
 set PROJECT_VINTAGE_INSTALLED_PERIODS :=
 	{ (pid, a, t, online_yr) in PROJECT_VINTAGES, p in PERIODS: online_yr <= p < project_end_year[pid, a, t, online_yr] };
 
-# union new projects and existing plants
+# union of new projects and existing plants
+set ALL_PLANTS := EXISTING_PLANTS union PROJECTS;
+
+# union of new projects' and existing plants' available periods
 set AVAILABLE_VINTAGES = PROJECT_VINTAGES union EP_PERIODS;
 
 # plant-hour combinations when generators and storage can be available. 
@@ -646,6 +656,56 @@ param carbon_cost_per_mwh {(pid, a, t, p, h) in AVAILABLE_HOURS} =
 	) / num_years_per_period
 	* discount_to_base_year[p];
 
+#######################################
+# Operating reserves
+
+# Operating reserve level parameters
+
+# fraction of load that must be covered by 10-min spinning reserves
+param load_only_spinning_reserve_requirement {BALANCING_AREAS};
+
+# fraction of wind generation that must be covered by spinning reserves
+param wind_spinning_reserve_requirement {BALANCING_AREAS};
+
+# fraction of solar generation that must be covered by spinning reserves
+# Solar CSP with 6h of thermal storage is excluded as its output is steady and does not impose additional spinning reserve requirements
+param solar_spinning_reserve_requirement {BALANCING_AREAS};
+
+# spinning reserve is usually at least half of the total operating reserve requirement (spin + quickstart), so the param below is set to 1
+param quickstart_requirement_relative_to_spinning_reserve_requirement {BALANCING_AREAS};
+
+# Solar CSP with no storage contributes to th quickstart but not to the spinning reserve requirement
+# We assume that same fraction of no storage CSP generation will contribute to the quickstart requirements as non-CSP solar generation contributes to spinning reserve requirements
+param csp_quickstart_reserve_requirement { b in BALANCING_AREAS } = solar_spinning_reserve_requirement[b];
+
+# We assume that providing spinning reserves means that thermal generators incur an extra cost by backing off from their optimal output and incurring a heat rate penalty, so fuel costs and carbon costs are affected.
+# The heat_rate_penalty_spinning_reserve param is a fraction; it is multiplied by the full-load heat rate to get the actual heat rate for spinning reserve.
+param heat_rate_penalty_spinning_reserve { t in TECHNOLOGIES };
+
+param heat_rate_spinning_reserve { (pid, a, t) in ALL_PLANTS } =
+	heat_rate_penalty_spinning_reserve[t] 
+	* ( if can_build_new[t] then heat_rate[pid, a, t] else ep_heat_rate[pid, a, t] );
+
+param fuel_cost_spinning_reserve { (pid, a, t, p, h) in AVAILABLE_HOURS: fuel[t] not in BIO_SOLID_FUELS } =
+	hours_in_sample[h] 
+	* ( heat_rate_spinning_reserve[pid, a, t] * fuel_cost_nominal[a, t, p]
+    ) / num_years_per_period 
+    * discount_to_base_year[p];
+
+param carbon_cost_per_mwh_spinning_reserve { (pid, a, t, p, h) in AVAILABLE_HOURS } = 
+   	hours_in_sample[h]
+   	* ( heat_rate_spinning_reserve[pid, a, t] * carbon_content[fuel[t]] * carbon_cost
+	) / num_years_per_period
+	* discount_to_base_year[p];
+
+# The maximum percentage of generator capacity that can be dedicated to spinning reserves (as opposed to useful generation)
+# In general, the amount of capacity that can be provided for spinning reserves is the generator's 10-minute ramp rate
+param max_spinning_reserve_fraction_of_capacity { t in TECHNOLOGIES };
+
+# the fraction of time that operating reserves will actually be deployed for useful energy
+# this is used in the hydro and storage energy balance constraints
+param fraction_of_time_operating_reserves_are_deployed := 0.01;
+
 ###############################################
 # Local T&D
 
@@ -692,7 +752,7 @@ param distribution_losses = 0.053;
 ###############################################
 # Transmission lines
 
-# the cost to maintin the existing transmission infrustructure over all of WECC
+# the cost to maintain the existing transmission infrustructure over all of WECC
 param transmission_sunk_annual_payment {LOAD_AREAS} >= 0;
 
 # forced outage rate for transmission lines, used for probabilistic dispatch(!)
@@ -831,8 +891,8 @@ var ReleaseEnergy {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS, fc in RPS_FUEL_CA
 
 # storage reserve variables. 
 # ReleaseEnergy_Reserve is different from ReleaseEnergy in that all power from a CAES plant is attributed to ReleaseEnergy_Reserve rather than being spread over two decision variables. 
-var StoreEnergy_Reserve {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t]} >= 0;
-var ReleaseEnergy_Reserve {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t]} >= 0;
+#var StoreEnergy_Reserve {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t]} >= 0;
+#var ReleaseEnergy_Reserve {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t]} >= 0;
 
 # amount of hydro to store and dispatch during each hour
 # note: Store_Pumped_Hydro represents the load on the grid so the amount of energy available for release
@@ -841,9 +901,33 @@ var DispatchHydro {HYDRO_AVAILABLE_HOURS} >= 0;
 var Dispatch_Pumped_Hydro_Storage {PUMPED_HYDRO_AVAILABLE_HOURS_BY_FC} >= 0;
 var Store_Pumped_Hydro {PUMPED_HYDRO_AVAILABLE_HOURS_BY_FC} >= 0;
 # hydro reserve variables
-var DispatchHydro_Reserve {HYDRO_AVAILABLE_HOURS} >= 0;
-var Dispatch_Pumped_Hydro_Storage_Reserve {PUMPED_HYDRO_AVAILABLE_HOURS} >= 0;
-var Store_Pumped_Hydro_Reserve {PUMPED_HYDRO_AVAILABLE_HOURS} >= 0;
+#var DispatchHydro_Reserve {HYDRO_AVAILABLE_HOURS} >= 0;
+#var Dispatch_Pumped_Hydro_Storage_Reserve {PUMPED_HYDRO_AVAILABLE_HOURS} >= 0;
+#var Store_Pumped_Hydro_Reserve {PUMPED_HYDRO_AVAILABLE_HOURS} >= 0;
+
+
+# Operating reserve variables
+
+# Operating reserve requirement in each balancing area by period, divided into a spining reserve component and a quickstart component
+# The WECC standard on operating reserves is the
+#"Regional Reliability Standard to address the Operating Reserve requirements of the Western Interconnection."
+# It prescribes that "[t]he sum of five percent of the load responsibility served by hydro generation and seven percent of the load responsibility served by thermal generation" be covered by contingency reserves, and that at least half of that be spinning
+# we assume that the quickstart requirement is a multiple of the spinning reserve requirement at a 1 to 1 ratio)
+# The spinning reserve requirement level depends on load level, wind generation level, and solar generation level
+# For now, we apply a conservative esitmate of the reserve requirement: the 3-5 rule from WWSIS, i.e. 3 percent load and 5 percent of wind is kept as spinning reserves in all hours
+# We also assume that solar generation, with the exception of CSP with 6 hours of storage, which exhibits little 10-min variability, impose reserve requirements similar to wind's (i.e. 5 percent of generation). Solar CSP without storage contributes only to the quickstart requirement
+var Spinning_Reserve_Requirement { b in BALANCING_AREAS, h in TIMEPOINTS } >= 0;
+var Quickstart_Reserve_Requirement { b in BALANCING_AREAS, h in TIMEPOINTS } >= 0;
+
+# Spinning reserve and quickstart capacity can be provided by dispatchable generators, hydro, and storage
+# Because hydro and storage are assumed to be able to ramp up to full capacity very quickly, the operating reserve provided by them is not divided into
+# a spinning and quickstart component (all of their operating reserve can count as spinning)
+
+var Provide_Spinning_Reserve { (pid, a, t, p, h) in AVAILABLE_HOURS: dispatchable[t] } >= 0;
+var Provide_Quickstart_Capacity { (pid, a, t, p, h) in AVAILABLE_HOURS: dispatchable[t] } >= 0;
+var Storage_Operating_Reserve { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] } >= 0;
+var Hydro_Operating_Reserve { (a, t, p, h) in HYDRO_AVAILABLE_HOURS} >= 0;
+var Pumped_Hydro_Storage_Operating_Reserve { (a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS } >= 0;
 
 
 #### OBJECTIVE ####
@@ -891,7 +975,11 @@ minimize Power_Cost:
 	# for CAES, power output is apportioned between DispatchGen and ReleaseEnergy by storage_efficiency_caes through the constraint CAES_Combined_Dispatch
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t]} 
 		ReleaseEnergy[pid, a, t, p, h, fc] * variable_cost[pid, a, t, p, h])
-      
+	
+	# fuel and carbon costs for keeping spinning reserves from new plants (this includes thermal generators and the natural gas part of CAES)
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t]} 
+		Provide_Spinning_Reserve[pid, a, t, p, h] * ( carbon_cost_per_mwh_spinning_reserve[pid, a, t, p, h] + fuel_cost_spinning_reserve[pid, a, t, p, h] ) )
+		      
 	#############################
 	#    EXISTING PLANTS
 	# Capital costs (sunk cost)
@@ -909,7 +997,10 @@ minimize Power_Cost:
 		ProducePowerEP[pid, a, t, p, h] * ( variable_cost[pid, a, t, p, h] + carbon_cost_per_mwh[pid, a, t, p, h] ) )
 	# Calculate fuel costs for all existing plants except for bio_solid - that's included in the supply curve
 	+ ( sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: fuel[t] not in BIO_SOLID_FUELS}
-		ProducePowerEP[pid, a, t, p, h] * fuel_cost[pid, a, t, p, h] )
+	  ProducePowerEP[pid, a, t, p, h] * fuel_cost[pid, a, t, p, h] )
+	# fuel and carbon costs for keeping spinning reserves from existing dispatchable thermal plants
+	+ ( sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: dispatchable[t]}
+		Provide_Spinning_Reserve[pid, a, t, p, h] * ( fuel_cost_spinning_reserve[pid, a, t, p, h] + carbon_cost_per_mwh_spinning_reserve[pid, a, t, p, h] ) )
 
 	########################################
 	#    TRANSMISSION & DISTRIBUTION
@@ -939,18 +1030,23 @@ subject to Satisfy_RPS {a in LOAD_AREAS, p in PERIODS: rps_compliance_fraction_i
       ( ConsumeNonDistributedPower[a,h,fc] + ConsumeDistributedPower[a,h,fc] ) * hours_in_sample[h] )
   / ( sum {h in TIMEPOINTS: period[h]=p} 
       system_load[a, h] * hours_in_sample[h] )
-     
-   >= rps_compliance_fraction_in_period[a, p];
+      >= rps_compliance_fraction_in_period[a, p];
 
 # Carbon Cap constraint
 # windsun.run will drop this constraint if enable_carbon_cap is 0
 subject to Carbon_Cap {p in PERIODS}:
 	# Carbon emissions from new plants - none from intermittent plants
-	  ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t]} DispatchGen[pid, a, t, p, h] * heat_rate[pid, a, t] * carbon_content[fuel[t]] * hours_in_sample[h] )
+	  ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t]} (
+	  DispatchGen[pid, a, t, p, h] * heat_rate[pid, a, t]
+	  + Provide_Spinning_Reserve[pid, a, t, p, h] * heat_rate_spinning_reserve[pid, a, t] )
+	  * carbon_content[fuel[t]] * hours_in_sample[h] )
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t]} ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
 		* gen_availability[t] * heat_rate[pid, a, t] * carbon_content[fuel[t]] * hours_in_sample[h] )
 	# Carbon emissions from existing plants
-	+ ( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS } ProducePowerEP[pid, a, t, p, h] * ep_heat_rate[pid, a, t] * carbon_content[fuel[t]] * hours_in_sample[h] )
+	+ ( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS } (
+	ProducePowerEP[pid, a, t, p, h] * ep_heat_rate[pid, a, t]
+	+ ( ( if dispatchable[t] then Provide_Spinning_Reserve[pid, a, t, p, h] else 0 ) * heat_rate_spinning_reserve[pid, a, t] )
+	) * carbon_content[fuel[t]] * hours_in_sample[h] )
   	<= carbon_cap[p];
 
 
@@ -980,7 +1076,7 @@ subject to Conservation_Of_Energy_NonDistributed {a in LOAD_AREAS, h in TIMEPOIN
 			* gen_availability[t] )
 	# power from new storage
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t]} ( ReleaseEnergy[pid, a, t, p, h, fc] - StoreEnergy[pid, a, t, p, h, fc] ) )
-	# power produced from exiting plants
+	# power produced from existing plants
 	+ ( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: rps_fuel_category_tech[t] = fc and t not in SOLAR_DIST_PV_TECHNOLOGIES} ProducePowerEP[pid, a, t, p, h] )
 	# power from existing (pumped hydro) storage
  	+ ( sum { (a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS} ( Dispatch_Pumped_Hydro_Storage[a, t, p, h, fc] - Store_Pumped_Hydro[a, t, p, h, fc] ) )
@@ -1033,7 +1129,7 @@ subject to Conservation_Of_Energy_NonDistributed_Reserve {a in LOAD_AREAS, h in 
 			* ( 1 - scheduled_outage_rate[t] ) )
   # new storage projects
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t]} (
-		ReleaseEnergy_Reserve[pid, a, t, p, h] - StoreEnergy_Reserve[pid, a, t, p, h] ) )
+		sum { fc in RPS_FUEL_CATEGORY } ( ReleaseEnergy[pid, a, t, p, h, fc] - StoreEnergy[pid, a, t, p, h, fc] ) ) )
 	#############################
 	#    EXISTING PLANTS
   # existing dispatchable capacity
@@ -1048,10 +1144,10 @@ subject to Conservation_Of_Energy_NonDistributed_Reserve {a in LOAD_AREAS, h in 
 	#	HYDRO
   # non-storage hydro dispatch (includes pumped storage watershed electrons)
 	+ ( sum {(a, t, p, h) in HYDRO_AVAILABLE_HOURS}
-		DispatchHydro_Reserve[a, t, p, h] )
+		DispatchHydro[a, t, p, h] )
   # pumped hydro storage and dispatch
 	+ ( sum {(a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS} (
-		Dispatch_Pumped_Hydro_Storage_Reserve[a, t, p, h] - Store_Pumped_Hydro_Reserve[a, t, p, h] ) )
+		sum { fc in RPS_FUEL_CATEGORY } (Dispatch_Pumped_Hydro_Storage[a, t, p, h, fc] - Store_Pumped_Hydro[a, t, p, h, fc] ) ) )
 	########################################
 	#    TRANSMISSION
   # Imports (have experienced transmission losses)
@@ -1074,24 +1170,117 @@ subject to Conservation_Of_Energy_Distributed_Reserve {a in LOAD_AREAS, h in TIM
   ;
 
 
+##########################################
+# OPERATING RESERVE CONSTRAINTS
+
+subject to Spinning_Reserve_Requirement_in_Balancing_Area_in_Hour {b in BALANCING_AREAS, h in TIMEPOINTS}: 
+	Spinning_Reserve_Requirement[b, h]
+	>= load_only_spinning_reserve_requirement[b]
+	* (	sum {a in LOAD_AREAS: balancing_area[a] = b} system_load[a, h] )
+	+ wind_spinning_reserve_requirement[b]
+	* (
+	# existing wind
+	( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: balancing_area[a] = b and fuel[t] = 'Wind' } 
+		eip_cap_factor[pid, a, t, h] * ep_capacity_mw[pid, a, t] )
+	# new wind
+	+ ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: balancing_area[a] = b and fuel[t] = 'Wind' } (
+	( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
+	* cap_factor[pid, a, t, h] ) )
+	)
+	+ solar_spinning_reserve_requirement[b] 
+	* (
+	# solar CSP with and without storage does not contribute to the spinning reserve requirement
+	# existing solar
+	( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: balancing_area[a] = b and fuel[t] = 'Solar' and t not in SOLAR_CSP_TECHNOLOGIES } 
+		eip_cap_factor[pid, a, t, h] * ep_capacity_mw[pid, a, t] )
+	# new solar
+	+ (	sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: balancing_area[a] = b and fuel[t] = 'Solar' and t not in SOLAR_CSP_TECHNOLOGIES } (
+	( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
+	* cap_factor[pid, a, t, h] ) )
+	);
+
+subject to Quickstart_Reserve_Requirement_in_Balancing_Area_in_Hour {b in BALANCING_AREAS, h in TIMEPOINTS}:
+	Quickstart_Reserve_Requirement[b, h] 
+	>= quickstart_requirement_relative_to_spinning_reserve_requirement[b]
+	* Spinning_Reserve_Requirement[b, h]
+	# CSP trough with no storage contributes only to the quickstart requirement
+	# CSP trough with storage doesn't contribute to either spinning or quickstart
+	+ csp_quickstart_reserve_requirement[b] 
+	* (
+	# existing CSP
+	( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: balancing_area[a] = b and t = 'CSP_Trough_No_Storage' } 
+		eip_cap_factor[pid, a, t, h] * ep_capacity_mw[pid, a, t] )
+	# new CSP
+	+ (	sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: balancing_area[a] = b and t = 'CSP_Trough_No_Storage' } (
+	( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
+	* cap_factor[pid, a, t, h] ) )
+	);
+
+# Ensure that the spinning reserve requirement is met in each hour in each balancing area
+subject to Satisfy_Spinning_Reserve_Requirement {b in BALANCING_AREAS, h in TIMEPOINTS}:
+	Spinning_Reserve_Requirement[b, h]
+	<=
+    # new and existing dispatchable plants
+    sum { (pid, a, t, p, h) in AVAILABLE_HOURS: dispatchable[t] and balancing_area[a] = b }
+    Provide_Spinning_Reserve[pid, a, t, p, h]
+   	# CAES storage; 
+   	# because spinning reserve from the storage part of CAES is tied to the NG part, not all of the CAES storage operating reserve can count as spinning; we assume that if the CAES plant is providing spinning reserve, the ratio between the NG and the storage components will be the same as the NG:Stored dispatch 
+	+ sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t = 'Compressed_Air_Energy_Storage' and balancing_area[a] = b }
+	( Provide_Spinning_Reserve[pid, a, t, p, h] * caes_storage_to_ng_ratio[t] )
+    # non-CAES storage projects
+    + sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] and t <> 'Compressed_Air_Energy_Storage' and balancing_area[a] = b }
+    Storage_Operating_Reserve[pid, a, t, p, h]
+    # hydro projects
+    + sum { (a, t, p, h) in HYDRO_AVAILABLE_HOURS: balancing_area[a] = b } 
+    Hydro_Operating_Reserve[a, t, p, h]
+    # pumped hydro storage
+    + sum { (a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS: balancing_area[a] = b }
+    Pumped_Hydro_Storage_Operating_Reserve[a, t, p, h]
+    ;
+
+# Ensure that the quickstart reserve requirement is met in each hour in each balancing area in addition to the spinning reserve requirement
+subject to Satisfy_Spinning_and_Quickstart_Reserve_Requirement {b in BALANCING_AREAS, h in TIMEPOINTS}:
+	Spinning_Reserve_Requirement[b, h] + Quickstart_Reserve_Requirement[b, h]
+	<=
+    # new and existing dispatchable plants
+    sum { (pid, a, t, p, h) in AVAILABLE_HOURS: dispatchable[t] and balancing_area[a] = b } 
+    ( Provide_Spinning_Reserve[pid, a, t, p, h] + Provide_Quickstart_Capacity[pid, a, t, p, h] )
+    # storage projects
+    + sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] and balancing_area[a] = b } 
+    Storage_Operating_Reserve[pid, a, t, p, h]
+    # hydro projects
+    + sum { (a, t, p, h) in HYDRO_AVAILABLE_HOURS: balancing_area[a] = b } 
+    Hydro_Operating_Reserve[a, t, p, h]
+    # pumped hydro storage
+    + sum { (a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS: balancing_area[a] = b } Pumped_Hydro_Storage_Operating_Reserve[a, t, p, h]    
+    ;
+
+
 ################################################################################
 # GENERATOR OPERATIONAL CONSTRAINTS
 
 # system can only dispatch as much of each project as is EXPECTED to be available
 # i.e., we only dispatch up to gen_availability[t], so the system will work on an expected-value basis
-subject to Power_From_Dispatchable_Plants 
-	{(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t]}:
-	DispatchGen[pid, a, t, p, h] <=
-		( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
-			* gen_availability[t];
+# the total amount of useful energy, spinning reserve, and quickstart capacity cannot exceed the turbine capacity in any given hour
+subject to Power_and_Operating_Reserve_From_Dispatchable_Plants 
+	{ (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t] }:
+	DispatchGen[pid, a, t, p, h]
+	+ Provide_Spinning_Reserve[pid, a, t, p, h] + Provide_Quickstart_Capacity[pid, a, t, p, h] 
+	<=
+	( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
+			* gen_availability[t]
+;
 
 subject to EP_Operational_Continuity {(pid, a, t, p) in EP_PERIODS: p > first(PERIODS) and not intermittent[t] and not hydro[t]}:
 	OperateEPDuringPeriod[pid, a, t, p] <= OperateEPDuringPeriod[pid, a, t, prev(p, PERIODS)];
 
 # existing dispatchable plants can only be used if they are operational this period
-subject to EP_Power_From_Dispatchable_Plants { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: dispatchable[t] }:
-	ProducePowerEP[pid, a, t, p, h] <= 
-		OperateEPDuringPeriod[pid, a, t, p] * ep_capacity_mw[pid, a, t] * gen_availability[t];
+# the total amount of useful energy, spinning reserve, and quickstart capacity cannot exceed the turbine capacity in any given hour
+subject to EP_Power_and_Operating_Reserve_From_Dispatchable_Plants { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: dispatchable[t] }:
+	ProducePowerEP[pid, a, t, p, h] 
+	+ Provide_Spinning_Reserve[pid, a, t, p, h] + Provide_Quickstart_Capacity[pid, a, t, p, h] 
+	<= 
+	OperateEPDuringPeriod[pid, a, t, p] * ep_capacity_mw[pid, a, t] * gen_availability[t];
 
 # existing intermittent plants are kept operational until their end of life, with no option to extend life
 subject to EP_Power_From_Intermittent_Plants { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: intermittent[t] }: 
@@ -1106,6 +1295,17 @@ subject to EP_Power_From_Baseload_Plants { (pid, a, t, p, h) in EP_AVAILABLE_HOU
 # DispatchHydro is derated by gen_availability[t] in the hydro constraints below
 subject to EP_Power_From_Hydro_Plants { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: hydro[t] }: 
 	ProducePowerEP[pid, a, t, p, h] = DispatchHydro[a, t, p, h] * ( ep_capacity_mw[pid, a, t] / hydro_capacity_mw_in_load_area[a, t] );
+	
+	
+# Max capacity that can be dedicated to spinning reserves
+# Spinning reserve is constrained to dispatch to ensure that spinning reserve is provided only when the plant is also providing useful energy
+# Not enforced for storage and hydro plants as it is assumed that they can ramp up very quickly to full capacity
+subject to Spinning_Reserve_as_Fraction_of_Dispatch { (pid, a, t, p, h) in AVAILABLE_HOURS: dispatchable[t] }:
+	Provide_Spinning_Reserve[pid, a, t, p, h] <= 
+	( max_spinning_reserve_fraction_of_capacity[t] / ( 1 - max_spinning_reserve_fraction_of_capacity[t] ) ) 
+	* ( if can_build_new[t] then DispatchGen[pid, a, t, p, h] else ProducePowerEP[pid, a, t, p, h] );
+
+
 
 ########################################
 # GENERATOR INSTALLATION CONSTRAINTS           
@@ -1229,7 +1429,12 @@ subject to Mexican_Export_Limit_Reserve
 subject to CAES_Combined_Dispatch { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t = 'Compressed_Air_Energy_Storage' }:
   	(sum {fc in RPS_FUEL_CATEGORY} ReleaseEnergy[pid, a, t, p, h, fc] ) = 
   	  DispatchGen[pid, a, t, p, h] * caes_storage_to_ng_ratio[t];
- 
+
+subject to CAES_Combined_Operating_Reserve { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t = 'Compressed_Air_Energy_Storage' }:
+  	Storage_Operating_Reserve[pid, a, t, p, h] = 
+  	  ( Provide_Spinning_Reserve[pid, a, t, p, h] + Provide_Quickstart_Capacity[pid, a, t, p, h] )
+  	  * caes_storage_to_ng_ratio[t];
+ 	  
 # Maximum store rate, derated for occasional forced outages
 # StoreEnergy represents the load on the grid from storing electrons
 subject to Maximum_Store_Rate {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t]}:
@@ -1239,38 +1444,50 @@ subject to Maximum_Store_Rate {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: stora
 
 # Maximum dispatch rate, derated for occasional forced outages
 # CAES dispatch is apportioned between DispatchGen and ReleaseEnergy for NG and stored energy respectivly
+# Operating reserves are also apportioned between Provide_Spinning_Reserve/Provide_Quickstart_Capacity and Storage_Operating_reserve
 # while other storage projects (currently only Battery_Storage) don't have input energy other than grid electricity
-subject to Maximum_Release_Storage_Rate { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] }:
-  	(sum {fc in RPS_FUEL_CATEGORY} ReleaseEnergy[pid, a, t, p, h, fc] ) +
-  		( if t = 'Compressed_Air_Energy_Storage' then DispatchGen[pid, a, t, p, h] else 0 )
+subject to Maximum_Release_and_Operating_Reserve_Storage_Rate { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] }:
+  	sum {fc in RPS_FUEL_CATEGORY} ReleaseEnergy[pid, a, t, p, h, fc] 
+  	+ ( if t = 'Compressed_Air_Energy_Storage' then DispatchGen[pid, a, t, p, h] else 0 )
+  	+ Storage_Operating_Reserve[pid, a, t, p, h] 
   		<= ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
   				* gen_availability[t];
 
-  # Energy balance
-  # The parameter round_trip_efficiency below expresses the relationship between the amount of electricity from the grid used
-  # to charge the storage device and the amount that is dispatched back to the grid.
-  # For hybrid technologies like compressed-air energy storage (CAES), the round-trip efficiency will be higher than 1
-  # because natural gas is added to run the turbine. For CAES, this parameter is therefore only a "partial energy balance,"
-  # i.e. only one form of energy -- electricity -- is included in the balancing.
-  # The input of natural gas is handeled in CAES_Combined_Dispatch above
+# Energy balance
+# The parameter round_trip_efficiency below expresses the relationship between the amount of electricity from the grid used
+# to charge the storage device and the amount that is dispatched back to the grid.
+# For hybrid technologies like compressed-air energy storage (CAES), the round-trip efficiency will be higher than 1
+# because natural gas is added to run the turbine. For CAES, this parameter is therefore only a "partial energy balance,"
+# i.e. only one form of energy -- electricity -- is included in the balancing.
+# The input of natural gas is handeled in CAES_Combined_Dispatch above
   
-  # ReleaseEnergy and StoreEnergy are derated for forced outages in Maximum_Storage_Dispatch_Rate and Maximum_Store_Rate respectivly
-subject to Storage_Projects_Energy_Balance {(pid, a, t, p) in PROJECT_VINTAGES, d in DATES, fc in RPS_FUEL_CATEGORY: storage[t] and period_of_date[d] = p}:
-  	sum {h in TIMEPOINTS: date[h] = d} ReleaseEnergy[pid, a, t, p, h, fc]
-  		<= sum {h in TIMEPOINTS: date[h] = d} StoreEnergy[pid, a, t, p, h, fc] * storage_efficiency[t];
+# ReleaseEnergy and StoreEnergy are derated for forced outages in Maximum_Storage_Dispatch_Rate and Maximum_Store_Rate respectivly
+subject to Storage_Projects_Energy_Balance_by_Fuel_Category { (pid, a, t, p) in PROJECT_VINTAGES, d in DATES, fc in RPS_FUEL_CATEGORY: storage[t] and period_of_date[d] = p }:
+  	sum { h in TIMEPOINTS: date[h] = d } ReleaseEnergy[pid, a, t, p, h, fc]
+  		<= sum { h in TIMEPOINTS: date[h] = d } StoreEnergy[pid, a, t, p, h, fc] * storage_efficiency[t];
+
+# this energy balance constraint also takes into account the useful energy released by storage projects when the operating reserve is actually deployed
+subject to Storage_Projects_Energy_Balance { (pid, a, t, p) in PROJECT_VINTAGES, d in DATES: storage[t] and period_of_date[d] = p }:
+	sum { h in TIMEPOINTS: date[h] = d } ( 
+		( sum { fc in RPS_FUEL_CATEGORY } ReleaseEnergy[pid, a, t, p, h, fc] )
+		+ fraction_of_time_operating_reserves_are_deployed * Storage_Operating_Reserve[pid, a, t, p, h]
+			)
+		<= sum { h in TIMEPOINTS: date[h] = d } ( ( sum { fc in RPS_FUEL_CATEGORY } StoreEnergy[pid, a, t, p, h, fc] ) * storage_efficiency[t] );
+
+
 
 # RESERVE - the same as above on a reserve margin basis
-subject to Maximum_Store_Rate_Reserve { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] }:
-  	StoreEnergy_Reserve[pid, a, t, p, h]
-  		<= max_store_rate[t] * ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] );
-subject to Maximum_Release_Storage_Rate_Reserve { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] }:
-  	ReleaseEnergy_Reserve[pid, a, t, p, h]
-  		<= ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] );
+#subject to Maximum_Store_Rate_Reserve { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] }:
+  #	StoreEnergy_Reserve[pid, a, t, p, h]
+  #		<= max_store_rate[t] * ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] );
+#subject to Maximum_Release_Storage_Rate_Reserve { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] }:
+#  	ReleaseEnergy_Reserve[pid, a, t, p, h]
+  	#	<= ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] );
 # all energy from CAES in the reserve margin is coming from ReleaseEnergy_Reserve, with the use of natural gas included.
-subject to Storage_Projects_Energy_Balance_Reserve {(pid, a, t, p) in PROJECT_VINTAGES, d in DATES: storage[t] and period_of_date[d] = p}:
-  	sum {h in TIMEPOINTS: date[h] = d} ReleaseEnergy_Reserve[pid, a, t, p, h]
-  		<= sum {h in TIMEPOINTS: date[h] = d} StoreEnergy_Reserve[pid, a, t, p, h]
-  			* ( if t = 'Compressed_Air_Energy_Storage' then round_trip_efficiency_caes else storage_efficiency[t] );
+#subject to Storage_Projects_Energy_Balance_Reserve {(pid, a, t, p) in PROJECT_VINTAGES, d in DATES: storage[t] and period_of_date[d] = p}:
+ # 	sum {h in TIMEPOINTS: date[h] = d} ReleaseEnergy_Reserve[pid, a, t, p, h]
+  #		<= sum {h in TIMEPOINTS: date[h] = d} StoreEnergy_Reserve[pid, a, t, p, h]
+  	#		* ( if t = 'Compressed_Air_Energy_Storage' then round_trip_efficiency_caes else storage_efficiency[t] );
 
 
 ################################################################################
@@ -1285,12 +1502,13 @@ subject to Storage_Projects_Energy_Balance_Reserve {(pid, a, t, p) in PROJECT_VI
 # any electron that is from upstream gets labeled blue - i.e. whatever color hydro is... currently this equates to brown
 # also, any stored electron (less the storage_efficiency[t]) must retain its color - either brown or green 
 
-# for every hour, the amount of water released can't be more than the turbine capacity
-subject to Maximum_Dispatch_Hydro { (a, t, p, h) in HYDRO_AVAILABLE_HOURS }:
+# for every hour, the amount of water released plus any operating reserve provided can't be more than the turbine capacity
+subject to Maximum_Dispatch_and_Operating_Reserve_Hydro { (a, t, p, h) in HYDRO_AVAILABLE_HOURS }:
  	DispatchHydro[a, t, p, h]
-	+ 
-	(if t = 'Hydro_Pumped'
-		then ( sum{ fc in RPS_FUEL_CATEGORY } Dispatch_Pumped_Hydro_Storage[a, t, p, h, fc] )
+	+ Hydro_Operating_Reserve[a, t, p, h]
+	+ (if t = 'Hydro_Pumped'
+		then ( ( sum{ fc in RPS_FUEL_CATEGORY } Dispatch_Pumped_Hydro_Storage[a, t, p, h, fc] )
+				+ Pumped_Hydro_Storage_Operating_Reserve[a, t, p, h] )
 		else 0 )
     <= hydro_capacity_mw_in_load_area[a, t] * gen_availability[t];
 
@@ -1303,10 +1521,19 @@ subject to Minimum_Dispatch_Hydro { (a, t, p, h) in NONPUMPED_HYDRO_AVAILABLE_HO
 
 # for every day, the historical monthly average flow must be met to maintain downstream flow
 # these electrons will be labeled blue by other constraints
+# this energy balance constraint also takes into account the energy provided by hydro
+# when operating reserve is actually deployed
 subject to Average_Hydro_Output { (a, t, p, d) in HYDRO_DATES }:
-  sum {h in TIMEPOINTS: date[h]=d} DispatchHydro[a, t, p, h] <= 
+  sum { h in TIMEPOINTS: date[h]=d } ( DispatchHydro[a, t, p, h] + fraction_of_time_operating_reserves_are_deployed * Hydro_Operating_Reserve[a, t, p, h] )
 # The sum below is equivalent to the daily hydro flow, but only over the study hours considered in each day
-  sum {h in TIMEPOINTS: date[h]=d} avg_hydro_output_load_area_agg[a, t, p, d];
+  <= sum {h in TIMEPOINTS: date[h]=d} avg_hydro_output_load_area_agg[a, t, p, d];
+
+	
+# maximum operating reserve that can be provided by hydro projects as a fraction of nameplate capacity
+subject to Max_Operating_Reserve_Hydro { (a, t, p, h) in HYDRO_AVAILABLE_HOURS }:
+	Hydro_Operating_Reserve[a, t, p, h] 
+	+ ( if t = 'Hydro_Pumped' then Pumped_Hydro_Storage_Operating_Reserve[a, t, p, h] else 0 )
+	<= 0.20 * hydro_capacity_mw_in_load_area[a, t]; 
 
 # Can't pump more water uphill than the pump capacity (in MW)
 # As mentioned above, Store_Pumped_Hydro represents the grid load of storage
@@ -1321,9 +1548,17 @@ subject to Maximum_Store_Pumped_Hydro { (a, t, p, h) in PUMPED_HYDRO_AVAILABLE_H
 # Conservation of STORED electrons (electrons not from upstream) for pumped hydro
 # Pumped hydro has to dispatch all electrons it stored each day for each fuel type such that 
 # over the course of a day pumped hydro projects release the necessary amount of water downstream
-subject to Conservation_Of_Stored_Pumped_Hydro_Electrons { (a, t, p, d) in PUMPED_HYDRO_DATES, fc in RPS_FUEL_CATEGORY }:
-	sum {h in TIMEPOINTS: date[h]=d} Dispatch_Pumped_Hydro_Storage[a, t, p, h, fc] <= 
-	sum {h in TIMEPOINTS: date[h]=d} Store_Pumped_Hydro[a, t, p, h, fc] * storage_efficiency[t];
+subject to Conservation_Of_Stored_Pumped_Hydro_Electrons_by_Fuel_Category { (a, t, p, d) in PUMPED_HYDRO_DATES, fc in RPS_FUEL_CATEGORY }:
+	sum { h in TIMEPOINTS: date[h]=d } Dispatch_Pumped_Hydro_Storage[a, t, p, h, fc] 
+	<= sum { h in TIMEPOINTS: date[h]=d } Store_Pumped_Hydro[a, t, p, h, fc] * storage_efficiency[t];
+
+subject to Pumped_Hydro_Energy_Balance { (a, t, p, d) in PUMPED_HYDRO_DATES: period_of_date[d] = p }:
+    sum { h in TIMEPOINTS: date[h]=d } ( 
+    ( sum {fc in RPS_FUEL_CATEGORY} Dispatch_Pumped_Hydro_Storage[a, t, p, h, fc] ) 
+    + fraction_of_time_operating_reserves_are_deployed * Pumped_Hydro_Storage_Operating_Reserve[a, t, p, h] ) 
+    <= 
+	sum { h in TIMEPOINTS: date[h]=d } ( sum {fc in RPS_FUEL_CATEGORY} Store_Pumped_Hydro[a, t, p, h, fc] ) * storage_efficiency[t];
+
 
 
 # Hydro Reserve
@@ -1337,70 +1572,71 @@ subject to Conservation_Of_Stored_Pumped_Hydro_Electrons { (a, t, p, d) in PUMPE
 # as the reserve margin doesn't have an RPS flavor, these constraints don't include the fuel type
 
 # as with other reserve margin constraints, gen_availability is removed here, because this is built into the reserve margin
-subject to Maximum_Dispatch_Hydro_Reserve { (a, t, p, h) in HYDRO_AVAILABLE_HOURS }:
- 	DispatchHydro_Reserve[a, t, p, h]
-	+ 
-	(if t = 'Hydro_Pumped'
-		then Dispatch_Pumped_Hydro_Storage_Reserve[a, t, p, h]
-		else 0 )
-    <= hydro_capacity_mw_in_load_area[a, t];
-subject to Minimum_Dispatch_Hydro_Reserve { (a, t, p, h) in NONPUMPED_HYDRO_AVAILABLE_HOURS }:
-  DispatchHydro_Reserve[a, t, p, h] >= avg_hydro_output_load_area_agg[a, t, p, date[h]] * min_nonpumped_hydro_dispatch_fraction;
-subject to Average_Hydro_Output_Reserve { (a, t, p, d) in HYDRO_DATES }:
-  sum {h in TIMEPOINTS: date[h]=d} DispatchHydro_Reserve[a, t, p, h] <= 
-  sum {h in TIMEPOINTS: date[h]=d} avg_hydro_output_load_area_agg[a, t, p, d];
+#subject to Maximum_Dispatch_Hydro_Reserve { (a, t, p, h) in HYDRO_AVAILABLE_HOURS }:
+ #	DispatchHydro_Reserve[a, t, p, h]
+	#+ 
+	#(if t = 'Hydro_Pumped'
+	#	then Dispatch_Pumped_Hydro_Storage_Reserve[a, t, p, h]
+	#	else 0 )
+    #<= hydro_capacity_mw_in_load_area[a, t];
+    
+#subject to Minimum_Dispatch_Hydro_Reserve { (a, t, p, h) in NONPUMPED_HYDRO_AVAILABLE_HOURS }:
+ # DispatchHydro_Reserve[a, t, p, h] >= avg_hydro_output_load_area_agg[a, t, p, date[h]] * min_nonpumped_hydro_dispatch_fraction;
+  
+#subject to Average_Hydro_Output_Reserve { (a, t, p, d) in HYDRO_DATES }:
+#  sum {h in TIMEPOINTS: date[h]=d} DispatchHydro_Reserve[a, t, p, h] <= 
+#  sum {h in TIMEPOINTS: date[h]=d} avg_hydro_output_load_area_agg[a, t, p, d];
 
 # hydro reserve storage constraints
-subject to Conservation_Of_Stored_Pumped_Hydro_Electrons_Reserve { (a, t, p, d) in PUMPED_HYDRO_DATES }:
-	sum {h in TIMEPOINTS: date[h]=d} Dispatch_Pumped_Hydro_Storage_Reserve[a, t, p, h] <= 
-	sum {h in TIMEPOINTS: date[h]=d} Store_Pumped_Hydro_Reserve[a, t, p, h] * storage_efficiency[t];
+#subject to Conservation_Of_Stored_Pumped_Hydro_Electrons_Reserve { (a, t, p, d) in PUMPED_HYDRO_DATES }:
+#	sum {h in TIMEPOINTS: date[h]=d} Dispatch_Pumped_Hydro_Storage_Reserve[a, t, p, h] <= 
+#	sum {h in TIMEPOINTS: date[h]=d} Store_Pumped_Hydro_Reserve[a, t, p, h] * storage_efficiency[t];
 # Can't pump more water uphill than the pump capacity (in MW)
-subject to Maximum_Store_Pumped_Hydro_Reserve { (a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS }:
-  Store_Pumped_Hydro_Reserve[a, t, p, h] <= hydro_capacity_mw_in_load_area[a, t];
+#subject to Maximum_Store_Pumped_Hydro_Reserve { (a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS }:
+#  Store_Pumped_Hydro_Reserve[a, t, p, h] <= hydro_capacity_mw_in_load_area[a, t];
 
 
 
 problem Investment_Cost_Minimization: 
   # Objective function 
 	Power_Cost, 
-
   # Satisfy Load and Power Consumption
     Satisfy_Load,
 	Conservation_Of_Energy_NonDistributed, Conservation_Of_Energy_Distributed,
     ConsumeNonDistributedPower, ConsumeDistributedPower, RedirectDistributedPower,
   # Policy Constraints
 	Satisfy_RPS, Carbon_Cap,
-
   # Investment Decisions
 	InstallGen, BuildGenOrNot, InstallTrans, 
   # Installation Constraints
 	Maximum_Resource_Central_Station_Solar, Maximum_Resource_Bio, Maximum_Resource_Single_Location, 
 	Minimum_GenSize, BuildGenOrNot_Constraint, SymetricalTrans, 
-
   # Dispatch Decisions
 	DispatchGen, OperateEPDuringPeriod, ProducePowerEP, ConsumeBioSolid, DispatchTransFromXToY, StoreEnergy, ReleaseEnergy,
 	DispatchHydro, Dispatch_Pumped_Hydro_Storage, Store_Pumped_Hydro,
+	Provide_Spinning_Reserve, Provide_Quickstart_Capacity, Storage_Operating_Reserve, Hydro_Operating_Reserve, Pumped_Hydro_Storage_Operating_Reserve,
   # Dispatch Constraints
-	Power_From_Dispatchable_Plants,
-	EP_Operational_Continuity, EP_Power_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Baseload_Plants, EP_Power_From_Hydro_Plants,
+	Power_and_Operating_Reserve_From_Dispatchable_Plants,
+	Spinning_Reserve_as_Fraction_of_Dispatch,
+	EP_Operational_Continuity, EP_Power_and_Operating_Reserve_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Baseload_Plants, EP_Power_From_Hydro_Plants, 
 	Maximum_DispatchTransFromXToY, Maximum_DispatchTransFromXToY_Reserve, 
 	Mexican_Export_Limit, Mexican_Export_Limit_Reserve, 
-	Maximum_Dispatch_Hydro, Minimum_Dispatch_Hydro, Average_Hydro_Output, 
-	Maximum_Store_Pumped_Hydro, Conservation_Of_Stored_Pumped_Hydro_Electrons,
-	CAES_Combined_Dispatch, Maximum_Store_Rate, Maximum_Release_Storage_Rate, Storage_Projects_Energy_Balance, 
-
+	Maximum_Dispatch_and_Operating_Reserve_Hydro, Minimum_Dispatch_Hydro, Average_Hydro_Output, Max_Operating_Reserve_Hydro,
+	Maximum_Store_Pumped_Hydro, Conservation_Of_Stored_Pumped_Hydro_Electrons_by_Fuel_Category, Pumped_Hydro_Energy_Balance,
+	CAES_Combined_Dispatch, CAES_Combined_Operating_Reserve, Maximum_Store_Rate, Maximum_Release_and_Operating_Reserve_Storage_Rate, Storage_Projects_Energy_Balance_by_Fuel_Category, Storage_Projects_Energy_Balance,
   # Contigency Planning Variables (to ensure that a dispatch plan exists that can meet reserve margins)
-	DispatchTransFromXToY_Reserve, StoreEnergy_Reserve, ReleaseEnergy_Reserve, 
-	DispatchHydro_Reserve, Dispatch_Pumped_Hydro_Storage_Reserve, Store_Pumped_Hydro_Reserve, 
+	DispatchTransFromXToY_Reserve, 
   # Contigency Planning constraints
 	Satisfy_Load_Reserve, 
 	Conservation_Of_Energy_NonDistributed_Reserve, Conservation_Of_Energy_Distributed_Reserve,
-    ConsumeNonDistributedPower_Reserve, ConsumeDistributedPower_Reserve, RedirectDistributedPower_Reserve,
-  # Dispatch Reserve Constraints
-	Maximum_Dispatch_Hydro_Reserve, Average_Hydro_Output_Reserve, Minimum_Dispatch_Hydro_Reserve, 
-	Maximum_Store_Pumped_Hydro_Reserve, Conservation_Of_Stored_Pumped_Hydro_Electrons_Reserve,
-	Maximum_Store_Rate_Reserve, Maximum_Release_Storage_Rate_Reserve, Storage_Projects_Energy_Balance_Reserve
+    ConsumeNonDistributedPower_Reserve, ConsumeDistributedPower_Reserve, RedirectDistributedPower_Reserve, 
+  # Operating Reserve Variables
+    Spinning_Reserve_Requirement, Quickstart_Reserve_Requirement,
+  # Operating Reserve Constraints
+    Spinning_Reserve_Requirement_in_Balancing_Area_in_Hour, Quickstart_Reserve_Requirement_in_Balancing_Area_in_Hour, Satisfy_Spinning_Reserve_Requirement,
+    Satisfy_Spinning_and_Quickstart_Reserve_Requirement
 ;
+
 
 problem Present_Day_Cost_Minimization: 
   # Objective function 
@@ -1415,12 +1651,20 @@ problem Present_Day_Cost_Minimization:
 	DispatchGen, ProducePowerEP, ConsumeBioSolid, DispatchTransFromXToY,
 	{(pid, a, t, p) in EP_PERIODS: not intermittent[t] and not hydro[t] and ep_could_be_operating_past_expected_lifetime[pid, a, t, p]} OperateEPDuringPeriod[pid, a, t, p],
 	DispatchHydro, Dispatch_Pumped_Hydro_Storage, Store_Pumped_Hydro,
+	Provide_Spinning_Reserve, Provide_Quickstart_Capacity, Hydro_Operating_Reserve, Pumped_Hydro_Storage_Operating_Reserve,
   # Dispatch Constraints
-	Power_From_Dispatchable_Plants,
-	EP_Power_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Baseload_Plants, EP_Power_From_Hydro_Plants,
-	Maximum_DispatchTransFromXToY,
-	Maximum_Dispatch_Hydro, Average_Hydro_Output, Minimum_Dispatch_Hydro, 
-	Maximum_Store_Pumped_Hydro, Conservation_Of_Stored_Pumped_Hydro_Electrons
+	Power_and_Operating_Reserve_From_Dispatchable_Plants,
+	Spinning_Reserve_as_Fraction_of_Dispatch,
+	EP_Power_and_Operating_Reserve_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Baseload_Plants, EP_Power_From_Hydro_Plants,
+	Maximum_DispatchTransFromXToY, Mexican_Export_Limit,
+	Maximum_Dispatch_and_Operating_Reserve_Hydro, Average_Hydro_Output, Minimum_Dispatch_Hydro,
+	Max_Operating_Reserve_Hydro,
+	Maximum_Store_Pumped_Hydro, Pumped_Hydro_Energy_Balance,
+  # Operating Reserve Variables
+    Spinning_Reserve_Requirement, Quickstart_Reserve_Requirement,
+  # Operating Reserve Constraints
+    Spinning_Reserve_Requirement_in_Balancing_Area_in_Hour, Quickstart_Reserve_Requirement_in_Balancing_Area_in_Hour, Satisfy_Spinning_Reserve_Requirement,
+    Satisfy_Spinning_and_Quickstart_Reserve_Requirement
 ;
 
 

@@ -134,8 +134,12 @@ echo ampl.tab 1 5 > study_hours.tab
 mysql $connection_string -e "select study_hour as hour, period, study_date as date, $HOURS_IN_SAMPLE as hours_in_sample, month_of_year, hour_of_day from study_hours_all where $TIMESAMPLE order by 1;" >> study_hours.tab
 
 echo '	load_areas.tab...'
-echo ampl.tab 1 6 > load_areas.tab
-mysql $connection_string -e "select load_area, area_id as load_area_id, economic_multiplier, max_coincident_load_for_local_td, local_td_new_annual_payment_per_mw, local_td_sunk_annual_payment, transmission_sunk_annual_payment from load_area_info;" >> load_areas.tab
+echo ampl.tab 1 7 > load_areas.tab
+mysql $connection_string -e "select load_area, area_id as load_area_id, primary_nerc_subregion as balancing_area, economic_multiplier, max_coincident_load_for_local_td, local_td_new_annual_payment_per_mw, local_td_sunk_annual_payment, transmission_sunk_annual_payment from load_area_info;" >> load_areas.tab
+
+echo '	balancing_areas.tab...'
+echo ampl.tab 1 4 > balancing_areas.tab
+mysql $connection_string -e "select balancing_area, load_only_spinning_reserve_requirement, wind_spinning_reserve_requirement, solar_spinning_reserve_requirement, quickstart_requirement_relative_to_spinning_reserve_requirement from balancing_areas;" >> balancing_areas.tab
 
 echo '	rps_load_area_targets.tab...'
 echo ampl.tab 2 1 > rps_load_area_targets.tab
@@ -176,8 +180,8 @@ echo ampl.tab 3 11 > proposed_projects.tab
 mysql $connection_string -e "select project_id, proposed_projects.load_area, technology, if(location_id is NULL, 0, location_id) as location_id, if(ep_project_replacement_id is NULL, 0, ep_project_replacement_id) as ep_project_replacement_id, if(capacity_limit is NULL, 0, capacity_limit) as capacity_limit, capacity_limit_conversion, heat_rate, connect_cost_per_mw, price_and_dollar_year, round(overnight_cost*overnight_adjuster) as overnight_cost, fixed_o_m, variable_o_m, overnight_cost_change from proposed_projects join load_area_info using (area_id) join generator_price_adjuster using (technology_id) where generator_price_adjuster.gen_price_scenario_id=$GEN_PRICE_SCENARIO_ID and technology not like '%CCS_EP' and $INTERMITTENT_PROJECTS_SELECTION;" >> proposed_projects.tab
 
 echo '	generator_info.tab...'
-echo ampl.tab 1 25 > generator_info.tab
-mysql $connection_string -e "select technology, technology_id, min_build_year, fuel, construction_time_years, year_1_cost_fraction, year_2_cost_fraction, year_3_cost_fraction, year_4_cost_fraction, year_5_cost_fraction, year_6_cost_fraction, max_age_years, forced_outage_rate, scheduled_outage_rate, can_build_new, ccs, intermittent, resource_limited, baseload, dispatchable, cogen, min_build_capacity, competes_for_space, storage, storage_efficiency, max_store_rate from generator_info where technology not like '%CCS_EP';" >> generator_info.tab
+echo ampl.tab 1 27 > generator_info.tab
+mysql $connection_string -e "select technology, technology_id, min_build_year, fuel,  construction_time_years, year_1_cost_fraction, year_2_cost_fraction, year_3_cost_fraction, year_4_cost_fraction, year_5_cost_fraction, year_6_cost_fraction, max_age_years, forced_outage_rate, scheduled_outage_rate, can_build_new, ccs, intermittent, resource_limited, baseload, dispatchable, cogen, min_build_capacity, competes_for_space, storage, storage_efficiency, max_store_rate, max_spinning_reserve_fraction_of_capacity, heat_rate_penalty_spinning_reserve from generator_info where technology not like '%CCS_EP';" >> generator_info.tab
 
 echo '	fuel_costs.tab...'
 echo ampl.tab 3 1 > fuel_costs.tab

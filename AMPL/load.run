@@ -54,9 +54,13 @@ table study_hours "inputs/study_hours.tab" IN:
 read table study_hours;
 
 table load_areas "inputs/load_areas.tab" IN: 
-  LOAD_AREAS <- [load_area], load_area_id, economic_multiplier, 
+  LOAD_AREAS <- [load_area], load_area_id, balancing_area, economic_multiplier, 
   	max_coincident_load_for_local_td, local_td_new_annual_payment_per_mw, local_td_sunk_annual_payment, transmission_sunk_annual_payment;
 read table load_areas;
+
+table balancing_areas "inputs/balancing_areas.tab" IN:
+  BALANCING_AREAS <- [balancing_area], load_only_spinning_reserve_requirement, wind_spinning_reserve_requirement, solar_spinning_reserve_requirement, quickstart_requirement_relative_to_spinning_reserve_requirement;
+read table balancing_areas;
 
 table rps_load_area_targets "inputs/rps_load_area_targets.tab" IN: 
   [load_area, rps_compliance_year], rps_compliance_fraction;
@@ -111,7 +115,7 @@ table generator_info "inputs/generator_info.tab" IN:
  	year_1_cost_fraction, year_2_cost_fraction, year_3_cost_fraction, year_4_cost_fraction, year_5_cost_fraction, year_6_cost_fraction,
 	max_age_years, forced_outage_rate, scheduled_outage_rate,
 	can_build_new, ccs, intermittent, resource_limited, baseload, dispatchable, cogen, min_build_capacity, competes_for_space,
-	storage, storage_efficiency, max_store_rate;
+	storage, storage_efficiency, max_store_rate, max_spinning_reserve_fraction_of_capacity, heat_rate_penalty_spinning_reserve;
 read table generator_info;
 
 table fuel_costs "inputs/fuel_costs.tab" IN:

@@ -9,16 +9,12 @@ CREATE OR REPLACE VIEW load_areas as
 	select area_id, load_area from switch_inputs_wecc_v2_2.load_area_info;
 CREATE OR REPLACE VIEW load_areas as 
 	select area_id, load_area from switch_inputs_wecc_v2_2.load_area_info;
-CREATE OR REPLACE VIEW sites as 
-  SELECT project_id, location_id as site from switch_inputs_wecc_v2_2.proposed_projects UNION
-  SELECT project_id, ep_id as site from switch_inputs_wecc_v2_2.existing_plants;
 CREATE OR REPLACE VIEW transmission_lines as 
 	select 	transmission_line_id, load_area_start, load_area_end,
 			la1.area_id as start_id, la2.area_id as end_id
 		from switch_inputs_wecc_v2_2.transmission_lines tl, load_areas la1, load_areas la2
 		where	tl.load_area_start = la1.load_area
 		and		tl.load_area_end = la2.load_area;
-
 
 
 CREATE TABLE IF NOT EXISTS months (
@@ -66,6 +62,12 @@ CREATE TABLE IF NOT EXISTS _generator_and_storage_dispatch (
   fuel_cost double,
   carbon_cost_incurred double,
   variable_o_m_cost double,
+  spinning_reserve double,
+  quickstart_capacity double,
+  total_operating_reserve double,
+  spinning_co2_tons double,
+  spinning_fuel_cost double,
+  spinning_carbon_cost_incurred double,
   INDEX scenario_id (scenario_id),
   INDEX period (period),
   INDEX carbon_cost (carbon_cost),
@@ -75,14 +77,13 @@ CREATE TABLE IF NOT EXISTS _generator_and_storage_dispatch (
   FOREIGN KEY (technology_id) REFERENCES technologies(technology_id), 
   INDEX area_id (area_id),
   FOREIGN KEY (area_id) REFERENCES load_areas(area_id), 
-  INDEX proj (project_id),
-  FOREIGN KEY (project_id) REFERENCES sites(project_id)
+  INDEX proj (project_id)
 ) ROW_FORMAT=FIXED;
 
 CREATE OR REPLACE VIEW generator_and_storage_dispatch as
-  SELECT 	scenario_id, carbon_cost, period, load_area, study_date, study_hour, technology, site, new, baseload, cogen, storage,
-  			_generator_and_storage_dispatch.fuel, fuel_category, hours_in_sample, power, co2_tons, heat_rate, fuel_cost, carbon_cost_incurred, variable_o_m_cost
-    FROM _generator_and_storage_dispatch join load_areas using(area_id) join technologies using(technology_id) join sites using (project_id);
+  SELECT 	scenario_id, carbon_cost, period, load_area, study_date, study_hour, technology, new, baseload, cogen, technologies.storage,
+  			_generator_and_storage_dispatch.fuel, fuel_category, hours_in_sample, power, co2_tons, heat_rate, fuel_cost, carbon_cost_incurred, variable_o_m_cost, spinning_reserve, quickstart_capacity, total_operating_reserve, spinning_co2_tons, spinning_fuel_cost, spinning_carbon_cost_incurred
+    FROM _generator_and_storage_dispatch join load_areas using(area_id) join technologies using(technology_id);
 
 -- gen cap summaries by TECH-----
 CREATE TABLE IF NOT EXISTS _gen_cap (
@@ -106,13 +107,12 @@ CREATE TABLE IF NOT EXISTS _gen_cap (
   FOREIGN KEY (area_id) REFERENCES load_areas(area_id), 
   INDEX technology_id (technology_id),
   FOREIGN KEY (technology_id) REFERENCES technologies(technology_id), 
-  INDEX site (project_id),
-  FOREIGN KEY (project_id) REFERENCES sites(project_id), 
+  INDEX site (project_id)
   PRIMARY KEY (scenario_id, carbon_cost, period, area_id, technology_id, project_id)
 )  ROW_FORMAT=FIXED;
 CREATE OR REPLACE VIEW gen_cap as
-  SELECT scenario_id, carbon_cost, period, load_area, area_id, technology, technology_id, site, project_id, new, baseload, cogen, _gen_cap.fuel, capacity, capital_cost, fixed_o_m_cost
-    FROM _gen_cap join load_areas using(area_id) join technologies using(technology_id) join sites using (project_id);
+  SELECT scenario_id, carbon_cost, period, load_area, area_id, technology, technology_id, project_id, new, baseload, cogen, _gen_cap.fuel, capacity, capital_cost, fixed_o_m_cost
+    FROM _gen_cap join load_areas using(area_id) join technologies using(technology_id);
 
 
 CREATE TABLE IF NOT EXISTS _gen_cap_summary_tech (
@@ -223,6 +223,12 @@ CREATE TABLE IF NOT EXISTS _gen_hourly_summary_tech_la (
   carbon_cost_incurred double NOT NULL default 0,
   co2_tons double NOT NULL default 0,
   power double NOT NULL default 0,
+  spinning_fuel_cost double NOT NULL default 0,
+  spinning_carbon_cost_incurred double NOT NULL default 0,
+  spinning_co2_tons double NOT NULL default 0,
+  spinning_reserve double NOT NULL default 0,
+  quickstart_capacity double NOT NULL default 0,
+  total_operating_reserve double NOT NULL default 0,
   INDEX scenario_id (scenario_id),
   INDEX carbon_cost (carbon_cost),
   INDEX period (period),
@@ -236,7 +242,7 @@ CREATE TABLE IF NOT EXISTS _gen_hourly_summary_tech_la (
 CREATE OR REPLACE VIEW gen_hourly_summary_tech_la as
   SELECT 	scenario_id, carbon_cost, period, load_area, study_date, study_hour, hours_in_sample, month, month_name,
   			hour_of_day_UTC, mod(hour_of_day_UTC - 8, 24) as hour_of_day_PST,
-  			technology, _gen_hourly_summary_tech_la.fuel, variable_o_m_cost, fuel_cost, carbon_cost_incurred, co2_tons, power
+  			technology, _gen_hourly_summary_tech_la.fuel, variable_o_m_cost, fuel_cost, carbon_cost_incurred, co2_tons, power, spinning_fuel_cost, spinning_carbon_cost_incurred, spinning_co2_tons, spinning_reserve, quickstart_capacity, total_operating_reserve 
     FROM _gen_hourly_summary_tech_la join load_areas using(area_id) join months on(month=month_id) join technologies using (technology_id);
 
 CREATE TABLE IF NOT EXISTS _gen_hourly_summary_tech (
@@ -250,6 +256,9 @@ CREATE TABLE IF NOT EXISTS _gen_hourly_summary_tech (
   hour_of_day_UTC tinyint unsigned,
   technology_id tinyint unsigned NOT NULL,
   power double,
+  spinning_reserve double,
+  quickstart_capacity double,
+  total_operating_reserve double,
   INDEX scenario_id (scenario_id),
   INDEX carbon_cost (carbon_cost),
   INDEX period (period),
@@ -261,7 +270,7 @@ CREATE TABLE IF NOT EXISTS _gen_hourly_summary_tech (
 CREATE OR REPLACE VIEW gen_hourly_summary_tech as
   SELECT 	scenario_id, carbon_cost, period, study_date, study_hour, hours_in_sample, month, month_name,
   			hour_of_day_UTC, mod(hour_of_day_UTC - 8, 24) as hour_of_day_PST,
-  			technology, fuel, power
+  			technology, fuel, power, spinning_reserve, quickstart_capacity, total_operating_reserve
     FROM _gen_hourly_summary_tech join months on(month = month_id) join technologies using (technology_id);
 
 CREATE TABLE IF NOT EXISTS _gen_summary_tech_la (
@@ -271,6 +280,9 @@ CREATE TABLE IF NOT EXISTS _gen_summary_tech_la (
   area_id smallint NOT NULL, 
   technology_id tinyint unsigned NOT NULL,
   avg_power double,
+  avg_spinning_reserve double,
+  avg_quickstart_capacity double,
+  avg_total_operating_reserve double,
   INDEX scenario_id (scenario_id),
   INDEX carbon_cost (carbon_cost),
   INDEX period (period),
@@ -281,7 +293,7 @@ CREATE TABLE IF NOT EXISTS _gen_summary_tech_la (
   PRIMARY KEY (scenario_id, carbon_cost, period, area_id, technology_id)
 ) ROW_FORMAT=FIXED;
 CREATE OR REPLACE VIEW gen_summary_tech_la as
-  SELECT scenario_id, carbon_cost, period, load_area, technology, avg_power
+  SELECT scenario_id, carbon_cost, period, load_area, technology, avg_power, avg_spinning_reserve, avg_quickstart_capacity, avg_total_operating_reserve
     FROM _gen_summary_tech_la join load_areas using(area_id) join technologies using (technology_id);
 
 CREATE TABLE IF NOT EXISTS _gen_summary_tech (
@@ -290,6 +302,9 @@ CREATE TABLE IF NOT EXISTS _gen_summary_tech (
   period year,
   technology_id tinyint unsigned NOT NULL,
   avg_power double,
+  avg_spinning_reserve double,
+  avg_quickstart_capacity double,
+  avg_total_operating_reserve double,
   INDEX scenario_id (scenario_id),
   INDEX carbon_cost (carbon_cost),
   INDEX period (period),
@@ -297,7 +312,7 @@ CREATE TABLE IF NOT EXISTS _gen_summary_tech (
   PRIMARY KEY (scenario_id, carbon_cost, period, technology_id)
 ) ROW_FORMAT=FIXED;
 CREATE OR REPLACE VIEW gen_summary_tech as
-  SELECT scenario_id, carbon_cost, period, technology, avg_power
+  SELECT scenario_id, carbon_cost, period, technology, avg_power, avg_spinning_reserve, avg_quickstart_capacity, avg_total_operating_reserve
     FROM _gen_summary_tech join technologies using (technology_id);
 
 
@@ -314,6 +329,9 @@ CREATE TABLE IF NOT EXISTS _gen_hourly_summary_fuel_la (
   hour_of_day_UTC tinyint unsigned,
   fuel VARCHAR(64) NOT NULL,
   power double NOT NULL default 0,
+  spinning_reserve double NOT NULL default 0,
+  quickstart_capacity double NOT NULL default 0,
+  total_operating_reserve double NOT NULL default 0,
   INDEX scenario_id (scenario_id),
   INDEX carbon_cost (carbon_cost),
   INDEX period (period),
@@ -327,7 +345,7 @@ CREATE TABLE IF NOT EXISTS _gen_hourly_summary_fuel_la (
 CREATE OR REPLACE VIEW gen_hourly_summary_fuel_la as
   SELECT 	scenario_id, carbon_cost, period, load_area, study_date, study_hour, hours_in_sample, month, month_name,
   			hour_of_day_UTC, mod(hour_of_day_UTC - 8, 24) as hour_of_day_PST,
-  			fuel, power
+  			fuel, power, spinning_reserve, quickstart_capacity, total_operating_reserve
     FROM _gen_hourly_summary_fuel_la join load_areas using(area_id) join months on(month=month_id);
 
 CREATE TABLE IF NOT EXISTS _gen_hourly_summary_fuel (
@@ -341,6 +359,9 @@ CREATE TABLE IF NOT EXISTS _gen_hourly_summary_fuel (
   hour_of_day_UTC tinyint unsigned,
   fuel VARCHAR(64) NOT NULL,
   power double,
+  spinning_reserve double,
+  quickstart_capacity double,
+  total_operating_reserve double,
   INDEX scenario_id (scenario_id),
   INDEX carbon_cost (carbon_cost),
   INDEX period (period),
@@ -352,7 +373,7 @@ CREATE TABLE IF NOT EXISTS _gen_hourly_summary_fuel (
 CREATE OR REPLACE VIEW gen_hourly_summary_fuel as
   SELECT 	scenario_id, carbon_cost, period, study_date, study_hour, hours_in_sample, month, month_name,
   			hour_of_day_UTC, mod(hour_of_day_UTC - 8, 24) as hour_of_day_PST,
-  			fuel, power
+  			fuel, power, spinning_reserve, quickstart_capacity, total_operating_reserve
     FROM _gen_hourly_summary_fuel join months on(month = month_id);
 
 CREATE TABLE IF NOT EXISTS _gen_summary_fuel_la (
@@ -362,6 +383,9 @@ CREATE TABLE IF NOT EXISTS _gen_summary_fuel_la (
   area_id smallint NOT NULL, 
   fuel VARCHAR(64) NOT NULL,
   avg_power double,
+  avg_spinning_reserve double,
+  avg_quickstart_capacity double,
+  avg_total_operating_reserve double,
   INDEX scenario_id (scenario_id),
   INDEX carbon_cost (carbon_cost),
   INDEX period (period),
@@ -372,7 +396,7 @@ CREATE TABLE IF NOT EXISTS _gen_summary_fuel_la (
   PRIMARY KEY (scenario_id, carbon_cost, period, area_id, fuel)
 ) ROW_FORMAT=FIXED;
 CREATE OR REPLACE VIEW gen_summary_fuel_la as
-  SELECT scenario_id, carbon_cost, period, load_area, fuel, avg_power
+  SELECT scenario_id, carbon_cost, period, load_area, fuel, avg_power, avg_spinning_reserve, avg_quickstart_capacity, avg_total_operating_reserve
     FROM _gen_summary_fuel_la join load_areas using(area_id);
 
 CREATE TABLE IF NOT EXISTS gen_summary_fuel (
@@ -381,6 +405,9 @@ CREATE TABLE IF NOT EXISTS gen_summary_fuel (
   period year,
   fuel VARCHAR(64) NOT NULL,
   avg_power double,
+  avg_spinning_reserve double,
+  avg_quickstart_capacity double,
+  avg_total_operating_reserve double,
   INDEX scenario_id (scenario_id),
   INDEX carbon_cost (carbon_cost),
   INDEX period (period),
@@ -409,6 +436,32 @@ CREATE OR REPLACE VIEW local_td_cap as
     FROM _local_td_cap join load_areas using(area_id);
 
 
+CREATE TABLE IF NOT EXISTS load_wind_solar_operating_reserve_levels (
+	scenario_id int,
+	carbon_cost smallint,
+	period year,
+	balancing_area VARCHAR(64),
+	study_date int,
+	study_hour int,
+	hours_in_sample double,
+	load_level double,
+	wind_generation double,
+	noncsp_solar_generation double,
+	csp_generation double,
+	spinning_reserve_requirement double, 
+	quickstart_capacity_requirement double,
+	total_spinning_reserve_provided double,
+	total_quickstart_capacity_provided double,
+	spinning_thermal_reserve_provided double, 
+	spinning_nonthermal_reserve_provided double,
+	quickstart_thermal_capacity_provided double,
+	quickstart_nonthermal_capacity_provided double,
+	INDEX scenario_id (scenario_id),
+	INDEX carbon_cost (carbon_cost),
+	INDEX period (period),
+	PRIMARY KEY (scenario_id, carbon_cost, period, balancing_area)
+);
+
 CREATE TABLE IF NOT EXISTS power_cost (
   scenario_id int NOT NULL,
   carbon_cost smallint NOT NULL,
@@ -430,7 +483,7 @@ CREATE TABLE IF NOT EXISTS power_cost (
   new_bio_cost double default 0 NOT NULL, 
   new_wind_cost double default 0 NOT NULL, 
   new_solar_cost double default 0 NOT NULL, 
-  new_storage_nonfuel_cost double default 0 NOT NULL, 
+  new_storage_nonfuel_cost double default 0 NOT NULL,
   carbon_cost_total double default 0 NOT NULL, 
   total_cost double default 0 NOT NULL,
   cost_per_mwh double default 0 NOT NULL,

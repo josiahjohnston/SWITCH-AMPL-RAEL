@@ -23,6 +23,7 @@ load data local infile
 	into table load_area_info
 	fields terminated by	','
 	optionally enclosed by '"'
+	lines terminated by "\r"
 	ignore 1 lines;
 
 alter table load_area_info add column scenario_id INT NOT NULL first;
@@ -32,6 +33,29 @@ alter table load_area_info add column area_id smallint unsigned NOT NULL AUTO_IN
 set @load_area_scenario_id := (select if( count(distinct scenario_id) = 0, 1, max(scenario_id)) from load_area_info);
 
 update load_area_info set scenario_id = @load_area_scenario_id;
+
+
+-- BALANCING AREA INFO
+-- based on the load area info table
+-- the balancing areas are assumed to be the primary NERC subregions
+
+drop table if exists balancing_areas;
+create table balancing_areas (
+	balancing_area varchar(20),
+	load_only_spinning_reserve_requirement float,
+	wind_spinning_reserve_requirement float,
+	solar_spinning_reserve_requirement float,
+	quickstart_requirement_relative_to_spinning_reserve_requirement float,
+	UNIQUE balancing_area (balancing_area)
+);
+
+load data local infile 
+	'wecc_balancing_area_info.csv'
+	into table balancing_areas
+	fields terminated by	','
+	optionally enclosed by '"'
+	lines terminated by "\r"
+	ignore 1 lines;
 
 
 -- HOURS-------------------------
@@ -123,7 +147,7 @@ where load_area_info.area_id = avg_load_table.area_id;
 alter table load_area_info add column local_td_new_annual_payment_per_mw float;
 update load_area_info set local_td_new_annual_payment_per_mw = 
 	CASE 	WHEN primary_nerc_subregion = 'NWPP' THEN 66406.47311
-			WHEN primary_nerc_subregion = 'NWPP Can' THEN 66406.47311
+			WHEN primary_nerc_subregion = 'NWPP_Can' THEN 66406.47311
 			WHEN primary_nerc_subregion = 'CA' THEN 128039.8671
 			WHEN primary_nerc_subregion = 'AZNMSNV' THEN 61663.36634
 			WHEN primary_nerc_subregion = 'RMPA' THEN 61663.36634
@@ -136,7 +160,7 @@ alter table load_area_info add column local_td_sunk_annual_payment float;
 update load_area_info set local_td_sunk_annual_payment = 
 	total_yearly_load_mwh *
 	CASE 	WHEN primary_nerc_subregion = 'NWPP' THEN 19.2
-			WHEN primary_nerc_subregion = 'NWPP Can' THEN 19.2
+			WHEN primary_nerc_subregion = 'NWPP_Can' THEN 19.2
 			WHEN primary_nerc_subregion = 'CA' THEN 45.12
 			WHEN primary_nerc_subregion = 'AZNMSNV' THEN 20.16
 			WHEN primary_nerc_subregion = 'RMPA' THEN 20.16
@@ -148,7 +172,7 @@ alter table load_area_info add column transmission_sunk_annual_payment float;
 update load_area_info set transmission_sunk_annual_payment = 
 	total_yearly_load_mwh *
 	CASE 	WHEN primary_nerc_subregion = 'NWPP' THEN 8.64
-			WHEN primary_nerc_subregion = 'NWPP Can' THEN 8.64
+			WHEN primary_nerc_subregion = 'NWPP_Can' THEN 8.64
 			WHEN primary_nerc_subregion = 'CA' THEN 6.72
 			WHEN primary_nerc_subregion = 'AZNMSNV' THEN 6.72
 			WHEN primary_nerc_subregion = 'RMPA' THEN 6.72
@@ -224,6 +248,8 @@ create table generator_info (
 	storage tinyint,
 	storage_efficiency float,
 	max_store_rate float,
+	max_spinning_reserve_fraction_of_capacity float,
+	heat_rate_penalty_spinning_reserve float,
 	index techology_id_name (technology_id, technology)
 );
 
@@ -232,6 +258,7 @@ load data local infile
 	into table generator_info
 	fields terminated by	','
 	optionally enclosed by '"'
+	lines terminated by '\r'
 	ignore 1 lines;
 
 -- we're not quite ready for existing plant ccs yet....

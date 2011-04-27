@@ -42,13 +42,13 @@ for {c in CARBON_COSTS} {
       let output_section := 'generator_and_storage_dispatch';
       let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
       if ( file_exists(outfile) == 0 ) then {
-      printf "scenario_id	carbon_cost	period	project_id	load_area_id	load_area	date	hour	technology_id	technology	new	baseload	cogen	storage	fuel	fuel_category	hours_in_sample	power	co2_tons	heat_rate	fuel_cost	carbon_cost_hourly	variable_o_m\n"
+      printf "scenario_id	carbon_cost	period	project_id	load_area_id	load_area	balancing_area	date	hour	technology_id	technology	new	baseload	cogen	storage	fuel	fuel_category	hours_in_sample	power	co2_tons	heat_rate	fuel_cost	carbon_cost_hourly	variable_o_m	spinning_reserve	quickstart_capacity	total_operating_reserve	spinning_co2_tons	spinning_fuel_cost	spinning_carbon_cost_incurred\n"
         > (outfile); }
       
       # New Plants
-      printf {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' and Power_Produced[pid, a, t, p, h] > 0.001} 
-        "%s	%d	%d	%d	%d	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
-        scenario_id, carbon_cost, p, pid, load_area_id[a], a,
+      printf {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' and ( Power_Produced[pid, a, t, p, h] + Total_Operating_Reserve_Provided[pid, a, t, p, h] ) > 0.001 } 
+        "%s	%d	%d	%d	%d	%s	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	 %.2f	 %.2f	%.2f\n",
+        scenario_id, carbon_cost, p, pid, load_area_id[a], a, balancing_area[a],
         (if present_day_optimization then present_day_date[h] else date[h]),
         (if present_day_optimization then present_day_timepoint[h] else h),
         technology_id[t], t, 1, baseload[t], 0, 0, fuel[t], rps_fuel_category[fuel[t]], hours_in_sample[h],
@@ -57,14 +57,20 @@ for {c in CARBON_COSTS} {
         heat_rate[pid, a, t], 
         Fuel_Cost_Incurred_Hourly[pid, a, t, p, h],
         Carbon_Cost_Incurred_Hourly[pid, a, t, p, h],
-        Variable_Cost_Incurred_Hourly[pid, a, t, p, h]
+        Variable_Cost_Incurred_Hourly[pid, a, t, p, h],
+        Spinning_Reserve_Provided[pid, a, t, p, h],
+        Quickstart_Capacity_Provided[pid, a, t, p, h],
+        Total_Operating_Reserve_Provided[pid, a, t, p, h],
+        Thermal_Spinning_Reserve_Carbon_Emissions[pid, a, t, p, h],
+        Thermal_Spinning_Reserve_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h],
+        Thermal_Spinning_Reserve_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h]
         >> (outfile);
       
       
       # Existing Plants
-      printf {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: ProducePowerEP[pid, a, t, p, h] > 0.001} 
-        "%s	%d	%d	%d	%d	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
-        scenario_id, carbon_cost, p, pid, load_area_id[a], a,
+      printf {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: ( ProducePowerEP[pid, a, t, p, h] + Total_Operating_Reserve_Provided[pid, a, t, p, h] ) > 0.001} 
+        "%s	%d	%d	%d	%d	%s	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	 %.2f	 %.2f	%.2f\n",
+        scenario_id, carbon_cost, p, pid, load_area_id[a], a, balancing_area[a],
         (if present_day_optimization then present_day_date[h] else date[h]),
         (if present_day_optimization then present_day_timepoint[h] else h),
         technology_id[t], t, 0, baseload[t], cogen[t], 0, fuel[t], rps_fuel_category_tech[t], hours_in_sample[h],
@@ -73,21 +79,32 @@ for {c in CARBON_COSTS} {
         ep_heat_rate[pid, a, t], 
         EP_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h],
         EP_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h],
-        EP_Variable_Cost_Incurred_Hourly[pid, a, t, p, h]
+        EP_Variable_Cost_Incurred_Hourly[pid, a, t, p, h],
+        Spinning_Reserve_Provided[pid, a, t, p, h],
+        Quickstart_Capacity_Provided[pid, a, t, p, h],
+        Total_Operating_Reserve_Provided[pid, a, t, p, h],
+        Thermal_Spinning_Reserve_Carbon_Emissions[pid, a, t, p, h],
+        Thermal_Spinning_Reserve_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h],
+        Thermal_Spinning_Reserve_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h]
         >> (outfile);
       
       
       # Store all STORAGE DISPATCH decisions.  Don't have to pay variable O&M for storing at the moment.
-      printf {  (pid, a, t, p, h) in AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t]
-              and not ( -0.01 < Storage_Net_Power[pid, a, t, p, h, fc] < 0.01 ) } 
-        "%s	%d	%d	%d	%d	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
-        scenario_id, carbon_cost, p, pid, load_area_id[a], a,
+      printf {  (pid, a, t, p, h) in AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t] and ( not ( -0.01 < Storage_Net_Power[pid, a, t, p, h, fc] < 0.01 ) or Total_Storage_Operating_Reserve_Provided[pid, a, t, p, h] > 0 ) } 
+        "%s	%d	%d	%d	%d	%s	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	 %.2f	 %.2f	%.2f\n",
+        scenario_id, carbon_cost, p, pid, load_area_id[a], a, balancing_area[a],
         (if present_day_optimization then present_day_date[h] else date[h]),
         (if present_day_optimization then present_day_timepoint[h] else h),
         technology_id[t], t, can_build_new[t], 0, 0, 1, 'Storage', fc, hours_in_sample[h],
         Storage_Net_Power[pid, a, t, p, h, fc],
         0, 0, 0, 0,
-        Storage_Variable_Cost_Incurred_Hourly[pid, a, t, p, h, fc]
+        Storage_Variable_Cost_Incurred_Hourly[pid, a, t, p, h, fc],
+        Storage_Spinning_Reserve_Provided_by_Fuel_Category[pid, a, t, p, h, fc],
+        Storage_Quickstart_Capacity_Provided_by_Fuel_Category[pid, a, t, p, h, fc],
+        Storage_Operating_Reserve_Provided_by_Fuel_Category[pid, a, t, p, h, fc],
+        0,
+        0,
+        0
         >> (outfile);
       
       close (outfile);
@@ -248,7 +265,38 @@ for {c in CARBON_COSTS} {
         scenario_id, carbon_cost, p, load_area_id[a], a, date[h], h, hours_in_sample[h], system_load[a, h], Satisfy_Load[a, h], Satisfy_Load_Reserve[a, h]
         >> (outfile);
       close (outfile);
+ 
+      ########################
+      # Check that the amount of operating reserve makes sense relative to load, wind, and solar levels
+      let output_section := 'load_wind_solar_operating_reserve_levels';
+      let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
+      if ( file_exists(outfile) == 0 ) then {
+      printf "scenario_id	carbon_cost	period	balancing_area	date	hour	hours_in_sample	load_level	wind_generation	noncsp_solar_generation	csp_generation	spinning_reserve_requirement	quickstart_capacity_requirement	total_spinning_reserve_provided	total_quickstart_capacity_provided	spinning_thermal_reserve_provided	spinning_nonthermal_reserve_provided	quickstart_thermal_capacity_provided	quickstart_nonthermal_capacity_provided\n"
+        > (outfile); }
+        
+      printf { h in TIMEPOINTS, b in BALANCING_AREAS }
+      "%s	%d	%d	%s	%d	%d	%d	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
+       scenario_id, carbon_cost, period[h], b,
+       (if present_day_optimization then present_day_date[h] else date[h]),
+       (if present_day_optimization then present_day_timepoint[h] else h),
+       hours_in_sample[h],
+       Load_Level_in_Balancing_Area_in_Hour[b, h],
+       Wind_Generation_Level_in_Balancing_Area_in_Hour[b, h],
+       Non_CSP_Solar_Generation_Level_in_Balancing_Area_in_Hour[b, h],
+       CSP_Solar_Generation_Level_in_Balancing_Area_in_Hour[b, h],
+       Spinning_Reserve_Required_in_Balancing_Area_in_Hour[b, h],
+       Quickstart_Capacity_Required_in_Balancing_Area_in_Hour[b, h],
+       Total_Spinning_Reserve_Provided_in_Balancing_Area_in_Hour[b, h],
+       Total_Quickstart_Capacity_Provided_in_Balancing_Area_in_Hour[b, h],
+       Thermal_Spinning_Reserve_Provided_in_Balancing_Area_in_Hour[b, h],
+       Nonthermal_Spinning_Reserve_Provided_in_Balancing_Area_in_Hour[b, h],
+       Thermal_Quickstart_Capacity_Provided_in_Balancing_Area_in_Hour[b, h],
+       Nonthermal_Quickstart_Capacity_Provided_in_Balancing_Area_in_Hour[b, h]
+       >> (outfile);
       
+      close (outfile);
+       
+
       #######################
       # Export .tab files of investment decisions for dispatch to read in. 
       
