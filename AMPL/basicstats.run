@@ -17,11 +17,7 @@ let { (pid, a, t, p) in PROJECT_VINTAGES }
 let { (pid, a, t, p) in EP_PERIODS } EP_Capital_Payments_by_Plant_and_Period[pid, a, t, p] := 
 	ep_capacity_mw[pid, a, t] * capital_cost_annual_payment[pid, a, t, p] 
 	# Don't pay for plants that aren't operated beyond their expected lifetime, unless they're cogen, geothermal or bio_liquid
-	* (if ( ep_could_be_operating_past_expected_lifetime[pid, a, t, p] and not ( t = 'Nuclear_EP' or hydro[t] ) )
-	   then OperateEPDuringPeriod[pid, a, t, p] # A decision variable with the values 0 or 1
-	   else if ( ep_could_be_operating_past_expected_lifetime[pid, a, t, p] and ( t = 'Nuclear_EP' or hydro[t] ) ) then 0 
-	   else 1
-	  ) 
+	* ( if ep_could_be_operating_past_expected_lifetime[pid, a, t, p] then 0 else 1 ) 
 	* num_years_per_period;
 let { (pid, a, t, p) in EP_PERIODS } EP_Fixed_OM_by_Plant_and_Period[pid, a, t, p] := 
   ( if ( intermittent[t] or hydro[t] ) then 1 else OperateEPDuringPeriod[pid, a, t, p] ) * ep_capacity_mw[pid, a, t] * ep_fixed_o_m[pid, a, t] * num_years_per_period;
