@@ -250,6 +250,7 @@ create table generator_info (
 	max_store_rate float,
 	max_spinning_reserve_fraction_of_capacity float,
 	heat_rate_penalty_spinning_reserve float,
+	Data_Source varchar(512),
 	index techology_id_name (technology_id, technology)
 );
 
@@ -261,8 +262,6 @@ load data local infile
 	lines terminated by '\r'
 	ignore 1 lines;
 
--- we're not quite ready for existing plant ccs yet....
-delete from generator_info where technology like '%CCS_EP';
 
 -- create a view for backwards compatibility - the tech ids are the important part
 use generator_info;
@@ -474,9 +473,7 @@ create table fuel_info(
 -- on page 2119 they say that biomass STs are 23% efficient and emit 1400 kg CO2=MWh, which converts to .094345 tCO2/MMBtu
 -- the Bio_Liquid value is derived from http://www.ipst.gatech.edu/faculty/ragauskas_art/technical_reviews/Black%20Liqour.pdf
 -- in the spreadsheet /Volumes/1TB_RAID/Models/GIS/Biomass/black_liquor_emissions_calc.xlsx
--- Bio_Gas (landfill gas) is almost all methane and CO2... we'll therefore use the natural gas value
--- though it should be noted that the CO2 that comes along with biogas
--- could/would be sequestered as well, and at a lower cost... for future work
+-- Bio_Gas (landfill gas) is almost exactly 50:50 methane (NG) and CO2... we'll therefore use 2x the natural gas value
 
 insert into fuel_info (fuel, rps_fuel_category, carbon_content_without_carbon_accounting) values
 	('Gas', 'fossilish', 0.05306),
@@ -486,7 +483,7 @@ insert into fuel_info (fuel, rps_fuel_category, carbon_content_without_carbon_ac
 	('Solar', 'renewable', 0),
 	('Bio_Solid', 'renewable', 0.094345),
 	('Bio_Liquid', 'renewable', 0.07695),
-	('Bio_Gas', 'renewable', 0.05306),
+	('Bio_Gas', 'renewable', 0.10612),
 	('Coal', 'fossilish', 0.09552),
 	('Uranium', 'fossilish', 0),
 	('Geothermal', 'renewable', 0),
@@ -495,7 +492,6 @@ insert into fuel_info (fuel, rps_fuel_category, carbon_content_without_carbon_ac
 update fuel_info set carbon_content = if(fuel like 'Bio%', 0, carbon_content_without_carbon_accounting);
 
 -- currently we assume that CCS captures all but 15% of the carbon emissions of a plant
--- this is consistent with ReEDs input assumptions, but should be revisited in the future.
 insert into fuel_info (fuel, rps_fuel_category, carbon_content, carbon_content_without_carbon_accounting)
 select 	concat(fuel, '_CCS') as fuel,
 		rps_fuel_category,
@@ -612,6 +608,7 @@ CREATE TABLE existing_plants (
 	cogen_thermal_demand_mmbtus_per_mwh double NOT NULL,
 	start_year year NOT NULL,
 	overnight_cost float NOT NULL,
+	connect_cost_per_mw float,
 	fixed_o_m double NOT NULL,
 	variable_o_m double NOT NULL,
 	forced_outage_rate double NOT NULL,
@@ -626,7 +623,7 @@ CREATE TABLE existing_plants (
  -- The << operation moves the numeric form of the letter "E" (for existing plants) over by 3 bytes, effectively making its value into the most significant digits.
 insert into existing_plants (project_id, load_area, technology, ep_id, area_id, plant_name, eia_id,
 								primemover, fuel, capacity_mw, heat_rate, cogen_thermal_demand_mmbtus_per_mwh, start_year,
-								overnight_cost, fixed_o_m, variable_o_m, forced_outage_rate, scheduled_outage_rate )
+								overnight_cost, connect_cost_per_mw, fixed_o_m, variable_o_m, forced_outage_rate, scheduled_outage_rate )
 	select 	e.ep_id + (ascii( 'E' ) << 8*3),
 			e.load_area,
 			technology,
@@ -641,6 +638,7 @@ insert into existing_plants (project_id, load_area, technology, ep_id, area_id, 
 			e.cogen_thermal_demand_mmbtus_per_mwh,
 			e.start_year,
 			g.overnight_cost * economic_multiplier,
+			g.connect_cost_per_mw_generic * economic_multiplier,		
 			g.fixed_o_m * economic_multiplier,
 			g.variable_o_m * economic_multiplier,
 			g.forced_outage_rate,
@@ -787,8 +785,8 @@ insert into _proposed_projects
 	(project_id, gen_info_project_id, technology_id, technology, area_id, location_id, original_dataset_id,
 	capacity_limit, capacity_limit_conversion, connect_cost_per_mw, price_and_dollar_year,
 	overnight_cost, fixed_o_m, variable_o_m, heat_rate, overnight_cost_change )
-	select  project_id + (ascii( 'G' ) << 8*3),
-	        project_id,
+	select  project_id + (ascii( 'G' ) << 8*3) as project_id,
+	        project_id as gen_info_project_id,
 	        technology_id,
 	        technology,
 			area_id,
@@ -805,6 +803,31 @@ insert into _proposed_projects
    			overnight_cost_change			
 	from proposed_projects_import join generator_info using (technology) join load_area_info using (load_area)
 	order by 2;
+
+-- add CAES for Canada and Mexico - we didn't have shapefiles for CAES geology in these areas but it is very likely that their is ample caes potential
+-- this should be cleaned up in Postgresql eventually
+insert into _proposed_projects
+	(technology_id, technology, area_id, location_id, original_dataset_id,
+	capacity_limit, capacity_limit_conversion, connect_cost_per_mw, price_and_dollar_year,
+	overnight_cost, fixed_o_m, variable_o_m, heat_rate, overnight_cost_change )
+	select  technology_id,
+	        technology,
+			area_id,
+			0 as location_id,
+			0 as original_dataset_id,
+			100000 as capacity_limit,
+			1 as capacity_limit_conversion,
+			connect_cost_per_mw_generic * economic_multiplier  as connect_cost_per_mw,
+    		price_and_dollar_year,  
+   			overnight_cost * economic_multiplier       as overnight_cost,
+    		fixed_o_m * economic_multiplier            as fixed_o_m,
+    		variable_o_m * economic_multiplier         as variable_o_m,
+    		heat_rate,
+   			overnight_cost_change			
+	from generator_info, load_area_info
+where technology = 'Compressed_Air_Energy_Storage'
+and load_area in ('CAN_ALB', 'CAN_BC', 'MEX_BAJA');
+
 
 
 -- UPDATE CSP COSTS - they're done differently!
@@ -854,9 +877,9 @@ delete from _proposed_projects
  	where 	(technology_id in (select technology_id from generator_info where fuel in ('Uranium', 'Coal', 'Coal_CCS')) and
 			area_id in (select area_id from load_area_info where primary_nerc_subregion like 'CA'));
 
--- add new CCS projects
+-- add new resource limited CCS projects
 insert into _proposed_projects (technology_id, technology, area_id,
-								connect_cost_per_mw, price_and_dollar_year, overnight_cost, fixed_o_m, variable_o_m, overnight_cost_change)
+								connect_cost_per_mw, price_and_dollar_year, overnight_cost, fixed_o_m, variable_o_m, heat_rate, overnight_cost_change)
    select 	technology_id,
     		technology,
     		load_area_info.area_id,
@@ -921,7 +944,6 @@ insert into _proposed_projects (original_dataset_id, technology_id, technology, 
 	where 	existing_plants.technology = 'Geothermal_EP'
 	and		generator_info.technology = 'Geothermal'
 ;	
-
 
 
 -- add new (non-CCS) cogen projects which will be constrained to replace existing cogen projects by ep_project_replacement_id

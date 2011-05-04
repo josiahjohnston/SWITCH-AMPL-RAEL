@@ -88,7 +88,7 @@ table existing_plants "inputs/existing_plants.tab" IN:
   	ep_plant_name ~ plant_name, ep_eia_id ~ eia_id,
     ep_capacity_mw ~ capacity_mw, ep_heat_rate ~ heat_rate, ep_cogen_thermal_demand ~ cogen_thermal_demand_mmbtus_per_mwh,
     ep_vintage ~ start_year,  
-    ep_overnight_cost ~ overnight_cost, ep_fixed_o_m ~ fixed_o_m, ep_variable_o_m ~ variable_o_m,
+    ep_overnight_cost ~ overnight_cost, ep_connect_cost_per_mw ~ connect_cost_per_mw, ep_fixed_o_m ~ fixed_o_m, ep_variable_o_m ~ variable_o_m,
     ep_location_id;
 read table existing_plants;
 

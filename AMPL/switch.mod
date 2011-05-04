@@ -409,6 +409,9 @@ param ep_vintage {EXISTING_PLANTS} >= 0;
 # overnight cost of the plant ($/MW)
 param ep_overnight_cost {EXISTING_PLANTS} >= 0;
 
+# connect cost of the plant ($/MW)
+param ep_connect_cost_per_mw {EXISTING_PLANTS} >= 0;
+
 # fixed O&M ($/MW-year)
 param ep_fixed_o_m {EXISTING_PLANTS} >= 0;
 
@@ -524,11 +527,11 @@ check {(pid, a, t) in EXISTING_PLANTS: hydro[t]}:
 
 # minimum dispatch that non-pumped hydro generators must do in each hour
 # TODO this should be derived from USGS stream flow data
-# right now, it's set at 25% of the average stream flow for each month
+# right now, it's set at 50% of the average stream flow for each month
 # there isn't a similar paramter for pumped hydro because it is assumed that the lower resevoir is large enough
 # such that hourly stream flow can be maintained independent of the pumped hydro dispatch
 # especially because the daily flow through the turbine will be constrained to be within historical monthly averages below
-param min_nonpumped_hydro_dispatch_fraction = 0.25;
+param min_nonpumped_hydro_dispatch_fraction = 0.5;
 
 # useful pumped hydro sets for recording results 
 set PUMPED_HYDRO_AVAILABLE_HOURS_BY_FC_AND_PID := { (pid, a, t, p, h) in EP_AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY: t = 'Hydro_Pumped' };
@@ -590,7 +593,7 @@ param project_vintage_overnight_costs {(pid, a, t, p) in PROJECT_VINTAGES} =
 # Bring the series of lump-sum costs made during construction up to the year before the plant starts operation. 
 param cost_of_plant_one_year_before_operational {(pid, a, t, p) in AVAILABLE_VINTAGES} =
   # Connect costs are incurred in said year, so they don't accrue interest
-  ( if can_build_new[t] then connect_cost_per_mw[pid, a, t] else 0 ) + 
+  ( if can_build_new[t] then connect_cost_per_mw[pid, a, t] else ep_connect_cost_per_mw[pid, a, t] ) + 
   # Construction costs are incurred annually during the construction phase. 
   sum{ yr_of_constr in YEAR_OF_CONSTRUCTION } (
   	cost_fraction[t, yr_of_constr] * ( if can_build_new[t] then project_vintage_overnight_costs[pid, a, t, p] else ep_overnight_cost[pid, a, t] )
@@ -613,8 +616,7 @@ param capital_cost {(pid, a, t, online_yr) in PROJECT_VINTAGES} =
 
 # discount capital costs to a lump-sum value at the start of the study.
 param ep_capital_cost { (pid, a, t, p) in EP_PERIODS } =
-    if (ep_could_be_operating_past_expected_lifetime[pid, a, t, p] and ( t = 'Nuclear_EP' or hydro[t] ) )
-    then 0
+    if ep_could_be_operating_past_expected_lifetime[pid, a, t, p] then 0
     else capital_cost_annual_payment[pid, a, t, p] * discount_to_base_year[p];
 
 
@@ -985,10 +987,6 @@ minimize Power_Cost:
 	# Capital costs (sunk cost)
 	+ ( sum {(pid, a, t, p) in EP_PERIODS: not ep_could_be_operating_past_expected_lifetime[pid, a, t, p]}
 		ep_capacity_mw[pid, a, t] * ep_capital_cost[pid, a, t, p] )
-	# Calculate capital costs for all plants that are operated beyond their expected retirement. 
-	# This can be thought of as making payments into a capital replacement fund
-	+ ( sum {(pid, a, t, p) in EP_PERIODS: not intermittent[t] and not hydro[t] and ep_could_be_operating_past_expected_lifetime[pid, a, t, p]} 
-		OperateEPDuringPeriod[pid, a, t, p] * ep_capacity_mw[pid, a, t] * ep_capital_cost[pid, a, t, p] )
 	# Calculate fixed costs for all existing plants
 	+ ( sum {(pid, a, t, p) in EP_PERIODS} 
 		( if ( intermittent[t] or hydro[t] ) then 1 else OperateEPDuringPeriod[pid, a, t, p] ) * ep_capacity_mw[pid, a, t] * fixed_o_m_by_period[pid, a, t, p] )
