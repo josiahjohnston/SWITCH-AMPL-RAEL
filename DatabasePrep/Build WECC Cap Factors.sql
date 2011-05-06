@@ -35,6 +35,27 @@ set @load_area_scenario_id := (select if( count(distinct scenario_id) = 0, 1, ma
 update load_area_info set scenario_id = @load_area_scenario_id;
 
 
+-- add ccs distance costs
+-- ccs costs will increase with distance from a viable sink - right now this is handeled on a load area level basis
+-- the distance from load areas without viable sinks to the nearest sink is calculated in postgresql and imported here
+alter table load_area_info add column ccs_distance_km float default 0;
+
+drop table if exists ccs_distances;
+create temporary table ccs_distances(
+	load_area  varchar(11) PRIMARY KEY,
+	distance_km float);
+	
+load data local infile
+	'/Volumes/1TB_RAID/Models/Switch_Runs/WECCv2_2/2011_05_04_ccs_pipeline_distance/DatabasePrep/ccs_distances.csv'
+	into table ccs_distances
+	fields terminated by	','
+	optionally enclosed by '"'
+	ignore 1 lines;	
+
+update load_area_info join ccs_distances using (load_area)
+set ccs_distance_km = distance_km;
+
+
 -- BALANCING AREA INFO
 -- based on the load area info table
 -- the balancing areas are assumed to be the primary NERC subregions
@@ -458,7 +479,8 @@ create table fuel_info(
 	rps_fuel_category varchar(10),
 	biofuel tinyint,
 	carbon_content float COMMENT 'carbon content (tonnes CO2 per million Btu)',
-	carbon_content_without_carbon_accounting float COMMENT 'carbon content before you account for the biomass being NET carbon neutral (or carbon negative for biomass CCS) (tonnes CO2 per million Btu)'
+	carbon_content_without_carbon_accounting float COMMENT 'carbon content before you account for the biomass being NET carbon neutral (or carbon negative for biomass CCS) (tonnes CO2 per million Btu)',
+	carbon_sequestered float
 );
 
 -- carbon content in tCO2/MMBtu from http://www.eia.doe.gov/oiaf/1605/coefficients.html:
@@ -492,6 +514,7 @@ insert into fuel_info (fuel, rps_fuel_category, carbon_content_without_carbon_ac
 update fuel_info set carbon_content = if(fuel like 'Bio%', 0, carbon_content_without_carbon_accounting);
 
 -- currently we assume that CCS captures all but 15% of the carbon emissions of a plant
+-- this assumption also affects carbon_sequestered below
 insert into fuel_info (fuel, rps_fuel_category, carbon_content, carbon_content_without_carbon_accounting)
 select 	concat(fuel, '_CCS') as fuel,
 		rps_fuel_category,
@@ -504,6 +527,9 @@ select 	concat(fuel, '_CCS') as fuel,
 	where ( fuel like 'Bio%' or fuel in ('Gas', 'DistillateFuelOil', 'ResidualFuelOil', 'Coal') );
 
 update fuel_info set biofuel = if( fuel like 'Bio%', 1, 0 );
+
+update fuel_info set carbon_sequestered =
+	if(fuel like '%CCS', ( 1 - 0.15 ) * carbon_content_without_carbon_accounting, 0);
 
 drop table if exists fuel_qualifies_for_rps;
 create table fuel_qualifies_for_rps(

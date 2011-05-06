@@ -81,6 +81,9 @@ param present_day_system_load {LOAD_AREAS, TIMEPOINTS} >= 0;
 # Regional cost multipliers
 param economic_multiplier {LOAD_AREAS} >= 0;
 
+# distance to build a pipeline from load areas that don't have adequate carbon sinks to the nearest adequate sink
+param ccs_distance_km {LOAD_AREAS} >= 0;
+
 # system load aggregated in various ways
 param total_loads_by_period {p in PERIODS} = 
 	sum {a in LOAD_AREAS, h in TIMEPOINTS: period[h]=p} system_load[a, h];
@@ -157,6 +160,9 @@ param fuel_price {LOAD_AREAS, FUELS, YEARS} default 0, >= 0;
 	
 # carbon content (tons) per MBtu of each fuel.  Can be negative for bio ccs projects.
 param carbon_content {FUELS} default 0;
+
+# the amount of carbon per MBtu of fuel that is sequestered by CCS projects (is zero for non CCS)
+param carbon_sequestered {FUELS} default 0;
 
 # For now, all hours in each study period use the same fuel cost which averages annual prices over the course of each study period.
 # This could be updated to use fuel costs that vary by month, or for an hourly model, it could interpolate between annual forecasts 
@@ -588,12 +594,35 @@ param project_vintage_overnight_costs {(pid, a, t, p) in PROJECT_VINTAGES} =
 	# Overnight cost, adjusted for projected cost changes.
 	overnight_cost[pid, a, t] * ( 1 + overnight_cost_change[pid, a, t] )^( p - construction_time_years[t] - price_and_dollar_year[pid, a, t] );
 
+
+# CCS projects incur extra pipeline costs if their load area doesn't have a viable sink
+# we'll use the assumptions of R.S. Middleton, J.M. Bielicki / Energy Policy 37 (2009) 1052–1060 
+# their fig 2 gives CO2 flow [kt/yr] vs unit cost [$/km/t],
+# we assume that we're building relativly large pipelines (small ones quickly combine to form bigger ones)
+# which puts us at $100/km/ktCO2 (a 16" pipeline).
+# This pipeline can transport ~5000 ktCO2 (per year), roughly the output of a new 1GW coal plant.
+# the pipeline cost is therefore $90/km/ktCO2*yr 
+# NOTE: Bielicki's y-axis is wrong... it says tonnes when it's really ktonnes
+# this is corroborated by a document found in switch_input_data/CCS called
+# 'Using Natural Gas Transmission Pipeline Costs to Estimate Hydrogen Pipeline Costs' by Nathan Parker
+# this source uses similar pipline data to Bielicki but differes in costs by 10^3 (hence Bielicki's error)
+
+# we'll assume the the pipeline has to be sized for maximum carbon capacity (i.e. no local carbon storage)
+# the kt of carbon generated per year is given on the last line
+# gen_availability is not used because the pipeline should be sized for max capacity, not average
+# also, this cost doesn't decrease over time because most pipeline learning has already been done
+param ccs_pipeline_cost_per_mw { (pid, a, t) in PROJECTS: ccs[t] and ccs_distance_km[a] > 0 } =
+	90 * ccs_distance_km[a] * 
+	( heat_rate[pid, a, t] * carbon_sequestered[fuel[t]] * 8766 ) / 1000;
+
+
 # The equations below make a working assumption that the "finance rate" and "discount rate" are the same value. 
 # If those numbers take on different values, the equation will need to be inspected for correctness. 
 # Bring the series of lump-sum costs made during construction up to the year before the plant starts operation. 
 param cost_of_plant_one_year_before_operational {(pid, a, t, p) in AVAILABLE_VINTAGES} =
-  # Connect costs are incurred in said year, so they don't accrue interest
-  ( if can_build_new[t] then connect_cost_per_mw[pid, a, t] else ep_connect_cost_per_mw[pid, a, t] ) + 
+  # Connect costs and ccs pipeline costs are incurred in said year, so they don't accrue interest
+  ( if can_build_new[t] then connect_cost_per_mw[pid, a, t] else ep_connect_cost_per_mw[pid, a, t] ) +
+  ( if ( ccs[t] and ccs_distance_km[a] > 0 ) then ccs_pipeline_cost_per_mw[pid, a, t] else 0 ) +  
   # Construction costs are incurred annually during the construction phase. 
   sum{ yr_of_constr in YEAR_OF_CONSTRUCTION } (
   	cost_fraction[t, yr_of_constr] * ( if can_build_new[t] then project_vintage_overnight_costs[pid, a, t, p] else ep_overnight_cost[pid, a, t] )
@@ -1031,7 +1060,7 @@ subject to Satisfy_RPS {a in LOAD_AREAS, p in PERIODS: rps_compliance_fraction_i
       >= rps_compliance_fraction_in_period[a, p];
 
 # Carbon Cap constraint
-# windsun.run will drop this constraint if enable_carbon_cap is 0
+# load.run will drop this constraint if enable_carbon_cap is 0
 subject to Carbon_Cap {p in PERIODS}:
 	# Carbon emissions from new plants - none from intermittent plants
 	  ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t]} (

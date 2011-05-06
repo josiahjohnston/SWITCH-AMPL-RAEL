@@ -616,7 +616,6 @@ update proposed_projects
 
 
 -- export to csv to get back to mysql
--- could use ogr2ogr if desired....
 COPY 
 (select project_id,
 		technology,
@@ -627,7 +626,94 @@ COPY
 		connect_cost_per_mw,
 		location_id
 from proposed_projects )
-TO '/Volumes/1TB_RAID/Models/Switch_Input_Data/Generators/proposed_projects.csv'
+TO 'DatabasePrep/proposed_projects.csv'
+WITH 	CSV
+		HEADER;
+
+
+-- CCS PIPELINE DISTANCE COST ADDER -------------------------
+-- ccs projects have a cost adder (calculated here) for not being in a load area that has CCS sinks
+  
+-- first make a table of all polygon geoms of viable sinks
+-- (ones with vol_high > 0 and not ( assessed = 1 and suitable = 0 )
+drop table if exists ccs_sinks_all;
+create table ccs_sinks_all(
+	gid serial primary key,
+	sink_type character varying (30),
+	native_dataset_gid int,
+	vol_high numeric );
+
+SELECT AddGeometryColumn ('public','ccs_sinks_all','the_geom',4326,'POLYGON',2);
+
+CREATE INDEX ccs_sinks_all_index
+  ON ccs_sinks_all
+  USING gist
+  (the_geom);
+
+insert into ccs_sinks_all (sink_type, native_dataset_gid, vol_high, the_geom)
+	select 	'ccs_unmineable_coal_areas' as sink_type,
+			gid as native_dataset_gid,
+			vol_high,
+			cast((substring(cast(dump(polygon_geom) as text) from '%,#"_*#"_' for '#')) as geometry) as the_geom
+	from 	ccs_unmineable_coal_areas
+	where 	vol_high > 0
+	and		not ( assessed = 1 and suitable = 0 );
+	
+insert into ccs_sinks_all (sink_type, native_dataset_gid, vol_high, the_geom)
+	select 	'ccs_saline_formations' as sink_type,
+			gid as native_dataset_gid,
+			vol_high,
+			cast((substring(cast(dump(polygon_geom) as text) from '%,#"_*#"_' for '#')) as geometry) as the_geom
+	from 	ccs_saline_formations
+	where 	vol_high > 0
+	and		not ( assessed = 1 and suitable = 0 );
+
+insert into ccs_sinks_all (sink_type, native_dataset_gid, vol_high, the_geom)
+	select 	'ccs_oil_and_gas_reservoirs' as sink_type,
+			gid as native_dataset_gid,
+			vol_high,
+			cast((substring(cast(dump(polygon_geom) as text) from '%,#"_*#"_' for '#')) as geometry) as the_geom
+	from 	ccs_oil_and_gas_reservoirs
+	where 	vol_high > 0
+	and		not ( assessed = 1 and suitable = 0 );
+
+
+-- draw distances from the substation_center_geom of each load area without a ccs sink to the nearest sink
+-- the fancy geometry finds the point along the edge of the sink polygon that's closest to substation_center_geom
+-- and then calculates the distance between those two points
+-- the subquery past 'not in' gives all load_areas DO have sinks (so the 'not in' excludes these from the distance calculation)
+drop table if exists ccs_sink_to_load_area;
+create table ccs_sink_to_load_area as
+select 	load_area,
+		st_distance_sphere(
+			st_line_interpolate_point(
+				st_exteriorring( ccs_sinks_all.the_geom ),
+				st_line_locate_point(
+					st_exteriorring( ccs_sinks_all.the_geom ) , wecc_load_areas.substation_center_geom )
+				),
+			wecc_load_areas.substation_center_geom ) / 1000 as distance_km
+from 	ccs_sinks_all,
+		wecc_load_areas
+where load_area not in 
+	(select distinct load_area
+		from  	wecc_load_areas,
+				ccs_sinks_all
+		where intersects(wecc_load_areas.polygon_geom, ccs_sinks_all.the_geom)
+		and wecc_load_areas.polygon_geom && ccs_sinks_all.the_geom);
+
+drop table if exists ccs_tmp;
+create temporary table ccs_tmp as 
+select load_area, min(distance_km) as min_distance_km from ccs_sink_to_load_area group by load_area;
+
+delete from ccs_sink_to_load_area;
+insert into ccs_sink_to_load_area select * from ccs_tmp;
+
+-- export to csv to get back to mysql
+COPY 
+(select load_area,
+		distance_km
+from ccs_sink_to_load_area )
+TO 'DatabasePrep/ccs_distances.csv'
 WITH 	CSV
 		HEADER;
 

@@ -134,8 +134,8 @@ echo ampl.tab 1 5 > study_hours.tab
 mysql $connection_string -e "select study_hour as hour, period, study_date as date, $HOURS_IN_SAMPLE as hours_in_sample, month_of_year, hour_of_day from study_hours_all where $TIMESAMPLE order by 1;" >> study_hours.tab
 
 echo '	load_areas.tab...'
-echo ampl.tab 1 7 > load_areas.tab
-mysql $connection_string -e "select load_area, area_id as load_area_id, primary_nerc_subregion as balancing_area, economic_multiplier, max_coincident_load_for_local_td, local_td_new_annual_payment_per_mw, local_td_sunk_annual_payment, transmission_sunk_annual_payment from load_area_info;" >> load_areas.tab
+echo ampl.tab 1 8 > load_areas.tab
+mysql $connection_string -e "select load_area, area_id as load_area_id, primary_nerc_subregion as balancing_area, economic_multiplier, max_coincident_load_for_local_td, local_td_new_annual_payment_per_mw, local_td_sunk_annual_payment, transmission_sunk_annual_payment, ccs_distance_km from load_area_info;" >> load_areas.tab
 
 echo '	balancing_areas.tab...'
 echo ampl.tab 1 4 > balancing_areas.tab
@@ -196,8 +196,8 @@ echo ampl.tab 2 1 > biomass_supply_curve_breakpoint.tab
 mysql $connection_string -e "select load_area, breakpoint_id, breakpoint_mbtus_per_year from biomass_solid_supply_curve where breakpoint_mbtus_per_year is not null order by load_area, breakpoint_id" >> biomass_supply_curve_breakpoint.tab
 
 echo '	fuel_info.tab...'
-echo ampl.tab 1 3 > fuel_info.tab
-mysql $connection_string -e "select fuel, rps_fuel_category, biofuel, carbon_content from fuel_info;" >> fuel_info.tab
+echo ampl.tab 1 4 > fuel_info.tab
+mysql $connection_string -e "select fuel, rps_fuel_category, biofuel, carbon_content, carbon_sequestered from fuel_info;" >> fuel_info.tab
 
 echo '	fuel_qualifies_for_rps.tab...'
 echo ampl.tab 2 1 > fuel_qualifies_for_rps.tab
