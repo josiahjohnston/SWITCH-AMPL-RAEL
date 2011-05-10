@@ -8,7 +8,7 @@ reset;
 ############################################################
 # Utility Functions that interact with the operating system
 # get_num_cores() determines how many processor cores are on the current machine. Works on OS X & Linux.
-function get_num_cores pipe "while read junk; do if [ `uname` = 'Darwin' ]; then sysctl hw.ncpu | awk '{print $2}'; elif [ `uname` = 'Linux' ]; then cat /proc/cpuinfo | grep processor | wc -l | awk '{print $1}'; else echo 1; fi; done;";
+function get_num_cores pipe "while read junk; do case $(uname) in  'Darwin') sysctl hw.ncpu | awk '{print $2}' ;;  'Linux')  grep processor /proc/cpuinfo | wc -l | awk '{print $1}' ;;  *) echo 1 ;; esac; done";
 # file_exists(file_path) determines whether a file exists at the specified path (relative or absolute). Returns a 1 or a 0. Works on OS X & Linux.
 function file_exists pipe 'while read file_path; do if [ -f "$file_path" ]; then echo 1; else echo 0; fi; done;';
 
@@ -16,8 +16,8 @@ function file_exists pipe 'while read file_path; do if [ -f "$file_path" ]; then
 # Make directories for results and logs if they don't exist.
 param results_path symbolic := 'results/';
 param solution_times_path symbolic = "results/run_times.txt";
-shell("if [ ! -d " & results_path & " ]; then mkdir " & results_path & "; fi");
-shell("if [ ! -d logs ]; then mkdir logs; fi");
+shell("mkdir -p " & results_path );
+shell("mkdir -p logs");
 # Make a file header for solution time if it doesn't exist.
 if ( file_exists(solution_times_path) == 0 )
 then {
