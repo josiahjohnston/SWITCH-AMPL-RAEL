@@ -18,9 +18,6 @@ alter table wecc_load_areas add column substation_center_rec_id bigint;
 SELECT AddGeometryColumn ('public','wecc_load_areas','substation_center_geom',4326,'POINT',2);
 alter table wecc_load_areas add column primary_nerc_subregion character varying(20);
 alter table wecc_load_areas add column primary_state character varying(20);
-alter table wecc_load_areas add column rps_compliance_year int;
-alter table wecc_load_areas add column rps_compliance_percentage double precision;
-alter table wecc_load_areas add column rps_policy_exists int;
 alter table wecc_load_areas add column economic_multiplier double precision;
 
 
@@ -719,62 +716,6 @@ and 	max_intersection_area = intersection_area
 and 	(wecc_load_areas.load_area like 'CAN%' or wecc_load_areas.load_area like 'MEX%');
 
 
--- RPS----------------------
--- right now, whole load areas are forced to comply with the RPS requirement of their primary state
--- this should be changed such that the fraction of each load area in each state
--- must comply with that fraction of each state's rps, but this makes the ampl code more complex
--- so this revision will be done later
-
--- makes a table of rps requirements by state... update semi-frequently as these change over time
-drop table if exists state_rps;
-create temporary table state_rps
-	(state_abbreviation character varying(10),
-	rps_compliance_year int,
-	rps_compliance_percentage double precision);
-
--- takes manditory and voulentary values from ventyx_rps_states_region
-
--- for Texas, the target is in terms of MW... 10GW by 2025.
--- The 2007 Texas capacity was 102GW and the total retail sales were 343,828 GWhr,
--- (from http://www.eia.doe.gov/cneaf/electricity/st_profiles/texas.html)
--- giving a capacity factor of (343,829 GWhr / 8760 hr/yr) / 102 GW = 0.385
--- which is roughly the capacity factor of wind
--- so this means roughly that capacity percentages and retail sale percentages (what the rest of the RPSs run off) can be equated 
--- the annual Texas capacity growth rate is ~1.4%,
--- so in 2025, this means that there should be 102GW*(1.014)^(2025-2007) = 131GW
--- or that the Texas RPS is roughly 10GW/131GW = 7.6%
-insert into state_rps (state_abbreviation, rps_compliance_year, rps_compliance_percentage) values
-	('AB', null, null),
-	('AZ', 2025, 0.15),
-	('BC', null, null),
-	('BCN', null, null),
-	('CA', 2020, 0.33),
-	('CO', 2020, 0.2),
-	('ID', null, null),
-	('MT', 2015, 0.15),
-	('NE', null, null),
-	('NV', 2025, 0.25),
-	('NM', 2020, 0.2),
-	('OR', 2025, 0.25),
-	('SD', 2015, 0.1),
-	('TX', 2025, 0.076),
-	('UT', 2025, 0.2),
-	('WA', 2020, 0.15),
-	('WY', null, null);
-
-update 	wecc_load_areas
-set 	rps_compliance_year = state_rps.rps_compliance_year,
-		rps_compliance_percentage = state_rps.rps_compliance_percentage
-from 	state_rps
-where 	wecc_load_areas.primary_state = state_rps.state_abbreviation;
-
-update 	wecc_load_areas
-set 	rps_policy_exists = 1
-where	rps_compliance_percentage > 0;
-
-update 	wecc_load_areas
-set 	rps_policy_exists = 0
-where	rps_compliance_percentage is null;
 
 -- REGIONAL ECONOMIC MULTIPLIER-------------------
 
@@ -838,19 +779,137 @@ update wecc_load_areas
 set economic_multiplier = 1.05
 where load_area like 'CAN_BC';
 
-pdate wecc_load_areas
+update wecc_load_areas
 set economic_multiplier = 1.1
 where load_area like 'CAN_ALB';
 
+-- RPS COMPLIANCE ENTITIES  -----------
+-- define a map between load_area and rps_compliance_entity based on the structure
+-- of utilities inside each state as shown in the ventyx data (manual matching)
+-- and the DSIRE database (as of May 2011) www.dsireusa.org/
+alter table wecc_load_areas add column rps_compliance_entity character varying(20);
 
--- EXPORT TO MYSQL-------
+update wecc_load_areas
+set rps_compliance_entity =
+	CASE	WHEN load_area in ('AZ_APS_N', 'AZ_APS_SW')	THEN 'AZ_APS'
+			WHEN load_area like 'CA_PGE%' 				THEN 'CA_PGE'
+			WHEN load_area like 'CA_SCE%' 				THEN 'CA_SCE'
+			WHEN load_area in ('CO_DEN', 'CO_NW') 		THEN 'CO_PSC'
+			WHEN load_area like 'NV_%' 					THEN 'NV_ENERGY'
+			WHEN load_area like 'UT_%' 					THEN 'UT_PACE'
+			ELSE load_area
+	END;
+
+
+-- import the proper rps_compliance_entity compliance targets from www.dsireusa.org/
+drop table if exists rps_state_targets;
+create table rps_state_targets(
+	state character varying(10),
+	compliance_year int,
+	compliance_fraction float,
+	PRIMARY KEY (state, compliance_year)
+	);
+
+copy rps_state_targets from
+'/Volumes/1TB_RAID/Models/GIS/RPS/RPS_Compliance_WECC.csv'
+with csv header;
+
+-- divides rps state level targets by year into load area targets on the basis of population
+-- does not go past 2035, as targets are not set that far out... 
+drop table if exists rps_compliance_entity_targets;
+create table rps_compliance_entity_targets(
+	rps_compliance_entity character varying(20),
+	compliance_year int,
+	compliance_fraction float,
+	PRIMARY KEY (rps_compliance_entity, compliance_year)
+	);
+
+-- do the US load areas
+-- we're assuming that load (and thus compliance_fractions) are proportional to load
+-- so this uses the population fraction across state lines for each rps_compliance_entity (as described by the nasty CASE)
+-- to figure out how much of each state's target to include in each rps_compliance_entity
+insert into rps_compliance_entity_targets
+	select  compliance_entity_population_table.rps_compliance_entity,
+			compliance_year,
+			sum( compliance_fraction * compliance_entity_state_population / compliance_entity_population ) as compliance_fraction
+	from	rps_state_targets,
+		(select rps_compliance_entity,
+				sum(popdensity) as compliance_entity_population
+		from	us_population_density,
+				wecc_load_areas
+		where	intersects(wecc_load_areas.polygon_geom, us_population_density.the_geom)
+		and	wecc_load_areas.polygon_geom && us_population_density.the_geom
+		and	load_area <> 'CAN_ALB'
+		and	load_area <> 'CAN_BC'
+		and	load_area <> 'MEX_BAJA'
+		group by rps_compliance_entity
+		) as compliance_entity_population_table,
+		(select	rps_compliance_entity,
+				abbrev as state,
+				sum(popdensity) as compliance_entity_state_population
+		from	ventyx_states_region,
+				us_population_density,
+				wecc_load_areas
+		where	intersects(ventyx_states_region.the_geom, us_population_density.the_geom)
+		and	ventyx_states_region.the_geom && us_population_density.the_geom
+		and	intersects(wecc_load_areas.polygon_geom, us_population_density.the_geom)
+		and	wecc_load_areas.polygon_geom && us_population_density.the_geom
+		and	load_area <> 'CAN_ALB'
+		and	load_area <> 'CAN_BC'
+		and	load_area <> 'MEX_BAJA'
+		group by rps_compliance_entity,state
+		) as compliance_entity_state_population_table
+	where	rps_state_targets.state = compliance_entity_state_population_table.state
+	and		compliance_entity_population_table.rps_compliance_entity = compliance_entity_state_population_table.rps_compliance_entity
+	group by compliance_entity_population_table.rps_compliance_entity, compliance_year
+	order by rps_compliance_entity, compliance_year;
+
+-- the Navajo nation (AZ_NM_N) doesn't have to adhere to rps targets
+update rps_compliance_entity_targets
+set compliance_fraction = 0
+where rps_compliance_entity = 'AZ_NM_N';
+
+-- parts of Colorado (CO_E and CO_SW) are composed primarily of munis and coops...
+-- they have a different target found in rps_state_targets as 'CO_MUNI'
+-- they're all inside Colorado, so we don't have to worry about apportioning their compliance_fraction across state lines
+update rps_compliance_entity_targets
+set compliance_fraction = rps_state_targets.compliance_fraction
+from rps_state_targets
+where rps_compliance_entity in ('CO_E', 'CO_SW')
+and rps_state_targets.state = 'CO_MUNI'
+and rps_compliance_entity_targets.compliance_year = rps_state_targets.compliance_year;
+
+
+-- at the moment Canada (Alberta and BC) and Mexico (Baja) don't have RPS-like targets, so zero them out for completeness
+insert into rps_compliance_entity_targets
+	select 	rps_compliance_entity,
+			compliance_year,
+			0 as compliance_fraction
+	from 	(select rps_compliance_entity from wecc_load_areas where rps_compliance_entity not in
+				(select distinct rps_compliance_entity from rps_compliance_entity_targets)
+			) as compliance_entity_without_rps,
+			(select distinct compliance_year from rps_compliance_entity_targets) as compliance_years
+			order by 1,2;
+
+
+-- export rps complaince info to mysql
+copy 
+(select	rps_compliance_entity,
+ 		compliance_year,
+ 		compliance_fraction
+from	rps_compliance_entity_targets
+order by rps_compliance_entity, compliance_year)
+to '/Volumes/1TB_RAID/Models/GIS/RPS/rps_compliance_targets.csv'
+with CSV HEADER;
+
+
+-- EXPORT LOAD AREA INFO TO MYSQL-------
 copy
 (select	load_area,
  		primary_nerc_subregion,
  		primary_state,
   		economic_multiplier,
- 		rps_compliance_year,
-  		rps_compliance_percentage
+  		rps_compliance_entity
 from	wecc_load_areas
 order by load_area)
 to '/Volumes/1TB_RAID/Models/GIS/wecc_load_area_info.csv'

@@ -195,31 +195,44 @@ for {c in CARBON_COSTS} {
       close (outfile);
       
       ########################
-      # store the costs of all existing transmission capacity and reduced costs of the RPS constraint
-      let output_section := 'existing_trans_cost_and_rps_reduced_cost';
+      # store the costs of all existing transmission capacity
+      let output_section := 'existing_trans_cost';
       let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
       if ( file_exists(outfile) == 0 ) then {
-      printf "scenario_id	carbon_cost	period	load_area_id	load_area	existing_trans_cost	rps_reduced_cost\n"
+      printf "scenario_id	carbon_cost	period	load_area_id	load_area	existing_trans_cost\n"
+        > (outfile); }
+      
+      printf {a in LOAD_AREAS, p in PERIODS}:
+          "%s	%d	%d	%d	%s	%.2f\n",
+          scenario_id, carbon_cost, p, load_area_id[a], a,
+          Transmission_Existing_Cost_Per_Period[a, p]
+          >> (outfile);
+            
+      close (outfile);
+      
+       ########################
+      # store the reduced costs of the RPS constraint
+      let output_section := 'rps_reduced_cost';
+      let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
+      if ( file_exists(outfile) == 0 ) then {
+      printf "scenario_id	carbon_cost	period	rps_compliance_entity	rps_reduced_cost\n"
         > (outfile); }
       
       if (enable_rps = 1) then {
-        printf {a in LOAD_AREAS, p in PERIODS: rps_compliance_fraction_in_period [a, p] > 0 }:
-          "%s	%d	%d	%d	%s	%.2f	%.2f\n",
-          scenario_id, carbon_cost, p, load_area_id[a], a,
-          Transmission_Existing_Cost_Per_Period[a, p],
-          Satisfy_RPS[a, p]
+        printf { r in RPS_AREAS, p in PERIODS: rps_compliance_fraction_in_period [r, p] > 0 }:
+          "%s	%d	%d	%s	%.2f\n",
+          scenario_id, carbon_cost, p, r,
+          Satisfy_RPS[r, p]
           >> (outfile);
-        printf {a in LOAD_AREAS, p in PERIODS: rps_compliance_fraction_in_period [a, p] = 0 }:
-          "%s	%d	%d	%d	%s	%.2f	%.2f\n",
-          scenario_id, carbon_cost, p, load_area_id[a], a,
-          Transmission_Existing_Cost_Per_Period[a, p],
+        printf { r in RPS_AREAS, p in PERIODS: rps_compliance_fraction_in_period [r, p] = 0 }:
+          "%s	%d	%d	%s	%.2f\n",
+          scenario_id, carbon_cost, p, r,
           0
           >> (outfile);
        } else {
-        printf {a in LOAD_AREAS, p in PERIODS}:
-          "%s	%d	%d	%d	%s	%.2f	%.2f\n",
-          scenario_id, carbon_cost, p, load_area_id[a], a,
-          Transmission_Existing_Cost_Per_Period[a, p],
+        printf { r in RPS_AREAS, p in PERIODS }:
+          "%s	%d	%d	%s	%.2f\n",
+          scenario_id, carbon_cost, p, r,
           0
           >> (outfile);
       }

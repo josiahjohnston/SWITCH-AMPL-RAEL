@@ -54,7 +54,7 @@ table study_hours "inputs/study_hours.tab" IN:
 read table study_hours;
 
 table load_areas "inputs/load_areas.tab" IN: 
-  LOAD_AREAS <- [load_area], load_area_id, balancing_area, economic_multiplier, 
+  LOAD_AREAS <- [load_area], load_area_id, balancing_area, rps_compliance_entity, economic_multiplier, 
   	max_coincident_load_for_local_td, local_td_new_annual_payment_per_mw, local_td_sunk_annual_payment, transmission_sunk_annual_payment,
   	ccs_distance_km;
 read table load_areas;
@@ -63,9 +63,9 @@ table balancing_areas "inputs/balancing_areas.tab" IN:
   BALANCING_AREAS <- [balancing_area], load_only_spinning_reserve_requirement, wind_spinning_reserve_requirement, solar_spinning_reserve_requirement, quickstart_requirement_relative_to_spinning_reserve_requirement;
 read table balancing_areas;
 
-table rps_load_area_targets "inputs/rps_load_area_targets.tab" IN: 
-  [load_area, rps_compliance_year], rps_compliance_fraction;
-read table rps_load_area_targets;
+table rps_compliance_entity_targets "inputs/rps_compliance_entity_targets.tab" IN: 
+  [rps_compliance_entity, rps_compliance_year], rps_compliance_fraction;
+read table rps_compliance_entity_targets;
 
 table carbon_cap_targets "inputs/carbon_cap_targets.tab" IN: 
   [year], carbon_emissions_relative_to_base;
@@ -137,7 +137,7 @@ read table fuel_info;
 let FUELS := FUELS union {"Storage"};
 
 table fuel_qualifies_for_rps "inputs/fuel_qualifies_for_rps.tab" IN:
-	LOAD_AREAS_AND_FUEL_CATEGORY <- [load_area, rps_fuel_category], fuel_qualifies_for_rps ~ qualifies;
+	RPS_AREAS_AND_FUEL_CATEGORY <- [rps_compliance_entity, rps_fuel_category], fuel_qualifies_for_rps ~ qualifies;
 read table fuel_qualifies_for_rps; 
 
 ###################################
@@ -163,7 +163,7 @@ if (enable_carbon_cap = 0) then { drop Carbon_Cap; }
 # Simplify transmission & storage if RPS is not in effect
 redeclare param rps_fuel_category {FUELS} symbolic;
 if (enable_rps = 0) then {
-  let LOAD_AREAS_AND_FUEL_CATEGORY := setof{a in LOAD_AREAS} (a,'na');
+  let RPS_AREAS_AND_FUEL_CATEGORY := setof { (r, fc) in RPS_AREAS_AND_FUEL_CATEGORY } (r,'na');
   let {f in FUELS} rps_fuel_category[f] := 'na';
 } 
 redeclare param rps_fuel_category {FUELS} symbolic in RPS_FUEL_CATEGORY;

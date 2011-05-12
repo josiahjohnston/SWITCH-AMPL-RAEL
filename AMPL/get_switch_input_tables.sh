@@ -134,16 +134,16 @@ echo ampl.tab 1 5 > study_hours.tab
 mysql $connection_string -e "select study_hour as hour, period, study_date as date, $HOURS_IN_SAMPLE as hours_in_sample, month_of_year, hour_of_day from study_hours_all where $TIMESAMPLE order by 1;" >> study_hours.tab
 
 echo '	load_areas.tab...'
-echo ampl.tab 1 8 > load_areas.tab
-mysql $connection_string -e "select load_area, area_id as load_area_id, primary_nerc_subregion as balancing_area, economic_multiplier, max_coincident_load_for_local_td, local_td_new_annual_payment_per_mw, local_td_sunk_annual_payment, transmission_sunk_annual_payment, ccs_distance_km from load_area_info;" >> load_areas.tab
+echo ampl.tab 1 9 > load_areas.tab
+mysql $connection_string -e "select load_area, area_id as load_area_id, primary_nerc_subregion as balancing_area, rps_compliance_entity, economic_multiplier, max_coincident_load_for_local_td, local_td_new_annual_payment_per_mw, local_td_sunk_annual_payment, transmission_sunk_annual_payment, ccs_distance_km from load_area_info;" >> load_areas.tab
 
 echo '	balancing_areas.tab...'
 echo ampl.tab 1 4 > balancing_areas.tab
 mysql $connection_string -e "select balancing_area, load_only_spinning_reserve_requirement, wind_spinning_reserve_requirement, solar_spinning_reserve_requirement, quickstart_requirement_relative_to_spinning_reserve_requirement from balancing_areas;" >> balancing_areas.tab
 
-echo '	rps_load_area_targets.tab...'
-echo ampl.tab 2 1 > rps_load_area_targets.tab
-mysql $connection_string -e "select load_area, compliance_year as rps_compliance_year, compliance_fraction as rps_compliance_fraction from rps_load_area_targets where compliance_year >= $STUDY_START_YEAR and compliance_year <= $STUDY_END_YEAR;" >> rps_load_area_targets.tab
+echo '	rps_compliance_entity_targets.tab...'
+echo ampl.tab 2 1 > rps_compliance_entity_targets.tab
+mysql $connection_string -e "select rps_compliance_entity, compliance_year as rps_compliance_year, compliance_fraction as rps_compliance_fraction from rps_compliance_entity_targets where compliance_year >= $STUDY_START_YEAR and compliance_year <= $STUDY_END_YEAR;" >> rps_compliance_entity_targets.tab
 
 echo '	carbon_cap_targets.tab...'
 echo ampl.tab 1 1 > carbon_cap_targets.tab
@@ -201,7 +201,7 @@ mysql $connection_string -e "select fuel, rps_fuel_category, biofuel, carbon_con
 
 echo '	fuel_qualifies_for_rps.tab...'
 echo ampl.tab 2 1 > fuel_qualifies_for_rps.tab
-mysql $connection_string -e "select load_area, rps_fuel_category, qualifies from fuel_qualifies_for_rps;" >> fuel_qualifies_for_rps.tab
+mysql $connection_string -e "select rps_compliance_entity, rps_fuel_category, qualifies from fuel_qualifies_for_rps;" >> fuel_qualifies_for_rps.tab
 
 
 echo '	misc_params.dat...'

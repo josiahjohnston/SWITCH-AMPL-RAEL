@@ -342,13 +342,17 @@ check {(pid, a, t) in PROJ_INTERMITTENT}: intermittent[t];
 #
 # RPS goals for each load area 
 
-set LOAD_AREAS_AND_FUEL_CATEGORY dimen 2;
-set RPS_FUEL_CATEGORY = setof {(load_area, rps_fuel_category) in LOAD_AREAS_AND_FUEL_CATEGORY} (rps_fuel_category);
+set RPS_AREAS_AND_FUEL_CATEGORY dimen 2;
+set RPS_AREAS = setof { (rps_compliance_entity, rps_fuel_category) in RPS_AREAS_AND_FUEL_CATEGORY } (rps_compliance_entity);
+set RPS_FUEL_CATEGORY = setof { (load_area, rps_fuel_category) in RPS_AREAS_AND_FUEL_CATEGORY } (rps_fuel_category);
 
 param enable_rps >= 0, <= 1 default 0;
 
+# RPS compliance entity for each load area
+param rps_compliance_entity {LOAD_AREAS} symbolic in RPS_AREAS;
+
 # whether fuels in a load area qualify for rps 
-param fuel_qualifies_for_rps {LOAD_AREAS_AND_FUEL_CATEGORY};
+param fuel_qualifies_for_rps {RPS_AREAS_AND_FUEL_CATEGORY};
 
 # determines if fuel falls in solar/wind/geo or gas/coal/nuclear/hydro
 param rps_fuel_category {FUELS} symbolic in RPS_FUEL_CATEGORY;
@@ -356,13 +360,13 @@ param rps_fuel_category {FUELS} symbolic in RPS_FUEL_CATEGORY;
 param rps_fuel_category_tech {t in TECHNOLOGIES: t <> 'Battery_Storage'} symbolic = rps_fuel_category[fuel[t]];
 
 # rps compliance fraction as a function of yearly load
-param rps_compliance_fraction {LOAD_AREAS, YEARS} >= 0 default 0;
+param rps_compliance_fraction {RPS_AREAS, YEARS} >= 0 default 0;
 
 # average the RPS compliance percentages over a period to get the RPS target for that period
 # the end year is the year after the last period, so this sum doesn't include it.
-param rps_compliance_fraction_in_period {a in LOAD_AREAS, p in PERIODS} = 
-	( sum {yr in YEARS: yr >= p and yr < p + num_years_per_period}
-	rps_compliance_fraction[a, yr] ) / num_years_per_period;
+param rps_compliance_fraction_in_period { r in RPS_AREAS, p in PERIODS} = 
+	( sum { yr in YEARS: yr >= p and yr < p + num_years_per_period }
+	rps_compliance_fraction[r, yr] ) / num_years_per_period;
 
 ###############################################
 # Carbon Policy
@@ -1052,12 +1056,12 @@ minimize Power_Cost:
 
 # RPS constraint
 # windsun.run will drop this constraint if enable_rps is 0
-subject to Satisfy_RPS {a in LOAD_AREAS, p in PERIODS: rps_compliance_fraction_in_period[a, p] > 0 }:
-    ( sum { h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY: period[h] = p and fuel_qualifies_for_rps[a, fc] } 
+subject to Satisfy_RPS { r in RPS_AREAS, p in PERIODS: rps_compliance_fraction_in_period[r, p] > 0 }:
+    ( sum { a in LOAD_AREAS, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY: rps_compliance_entity[a] = r and period[h] = p and fuel_qualifies_for_rps[r, fc] } 
       ( ConsumeNonDistributedPower[a,h,fc] + ConsumeDistributedPower[a,h,fc] ) * hours_in_sample[h] )
-  / ( sum {h in TIMEPOINTS: period[h]=p} 
+  / ( sum { a in LOAD_AREAS, h in TIMEPOINTS: rps_compliance_entity[a] = r and period[h] = p } 
       system_load[a, h] * hours_in_sample[h] )
-      >= rps_compliance_fraction_in_period[a, p];
+      >= rps_compliance_fraction_in_period[r, p];
 
 # Carbon Cap constraint
 # load.run will drop this constraint if enable_carbon_cap is 0

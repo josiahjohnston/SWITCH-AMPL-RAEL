@@ -421,7 +421,7 @@ update power_cost set new_local_td_cost =
 
 -- transmission costs
 update power_cost set existing_transmission_cost =
-	(select sum(existing_trans_cost) from _existing_trans_cost_and_rps_reduced_cost t
+	(select sum(existing_trans_cost) from _existing_trans_cost t
 		where t.scenario_id = @scenario_id and t.scenario_id = power_cost.scenario_id
 		and t.carbon_cost = power_cost.carbon_cost and t.period = power_cost.period );
 

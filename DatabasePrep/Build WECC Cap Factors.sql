@@ -13,8 +13,7 @@ create table load_area_info(
   primary_nerc_subregion varchar(20),
   primary_state varchar(20),
   economic_multiplier double,
-  rps_compliance_year integer,
-  rps_compliance_percentage double,
+  rps_compliance_entity varchar(20),
   UNIQUE load_area (load_area)
 ) ROW_FORMAT=FIXED;
 
@@ -533,44 +532,38 @@ update fuel_info set carbon_sequestered =
 
 drop table if exists fuel_qualifies_for_rps;
 create table fuel_qualifies_for_rps(
-	area_id smallint unsigned NOT NULL,
-	load_area varchar(11),
+	rps_compliance_entity varchar(11),
 	rps_fuel_category varchar(10),
 	qualifies boolean,
-	INDEX area_id (area_id),
-  	CONSTRAINT area_id FOREIGN KEY area_id (area_id) REFERENCES load_area_info (area_id)
+	INDEX rps_compliance_entity (rps_compliance_entity)
 );
 
 insert into fuel_qualifies_for_rps
 	select distinct 
-	        area_id,
-			load_area,
+	        rps_compliance_entity,
 			rps_fuel_category,
 			if(rps_fuel_category like 'renewable', 1, 0)
 		from fuel_info, load_area_info;
 
 
 -- RPS COMPLIANCE INFO ---------------
-drop table if exists rps_load_area_targets;
-create table rps_load_area_targets(
-	load_area character varying(11),
+drop table if exists rps_compliance_entity_targets;
+create table rps_compliance_entity_targets(
+	rps_compliance_entity character varying(11),
 	compliance_year year,
 	compliance_fraction float,
-	PRIMARY KEY (load_area, compliance_year),
+	PRIMARY KEY (rps_compliance_entity, compliance_year),
 	INDEX compliance_year (compliance_year)
 	);
 
 load data local infile
-	'load_area_yearly_rps_complaince_fractions.csv'
-	into table rps_load_area_targets
+	'rps_compliance_targets.csv'
+	into table rps_compliance_entity_targets
 	fields terminated by	','
 	optionally enclosed by '"'
 	ignore 1 lines;
 
-alter table rps_load_area_targets add column area_id smallint unsigned first;
-alter table rps_load_area_targets add unique index (area_id, compliance_year);
-update rps_load_area_targets, load_area_info set rps_load_area_targets.area_id = load_area_info.area_id
-where rps_load_area_targets.load_area = load_area_info.load_area;
+alter table rps_compliance_entity_targets add unique index (rps_compliance_entity, compliance_year);
 	
 -- RPS targets are assumed to go on in the future, so targets out past 2010 are added here
 -- as the compliance fraction of the last year
@@ -578,20 +571,18 @@ drop table if exists integer_tmp;
 create table integer_tmp( integer_val int not null AUTO_INCREMENT primary key, insert_tmp int );
 	insert into integer_tmp (insert_tmp) select hournum from hours limit 100;
 
-insert into rps_load_area_targets ( area_id, load_area, compliance_year, compliance_fraction )
-	select 	area_id,
-			load_area,
+insert into rps_compliance_entity_targets ( rps_compliance_entity, compliance_year, compliance_fraction )
+	select 	rps_compliance_entity,
 			integer_val + max_year as compliance_year,
 			compliance_fraction_in_max_year as compliance_fraction
 	from	integer_tmp,
-			(select rps_load_area_targets.area_id,
-					load_area,
+			(select rps_compliance_entity_targets.rps_compliance_entity,
 					max_year,
 					compliance_fraction as compliance_fraction_in_max_year
-			from	rps_load_area_targets,
-					( select area_id, max(compliance_year) as max_year from rps_load_area_targets group by 1 ) as max_year_table
-			where	max_year_table.area_id = rps_load_area_targets.area_id
-			and		max_year_table.max_year = rps_load_area_targets.compliance_year
+			from	rps_compliance_entity_targets,
+					( select rps_compliance_entity, max(compliance_year) as max_year from rps_compliance_entity_targets group by 1 ) as max_year_table
+			where	max_year_table.rps_compliance_entity = rps_compliance_entity_targets.rps_compliance_entity
+			and		max_year_table.max_year = rps_compliance_entity_targets.compliance_year
 			) as compliance_fraction_in_max_year_table
 	;
 
