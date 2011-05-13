@@ -870,7 +870,6 @@ var InstallTrans { TRANSMISSION_LINE_NEW_PERIODS } >= 0;
 
 # number of MW to transmit through each transmission corridor in each hour
 var DispatchTransFromXToY { TRANSMISSION_LINE_HOURS, RPS_FUEL_CATEGORY} >= 0;
-var DispatchTransFromXToY_Reserve { TRANSMISSION_LINE_HOURS } >= 0;
 
 ######## GENERATOR AND STORAGE VARIABLES ########
 
@@ -924,21 +923,13 @@ var StoreEnergy {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS, fc in RPS_FUEL_CATE
 # number of MW to generate from each storage project, in each hour. 
 var ReleaseEnergy {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t]} >= 0;
 
-# storage reserve variables. 
-# ReleaseEnergy_Reserve is different from ReleaseEnergy in that all power from a CAES plant is attributed to ReleaseEnergy_Reserve rather than being spread over two decision variables. 
-#var StoreEnergy_Reserve {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t]} >= 0;
-#var ReleaseEnergy_Reserve {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t]} >= 0;
-
 # amount of hydro to store and dispatch during each hour
 # note: Store_Pumped_Hydro represents the load on the grid so the amount of energy available for release
 # is Store_Pumped_Hydro * storage_efficiency[t]
 var DispatchHydro {HYDRO_AVAILABLE_HOURS} >= 0;
 var Dispatch_Pumped_Hydro_Storage {PUMPED_HYDRO_AVAILABLE_HOURS_BY_FC} >= 0;
 var Store_Pumped_Hydro {PUMPED_HYDRO_AVAILABLE_HOURS_BY_FC} >= 0;
-# hydro reserve variables
-#var DispatchHydro_Reserve {HYDRO_AVAILABLE_HOURS} >= 0;
-#var Dispatch_Pumped_Hydro_Storage_Reserve {PUMPED_HYDRO_AVAILABLE_HOURS} >= 0;
-#var Store_Pumped_Hydro_Reserve {PUMPED_HYDRO_AVAILABLE_HOURS} >= 0;
+
 
 
 # Operating reserve variables
@@ -1181,12 +1172,13 @@ subject to Conservation_Of_Energy_NonDistributed_Reserve {a in LOAD_AREAS, h in 
 		sum { fc in RPS_FUEL_CATEGORY } (Dispatch_Pumped_Hydro_Storage[a, t, p, h, fc] - Store_Pumped_Hydro[a, t, p, h, fc] ) ) )
 	########################################
 	#    TRANSMISSION
+  # the treatment of transmission is slightly different from that of generators, in that DispatchTransFromXToY is constrained to be less than the transmission capacity derated for outage rates whereas the full capacity of generators (not de-rated) is allowed to contribute to the reserve margin
   # Imports (have experienced transmission losses)
-	+ ( sum { (a2, a, p, h) in TRANSMISSION_LINE_HOURS }
-		DispatchTransFromXToY_Reserve[a2, a, p, h] * transmission_efficiency[a2, a])
+	+ ( sum { (a2, a, p, h) in TRANSMISSION_LINE_HOURS, fc in RPS_FUEL_CATEGORY }
+		DispatchTransFromXToY[a2, a, p, h, fc] * transmission_efficiency[a2, a])
   # Exports (have not experienced transmission losses)
-	- ( sum {(a, a1, p, h) in TRANSMISSION_LINE_HOURS}
-		DispatchTransFromXToY_Reserve[a, a1, p, h] )
+	- ( sum {(a, a1, p, h) in TRANSMISSION_LINE_HOURS, fc in RPS_FUEL_CATEGORY }
+		DispatchTransFromXToY[a, a1, p, h, fc] )
 	);
 
 
@@ -1402,12 +1394,6 @@ subject to Maximum_DispatchTransFromXToY
     <= ( 1 - transmission_forced_outage_rate ) * 
           ( existing_transfer_capacity_mw[a1, a2] + sum { (a1, a2, online_yr) in TRANSMISSION_LINE_NEW_PERIODS: online_yr <= p } InstallTrans[a1, a2, online_yr] );
 
-# same on a reserve margin basis, but without the rps fuel category as rps doesn't apply to reserve margins
-subject to Maximum_DispatchTransFromXToY_Reserve
-  { (a1, a2, p, h) in TRANSMISSION_LINE_HOURS }:
-  DispatchTransFromXToY_Reserve[a1, a2, p, h]
-    <= (existing_transfer_capacity_mw[a1, a2] + sum { (a1, a2, online_yr) in TRANSMISSION_LINE_NEW_PERIODS: online_yr <= p } InstallTrans[a1, a2, online_yr] );
-
 # Simple fix to the problem of asymetrical transmission build-out
 subject to SymetricalTrans
   { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS }: InstallTrans[a1, a2, p] = InstallTrans[a2, a1, p];
@@ -1438,17 +1424,6 @@ subject to Mexican_Export_Limit
 	<=
 	mex_baja_export_limit_mwh[p];
 
-# same on a reserve basis such that mexico doesn't export large amounts of reserve without actually exporting power (via Mexican_Export_Limit)
-subject to Mexican_Export_Limit_Reserve
-  { a in LOAD_AREAS, p in PERIODS: a = 'MEX_BAJA' }:
-	# transmission out of Baja Mexico
-	sum { (a, a1) in TRANSMISSION_LINES, h in TIMEPOINTS: period[h] = p }
-		DispatchTransFromXToY_Reserve[a, a1, p, h] * hours_in_sample[h]
-	# transmission into Baja Mexico
-	- sum { (a1, a) in TRANSMISSION_LINES, h in TIMEPOINTS: period[h] = p }
-		DispatchTransFromXToY_Reserve[a1, a, p, h] * transmission_efficiency[a1, a] * hours_in_sample[h]
-	<=
-	mex_baja_export_limit_mwh[p] * ( 1 + planning_reserve_margin );
 
 
 #################################
@@ -1504,22 +1479,7 @@ subject to Storage_Projects_Energy_Balance { (pid, a, t, p) in PROJECT_VINTAGES,
 		+ fraction_of_time_operating_reserves_are_deployed * Storage_Operating_Reserve[pid, a, t, p, h]
 			)
 		<= sum { h in TIMEPOINTS: date[h] = d } ( ( sum { fc in RPS_FUEL_CATEGORY } StoreEnergy[pid, a, t, p, h, fc] ) * storage_efficiency[t] );
-
-
-
-# RESERVE - the same as above on a reserve margin basis
-#subject to Maximum_Store_Rate_Reserve { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] }:
-  #	StoreEnergy_Reserve[pid, a, t, p, h]
-  #		<= max_store_rate[t] * ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] );
-#subject to Maximum_Release_Storage_Rate_Reserve { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] }:
-#  	ReleaseEnergy_Reserve[pid, a, t, p, h]
-  	#	<= ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] );
-# all energy from CAES in the reserve margin is coming from ReleaseEnergy_Reserve, with the use of natural gas included.
-#subject to Storage_Projects_Energy_Balance_Reserve {(pid, a, t, p) in PROJECT_VINTAGES, d in DATES: storage[t] and period_of_date[d] = p}:
- # 	sum {h in TIMEPOINTS: date[h] = d} ReleaseEnergy_Reserve[pid, a, t, p, h]
-  #		<= sum {h in TIMEPOINTS: date[h] = d} StoreEnergy_Reserve[pid, a, t, p, h]
-  	#		* ( if t = 'Compressed_Air_Energy_Storage' then round_trip_efficiency_caes else storage_efficiency[t] );
-
+		
 
 ################################################################################
 # HYDRO CONSTRAINTS
@@ -1592,40 +1552,6 @@ subject to Pumped_Hydro_Energy_Balance { (a, t, p, d) in PUMPED_HYDRO_DATES: per
 
 
 
-# Hydro Reserve
-# This is an independent operational plan for hydro that can ensure average flow rates while maintain a reserve margin.
-# This contigency plan is overkill for short-lived events (hours) that require tapping into the reserve margin.
-# This contigency plan is needed for long-lasting events (days or weeks) that require maintenance of average stream flow.
-
-# as the amount of reserve available from hydro plants isn't infinite,
-# the reserve must be dispatched on similar terms to the actual energy dispatch
-
-# as the reserve margin doesn't have an RPS flavor, these constraints don't include the fuel type
-
-# as with other reserve margin constraints, gen_availability is removed here, because this is built into the reserve margin
-#subject to Maximum_Dispatch_Hydro_Reserve { (a, t, p, h) in HYDRO_AVAILABLE_HOURS }:
- #	DispatchHydro_Reserve[a, t, p, h]
-	#+ 
-	#(if t = 'Hydro_Pumped'
-	#	then Dispatch_Pumped_Hydro_Storage_Reserve[a, t, p, h]
-	#	else 0 )
-    #<= hydro_capacity_mw_in_load_area[a, t];
-    
-#subject to Minimum_Dispatch_Hydro_Reserve { (a, t, p, h) in NONPUMPED_HYDRO_AVAILABLE_HOURS }:
- # DispatchHydro_Reserve[a, t, p, h] >= avg_hydro_output_load_area_agg[a, t, p, date[h]] * min_nonpumped_hydro_dispatch_fraction;
-  
-#subject to Average_Hydro_Output_Reserve { (a, t, p, d) in HYDRO_DATES }:
-#  sum {h in TIMEPOINTS: date[h]=d} DispatchHydro_Reserve[a, t, p, h] <= 
-#  sum {h in TIMEPOINTS: date[h]=d} avg_hydro_output_load_area_agg[a, t, p, d];
-
-# hydro reserve storage constraints
-#subject to Conservation_Of_Stored_Pumped_Hydro_Electrons_Reserve { (a, t, p, d) in PUMPED_HYDRO_DATES }:
-#	sum {h in TIMEPOINTS: date[h]=d} Dispatch_Pumped_Hydro_Storage_Reserve[a, t, p, h] <= 
-#	sum {h in TIMEPOINTS: date[h]=d} Store_Pumped_Hydro_Reserve[a, t, p, h] * storage_efficiency[t];
-# Can't pump more water uphill than the pump capacity (in MW)
-#subject to Maximum_Store_Pumped_Hydro_Reserve { (a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS }:
-#  Store_Pumped_Hydro_Reserve[a, t, p, h] <= hydro_capacity_mw_in_load_area[a, t];
-
 
 
 problem Investment_Cost_Minimization: 
@@ -1650,13 +1576,11 @@ problem Investment_Cost_Minimization:
 	Power_and_Operating_Reserve_From_Dispatchable_Plants,
 	Spinning_Reserve_as_Fraction_of_Dispatch,
 	EP_Operational_Continuity, EP_Power_and_Operating_Reserve_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Baseload_Plants, EP_Power_From_Hydro_Plants, 
-	Maximum_DispatchTransFromXToY, Maximum_DispatchTransFromXToY_Reserve, 
-	Mexican_Export_Limit, Mexican_Export_Limit_Reserve, 
+	Maximum_DispatchTransFromXToY, 
+	Mexican_Export_Limit, 
 	Maximum_Dispatch_and_Operating_Reserve_Hydro, Minimum_Dispatch_Hydro, Average_Hydro_Output, Max_Operating_Reserve_Hydro,
 	Maximum_Store_Pumped_Hydro, Conservation_Of_Stored_Pumped_Hydro_Electrons_by_Fuel_Category, Pumped_Hydro_Energy_Balance,
-	CAES_Combined_Dispatch, CAES_Combined_Operating_Reserve, Maximum_Store_Rate, Maximum_Release_and_Operating_Reserve_Storage_Rate, Storage_Projects_Energy_Balance_by_Fuel_Category, Storage_Projects_Energy_Balance,
-  # Contigency Planning Variables (to ensure that a dispatch plan exists that can meet reserve margins)
-	DispatchTransFromXToY_Reserve, 
+	CAES_Combined_Dispatch, CAES_Combined_Operating_Reserve, Maximum_Store_Rate, Maximum_Release_and_Operating_Reserve_Storage_Rate, Storage_Projects_Energy_Balance_by_Fuel_Category, Storage_Projects_Energy_Balance, 
   # Contigency Planning constraints
 	Satisfy_Load_Reserve, 
 	Conservation_Of_Energy_NonDistributed_Reserve, Conservation_Of_Energy_Distributed_Reserve,
