@@ -977,8 +977,8 @@ minimize Power_Cost:
 	+ ( sum {(pid, a, t, p) in PROJECT_VINTAGES} 
 	    ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
 	    	* fixed_o_m_by_period[pid, a, t, p] )
-	# Variable costs for non-storage projects and the natural gas part of CAES
-	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t]} 
+	# Variable costs for non-storage projects
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t] and t <> 'Compressed_Air_Energy_Storage' } 
 		DispatchGen[pid, a, t, p, h] * ( variable_cost[pid, a, t, p, h] + carbon_cost_per_mwh[pid, a, t, p, h] + fuel_cost[pid, a, t, p, h] ) )
 	+ ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: intermittent[t]} 
 		( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
@@ -998,13 +998,20 @@ minimize Power_Cost:
 	   		ConsumeBioSolid[a, p] * ( 1 / num_years_per_period ) * discount_to_base_year[p]  )
 
 	# Variable costs for storage projects: currently attributed to the dispatch side of storage
-	# for CAES, power output is apportioned between DispatchGen and ReleaseEnergy by storage_efficiency_caes through the constraint CAES_Combined_Dispatch
-	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t]} 
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t] and t <> 'Compressed_Air_Energy_Storage' } 
 		ReleaseEnergy[pid, a, t, p, h, fc] * variable_cost[pid, a, t, p, h])
-	
-	# fuel and carbon costs for keeping spinning reserves from new plants (this includes thermal generators and the natural gas part of CAES)
-	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t]} 
+	# for CAES, power output is apportioned between DispatchGen and ReleaseEnergy by caes_storage_to_ng_ratio through the constraint CAES_Combined_Dispatch
+	# the sum of DispatchGen and ReleaseEnergy simplifies to DispatchGen * ( 1 + caes_storage_to_ng_ratio )
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t = 'Compressed_Air_Energy_Storage' } 
+	  DispatchGen[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) * ( variable_cost[pid, a, t, p, h] + carbon_cost_per_mwh[pid, a, t, p, h] + fuel_cost[pid, a, t, p, h] ) )
+	# fuel and carbon costs for keeping spinning reserves from new dispatchable plants (except for CAES)
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t] and t <> 'Compressed_Air_Energy_Storage' } 
 		Provide_Spinning_Reserve[pid, a, t, p, h] * ( carbon_cost_per_mwh_spinning_reserve[pid, a, t, p, h] + fuel_cost_spinning_reserve[pid, a, t, p, h] ) )
+	# fuel and carbon costs for keeping spinning reserves from CAES
+	# the sum of spinning reserve provided by the natural gas and storage parts of CAES simplifies to
+	# Provide_Spinning_Reserve * ( 1 + caes_storage_to_ng_ratio )
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t = 'Compressed_Air_Energy_Storage' } 
+		Provide_Spinning_Reserve[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) * ( carbon_cost_per_mwh_spinning_reserve[pid, a, t, p, h] + fuel_cost_spinning_reserve[pid, a, t, p, h] ) )
 		      
 	#############################
 	#    EXISTING PLANTS
@@ -1057,11 +1064,19 @@ subject to Satisfy_RPS { r in RPS_AREAS, p in PERIODS: rps_compliance_fraction_i
 # Carbon Cap constraint
 # load.run will drop this constraint if enable_carbon_cap is 0
 subject to Carbon_Cap {p in PERIODS}:
-	# Carbon emissions from new plants - none from intermittent plants
-	  ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t]} (
+	# Carbon emissions from new dispatchable plants except for CAES - none from intermittent plants
+	  ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t] and t <> 'Compressed_Air_Energy_Storage' } (
 	  DispatchGen[pid, a, t, p, h] * heat_rate[pid, a, t]
 	  + Provide_Spinning_Reserve[pid, a, t, p, h] * heat_rate_spinning_reserve[pid, a, t] )
 	  * carbon_content[fuel[t]] * hours_in_sample[h] )
+	# Carbon emissions from CAES; the total power from CAES is DispatchGen + ReleaseEnergy, which simplifes to 
+	# DispatchGen * ( 1 + caes_storage_to_ng_ratio ), and the total spinning reserve simplifies to
+	# ProvideSpinningReserve * ( 1 + caes_storage_to_ng_ratio )
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t = 'Compressed_Air_Energy_Storage' } (
+	  DispatchGen[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) * heat_rate[pid, a, t]
+	  + Provide_Spinning_Reserve[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) * heat_rate_spinning_reserve[pid, a, t] )
+	  * carbon_content[fuel[t]] * hours_in_sample[h] )
+	# Carbon emissions from new baseload plants
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t]} ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
 		* gen_availability[t] * heat_rate[pid, a, t] * carbon_content[fuel[t]] * hours_in_sample[h] )
 	# Carbon emissions from existing plants
@@ -1244,12 +1259,12 @@ subject to Satisfy_Spinning_Reserve_Requirement {b in BALANCING_AREAS, h in TIME
 	Spinning_Reserve_Requirement[b, h]
 	<=
     # new and existing dispatchable plants
-    sum { (pid, a, t, p, h) in AVAILABLE_HOURS: dispatchable[t] and balancing_area[a] = b }
+    sum { (pid, a, t, p, h) in AVAILABLE_HOURS: dispatchable[t] and t <> 'Compressed_Air_Energy_Storage' and balancing_area[a] = b }
     Provide_Spinning_Reserve[pid, a, t, p, h]
    	# CAES storage; 
    	# because spinning reserve from the storage part of CAES is tied to the NG part, not all of the CAES storage operating reserve can count as spinning; we assume that if the CAES plant is providing spinning reserve, the ratio between the NG and the storage components will be the same as the NG:Stored dispatch 
 	+ sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t = 'Compressed_Air_Energy_Storage' and balancing_area[a] = b }
-	( Provide_Spinning_Reserve[pid, a, t, p, h] * caes_storage_to_ng_ratio[t] )
+	( Provide_Spinning_Reserve[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) )
     # non-CAES storage projects
     + sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] and t <> 'Compressed_Air_Energy_Storage' and balancing_area[a] = b }
     Storage_Operating_Reserve[pid, a, t, p, h]
@@ -1262,8 +1277,8 @@ subject to Satisfy_Spinning_Reserve_Requirement {b in BALANCING_AREAS, h in TIME
     ;
 
 # Ensure that the quickstart reserve requirement is met in each hour in each balancing area in addition to the spinning reserve requirement
-subject to Satisfy_Spinning_and_Quickstart_Reserve_Requirement {b in BALANCING_AREAS, h in TIMEPOINTS}:
-	Spinning_Reserve_Requirement[b, h] + Quickstart_Reserve_Requirement[b, h]
+subject to Satisfy_Quickstart_Reserve_Requirement {b in BALANCING_AREAS, h in TIMEPOINTS}:
+	Quickstart_Reserve_Requirement[b, h]
 	<=
     # new and existing dispatchable plants
     sum { (pid, a, t, p, h) in AVAILABLE_HOURS: dispatchable[t] and balancing_area[a] = b } 
@@ -1275,7 +1290,9 @@ subject to Satisfy_Spinning_and_Quickstart_Reserve_Requirement {b in BALANCING_A
     + sum { (a, t, p, h) in HYDRO_AVAILABLE_HOURS: balancing_area[a] = b } 
     Hydro_Operating_Reserve[a, t, p, h]
     # pumped hydro storage
-    + sum { (a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS: balancing_area[a] = b } Pumped_Hydro_Storage_Operating_Reserve[a, t, p, h]    
+    + sum { (a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS: balancing_area[a] = b } Pumped_Hydro_Storage_Operating_Reserve[a, t, p, h]
+    # Subtract whatever is being used for spinning reserves
+    - Spinning_Reserve_Requirement[b, h]
     ;
 
 
@@ -1286,7 +1303,7 @@ subject to Satisfy_Spinning_and_Quickstart_Reserve_Requirement {b in BALANCING_A
 # i.e., we only dispatch up to gen_availability[t], so the system will work on an expected-value basis
 # the total amount of useful energy, spinning reserve, and quickstart capacity cannot exceed the turbine capacity in any given hour
 subject to Power_and_Operating_Reserve_From_Dispatchable_Plants 
-	{ (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t] }:
+	{ (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t] and t <> 'Compressed_Air_Energy_Storage' }:
 	DispatchGen[pid, a, t, p, h]
 	+ Provide_Spinning_Reserve[pid, a, t, p, h] + Provide_Quickstart_Capacity[pid, a, t, p, h] 
 	<=
@@ -1453,8 +1470,8 @@ subject to Maximum_Store_Rate {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: stora
 # Operating reserves are also apportioned between Provide_Spinning_Reserve/Provide_Quickstart_Capacity and Storage_Operating_reserve
 # while other storage projects (currently only Battery_Storage) don't have input energy other than grid electricity
 subject to Maximum_Release_and_Operating_Reserve_Storage_Rate { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] }:
-  	sum {fc in RPS_FUEL_CATEGORY} ReleaseEnergy[pid, a, t, p, h, fc] 
-  	+ ( if t = 'Compressed_Air_Energy_Storage' then DispatchGen[pid, a, t, p, h] else 0 )
+  	sum { fc in RPS_FUEL_CATEGORY } ReleaseEnergy[pid, a, t, p, h, fc] 
+  	+ ( if t = 'Compressed_Air_Energy_Storage' then ( DispatchGen[pid, a, t, p, h] + Provide_Spinning_Reserve[pid, a, t, p, h] + Provide_Quickstart_Capacity[pid, a, t, p, h] ) else 0 )
   	+ Storage_Operating_Reserve[pid, a, t, p, h] 
   		<= ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
   				* gen_availability[t];
@@ -1589,7 +1606,7 @@ problem Investment_Cost_Minimization:
     Spinning_Reserve_Requirement, Quickstart_Reserve_Requirement,
   # Operating Reserve Constraints
     Spinning_Reserve_Requirement_in_Balancing_Area_in_Hour, Quickstart_Reserve_Requirement_in_Balancing_Area_in_Hour, Satisfy_Spinning_Reserve_Requirement,
-    Satisfy_Spinning_and_Quickstart_Reserve_Requirement
+    Satisfy_Quickstart_Reserve_Requirement
 ;
 
 
@@ -1619,7 +1636,7 @@ problem Present_Day_Cost_Minimization:
     Spinning_Reserve_Requirement, Quickstart_Reserve_Requirement,
   # Operating Reserve Constraints
     Spinning_Reserve_Requirement_in_Balancing_Area_in_Hour, Quickstart_Reserve_Requirement_in_Balancing_Area_in_Hour, Satisfy_Spinning_Reserve_Requirement,
-    Satisfy_Spinning_and_Quickstart_Reserve_Requirement
+    Satisfy_Quickstart_Reserve_Requirement
 ;
 
 
