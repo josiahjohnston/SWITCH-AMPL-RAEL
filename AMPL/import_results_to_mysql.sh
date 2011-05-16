@@ -1,8 +1,28 @@
 #!/bin/bash
+# import_results_to_mysql.sh
+# SYNOPSIS
+#		./import_results_to_mysql.sh -h 127.0.0.1 -P 3307 # For connecting through an ssh tunnel
+#		./import_results_to_mysql.sh                      # For connecting to the DB directly
+# INPUTS
+#   -u [DB Username]
+#   -p [DB Password]
+#   -D [DB name]
+#   -P/--port [port number]
+#   -h [DB server]
+#   --ExportOnly             Only export summaries of the results, don't import or crunch data in the DB
+#   --help                   
+# All arguments are optional.
 
+# This function assumes that the lines at the top of the file that start with a # and a space or tab 
+# comprise the help message. It prints the matching lines with the prefix removed and stops at the first blank line.
+# Consequently, there needs to be a blank line separating the documentation of this program from this "help" function
+function print_help {
+	last_line=$(( $(egrep '^[ \t]*$' -n -m 1 $0 | sed 's/:.*//') - 1 ))
+	head -n $last_line $0 | sed -e '/^#[ 	]/ !d' -e 's/^#[ 	]//'
+}
 
 ##########################
-# Constants
+# Default values
 read SCENARIO_ID < scenario_id.txt
 DB_name='switch_results_wecc_v2_2'
 db_server='switch-db1.erg.berkeley.edu'
@@ -20,57 +40,27 @@ results_dir="results"
 ###################################################
 # Detect optional command-line arguments
 ExportOnly=0
-help=0
 while [ -n "$1" ]; do
 case $1 in
   -u)
-    user=$2
-    shift 2
-  ;;
+    user=$2; shift 2 ;;
   -p)
-    password=$2
-    shift 2
-  ;;
+    password=$2; shift 2 ;;
   -P | --port)
-    port=$2
-    shift 2
-  ;;
+    port=$2; shift 2 ;;
   -D)
-    DB_name=$2
-    shift 2
-  ;;
+    DB_name=$2; shift 2 ;;
   -h)
-    db_server=$2
-    shift 2
-  ;;
+    db_server=$2; shift 2 ;;
   --ExportOnly) 
-    ExportOnly=1
-    shift 1
-  ;;
+    ExportOnly=1; shift 1 ;;
   --help)
-    help=1
-    shift 1
-  ;;
+    print_help; exit 0 ;;
   *)
-    echo "Unknown option $1"
-    shift 1
-  ;;
+    echo "Unknown option $1"; print_help; exit 1 ;;
 esac
 done
 
-if [ $help = 1 ]
-then
-  echo "Usage: $0 [OPTIONS]"
-  echo "  --help                   Print this menu"
-  echo "  -u [DB Username]"
-  echo "  -p [DB Password]"
-  echo "  -D [DB name]"
-  echo "  -P/--port [port number]"
-  echo "  -h [DB server]"
-  echo "  --ExportOnly             Only export summaries of the results, don't import or crunch data in the DB"
-  echo "All arguments are optional. "
-  exit 0
-fi
 
 ##########################
 # Get the user name and password 
