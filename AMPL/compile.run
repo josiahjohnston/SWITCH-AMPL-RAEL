@@ -30,7 +30,5 @@ for {c in CARBON_COSTS} {
 	}
 }
 
-# Compile for present day optimization. 
-
 
 printf "Finished compiling.\n";
