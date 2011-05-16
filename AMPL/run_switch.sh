@@ -46,6 +46,7 @@ runtime_path='results/run_times.txt'
 num_workers=1
 workers_per_node=1
 is_worker=0
+threads_per_cplex=1
 
 # Parse the options
 while [ -n "$1" ]; do
