@@ -109,6 +109,8 @@ if [ "$is_worker" == 1 ]; then
 	exit
 fi
 
+# Update the number of threads cplex is allowed to use
+[ -n "$threads_per_cplex" ] && sed -e 's/^\(option cplex_options.*\)\(threads=[0-9]*\)\([^0-9].*\)$/\1threads='$threads_per_cplex'\3/' $sed_in_place_flag "load.run"
 
 # Set up the .qsub files and submit job requests to the queue if this is operating on a cluster
 if [ $cluster == 1 ]; then
@@ -127,9 +129,6 @@ if [ $cluster == 1 ]; then
 	# Translate the number of processes and processes per node into number of nodes
 	nodes=$(printf "%.0f" $(echo "scale=1; $num_workers/$workers_per_node" | bc))
 	[ $nodes -le 8 ] || nodes=8       # Set the number of nodes to 8 unless it is less than or equal to 8
-
-	# Update the number of threads cplex is allowed if the threads_per_cplex parameter was given.
-	[ -n "$threads_per_cplex" ] && sed -e 's/^\(option cplex_options.*\)\(threads=[0-9]*\)\([^0-9].*\)$/\1threads='$threads_per_cplex'\3/' $sed_in_place_flag "load.run"
 
 	# Process each qsub file for boilerplate stuff
 	for f in $qsub_files; do
