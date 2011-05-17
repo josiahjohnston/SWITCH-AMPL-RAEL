@@ -1,3 +1,29 @@
+#!/bin/bash
+# get_switch_input_tables.sh
+# SYNOPSIS
+#		./get_switch_input_tables.sh 
+# DESCRIPTION
+# 	Pull input data for Switch from databases and other sources, formatting it for AMPL
+# This script assumes that the input database has already been built by the script 'Build WECC Cap Factors.sql'
+# 
+# INPUTS
+#  --help                   Print this message
+#  -u [DB Username]
+#  -p [DB Password]
+#  -D [DB name]
+#  -P/--port [port number]
+#  -h [DB server]
+# All arguments are optional.
+
+# This function assumes that the lines at the top of the file that start with a # and a space or tab 
+# comprise the help message. It prints the matching lines with the prefix removed and stops at the first blank line.
+# Consequently, there needs to be a blank line separating the documentation of this program from this "help" function
+function print_help {
+	last_line=$(( $(egrep '^[ \t]*$' -n -m 1 $0 | sed 's/:.*//') - 1 ))
+	head -n $last_line $0 | sed -e '/^#[ 	]/ !d' -e 's/^#[ 	]//'
+}
+
+
 # Export SWITCH input data from the Switch inputs database into text files that will be read in by AMPL
 # This script assumes that the input database has already been built by the script 'Build WECC Cap Factors.sql'
 
@@ -13,53 +39,24 @@ help=0
 while [ -n "$1" ]; do
 case $1 in
   -u)
-    user=$2
-    shift 2
-  ;;
+    user=$2; shift 2 ;;
   -p)
-    password=$2
-    shift 2
-  ;;
+    password=$2; shift 2 ;;
   -P)
-    port=$2
-    shift 2
-  ;;
+    port=$2; shift 2 ;;
   --port)
-    port=$2
-    shift 2
-  ;;
+    port=$2; shift 2 ;;
   -D)
-    DB_name=$2
-    shift 2
-  ;;
+    DB_name=$2; shift 2 ;;
   -h)
-    db_server=$2
-    shift 2
-  ;;
+    db_server=$2; shift 2 ;;
   --help)
-    help=1
-    shift 1
-  ;;
+		print_help; exit ;;
   *)
     echo "Unknown option $1"
-    help=1
-    shift 1
-  ;;
+		print_help; exit ;;
 esac
 done
-
-if [ $help = 1 ]
-then
-  echo "Usage: $0 [OPTIONS]"
-  echo "  --help                   Print this message"
-  echo "  -u [DB Username]"
-  echo "  -p [DB Password]"
-  echo "  -D [DB name]"
-  echo "  -P/--port [port number]"
-  echo "  -h [DB server]"
-  echo "All arguments are optional. "
-  exit 0
-fi
 
 ##########################
 # Get the user name and password 
