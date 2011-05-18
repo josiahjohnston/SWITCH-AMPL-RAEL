@@ -35,8 +35,10 @@ if [ -z $(which getid) ]; then cluster=0; else cluster=1; fi;
 # Figure out what platform this is running on and choose the appropriate sed syntax
 if [ $(uname) == "Linux" ]; then 
 	sed_in_place_flag="--in-place"; 
+	num_cores=$(grep processor /proc/cpuinfo | wc -l | awk '{print $1}')
 elif [ $(uname) == "Darwin" ]; then 
 	sed_in_place_flag="-i ''"; 
+	num_cores=$(sysctl hw.ncpu | awk '{print $2}')
 else
 	echo "Unknown platform "$(uname); exit; 
 fi
@@ -46,7 +48,7 @@ runtime_path='results/run_times.txt'
 num_workers=1
 workers_per_node=1
 is_worker=0
-threads_per_cplex=1
+threads_per_cplex=$(($num_cores/2))
 
 # Parse the options
 while [ -n "$1" ]; do
