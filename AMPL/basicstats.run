@@ -384,6 +384,9 @@ let {p in PERIODS} Distribution_Losses_by_Period[p] :=
 		   eip_cap_factor[pid, a, t, h] * ep_capacity_mw[pid, a, t] ) 
 			);
 			
+let {p in PERIODS} Total_New_Storage_Installed_To_Date[p] :=
+	sum { (pid, a, t, p) in PROJECT_VINTAGES: storage[t] } Installed_To_Date[pid, a, t, p];
+			
 let {p in PERIODS} Storage_Losses_by_Period[p] :=
 	sum { (a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY}
 		( Store_Pumped_Hydro[a, t, p, h, fc] * ( 1 - storage_efficiency[t] ) * hours_in_sample[h] )
@@ -437,6 +440,7 @@ for {p in PERIODS} {
 	printf "Total Load  = %.0f MWh\n", total_loads_by_period_weighted[p];
 	printf "Total Trans Losses = %.0f MWh\n", Transmission_Losses_by_Period[p];
 	printf "Total Distribution Losses = %.0f MWh\n", Distribution_Losses_by_Period[p];
+	printf "Total New Storage Installed to Date = %.0f MW\n", Total_New_Storage_Installed_To_Date[p];
 	printf "Total Storage Losses = %.0f MWh\n", Storage_Losses_by_Period[p];
 	printf "Total Spilled = %.0f MWh\n", Gross_Power_by_Period[p] - total_loads_by_period_weighted[p] - Transmission_Losses_by_Period[p] - Storage_Losses_by_Period[p] - Distribution_Losses_by_Period[p];
 	printf "Total Power = %.0f MWh\n", Gross_Power_by_Period[p];
