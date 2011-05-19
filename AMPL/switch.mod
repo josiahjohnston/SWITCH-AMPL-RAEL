@@ -1043,13 +1043,17 @@ minimize Power_Cost:
 	# Calculate variable and carbon costs for all existing plants
 	+ ( sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS}
 		ProducePowerEP[pid, a, t, p, h] * ( variable_cost[pid, a, t, p, h] + carbon_cost_per_mwh[pid, a, t, p, h] ) )
+	# variable costs for releasing energy from pumped hydro storage - currently zero because the variable O&M value is zero
+	# decision variables are on the load area level - this shares them out by plant (pid) in case plants have different variable costs within a load area
+	+ ( sum {(pid, a, t, p, h, fc) in PUMPED_HYDRO_AVAILABLE_HOURS_BY_FC_AND_PID}
+		Dispatch_Pumped_Hydro_Storage[a, t, p, h, fc] * ( ep_capacity_mw[pid, a, t] / hydro_capacity_mw_in_load_area[a, t] ) * variable_cost[pid, a, t, p, h] )
 	# Calculate fuel costs for all existing plants except for bio_solid - that's included in the supply curve
 	+ ( sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: fuel[t] not in BIO_SOLID_FUELS}
-	  ProducePowerEP[pid, a, t, p, h] * fuel_cost[pid, a, t, p, h] )
+	    ProducePowerEP[pid, a, t, p, h] * fuel_cost[pid, a, t, p, h] )
 	# fuel and carbon costs for keeping spinning reserves from existing dispatchable thermal plants
 	+ ( sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: dispatchable[t]}
 		Provide_Spinning_Reserve[pid, a, t, p, h] * ( fuel_cost_spinning_reserve[pid, a, t, p, h] + carbon_cost_per_mwh_spinning_reserve[pid, a, t, p, h] ) )
-
+	
 	########################################
 	#    TRANSMISSION & DISTRIBUTION
 	# Sunk costs of operating the existing transmission grid
