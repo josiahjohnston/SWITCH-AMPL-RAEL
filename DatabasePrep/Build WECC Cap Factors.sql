@@ -766,13 +766,14 @@ CREATE TABLE _proposed_projects (
   technology varchar(64),
   original_dataset_id INT DEFAULT NULL,
   capacity_limit float DEFAULT NULL,
-  capacity_limit_conversion float DEFAULT 1,
+  capacity_limit_conversion float DEFAULT NULL,
   connect_cost_per_mw float,
   price_and_dollar_year year(4),
   overnight_cost float,
   fixed_o_m float,
   variable_o_m float,
   heat_rate float default 0,
+  cogen_thermal_demand float default 0,
   overnight_cost_change float,
   avg_cap_factor_intermittent float default NULL,
   avg_cap_factor_percentile_by_intermittent_tech float default NULL,
@@ -792,7 +793,6 @@ CREATE TABLE _proposed_projects (
   FOREIGN KEY (area_id) REFERENCES load_area_info(area_id), 
   FOREIGN KEY (technology_id) REFERENCES generator_info (technology_id)
 ) ROW_FORMAT=FIXED;
-
 
 -- the capacity limit is either in MW if the capacity_limit_conversion is 1, or in other units if the capacity_limit_conversion is nonzero
 -- so for CSP and central PV the limit is expressed in land area, not MW
@@ -821,11 +821,57 @@ insert into _proposed_projects
 	from proposed_projects_import join generator_info using (technology) join load_area_info using (load_area)
 	order by 2;
 
+
+-- before we do anything else, we need to change the capacity_limit and capacity_limit_conversion for biomass and biogas
+-- as imported, the capacity_limit is in MMBtu per hour per load area, and the capacity_limit_conversion is in 1/heat_rate, or MWh/MMBtu.  Multiplying these together gives MW of capacity.
+-- due to a (minor) error in postgresql, the generator availability isn't taken into account, so the MW of capacity multiplication will result in the correct MMBtu per hour per load area
+drop table if exists bio_fuel_limit_by_load_area;
+create table bio_fuel_limit_by_load_area(
+	fuel varchar(64),
+	load_area varchar(11),
+	capacity_limit_mmbtu_per_mwh float,
+	primary key (load_area, fuel) );
+
+insert into bio_fuel_limit_by_load_area (fuel,  load_area, capacity_limit_mmbtu_per_mwh )
+	select 	fuel,
+			load_area,
+			capacity_limit as capacity_limit_mmbtu_per_mwh
+	from	proposed_projects
+	join 	generator_info using (technology)
+	where	technology in ('Biomass_IGCC', 'Bio_Gas');
+
+-- as written, ampl will cause errors if we don't have all load area limits here, even if they are zero, so include zero values here.
+insert into bio_fuel_limit_by_load_area (fuel,  load_area, capacity_limit_mmbtu_per_mwh )
+	select 	'Bio_Gas' as fuel,
+			load_area,
+			0 as capacity_limit_mmbtu_per_mwh
+	from	load_area_info
+	where load_area not in (select load_area from bio_fuel_limit_by_load_area where fuel = 'Bio_Gas')
+UNION			
+	select 	'Bio_Solid' as fuel,
+			load_area,
+			0 as capacity_limit_mmbtu_per_mwh
+	from	load_area_info
+	where load_area not in (select load_area from bio_fuel_limit_by_load_area where fuel = 'Bio_Solid')
+;
+
+-- we've changed how bio projects are done since proposed projects was done in postgresql
+-- so update _proposed_projects to be consistent here
+update _proposed_projects
+set		location_id = null,
+		capacity_limit = null
+where	technology like 'Bio%';
+
+update _proposed_projects
+set		capacity_limit_conversion = null
+where	capacity_limit_conversion = 1;
+
+
 -- add CAES for Canada and Mexico - we didn't have shapefiles for CAES geology in these areas but it is very likely that their is ample caes potential
 -- this should be cleaned up in Postgresql eventually
 insert into _proposed_projects
 	(technology_id, technology, area_id, location_id, original_dataset_id,
-	capacity_limit, capacity_limit_conversion, connect_cost_per_mw, price_and_dollar_year,
+	capacity_limit, connect_cost_per_mw, price_and_dollar_year,
 	overnight_cost, fixed_o_m, variable_o_m, heat_rate, overnight_cost_change )
 	select  technology_id,
 	        technology,
@@ -833,7 +879,6 @@ insert into _proposed_projects
 			0 as location_id,
 			0 as original_dataset_id,
 			100000 as capacity_limit,
-			1 as capacity_limit_conversion,
 			connect_cost_per_mw_generic * economic_multiplier  as connect_cost_per_mw,
     		price_and_dollar_year,  
    			overnight_cost * economic_multiplier       as overnight_cost,
@@ -894,7 +939,9 @@ delete from _proposed_projects
  	where 	(technology_id in (select technology_id from generator_info where fuel in ('Uranium', 'Coal', 'Coal_CCS')) and
 			area_id in (select area_id from load_area_info where primary_nerc_subregion like 'CA'));
 
--- add new resource limited CCS projects
+-- add new Biomass_IGCC_CCS and Bio_Gas_CCS projects that aren't cogen... we'll add cogen CCS elsewhere
+-- neither capacity_limit nor capacity_limit_conversion show up here - they'll be null in the database
+-- because these projects will be capacity constrained by bio_fuel_limit_by_load_area instead
 insert into _proposed_projects (technology_id, technology, area_id,
 								connect_cost_per_mw, price_and_dollar_year, overnight_cost, fixed_o_m, variable_o_m, heat_rate, overnight_cost_change)
    select 	technology_id,
@@ -912,41 +959,21 @@ insert into _proposed_projects (technology_id, technology, area_id,
 			( select area_id, concat(technology, '_CCS') as ccs_technology from _proposed_projects,
 				( select trim(trailing '_CCS' from technology) as non_ccs_technology
 						from generator_info
-						where technology like '%_CCS'
-						and resource_limited = 1) as non_ccs_technology_table
+						where technology in ('Biomass_IGCC_CCS', 'Bio_Gas_CCS') ) as non_ccs_technology_table
 					where non_ccs_technology_table.non_ccs_technology = _proposed_projects.technology ) as resource_limited_ccs_load_area_projects
 	where 	generator_info.technology = resource_limited_ccs_load_area_projects.ccs_technology
 	and		load_area_info.area_id = resource_limited_ccs_load_area_projects.area_id;
 
--- bio ccs projects are constrained by resource at each location, so add these constraints here
-update _proposed_projects,
-		( select	concat(technology, '_CCS') as ccs_bio_technology,
-					area_id,
-					capacity_limit,
-					location_id
-			from proposed_projects
-			where technology in ('Biomass_IGCC', 'Bio_Gas') ) as ccs_bio_technology_table
-set _proposed_projects.capacity_limit = ccs_bio_technology_table.capacity_limit,
-	_proposed_projects.location_id = ccs_bio_technology_table.location_id
-WHERE	_proposed_projects.area_id = ccs_bio_technology_table.area_id
-and		_proposed_projects.technology = ccs_bio_technology_table.ccs_bio_technology;
-
--- the heat rate of each bio project constrains generation
-update _proposed_projects
-set _proposed_projects.capacity_limit_conversion = 1 / heat_rate
-where _proposed_projects.technology in ('Biomass_IGCC_CCS', 'Bio_Gas_CCS');
-
 
 -- add geothermal replacements projects that will be constrained to replace existing cogen projects by ep_project_replacement_id
 -- the capacity limit of these projects is the same as for the plant they're replacing
-insert into _proposed_projects (original_dataset_id, technology_id, technology, area_id, capacity_limit, capacity_limit_conversion, ep_project_replacement_id,
+insert into _proposed_projects (original_dataset_id, technology_id, technology, area_id, capacity_limit, ep_project_replacement_id,
 								connect_cost_per_mw, price_and_dollar_year, overnight_cost, fixed_o_m, variable_o_m, heat_rate, overnight_cost_change)
    select 	existing_plants.ep_id as original_dataset_id,
    			technology_id,
     		'Geothermal' as technology,
     		area_id,
 			capacity_mw as capacity_limit,
-			1 as capacity_limit_conversion,
     		existing_plants.project_id as ep_project_replacement_id,
     		0 as connect_cost_per_mw,
     		price_and_dollar_year,  
@@ -963,16 +990,16 @@ insert into _proposed_projects (original_dataset_id, technology_id, technology, 
 ;	
 
 
--- add new (non-CCS) cogen projects which will be constrained to replace existing cogen projects by ep_project_replacement_id
--- the capacity limit of these projects is the same as for the plant they're replacing
-insert into _proposed_projects (original_dataset_id, technology_id, technology, area_id, capacity_limit, capacity_limit_conversion, ep_project_replacement_id,
-								connect_cost_per_mw, price_and_dollar_year, overnight_cost, fixed_o_m, variable_o_m, heat_rate, overnight_cost_change)
+-- add new (non-CCS) cogen projects which will replace existing cogen projects via ep_project_replacement_id
+-- the capacity limit, heat rate and cogen thermal demand of these projects is the same as for the plant they're replacing
+-- these plants will compete with CCS cogen projects through ep_project_replacement_id for the cogen resource
+insert into _proposed_projects (original_dataset_id, technology_id, technology, area_id, capacity_limit, ep_project_replacement_id,
+								connect_cost_per_mw, price_and_dollar_year, overnight_cost, fixed_o_m, variable_o_m, heat_rate, cogen_thermal_demand, overnight_cost_change)
    select 	existing_plants.ep_id as original_dataset_id,
    			technology_id,
     		generator_info.technology,
     		area_id,
 			capacity_mw as capacity_limit,
-			1 as capacity_limit_conversion,
     		existing_plants.project_id as ep_project_replacement_id,
     		0 as connect_cost_per_mw,
     		price_and_dollar_year,  
@@ -980,94 +1007,118 @@ insert into _proposed_projects (original_dataset_id, technology_id, technology, 
     		generator_info.fixed_o_m * economic_multiplier as fixed_o_m,
     		generator_info.variable_o_m * economic_multiplier as variable_o_m,
     		existing_plants.heat_rate,
-   			overnight_cost_change
+      		existing_plants.cogen_thermal_demand_mmbtus_per_mwh as cogen_thermal_demand,
+ 			overnight_cost_change
     from 	generator_info,
     		existing_plants
     join    load_area_info using (area_id)
 	where 	replace(existing_plants.technology, 'Cogen_EP', 'Cogen') = generator_info.technology
 	and		generator_info.cogen = 1
+	and		generator_info.ccs = 0
+	and		generator_info.can_build_new = 1
 ;	
 
+-- COGEN CCS---------------------------------
+-- the heat rate and cogen thermal demand of cogen CCS is calculated here...
+-- it takes energy to do CCS, so we add this energy onto the existing heat rate and cogen thermal demand in equal proportion
 
--- update the location_id of the new bio cogen replacement plants to be the location_id of biomass/biogas project in that load area
-update proposed_projects join generator_info using (technology),
-	( select 	distinct fuel,
-				load_area,
-				location_id
-			from proposed_projects join generator_info using (technology)
-			where fuel like 'Bio%' and fuel not like 'Bio_Liquid%' and fuel not like '%CCS' and location_id is not null
-		) as bio_fuel_location_id_table
-set proposed_projects.location_id = bio_fuel_location_id_table.location_id
-where proposed_projects.location_id is null
-and generator_info.fuel = bio_fuel_location_id_table.fuel
-and bio_fuel_location_id_table.load_area = proposed_projects.load_area;
+-- create a temporary table to calculate the increase in heat_rate and cogen_thermal_demand from adding ccs onto cogen plants
+-- this should be made with the same assumptions that are used to calculate these params in generator_info.xlsx for other CCS technologies
+drop table if exists cogen_ccs_var_costs_and_heat_rates;
+create temporary table cogen_ccs_var_costs_and_heat_rates (
+			technology varchar(64) primary key,		
+			non_cogen_reference_ccs_technology varchar(64),
+			non_cogen_reference_non_ccs_technology varchar(64),
+			heat_rate_increase_factor float,
+			heat_rate_increase_mmbtu_per_mwh float,
+			variable_cost_increase_factor float,
+			variable_o_m_cogen_non_ccs_base float
+			);
+
+insert into 	cogen_ccs_var_costs_and_heat_rates (technology)
+	select	distinct(technology) from generator_info where technology like '%Cogen_CCS%';
+
+update	cogen_ccs_var_costs_and_heat_rates
+set		non_cogen_reference_ccs_technology =
+		CASE
+			WHEN technology in ('Gas_Combustion_Turbine_Cogen_CCS', 'Gas_Internal_Combustion_Engine_Cogen_CCS') THEN 'Gas_Combustion_Turbine_CCS'
+			WHEN technology = 'Bio_Gas_Internal_Combustion_Engine_Cogen_CCS' THEN 'Bio_Gas_CCS'
+			WHEN technology in ('Bio_Liquid_Steam_Turbine_Cogen_CCS', 'Bio_Solid_Steam_Turbine_Cogen_CCS', 'Coal_Steam_Turbine_Cogen_CCS', 'Gas_Steam_Turbine_Cogen_CCS') THEN 'Coal_Steam_Turbine_CCS'
+			WHEN technology = 'CCGT_Cogen_CCS' THEN 'CCGT_CCS'
+		END;
+		
+update	cogen_ccs_var_costs_and_heat_rates
+set 	non_cogen_reference_non_ccs_technology = replace(non_cogen_reference_ccs_technology, '_CCS', '');
+
+-- calculate the fraction increase in heat rate for CCS cogen plants (relative to non-CCS) from the base technology
+-- also calculate the base increase in variable cost for adding CCS to a plant from the base technology
+-- this will later be multiplied by the relative increases in heat rates
+-- we assume that the increase in variable costs (delta variable cost) scales with the relative increase in heat rate (delta heat rate)
+update 	cogen_ccs_var_costs_and_heat_rates,
+		(select cogen_ccs_var_costs_and_heat_rates.technology, 
+				heat_rate as heat_rate_reference_ccs,
+				variable_o_m as variable_o_m_reference_ccs
+			from	generator_info,
+			 		cogen_ccs_var_costs_and_heat_rates
+			where generator_info.technology = non_cogen_reference_ccs_technology
+		) as reference_ccs_table,
+		(select cogen_ccs_var_costs_and_heat_rates.technology, 
+				heat_rate as heat_rate_reference_non_ccs,
+				variable_o_m as variable_o_m_reference_non_ccs
+			from	generator_info,
+				 	cogen_ccs_var_costs_and_heat_rates
+			where generator_info.technology = non_cogen_reference_non_ccs_technology
+		) as reference_non_ccs_table
+set		cogen_ccs_var_costs_and_heat_rates.heat_rate_increase_factor = heat_rate_reference_ccs / heat_rate_reference_non_ccs,
+		cogen_ccs_var_costs_and_heat_rates.heat_rate_increase_mmbtu_per_mwh = heat_rate_reference_ccs - heat_rate_reference_non_ccs,
+		cogen_ccs_var_costs_and_heat_rates.variable_cost_increase_factor = variable_o_m_reference_ccs - variable_o_m_reference_non_ccs
+where	cogen_ccs_var_costs_and_heat_rates.technology = reference_ccs_table.technology
+and		cogen_ccs_var_costs_and_heat_rates.technology = reference_non_ccs_table.technology
+;
+
+-- we'll look to the non-CCS cogen values for each cogen CCS technology to the the variable_o_m base cost ($/MWh)
+update 	cogen_ccs_var_costs_and_heat_rates,
+		generator_info
+set		cogen_ccs_var_costs_and_heat_rates.variable_o_m_cogen_non_ccs_base = generator_info.variable_o_m
+where	replace(cogen_ccs_var_costs_and_heat_rates.technology, 'Cogen_CCS', 'Cogen') = generator_info.technology;
+
+-- add new CCS cogen projects which will replace existing cogen projects after the existing cogen project plant lifetime
+-- these plants will compete with non-CCS cogen projects through ep_project_replacement_id for the cogen resource
+-- the capacity limit of these projects is the same as for the plant they're replacing,
+-- as we're assuming that the plants will burn extra fuel to get the same amount of useful heat and electricity out (CCS has an efficiency penalty which makes them burn more fuel)
+-- the variable costs are a bit complicated, so they're updated below
+insert into _proposed_projects (original_dataset_id, technology_id, technology, area_id, capacity_limit, ep_project_replacement_id,
+								connect_cost_per_mw, price_and_dollar_year, overnight_cost, fixed_o_m, variable_o_m, heat_rate, cogen_thermal_demand, overnight_cost_change)
+   select 	existing_plants.ep_id as original_dataset_id,
+   			technology_id,
+    		generator_info.technology,
+    		area_id,
+			capacity_mw as capacity_limit,
+    		existing_plants.project_id as ep_project_replacement_id,
+    		0 as connect_cost_per_mw,
+    		price_and_dollar_year,  
+   			generator_info.overnight_cost * economic_multiplier as overnight_cost,
+    		generator_info.fixed_o_m * economic_multiplier as fixed_o_m,
+    		variable_o_m_cogen_non_ccs_base  +
+    			economic_multiplier * variable_cost_increase_factor * ( existing_plants.heat_rate * heat_rate_increase_factor - existing_plants.heat_rate ) 
+    				/ heat_rate_increase_mmbtu_per_mwh
+    			as variable_o_m,
+ 			existing_plants.heat_rate * heat_rate_increase_factor as heat_rate,
+      		existing_plants.cogen_thermal_demand_mmbtus_per_mwh * heat_rate_increase_factor as cogen_thermal_demand,
+   			overnight_cost_change
+	from    generator_info
+    join	cogen_ccs_var_costs_and_heat_rates using (technology)
+   	join 	existing_plants on (replace(existing_plants.technology, 'Cogen_EP', 'Cogen_CCS') = generator_info.technology)
+    join    load_area_info using (area_id)
+	where 	generator_info.cogen = 1
+	and		generator_info.ccs = 1
+	and		generator_info.can_build_new = 1
+;
 
 
 
-
--- add CCS projects to retrofit existing plants
--- the gen_info_project_id is from the existing plants table
--- these projects will replace the existing plant - new overnight costs will be paid in addition to the sunk costs of the existing plant
--- O&M costs and heat rates for the new retrofited plants will replace that of old plants
--- insert into _proposed_projects (original_dataset_id, technology_id, technology, area_id,
--- 								connect_cost_per_mw, price_and_dollar_year, overnight_cost, fixed_o_m, variable_o_m, heat_rate, overnight_cost_change)
---    select 	existing_plants.ep_id as original_dataset_id,
---    			technology_id,
---     		generator_info.technology,
---     		area_id,
---     		0 as connect_cost_per_mw,
---     		price_and_dollar_year,  
---    			generator_info.overnight_cost * economic_multiplier as overnight_cost,
---     		generator_info.fixed_o_m * economic_multiplier as fixed_o_m,
---     		generator_info.variable_o_m * economic_multiplier as variable_o_m,
---     		generator_info.heat_rate + existing_plants.heat_rate as heat_rate,
---    			overnight_cost_change
---     from 	generator_info,
---     		existing_plants
---     join    load_area_info using (area_id)
--- 	where 	replace(existing_plants.technology, '_EP', '_CCS_EP') = generator_info.technology
--- 	and 	existing_plants.fuel in ('Gas', 'Coal', 'Bio_Solid', 'Bio_Liquid', 'Bio_Gas', 'DistillateFuelOil', 'ResidualFuelOil')
--- ;	
--- 
 -- make a unique identifier for all proposed projects
 UPDATE _proposed_projects SET project_id = gen_info_project_id + (ascii( 'G' ) << 8*3) where project_id is null;
-
-
--- now go back to the existing plants table and add the ID of the CCS project associated with each existing plant
--- update existing_plants, _proposed_projects
--- set existing_plants.ccs_project_id = _proposed_projects.project_id
--- where existing_plants.ep_id = _proposed_projects.original_dataset_id
--- and _proposed_projects.technology like '%_CCS_EP';	
--- 
-
--- check the amount of biomass available from existing/new bio
--- select *, new_capacity_MMBTUs - ep_capacity_MMBTUs as diff from (
---  		select  load_area,
---  				fuel,
---  				round(sum(capacity_MW*(cogen_thermal_demand_mmbtus_per_mwh + heat_rate)), 1) as ep_capacity_MMBTUs,
---  				count(capacity_MW) as num_existing_plants,
---  				new_capacity_MMBTUs
---  		from existing_plants join
---  			(select technology, load_area, fuel, capacity_limit as new_capacity_MMBTUs
---  					from proposed_projects
---  					join generator_info using (technology)
---  					where technology like 'Bio%' and technology not like '%CCS') as new_bio_cap
---  		using (load_area, fuel)
---  		where existing_plants.technology like 'Bio%' group by 1,2
---  		) as new_existing_bio
---  order by diff
- 
--- also update the existing plants with the location_id of bio projects as this will be used
--- to constrain the total amount of biomass in a load area
--- Bio_Liquid only has resource data from existing plants, so it's not updated here
--- because new generation capacity will be constrained not by location_id, but by ep_project_replacement_id
-update existing_plants, proposed_projects join generator_info using (technology)
-set existing_plants.ep_location_id = proposed_projects.location_id
-where existing_plants.fuel like 'Bio%'
-and existing_plants.fuel not like 'Bio_Liquid%'
-and generator_info.fuel = existing_plants.fuel
-and existing_plants.load_area = proposed_projects.load_area;
- 
 
 
 DROP VIEW IF EXISTS proposed_projects;
@@ -1089,6 +1140,7 @@ CREATE VIEW proposed_projects as
             fixed_o_m,
             variable_o_m,
             heat_rate,
+            cogen_thermal_demand,
             overnight_cost_change,
             avg_cap_factor_intermittent,
             avg_cap_factor_percentile_by_intermittent_tech,

@@ -36,7 +36,8 @@ set PERIODS ordered = setof {h in TIMEPOINTS} (period[h]);
 
 # specific dates are used to collect hours that are part of the same day, for the purpose of storage dispatch.
 set DATES ordered = setof {h in TIMEPOINTS} (date[h]);
-param period_of_date {d in DATES} = min {h in TIMEPOINTS:date[h] = d} period[h];
+param period_of_date {d in DATES} = min { h in TIMEPOINTS: date[h] = d } period[h];
+param hours_per_period {p in PERIODS} = sum { h in TIMEPOINTS: period[h] = p } hours_in_sample[h];
 
 set HOURS_OF_DAY ordered = setof {h in TIMEPOINTS} (hour_of_day[h]);
 set MONTHS_OF_YEAR ordered = setof {h in TIMEPOINTS} (month_of_year[h]);
@@ -100,7 +101,9 @@ param balancing_area {LOAD_AREAS} symbolic in BALANCING_AREAS;
 ###################
 # Financial data
 
-# the year to which all costs should be discounted
+# the year to which all costs should be discounted and the year for which all costs are specified
+# so this means that the capital cost of a generator is in $base_year and would have cost $overnight_cost in $base_year
+# overnight_costs of generators march down their overnight_cost_change curves in years past this number
 param base_year = 2007;
 
 # annual rate (real) to use to discount future costs to current year
@@ -154,6 +157,12 @@ param fuel {TECHNOLOGIES} symbolic in FUELS;
 
 # is the fuel a biofuel?
 param biofuel {FUELS} binary default 0;
+
+# the set of load areas that have Bio_Solid and/or Bio_Gas resources available
+set BIO_FUELS_LOAD_AREAS := { f in FUELS, a in LOAD_AREAS: ( f = 'Bio_Solid' or f = 'Bio_Gas' ) };
+
+# the amount of fuel, in MMBtu/Hr available for each biofuel for each load area
+param bio_fuel_limit_by_load_area {BIO_FUELS_LOAD_AREAS};
 
 # annual fuel price forecast in $/MBtu
 param fuel_price {LOAD_AREAS, FUELS, YEARS} default 0, >= 0;
@@ -274,34 +283,38 @@ param caes_storage_to_ng_ratio {t in TECHNOLOGIES: t = 'Compressed_Air_Energy_St
 
 set PROJECTS dimen 3; # Project ID, load area, technology
 
-param project_location {PROJECTS} >= 0;
+param location_id {PROJECTS} >= 0;
 param capacity_limit {PROJECTS} >= 0;
 param capacity_limit_conversion {PROJECTS} >= 0;
 
-# set of the location ids of all proposed projects, and the corresponding capacity_limit_by_location
-set LOCATIONS := setof { (pid, a, t) in PROJECTS: resource_limited[t] and project_location[pid, a, t] > 0 } ( project_location[pid, a, t], a );
-param capacity_limit_by_location { (l, a) in LOCATIONS } = min {(pid, a, t) in PROJECTS: resource_limited[t] and project_location[pid, a, t] = l } capacity_limit[pid, a, t];
-
+# set of the location ids of all central station solar projects, and the corresponding capacity_limit_by_location
+# AMPL doesn't have good join syntax so the 'min' just picks the only value of capacity_limit 
+# (all the values should be the same for a given location)
 # sets that give the location of different technologies that are going to be competing for resources
-set CENTRAL_STATION_SOLAR_LOCATIONS := 	setof { (pid, a, t) in PROJECTS: fuel[t] = 'Solar' and competes_for_space[t] } ( project_location[pid, a, t], a );
-set BIO_LOCATIONS := setof { (pid, a, t) in PROJECTS: biofuel[fuel[t]] and fuel[t] != 'Bio_Liquid' } ( project_location[pid, a, t], a );
+set PROJECT_CENTRAL_STATION_SOLAR := { (pid, a, t) in PROJECTS: fuel[t] = 'Solar' and competes_for_space[t] };
+set CENTRAL_STATION_SOLAR_LOCATIONS := 	setof { (pid, a, t) in PROJECT_CENTRAL_STATION_SOLAR } ( location_id[pid, a, t], a );
+param central_station_solar_capacity_limit { (l, a) in CENTRAL_STATION_SOLAR_LOCATIONS }
+	= min { (pid, a, t) in PROJECT_CENTRAL_STATION_SOLAR: location_id[pid, a, t] = l } capacity_limit[pid, a, t];
 
 # an id that links entries in proposed_projects with an existing plant
-# in order to constrain the amount of new generation installed to the existing plant capacity
-# for cogen and geothermal currently
+# in order to constrain the amount of new generation installed to the existing plant capacity... for cogen only currently
 param ep_project_replacement_id {PROJECTS} >= 0 default 0;
 set PROJECT_EP_REPLACMENTS := { (pid, a, t) in PROJECTS: ep_project_replacement_id[pid, a, t] > 0 };
 
+set EP_COGEN_REPLACEMENT_PLANT_LOCATIONS := setof { (pid, a, t) in PROJECTS: cogen[t] and can_build_new[t] } ( ep_project_replacement_id[pid, a, t], a );
+param cogen_plant_capacity_limit { (l, a) in EP_COGEN_REPLACEMENT_PLANT_LOCATIONS }
+	= min {(pid, a, t) in PROJECTS: cogen[t] and can_build_new[t] and ep_project_replacement_id[pid, a, t] = l } capacity_limit[pid, a, t];
+
 # heat rate of each project (in MMBtu/MWh)
 param heat_rate {PROJECTS} >= 0 ;
+
+# the cogen thermal demand of each project per MWh of electricity out (in MMBtu/MWh)
+param cogen_thermal_demand {PROJECTS} >= 0 ;
 
 # cost of grid upgrades to support a new project, in dollars per peak MW.
 # these are needed in order to deliver power from the interconnect point to
 # the load center (or make it deliverable to other zones)
 param connect_cost_per_mw {PROJECTS} >= 0;
-
-# year for which the price of each technology has been specified
-param price_and_dollar_year {PROJECTS} >= 0;
 
 # overnight cost for the plant ($/MW)
 param overnight_cost {PROJECTS} >= 0;
@@ -312,7 +325,7 @@ param fixed_o_m {PROJECTS} >= 0;
 # variable O&M ($/MWh)
 param variable_o_m {PROJECTS} >= 0;
 
-# annual rate of change of overnight cost, beginning at price_and_dollar_year
+# annual rate of change of overnight cost, beginning at the base_year
 param overnight_cost_change {PROJECTS};
 
 # maximum capacity factors (%) for each project, each hour. 
@@ -596,7 +609,7 @@ param cost_fraction {t in TECHNOLOGIES, yr in YEAR_OF_CONSTRUCTION};
 
 param project_vintage_overnight_costs {(pid, a, t, p) in PROJECT_VINTAGES} = 
 	# Overnight cost, adjusted for projected cost changes.
-	overnight_cost[pid, a, t] * ( 1 + overnight_cost_change[pid, a, t] )^( p - construction_time_years[t] - price_and_dollar_year[pid, a, t] );
+	overnight_cost[pid, a, t] * ( 1 + overnight_cost_change[pid, a, t] )^( p - construction_time_years[t] - base_year );
 
 
 # CCS projects incur extra pipeline costs if their load area doesn't have a viable sink
@@ -909,14 +922,21 @@ var OperateEPDuringPeriod { (pid, a, t, p) in EP_PERIODS: not intermittent[t] an
 # number of MW to generate from each existing plant, in each hour
 var ProducePowerEP { (pid, a, t, p, h) in EP_AVAILABLE_HOURS } >= 0;
 
-# a derived variable indicating the number of Mbtu of Biomass Solid fuel to consume each period in each load area,
+# a derived variable indicating the number of MMbtu of Biomass Solid fuel to consume each period in each load area,
 # as a function of the installed biomass generation capacity.
-var ConsumeBioSolid {a in LOAD_AREAS, p in PERIODS: num_bio_breakpoints[a] > 0 }
-	= sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: fuel[t] in BIO_SOLID_FUELS } 
+# this corresponds via the objective function to a price level on the biomass solid supply curve
+# if this variable is changed, check subject to Maximum_Resource_Bio below - it may need to be changed as well
+var ConsumeBioSolid {a in LOAD_AREAS, p in PERIODS: num_bio_breakpoints[a] > 0 } = 
+	(
 	# the hourly MWh output of biomass solid projects in baseload mode is below
-		( ( sum {(pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] ) * gen_availability[t]
-	# weight each hour to get the total biomass consumed
-      	* hours_in_sample[h] * heat_rate[pid, a, t] );
+		( sum { (pid, a, t, p) in PROJECT_VINTAGES: fuel[t] in BIO_SOLID_FUELS } 
+			( ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] ) * gen_availability[t]
+			* ( heat_rate[pid, a, t] + cogen_thermal_demand[pid, a, t] ) ) )
+		+ ( sum { (pid, a, t, p) in EP_PERIODS: fuel[t] in BIO_SOLID_FUELS } 
+			( OperateEPDuringPeriod[pid, a, t, p] * ep_capacity_mw[pid, a, t] * gen_availability[t]
+			* ( ep_heat_rate[pid, a, t] + ep_cogen_thermal_demand[pid, a, t] ) ) )	
+	# multiply by the number of hours in each period to get the total fuel consumed
+	) * hours_per_period[p];
 
 # the load in MW drawn from grid from storing electrons in new storage plants
 var StoreEnergy {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t]} >= 0;
@@ -929,7 +949,6 @@ var ReleaseEnergy {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS, fc in RPS_FUEL_CA
 var DispatchHydro {HYDRO_AVAILABLE_HOURS} >= 0;
 var Dispatch_Pumped_Hydro_Storage {PUMPED_HYDRO_AVAILABLE_HOURS_BY_FC} >= 0;
 var Store_Pumped_Hydro {PUMPED_HYDRO_AVAILABLE_HOURS_BY_FC} >= 0;
-
 
 
 # Operating reserve variables
@@ -1351,39 +1370,43 @@ subject to Spinning_Reserve_as_Fraction_of_Dispatch { (pid, a, t, p, h) in AVAIL
 # GENERATOR INSTALLATION CONSTRAINTS           
 # there are limits on total installations in certain projects
 
-# for solar, these are in the form of land area (capacity_limit_by_location) and the capacity_limit_conversion denotes the MW/km^2
-subject to Maximum_Resource_Central_Station_Solar { p in PERIODS, (l, a) in CENTRAL_STATION_SOLAR_LOCATIONS }:
-	( sum { (pid, a, t, p) in PROJECT_VINTAGES: project_location[pid, a, t] = l } 
+# for residential and commercial PV, geothermal, offshore and onshore wind, and CAES,
+# the max resource is plant specific and is given by the capacity_limit
+subject to Maximum_Resource_Single_Location { (pid, a, t, p) in PROJECT_VINTAGES: resource_limited[t] and not competes_for_space[t] }:
+  ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
+  		<= capacity_limit[pid, a, t];
+  
+# for solar, installation constraints are in the form of land area (capacity_limit_by_location) and the capacity_limit_conversion denotes the MW/km^2
+# if you multiply capacity_limit * capacity_limit_conversion for any given central station solar project,
+# you get the max MW that could be installed for that project if no other competing projects were installed on the same chunk of land
+# but because central station solar projects do compete for land, only the Maximum_Resource_Central_Station_Solar constraint is enforced,
+# (i.e. there is no Maximum_Resource_Single_Location constraint for central station solar projects)
+subject to Maximum_Resource_Central_Station_Solar { (l, a) in CENTRAL_STATION_SOLAR_LOCATIONS, p in PERIODS }:
+	( sum { (pid, a, t) in PROJECT_CENTRAL_STATION_SOLAR: location_id[pid, a, t] = l } 
 		( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
 		/ capacity_limit_conversion[pid, a, t] )
-		 <= capacity_limit_by_location[l, a];
+		<= central_station_solar_capacity_limit[l, a];
 
-# for bio, these are in MMBtu/hr which is then converted into MWh via the ep_heat_rate rate and ep_cogen_thermal_demand
-# ep_cogen_thermal_demand is zero for non-cogen plants
-# for new bio cogen projects (ones that replace existing existing plants), the capacity_limit_conversion is 1 / (heat_rate + cogen_thermal_demand)
-# so dividing by this # gives the total heat demanded as a function of installed capacity
-subject to Maximum_Resource_Bio {p in PERIODS, (l, a) in BIO_LOCATIONS}:
-	( sum { (pid, a, t, p) in PROJECT_VINTAGES: biofuel[fuel[t]] and project_location[pid, a, t] = l } 
+# for Bio_Solid and Bio_Gas, these are in MMBtu/hr which is then converted into MWh via the heat_rate rate and cogen_thermal_demand
+# cogen_thermal_demand is zero for non-cogen plants
+# Bio_Liquid isn't included here because it only has replacements of existing cogen plants,
+# so their installation constraint is Maximum_Resource_EP_Cogen_Replacement
+# also, we need both CCS and non CCS bio fuels to be constrained together here (they're the same fuel really), hence the fuel matching with f = sub(fuel[t],'_CCS', '')
+# if this constraint is changed, check var ConsumeBioSolid above - it may need to be changed as well
+subject to Maximum_Resource_Bio { (f, a) in BIO_FUELS_LOAD_AREAS, p in PERIODS: bio_fuel_limit_by_load_area[f, a] > 0 }:
+	( sum { (pid, a, t, p) in PROJECT_VINTAGES: f = sub(fuel[t],'_CCS', '') } 
 		( ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] ) * gen_availability[t]
-		/ capacity_limit_conversion[pid, a, t] ) )
-	+ ( sum { (pid, a, t, p) in EP_PERIODS: biofuel[fuel[t]] and ep_location_id[pid, a, t] = l } 
-		( OperateEPDuringPeriod[pid, a, t, p] * ep_capacity_mw[pid, a, t] * gen_availability[t] * ( ep_heat_rate[pid, a, t] + ep_cogen_thermal_demand[pid, a, t] ) ) )
-		 <= capacity_limit_by_location[l, a];
-
-# for residential and commercial PV, geothermal, offshore and onshore wind, and CAES,
-# the max resource is plant specific and is given by capacity_limit * capacity_limit_conversion
-# for PROJECT_EP_REPLACMENTS, this is just the old plant capacity
-subject to Maximum_Resource_Single_Location { (pid, a, t, p) in PROJECT_VINTAGES: ( resource_limited[t] and not competes_for_space[t] ) or ( (pid, a, t) in PROJECT_EP_REPLACMENTS ) }:
-  ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] ) <= capacity_limit[pid, a, t] * capacity_limit_conversion[pid, a, t];
+		* ( heat_rate[pid, a, t] + cogen_thermal_demand[pid, a, t] ) ) )
+	+ ( sum { (pid, a, t, p) in EP_PERIODS: f = sub(fuel[t],'_CCS', '') } 
+		( OperateEPDuringPeriod[pid, a, t, p] * ep_capacity_mw[pid, a, t] * gen_availability[t]
+		* ( ep_heat_rate[pid, a, t] + ep_cogen_thermal_demand[pid, a, t] ) ) )
+		<= bio_fuel_limit_by_load_area[f, a];
 
 
-#subject to EP_Replacements { (pid, a, t, p) in PROJECT_VINTAGES: (pid, a, t) in PROJECT_EP_REPLACMENTS }:
-## sum { (pid_ep, a_ep, t_ep) in EXISTING_PLANTS: pid_ep = ep_project_replacement_id[pid, a, t] }
-#		OperateEPDuringPeriod[pid_ep, a_ep, t_ep, p] * ep_capacity_mw[pid_ep, a_ep, t_ep] )
-#	+ ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
-#	<= capacity_limit[pid, a, t] * capacity_limit_conversion[pid, a, t]
-#	;
-
+# for plants that replace existing cogen plants, this is just the old plant capacity
+subject to Maximum_Resource_EP_Cogen_Replacement { (l, a) in EP_COGEN_REPLACEMENT_PLANT_LOCATIONS, p in PERIODS }:
+  ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS: cogen[t] and can_build_new[t] and ep_project_replacement_id[pid, a, t] = l } InstallGen[pid, a, t, online_yr] )
+  		<= cogen_plant_capacity_limit[l, a];
 
 # Some generators (currently only Nuclear) have a minimum build size. This enforces that constraint
 # If a generator is installed, then BuildGenOrNot is 1, and InstallGen has to be >= min_build_capacity
@@ -1583,7 +1606,7 @@ problem Investment_Cost_Minimization:
   # Investment Decisions
 	InstallGen, BuildGenOrNot, InstallTrans, 
   # Installation Constraints
-	Maximum_Resource_Central_Station_Solar, Maximum_Resource_Bio, Maximum_Resource_Single_Location, 
+	Maximum_Resource_Central_Station_Solar, Maximum_Resource_Bio, Maximum_Resource_Single_Location, Maximum_Resource_EP_Cogen_Replacement,
 	Minimum_GenSize, BuildGenOrNot_Constraint, SymetricalTrans, 
   # Dispatch Decisions
 	DispatchGen, OperateEPDuringPeriod, ProducePowerEP, ConsumeBioSolid, DispatchTransFromXToY, StoreEnergy, ReleaseEnergy,
@@ -1638,5 +1661,3 @@ problem Present_Day_Cost_Minimization:
     Spinning_Reserve_Requirement_in_Balancing_Area_in_Hour, Quickstart_Reserve_Requirement_in_Balancing_Area_in_Hour, Satisfy_Spinning_Reserve_Requirement,
     Satisfy_Quickstart_Reserve_Requirement
 ;
-
-

@@ -291,7 +291,7 @@ update	proposed_projects
 	-- for Bio_Gas, the heat rate is 13.648 mbtus/MWh
 	-- for Bio_Solid, the heat rate is 9.646 mbtus/MWh 
 	-- so mbtus_per_year / 8766 -> mbtus_per_hour (capacity_limit)
-
+-- TODO: CHANGE TO BE CONSISTENT WITH Build_WECC_Cap_Factors.sql
 insert into proposed_projects (technology, load_area, capacity_limit, capacity_limit_conversion)
 	select 	'Biomass_IGCC',
 			load_area,
@@ -582,7 +582,8 @@ drop table offshore_wind_connect_to_shore;
 
 -- LOCATION IDS
 -- add location_ids, which will be unique to each geometry and will be used to make a constraint over maximum land area usage
--- the project_id_bio will be used to link different bio projects to 'locations', which will be used to constrain 
+-- the project_id_bio will be used to link different bio projects to 'locations', which will be used to constrain
+-- TODO: MEX_BAJA ends up with the same location for Commerical_PV and Central_PV... look into it....
 drop table if exists proposed_projects_location_ids;
 create table proposed_projects_location_ids(
 	location_id serial primary key,

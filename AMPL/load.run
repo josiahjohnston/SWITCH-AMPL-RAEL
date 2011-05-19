@@ -34,7 +34,7 @@ option substout 1, linelim 1;
 # Options to enable timing of compilation
 # option show_stats 1, times 1, gentimes 1;
 option solver cplexamp;
-option cplex_options (" lpdisplay=1 iisfind=1 mipdisplay=2 presolve=1 prestats=1 timing=1 nodefile=2 treememory=15000 threads=6" );
+option cplex_options (" lpdisplay=1 iisfind=1 mipdisplay=2 presolve=1 prestats=1 timing=1 nodefile=2 treememory=15000 threads=4" );
 option cplex_options > results/cplex_options;
 
 
@@ -102,8 +102,8 @@ table hydro_monthly_limits "inputs/hydro_monthly_limits.tab" IN:
 read table hydro_monthly_limits;
 
 table proposed_projects "inputs/proposed_projects.tab" IN: 
-  PROJECTS <- [project_id, load_area, technology], project_location ~ location_id, ep_project_replacement_id,
-    capacity_limit, capacity_limit_conversion, heat_rate, connect_cost_per_mw, price_and_dollar_year, 
+  PROJECTS <- [project_id, load_area, technology], location_id, ep_project_replacement_id,
+    capacity_limit, capacity_limit_conversion, heat_rate, cogen_thermal_demand, connect_cost_per_mw, 
     overnight_cost, fixed_o_m, variable_o_m, overnight_cost_change;
 read table proposed_projects;
 
@@ -130,6 +130,10 @@ read table biomass_supply_curve_slope;
 table biomass_supply_curve_breakpoint "inputs/biomass_supply_curve_breakpoint.tab" IN:
 	[load_area, breakpoint_id], breakpoint_mbtus_per_year;
 read table biomass_supply_curve_breakpoint;
+
+table bio_fuel_potentials "inputs/bio_fuel_potentials.tab" IN:
+	[fuel, load_area], bio_fuel_limit_by_load_area;
+read table bio_fuel_potentials;
 
 table fuel_info "inputs/fuel_info.tab" IN:
 	FUELS <- [fuel], rps_fuel_category, biofuel, carbon_content, carbon_sequestered;

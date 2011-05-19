@@ -174,7 +174,7 @@ mysql $connection_string -e "select project_id, load_area, technology, study_dat
 
 echo '	proposed_projects.tab...'
 echo ampl.tab 3 11 > proposed_projects.tab
-mysql $connection_string -e "select project_id, proposed_projects.load_area, technology, if(location_id is NULL, 0, location_id) as location_id, if(ep_project_replacement_id is NULL, 0, ep_project_replacement_id) as ep_project_replacement_id, if(capacity_limit is NULL, 0, capacity_limit) as capacity_limit, capacity_limit_conversion, heat_rate, connect_cost_per_mw, price_and_dollar_year, round(overnight_cost*overnight_adjuster) as overnight_cost, fixed_o_m, variable_o_m, overnight_cost_change from proposed_projects join load_area_info using (area_id) join generator_price_adjuster using (technology_id) where generator_price_adjuster.gen_price_scenario_id=$GEN_PRICE_SCENARIO_ID and $INTERMITTENT_PROJECTS_SELECTION;" >> proposed_projects.tab
+mysql $connection_string -e "select project_id, proposed_projects.load_area, technology, if(location_id is NULL, 0, location_id) as location_id, if(ep_project_replacement_id is NULL, 0, ep_project_replacement_id) as ep_project_replacement_id, if(capacity_limit is NULL, 0, capacity_limit) as capacity_limit, if(capacity_limit_conversion is NULL, 0, capacity_limit_conversion) as capacity_limit_conversion, heat_rate, cogen_thermal_demand, connect_cost_per_mw, round(overnight_cost*overnight_adjuster) as overnight_cost, fixed_o_m, variable_o_m, overnight_cost_change from proposed_projects join load_area_info using (area_id) join generator_price_adjuster using (technology_id) where generator_price_adjuster.gen_price_scenario_id=$GEN_PRICE_SCENARIO_ID and $INTERMITTENT_PROJECTS_SELECTION;" >> proposed_projects.tab
 
 echo '	generator_info.tab...'
 echo ampl.tab 1 27 > generator_info.tab
@@ -191,6 +191,10 @@ mysql $connection_string -e "select load_area, breakpoint_id, price_dollars_per_
 echo '	biomass_supply_curve_breakpoint.tab...'
 echo ampl.tab 2 1 > biomass_supply_curve_breakpoint.tab
 mysql $connection_string -e "select load_area, breakpoint_id, breakpoint_mbtus_per_year from biomass_solid_supply_curve where breakpoint_mbtus_per_year is not null order by load_area, breakpoint_id" >> biomass_supply_curve_breakpoint.tab
+
+echo '	bio_fuel_potentials.tab...'
+echo ampl.tab 2 1 > bio_fuel_potentials.tab
+mysql $connection_string -e "select fuel, load_area, capacity_limit_mmbtu_per_mwh as bio_fuel_limit_by_load_area from bio_fuel_limit_by_load_area;" >> bio_fuel_potentials.tab
 
 echo '	fuel_info.tab...'
 echo ampl.tab 1 4 > fuel_info.tab
