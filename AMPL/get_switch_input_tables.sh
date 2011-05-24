@@ -131,8 +131,8 @@ echo ampl.tab 1 5 > study_hours.tab
 mysql $connection_string -e "select study_hour as hour, period, study_date as date, $HOURS_IN_SAMPLE as hours_in_sample, month_of_year, hour_of_day from study_hours_all where $TIMESAMPLE order by 1;" >> study_hours.tab
 
 echo '	load_areas.tab...'
-echo ampl.tab 1 9 > load_areas.tab
-mysql $connection_string -e "select load_area, area_id as load_area_id, primary_nerc_subregion as balancing_area, rps_compliance_entity, economic_multiplier, max_coincident_load_for_local_td, local_td_new_annual_payment_per_mw, local_td_sunk_annual_payment, transmission_sunk_annual_payment, ccs_distance_km from load_area_info;" >> load_areas.tab
+echo ampl.tab 1 10 > load_areas.tab
+mysql $connection_string -e "select load_area, area_id as load_area_id, primary_nerc_subregion as balancing_area, rps_compliance_entity, economic_multiplier, max_coincident_load_for_local_td, local_td_new_annual_payment_per_mw, local_td_sunk_annual_payment, transmission_sunk_annual_payment, ccs_distance_km, bio_gas_capacity_limit_mmbtu_per_hour from load_area_info;" >> load_areas.tab
 
 echo '	balancing_areas.tab...'
 echo ampl.tab 1 4 > balancing_areas.tab
@@ -185,16 +185,12 @@ echo ampl.tab 3 1 > fuel_costs.tab
 mysql $connection_string -e "select load_area, fuel, year, fuel_price from fuel_prices_regional where scenario_id = $REGIONAL_FUEL_COST_SCENARIO_ID and year <= $STUDY_END_YEAR" >> fuel_costs.tab
 
 echo '	biomass_supply_curve_slope.tab...'
-echo ampl.tab 2 1 > biomass_supply_curve_slope.tab
-mysql $connection_string -e "select load_area, breakpoint_id, price_dollars_per_mbtu from biomass_solid_supply_curve order by load_area, breakpoint_id" >> biomass_supply_curve_slope.tab
+echo ampl.tab 3 1 > biomass_supply_curve_slope.tab
+mysql $connection_string -e "select load_area, year - ceil($number_of_years_per_period/2) as period, breakpoint_id, price_dollars_per_mmbtu_surplus_adjusted from biomass_solid_supply_curve join (select distinct period + ceil($number_of_years_per_period/2) as year from study_hours_all where $TIMESAMPLE) as period_table using (year) order by load_area, year, breakpoint_id" >> biomass_supply_curve_slope.tab
 
 echo '	biomass_supply_curve_breakpoint.tab...'
-echo ampl.tab 2 1 > biomass_supply_curve_breakpoint.tab
-mysql $connection_string -e "select load_area, breakpoint_id, breakpoint_mbtus_per_year from biomass_solid_supply_curve where breakpoint_mbtus_per_year is not null order by load_area, breakpoint_id" >> biomass_supply_curve_breakpoint.tab
-
-echo '	bio_fuel_potentials.tab...'
-echo ampl.tab 2 1 > bio_fuel_potentials.tab
-mysql $connection_string -e "select fuel, load_area, capacity_limit_mmbtu_per_mwh as bio_fuel_limit_by_load_area from bio_fuel_limit_by_load_area;" >> bio_fuel_potentials.tab
+echo ampl.tab 3 1 > biomass_supply_curve_breakpoint.tab
+mysql $connection_string -e "select load_area, year - ceil($number_of_years_per_period/2) as period, breakpoint_id, breakpoint_mmbtu_per_year from biomass_solid_supply_curve join (select distinct period + ceil($number_of_years_per_period/2) as year from study_hours_all where $TIMESAMPLE) as period_table using (year) where breakpoint_mmbtu_per_year is not null order by load_area, year, breakpoint_id" >> biomass_supply_curve_breakpoint.tab
 
 echo '	fuel_info.tab...'
 echo ampl.tab 1 4 > fuel_info.tab

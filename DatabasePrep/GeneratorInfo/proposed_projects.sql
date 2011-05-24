@@ -286,30 +286,31 @@ update	proposed_projects
 
 
 -- BIOMASS ---------------------
--- the conversion from mbtu to cap_mw goes as follows:
+-- NOTE: the capacity limit conversion code here should be changed...
+-- it's out of sync with the generator_info spreadsheet, but not used in AMPL, so not worth changing for now...
+-- the conversion from mmbtu to cap_mw goes as follows:
 	-- the heat rates are EIA heat rates (see generator costs for more info)
-	-- for Bio_Gas, the heat rate is 13.648 mbtus/MWh
-	-- for Bio_Solid, the heat rate is 9.646 mbtus/MWh 
-	-- so mbtus_per_year / 8766 -> mbtus_per_hour (capacity_limit)
+	-- for Bio_Gas, the heat rate is 13.648 mmbtu/MWh
+	-- for Bio_Solid, the heat rate is 9.646 mmbtu/MWh 
+	-- so mmbtu_per_year / 8766 -> mmbtu_per_hour (capacity_limit)
 -- TODO: CHANGE TO BE CONSISTENT WITH Build_WECC_Cap_Factors.sql
+
+-- the capacity limit of biomass solid projects changes from year to year, so it's not included here.
+-- it can be read off biomass_solid_supply_curve_with_producer_surplus_final for any given year, which is how it will make its way into MySql and AMPL
 insert into proposed_projects (technology, load_area, capacity_limit, capacity_limit_conversion)
-	select 	'Biomass_IGCC',
+	select 	distinct
+			'Biomass_IGCC',
 			load_area,
-			sum(mbtus_per_year / 8766) as capacity_limit,
-			1 / 9.646 as capacity_limit_conversion
-		from biomass_supply_curve_by_load_area
-		where fuel like 'Bio_Solid'
-		group by 1,2,4;
+			null as capacity_limit,
+			null as capacity_limit_conversion
+		from biomass_solid_supply_curve_with_producer_surplus_final;
 
 insert into proposed_projects (technology, load_area, capacity_limit, capacity_limit_conversion)
 	select 	'Bio_Gas',
 			load_area,
-			( mbtus_per_year / 8766 ) as capacity_limit,
+			( mmbtu_per_year / 8766 ) as capacity_limit,
 			1 / 13.648 as capacity_limit_conversion
-		from biomass_supply_curve_by_load_area
-		where fuel like 'Bio_Gas';
-
-
+		from bio_gas_potential;
 
 
 -- GEOTHERMAL -------------------

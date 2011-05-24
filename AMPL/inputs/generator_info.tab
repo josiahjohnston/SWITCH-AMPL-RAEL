@@ -32,7 +32,7 @@ Bio_Gas_Steam_Turbine_EP	82	2000	Bio_Gas	3	0.5	0.4	0.1	0	0	0	45	0.1	0.026	0	0	0	
 Bio_Liquid_Steam_Turbine_Cogen	106	2011	Bio_Liquid	2	0.2	0.8	0	0	0	0	20	0.08	0.03	1	0	0	1	1	0	1	0	1	0	0	0	0	0
 Bio_Liquid_Steam_Turbine_Cogen_CCS	115	2016	Bio_Liquid_CCS	2	0.2	0.8	0	0	0	0	20	0.08	0.03	1	1	0	1	1	0	1	0	1	0	0	0	0	0
 Bio_Liquid_Steam_Turbine_Cogen_EP	85	2000	Bio_Liquid	2	0.2	0.8	0	0	0	0	20	0.08	0.03	0	0	0	1	1	0	1	0	1	0	0	0	0	0
-Biomass_IGCC	10	2016	Bio_Solid	2	0.25	0.75	0	0	0	0	20	0.08	0.03	1	0	0	1	1	0	0	0	1	0	0	0	0	0
+Biomass_IGCC	10	2011	Bio_Solid	2	0.25	0.75	0	0	0	0	20	0.08	0.03	1	0	0	1	1	0	0	0	1	0	0	0	0	0
 Biomass_IGCC_CCS	37	2016	Bio_Solid_CCS	2	0.4	0.3	0.2	0.1	0	0	40	0.06	0.1	1	1	0	1	1	0	0	0	1	0	0	0	0	0
 Biomass_Steam_Turbine	9	2011	Bio_Solid	2	0.2	0.8	0	0	0	0	20	0.08	0.03	1	0	0	1	1	0	0	0	1	0	0	0	0	0
 Bio_Solid_Steam_Turbine_Cogen	107	2011	Bio_Solid	2	0.2	0.8	0	0	0	0	20	0.08	0.03	1	0	0	1	1	0	1	0	1	0	0	0	0	0

@@ -45,7 +45,7 @@ create temporary table ccs_distances(
 	distance_km float);
 	
 load data local infile
-	'/Volumes/1TB_RAID/Models/Switch_Runs/WECCv2_2/2011_05_04_ccs_pipeline_distance/DatabasePrep/ccs_distances.csv'
+	'ccs_distances.csv'
 	into table ccs_distances
 	fields terminated by	','
 	optionally enclosed by '"'
@@ -441,19 +441,22 @@ SELECT _fuel_prices_regional.scenario_id, load_area_info.area_id, load_area, fue
     WHERE _fuel_prices_regional.area_id = load_area_info.area_id;
 
 -- BIOMASS SUPPLY CURVE
+
+-- the prices on this supply curve INCLUDE producer surplus.... create_bio_supply_curve.sql shows how this is done
 drop table if exists biomass_solid_supply_curve;
 create table biomass_solid_supply_curve(
 	breakpoint_id int,
 	load_area varchar(11),
-	price_dollars_per_mbtu double,
-	mbtus_per_year double,
-	breakpoint_mbtus_per_year double,
-	UNIQUE INDEX bp_la (breakpoint_id, load_area),
+	year int,
+	price_dollars_per_mmbtu_surplus_adjusted double,
+	breakpoint_mmbtu_per_year double,
+	PRIMARY KEY (load_area, year, price_dollars_per_mmbtu_surplus_adjusted),
+	UNIQUE INDEX bp_la (breakpoint_id, load_area, year),
 	INDEX load_area (load_area)
 );
 
 load data local infile
-	'biomass_solid_supply_curve_by_load_area.csv'
+	'biomass_solid_supply_curve_breakpoints_prices.csv'
 	into table biomass_solid_supply_curve
 	fields terminated by	','
 	optionally enclosed by '"'
@@ -461,14 +464,11 @@ load data local infile
 
 -- the AMPL forumlation of piecewise linear curves requires a slope above the last breakpoint.
 -- this slope has no meaning for us, as we cap biomass installations above this level
--- but we still need something, so we'll say biomass costs $9999/Mbtu above this level.
-insert into biomass_solid_supply_curve
-	select	max_breakpoint_id + 1 as breakpoint_id,
-			load_area,
-			9999 as price_dollars_per_mbtu,
-			null as mbtus_per_year,
-			null as breakpoint_mbtus_per_year
-	from 	(select load_area, max(breakpoint_id) as max_breakpoint_id from biomass_solid_supply_curve group by 1) as max_breakpoint_table;
+-- but we still need something, so we'll say biomass costs $999999999/MMbtu above this level.
+-- as we don't want to be mistaken, we'll set breakpoint_mmbtu_per_year for these values
+update 	biomass_solid_supply_curve
+set		breakpoint_mmbtu_per_year = null
+where	price_dollars_per_mmbtu_surplus_adjusted = 999999999;
 
 
 -- RPS----------------------
@@ -733,7 +733,7 @@ insert into hydro_monthly_limits (project_id, year, month, avg_output )
 -- if this table is remade, the avg cap factors must be reinserted (see below) 
 -- ---------------------------------------------------------------------
 drop table if exists proposed_projects_import;
-create temporary table proposed_projects_import(
+create table proposed_projects_import(
 	project_id bigint PRIMARY KEY,
 	technology varchar(30),
 	original_dataset_id integer NOT NULL,
@@ -825,35 +825,11 @@ insert into _proposed_projects
 -- before we do anything else, we need to change the capacity_limit and capacity_limit_conversion for biomass and biogas
 -- as imported, the capacity_limit is in MMBtu per hour per load area, and the capacity_limit_conversion is in 1/heat_rate, or MWh/MMBtu.  Multiplying these together gives MW of capacity.
 -- due to a (minor) error in postgresql, the generator availability isn't taken into account, so the MW of capacity multiplication will result in the correct MMBtu per hour per load area
-drop table if exists bio_fuel_limit_by_load_area;
-create table bio_fuel_limit_by_load_area(
-	fuel varchar(64),
-	load_area varchar(11),
-	capacity_limit_mmbtu_per_mwh float,
-	primary key (load_area, fuel) );
+alter table load_area_info add column bio_gas_capacity_limit_mmbtu_per_hour float default 0;
 
-insert into bio_fuel_limit_by_load_area (fuel,  load_area, capacity_limit_mmbtu_per_mwh )
-	select 	fuel,
-			load_area,
-			capacity_limit as capacity_limit_mmbtu_per_mwh
-	from	proposed_projects
-	join 	generator_info using (technology)
-	where	technology in ('Biomass_IGCC', 'Bio_Gas');
-
--- as written, ampl will cause errors if we don't have all load area limits here, even if they are zero, so include zero values here.
-insert into bio_fuel_limit_by_load_area (fuel,  load_area, capacity_limit_mmbtu_per_mwh )
-	select 	'Bio_Gas' as fuel,
-			load_area,
-			0 as capacity_limit_mmbtu_per_mwh
-	from	load_area_info
-	where load_area not in (select load_area from bio_fuel_limit_by_load_area where fuel = 'Bio_Gas')
-UNION			
-	select 	'Bio_Solid' as fuel,
-			load_area,
-			0 as capacity_limit_mmbtu_per_mwh
-	from	load_area_info
-	where load_area not in (select load_area from bio_fuel_limit_by_load_area where fuel = 'Bio_Solid')
-;
+update load_area_info join proposed_projects using (load_area) join generator_info using (technology)
+	set 	bio_gas_capacity_limit_mmbtu_per_hour = capacity_limit
+	where	technology = 'Bio_Gas'
 
 -- we've changed how bio projects are done since proposed projects was done in postgresql
 -- so update _proposed_projects to be consistent here

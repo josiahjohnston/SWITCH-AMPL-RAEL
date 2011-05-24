@@ -47,7 +47,7 @@ param Carbon_Emissions { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Batte
 param EP_Carbon_Emissions { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }; 
 param Carbon_Cost_Incurred_Hourly { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }; 
 param EP_Carbon_Cost_Incurred_Hourly { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }; 
-param Biomass_Solid_Fuel_Cost { a in LOAD_AREAS, h in TIMEPOINTS: num_bio_breakpoints[a] > 0 };
+param Biomass_Solid_Fuel_Cost { a in LOAD_AREAS, p in PERIODS, h in TIMEPOINTS: num_bio_breakpoints[a, p] > 0 };
 param Fuel_Cost_Incurred_Hourly { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }; 
 param EP_Fuel_Cost_Incurred_Hourly { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }; 
 param Variable_Cost_Incurred_Hourly { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }; 

@@ -16,18 +16,18 @@ let { (pid, a, t, p) in PROJECT_VINTAGES }
 # Fixed Cash flows for each existing plant for every period in the study.
 let { (pid, a, t, p) in EP_PERIODS } EP_Capital_Payments_by_Plant_and_Period[pid, a, t, p] := 
 	ep_capacity_mw[pid, a, t] * capital_cost_annual_payment[pid, a, t, p] 
-	# Don't pay for plants that aren't operated beyond their expected lifetime, unless they're cogen, geothermal or bio_liquid
+	# Don't pay for plants that aren't operated beyond their expected lifetime
 	* ( if ep_could_be_operating_past_expected_lifetime[pid, a, t, p] then 0 else 1 ) 
 	* num_years_per_period;
 let { (pid, a, t, p) in EP_PERIODS } EP_Fixed_OM_by_Plant_and_Period[pid, a, t, p] := 
   ( if ( intermittent[t] or hydro[t] ) then 1 else OperateEPDuringPeriod[pid, a, t, p] ) * ep_capacity_mw[pid, a, t] * ep_fixed_o_m[pid, a, t] * num_years_per_period;
 
-let { a in LOAD_AREAS, h in TIMEPOINTS, p in PERIODS: period[h] = p and num_bio_breakpoints[a] > 0 }
-  Biomass_Solid_Fuel_Cost[a, h] :=
+let { a in LOAD_AREAS, p in PERIODS, h in TIMEPOINTS: period[h] = p and num_bio_breakpoints[a, p] > 0 }
+  Biomass_Solid_Fuel_Cost[a, p, h] :=
     if ConsumeBioSolid[a, p] = 0 then 0 else
     # total cost in each load area in each period for biomass solid
-        (<< { bp in 1..num_bio_breakpoints[a]-1 } breakpoint_mbtus_per_period[a, bp]; 
-           { bp in 1..num_bio_breakpoints[a] } price_dollars_per_mbtu[a, bp] >>
+        (<< { bp in 1..num_bio_breakpoints[a, p]-1 } breakpoint_mmbtu_per_period[a, p, bp]; 
+           { bp in 1..num_bio_breakpoints[a, p] } price_dollars_per_mmbtu_surplus_adjusted[a, p, bp] >>
           ConsumeBioSolid[a, p])
     # divided by the total fuel usage
        / ConsumeBioSolid[a, p];	   		
@@ -46,7 +46,7 @@ let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: intermittent[t] }
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: baseload[t] }
   Power_Produced[pid, a, t, p, h] := Installed_To_Date[pid, a, t, p] * gen_availability[t];
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: fuel[t] in BIO_SOLID_FUELS}
-  Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := Power_Produced[pid, a, t, p, h] * heat_rate[pid, a, t] * Biomass_Solid_Fuel_Cost[a, h];
+  Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := Power_Produced[pid, a, t, p, h] * heat_rate[pid, a, t] * Biomass_Solid_Fuel_Cost[a, p, h];
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: fuel[t] not in BIO_SOLID_FUELS}
   Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := Power_Produced[pid, a, t, p, h] * heat_rate[pid, a, t] * fuel_cost_nominal[a, t, p];
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS }
@@ -61,7 +61,7 @@ let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }
 let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }
   EP_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] := EP_Carbon_Emissions[pid, a, t, p, h] * carbon_cost;
 let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: fuel[t] in BIO_SOLID_FUELS }
-  EP_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := ProducePowerEP[pid, a, t, p, h] * ep_heat_rate[pid, a, t] * Biomass_Solid_Fuel_Cost[a, h];
+  EP_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := ProducePowerEP[pid, a, t, p, h] * ep_heat_rate[pid, a, t] * Biomass_Solid_Fuel_Cost[a, p, h];
 let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: fuel[t] not in BIO_SOLID_FUELS }
   EP_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := ProducePowerEP[pid, a, t, p, h] * ep_heat_rate[pid, a, t] * fuel_cost_nominal[a, t, p];
 let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }

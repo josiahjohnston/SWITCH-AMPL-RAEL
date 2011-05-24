@@ -37,7 +37,7 @@ set PERIODS ordered = setof {h in TIMEPOINTS} (period[h]);
 # specific dates are used to collect hours that are part of the same day, for the purpose of storage dispatch.
 set DATES ordered = setof {h in TIMEPOINTS} (date[h]);
 param period_of_date {d in DATES} = min { h in TIMEPOINTS: date[h] = d } period[h];
-param hours_per_period {p in PERIODS} = sum { h in TIMEPOINTS: period[h] = p } hours_in_sample[h];
+param hours_in_period {p in PERIODS} = sum { h in TIMEPOINTS: period[h] = p } hours_in_sample[h];
 
 set HOURS_OF_DAY ordered = setof {h in TIMEPOINTS} (hour_of_day[h]);
 set MONTHS_OF_YEAR ordered = setof {h in TIMEPOINTS} (month_of_year[h]);
@@ -84,6 +84,9 @@ param economic_multiplier {LOAD_AREAS} >= 0;
 
 # distance to build a pipeline from load areas that don't have adequate carbon sinks to the nearest adequate sink
 param ccs_distance_km {LOAD_AREAS} >= 0;
+
+# the amount of biogas available in each load area in MMBtu per hour 
+param bio_gas_capacity_limit_mmbtu_per_hour {LOAD_AREAS} >= 0;
 
 # system load aggregated in various ways
 param total_loads_by_period {p in PERIODS} = 
@@ -158,13 +161,7 @@ param fuel {TECHNOLOGIES} symbolic in FUELS;
 # is the fuel a biofuel?
 param biofuel {FUELS} binary default 0;
 
-# the set of load areas that have Bio_Solid and/or Bio_Gas resources available
-set BIO_FUELS_LOAD_AREAS := { f in FUELS, a in LOAD_AREAS: ( f = 'Bio_Solid' or f = 'Bio_Gas' ) };
-
-# the amount of fuel, in MMBtu/Hr available for each biofuel for each load area
-param bio_fuel_limit_by_load_area {BIO_FUELS_LOAD_AREAS};
-
-# annual fuel price forecast in $/MBtu
+# annual fuel price forecast in $/MMBtu
 param fuel_price {LOAD_AREAS, FUELS, YEARS} default 0, >= 0;
 	
 # carbon content (tons) per MBtu of each fuel.  Can be negative for bio ccs projects.
@@ -179,16 +176,28 @@ param fuel_cost_nominal {a in LOAD_AREAS, t in TECHNOLOGIES, p in PERIODS: fuel[
 		( sum{ y in YEARS: y >= p and y < p + num_years_per_period } fuel_price[a, fuel[t], y] ) / num_years_per_period;
 
 # biomass supply curve params
-set LOAD_AREAS_AND_BIO_BREAKPOINTS dimen 2;
+set LOAD_AREAS_AND_BIO_BREAKPOINTS dimen 3;
 
-param num_bio_breakpoints {a in LOAD_AREAS} = max( { (la, bp) in LOAD_AREAS_AND_BIO_BREAKPOINTS: la = a } bp , 0 );
-param price_dollars_per_mbtu {a in LOAD_AREAS, bp in 1..num_bio_breakpoints[a]}
-	>= if bp = 1 then 0 else price_dollars_per_mbtu[a, bp-1];
-param breakpoint_mbtus_per_year {a in LOAD_AREAS, bp in 1..num_bio_breakpoints[a]-1}
-	> if bp = 1 then 0 else breakpoint_mbtus_per_year[a, bp-1];
-param breakpoint_mbtus_per_period {a in LOAD_AREAS, bp in 1..num_bio_breakpoints[a]-1}
-	= breakpoint_mbtus_per_year[a, bp] * num_years_per_period;
-			  
+param num_bio_breakpoints {a in LOAD_AREAS, p in PERIODS} = max( { (la, p, bp) in LOAD_AREAS_AND_BIO_BREAKPOINTS: la = a } bp , 0 );
+param price_dollars_per_mmbtu_surplus_adjusted {a in LOAD_AREAS, p in PERIODS, bp in 1..num_bio_breakpoints[a, p]}
+	>= if bp = 1 then 0 else price_dollars_per_mmbtu_surplus_adjusted[a, p, bp-1];
+param breakpoint_mmbtu_per_year {a in LOAD_AREAS, p in PERIODS, bp in 1..num_bio_breakpoints[a, p]-1}
+	> if bp = 1 then 0 else breakpoint_mmbtu_per_year[a, p, bp-1];
+param breakpoint_mmbtu_per_period {a in LOAD_AREAS, p in PERIODS, bp in 1..num_bio_breakpoints[a, p]-1}
+	= breakpoint_mmbtu_per_year[a, p, bp] * num_years_per_period;
+param maximum_mmbtu_per_hour {a in LOAD_AREAS, p in PERIODS}
+	= max{ bp in 1..num_bio_breakpoints[a, p]-1 } breakpoint_mmbtu_per_period[a, p, bp] / hours_in_period[p];
+
+# the set of load areas that have Bio_Solid and/or Bio_Gas resources available
+set BIO_FUELS_LOAD_AREAS := { f in FUELS, a in LOAD_AREAS, p in PERIODS: ( f = 'Bio_Solid' or f = 'Bio_Gas' ) };
+
+# the amount of fuel, in MMBtu/Hr available for each biofuel for each load area
+# this is the same in each period for bio gas
+# and varies by period for bio solid, which is taken from the top of the bio solid supply curve
+param bio_fuel_limit_by_load_area { (f, a, p) in BIO_FUELS_LOAD_AREAS }
+	= 	if f = 'Bio_Gas' then bio_gas_capacity_limit_mmbtu_per_hour[a]
+		else if f = 'Bio_Solid' then maximum_mmbtu_per_hour[a, p];
+		  
 # construction lead time (years)
 param construction_time_years {TECHNOLOGIES} >= 0;
 
@@ -926,17 +935,17 @@ var ProducePowerEP { (pid, a, t, p, h) in EP_AVAILABLE_HOURS } >= 0;
 # as a function of the installed biomass generation capacity.
 # this corresponds via the objective function to a price level on the biomass solid supply curve
 # if this variable is changed, check subject to Maximum_Resource_Bio below - it may need to be changed as well
-var ConsumeBioSolid {a in LOAD_AREAS, p in PERIODS: num_bio_breakpoints[a] > 0 } = 
-	(
+var ConsumeBioSolid {a in LOAD_AREAS, p in PERIODS: num_bio_breakpoints[a, p] > 0 } = 
 	# the hourly MWh output of biomass solid projects in baseload mode is below
+		(
 		( sum { (pid, a, t, p) in PROJECT_VINTAGES: fuel[t] in BIO_SOLID_FUELS } 
 			( ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] ) * gen_availability[t]
 			* ( heat_rate[pid, a, t] + cogen_thermal_demand[pid, a, t] ) ) )
 		+ ( sum { (pid, a, t, p) in EP_PERIODS: fuel[t] in BIO_SOLID_FUELS } 
 			( OperateEPDuringPeriod[pid, a, t, p] * ep_capacity_mw[pid, a, t] * gen_availability[t]
-			* ( ep_heat_rate[pid, a, t] + ep_cogen_thermal_demand[pid, a, t] ) ) )	
-	# multiply by the number of hours in each period to get the total fuel consumed
-	) * hours_per_period[p];
+			* ( ep_heat_rate[pid, a, t] + ep_cogen_thermal_demand[pid, a, t] ) ) )
+		# multiply by the number of hours in each period to get the total fuel consumed
+		) * hours_in_period[p];
 
 # the load in MW drawn from grid from storing electrons in new storage plants
 var StoreEnergy {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t]} >= 0;
@@ -1009,11 +1018,11 @@ minimize Power_Cost:
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t] and fuel[t] not in BIO_SOLID_FUELS} 
 		( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
 	    	* gen_availability[t] * fuel_cost[pid, a, t, p, h] )
-	# BioSolid fuel costs - ConsumeBioSolid is the Mbtus of biomass consumed per period per load area
-	# so this is annualized because costs in the objective function are annualized for proper discounting
-	+ ( sum {a in LOAD_AREAS, p in PERIODS: num_bio_breakpoints[a] > 0} 
-		<< { bp in 1..num_bio_breakpoints[a]-1 } breakpoint_mbtus_per_period[a, bp]; 
-		   { bp in 1..num_bio_breakpoints[a] } price_dollars_per_mbtu[a, bp] >>
+	# BioSolid fuel costs - ConsumeBioSolid is the MMbtu of biomass consumed per period per load area
+	# this is annualized because costs in the objective function are annualized for proper discounting
+	+ ( sum {a in LOAD_AREAS, p in PERIODS: num_bio_breakpoints[a, p] > 0} 
+		<< { bp in 1..num_bio_breakpoints[a, p] - 1 } breakpoint_mmbtu_per_period[a, p, bp]; 
+		   { bp in 1..num_bio_breakpoints[a, p] } price_dollars_per_mmbtu_surplus_adjusted[a, p, bp] >>
 	   		ConsumeBioSolid[a, p] * ( 1 / num_years_per_period ) * discount_to_base_year[p]  )
 
 	# Variable costs for storage projects: currently attributed to the dispatch side of storage
@@ -1391,20 +1400,21 @@ subject to Maximum_Resource_Central_Station_Solar { (l, a) in CENTRAL_STATION_SO
 		/ capacity_limit_conversion[pid, a, t] )
 		<= central_station_solar_capacity_limit[l, a];
 
-# for Bio_Solid and Bio_Gas, these are in MMBtu/hr which is then converted into MWh via the heat_rate rate and cogen_thermal_demand
+# for Bio_Solid and Bio_Gas, bio_fuel_limit_by_load_area is in MMBtu/hr
+# which is then converted into MWh via the heat_rate rate and cogen_thermal_demand
 # cogen_thermal_demand is zero for non-cogen plants
 # Bio_Liquid isn't included here because it only has replacements of existing cogen plants,
 # so their installation constraint is Maximum_Resource_EP_Cogen_Replacement
 # also, we need both CCS and non CCS bio fuels to be constrained together here (they're the same fuel really), hence the fuel matching with f = sub(fuel[t],'_CCS', '')
 # if this constraint is changed, check var ConsumeBioSolid above - it may need to be changed as well
-subject to Maximum_Resource_Bio { (f, a) in BIO_FUELS_LOAD_AREAS, p in PERIODS: bio_fuel_limit_by_load_area[f, a] > 0 }:
+subject to Maximum_Resource_Bio { (f, a, p) in BIO_FUELS_LOAD_AREAS: bio_fuel_limit_by_load_area[f, a, p] > 0 }:
 	( sum { (pid, a, t, p) in PROJECT_VINTAGES: f = sub(fuel[t],'_CCS', '') } 
 		( ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] ) * gen_availability[t]
 		* ( heat_rate[pid, a, t] + cogen_thermal_demand[pid, a, t] ) ) )
 	+ ( sum { (pid, a, t, p) in EP_PERIODS: f = sub(fuel[t],'_CCS', '') } 
 		( OperateEPDuringPeriod[pid, a, t, p] * ep_capacity_mw[pid, a, t] * gen_availability[t]
 		* ( ep_heat_rate[pid, a, t] + ep_cogen_thermal_demand[pid, a, t] ) ) )
-		<= bio_fuel_limit_by_load_area[f, a];
+		<= bio_fuel_limit_by_load_area[f, a, p];
 
 
 # for plants that replace existing cogen plants, this is just the old plant capacity
