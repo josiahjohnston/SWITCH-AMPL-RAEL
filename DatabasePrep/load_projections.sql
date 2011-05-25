@@ -37,10 +37,6 @@ set @num_historic_years := (select count(distinct year(datetime_utc)) from hours
 
 
 -- This table stores load projections. The accompanying view provides labels for timepoints and load areas instead of ids. 
-ALTER TABLE _load_projections
-ADD  future_year       YEAR AFTER timepoint_id,
-ADD  INDEX (future_year);
-
 CREATE TABLE _load_projections (
   load_scenario_id  TINYINT UNSIGNED NOT NULL,
   area_id           SMALLINT UNSIGNED NOT NULL,
