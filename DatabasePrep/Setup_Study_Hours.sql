@@ -130,7 +130,7 @@ DROP TABLE IF EXISTS t_period_populations;
 DROP TABLE IF EXISTS period_cursor;
 DROP TABLE IF EXISTS historic_timepoints_used;
 DROP TABLE IF EXISTS month_cursor;
-
+DROP TABLE IF EXISTS t_period_years;
 
 -- create a tmp table off of which to go through the training sets loop
 create table training_sets_tmp as 
@@ -145,7 +145,6 @@ insert IGNORE into tmonths values
 	(1, 31), (2, 29.25), (3, 31), (4, 30), (5, 31), (6, 30),
 	(7, 31), (8, 31), (9, 30), (10, 31), (11, 30), (12, 31);
 
-set @min_historic_year := (select min(year(datetime_utc)) from hours);
 set @num_load_areas := (select count(distinct(area_id)) as num_load_areas from load_area_info);
 
 -- start the loop to define training sets
@@ -164,6 +163,7 @@ define_new_training_sets_loop: LOOP
 			FLOOR(12/months_between_samples) * FLOOR(24/hours_between_samples)
 		WHERE training_set_id=@training_set_id;
 
+	set @min_historic_year := (select min(year(datetime_utc)) from hours JOIN load_scenario_historic_timepoints ON(historic_hour=hournum) WHERE load_scenario_id=@load_scenario_id);
 	set @num_historic_years := (select count(distinct year(datetime_utc)) from hours JOIN load_scenario_historic_timepoints ON(historic_hour=hournum) WHERE load_scenario_id=@load_scenario_id);
 
 
@@ -180,7 +180,7 @@ define_new_training_sets_loop: LOOP
 	set @period_offset    := (select FLOOR((@years_per_period - @num_historic_years) / 2));
 	CREATE TABLE t_period_years
 		SELECT periodnum, period_start + @period_offset + historic_year_factor as sampled_year
-			FROM training_set_periods, (SELECT DISTINCT year(datetime_utc)-@min_historic_year as historic_year_factor from hours) as foo
+			FROM training_set_periods, (SELECT DISTINCT year(datetime_utc)-@min_historic_year as historic_year_factor from hours JOIN load_scenario_historic_timepoints ON(historic_hour=hournum) WHERE load_scenario_id=@load_scenario_id) as foo
 			WHERE training_set_id = @training_set_id;
 	ALTER TABLE t_period_years ADD INDEX (periodnum), ADD INDEX (sampled_year);
 	
@@ -194,7 +194,8 @@ define_new_training_sets_loop: LOOP
 	INSERT INTO t_period_populations (periodnum, date_utc)
 		SELECT periodnum, date_utc 
 			FROM _load_projection_daily_summaries JOIN t_period_years ON(YEAR(date_utc) = sampled_year)
-			WHERE num_data_points = @num_load_areas * 24; -- Exclude dates that have incomplete data.
+			WHERE num_data_points = @num_load_areas * 24 -- Exclude dates that have incomplete data.
+				AND load_scenario_id=@load_scenario_id ; 
 	DROP TABLE t_period_years;
 
 
@@ -210,19 +211,21 @@ define_new_training_sets_loop: LOOP
 			SELECT month_of_year from tmonths WHERE (month_of_year-1) mod @months_between_samples = @start_month - 1 ; -- The two instances of "- 1" converts 1-12 to 0-11 for modulo arithmetic.
 		iterate_through_months: LOOP
 			SET @month := (SELECT MIN(month_of_year) FROM month_cursor);
-
 			-- PEAK days
 			IF ( @exclude_peaks = 0 ) THEN
 				SET @peak_day := (
 					SELECT date_utc 
 					FROM _load_projection_daily_summaries JOIN t_period_populations USING (date_utc) 
-					WHERE periodnum = @periodnum AND MONTH(date_utc) = @month AND load_scenario_id=@load_scenario_id AND peak_hour_historic_id NOT IN (SELECT * FROM historic_timepoints_used)
+					WHERE periodnum = @periodnum 
+						AND MONTH(date_utc) = @month 
+						AND load_scenario_id=@load_scenario_id 
+						AND peak_hour_historic_id NOT IN (SELECT * FROM historic_timepoints_used)
 					ORDER BY peak_load DESC
 					LIMIT 1
 				);
 				SET @peak_start_hour := (SELECT HOUR(datetime_utc) MOD @hours_between_samples 
 					FROM study_timepoints JOIN _load_projection_daily_summaries ON(timepoint_id=peak_hour_id) 
-					WHERE date_utc = @peak_day
+					WHERE date_utc = @peak_day AND load_scenario_id=@load_scenario_id 
 				);
 				INSERT INTO _training_set_timepoints (training_set_id, period, timepoint_id, hours_in_sample)
 					SELECT @training_set_id, @period, timepoint_id, 
@@ -262,7 +265,10 @@ define_new_training_sets_loop: LOOP
 					SET @date_utc := (
 						SELECT date_utc 
 						FROM _load_projection_daily_summaries JOIN t_period_populations USING (date_utc) 
-						WHERE periodnum = @periodnum AND MONTH(date_utc) = @month AND load_scenario_id=@load_scenario_id AND peak_hour_historic_id NOT IN (SELECT * FROM historic_timepoints_used)
+						WHERE periodnum = @periodnum 
+							AND MONTH(date_utc) = @month 
+							AND load_scenario_id=@load_scenario_id 
+							AND peak_hour_historic_id NOT IN (SELECT * FROM historic_timepoints_used)
 						ORDER BY rand()
 						LIMIT 1
 					);
