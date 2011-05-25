@@ -96,18 +96,17 @@ INTERMITTENT_PROJECTS_SELECTION="(( avg_cap_factor_percentile_by_intermittent_te
 
 read SCENARIO_ID < scenario_id.txt
 
-export REGIONAL_MULTIPLIER_SCENARIO_ID=`mysql $connection_string --column-names=false -e "select regional_cost_multiplier_scenario_id from scenarios where scenario_id=$SCENARIO_ID;"` 
-export REGIONAL_FUEL_COST_SCENARIO_ID=`mysql $connection_string --column-names=false -e "select regional_fuel_cost_scenario_id from scenarios where scenario_id=$SCENARIO_ID;"` 
-export GEN_PRICE_SCENARIO_ID=`mysql $connection_string --column-names=false -e "select gen_price_scenario_id from scenarios where scenario_id=$SCENARIO_ID;"` 
-export SCENARIO_NAME=`mysql $connection_string --column-names=false -e "select scenario_name from scenarios where scenario_id=$SCENARIO_ID;"` 
-export DATESAMPLE=`mysql $connection_string --column-names=false -e "select _datesample from scenarios where scenario_id=$SCENARIO_ID;"` 
-export TIMESAMPLE=`mysql $connection_string --column-names=false -e "select _timesample from scenarios where scenario_id=$SCENARIO_ID;"` 
-export HOURS_IN_SAMPLE=`mysql $connection_string --column-names=false -e "select _hours_in_sample from scenarios where scenario_id=$SCENARIO_ID;"` 
-export ENABLE_RPS=`mysql $connection_string --column-names=false -e "select enable_rps from scenarios where scenario_id=$SCENARIO_ID;"` 
-export ENABLE_CARBON_CAP=`mysql $connection_string --column-names=false -e "select enable_carbon_cap from scenarios where scenario_id=$SCENARIO_ID;"` 
-export STUDY_START_YEAR=`mysql $connection_string --column-names=false -e "select min(period) from study_hours_all where $TIMESAMPLE;"` 
-export STUDY_END_YEAR=`mysql $connection_string --column-names=false -e "select max(period) + (max(period)-min(period))/(count(distinct period) - 1 ) from study_hours_all where $TIMESAMPLE;"` 
-number_of_years_per_period=`mysql $connection_string --column-names=false -e "select round((max(period)-min(period))/(count(distinct period) - 1 )) from study_hours_all where $TIMESAMPLE;"` 
+export REGIONAL_MULTIPLIER_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select regional_cost_multiplier_scenario_id from scenarios_v2 where scenario_id=$SCENARIO_ID;")
+export REGIONAL_FUEL_COST_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select regional_fuel_cost_scenario_id from scenarios_v2 where scenario_id=$SCENARIO_ID;")
+export GEN_PRICE_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select gen_price_scenario_id from scenarios_v2 where scenario_id=$SCENARIO_ID;")
+export SCENARIO_NAME=$(mysql $connection_string --column-names=false -e "select scenario_name from scenarios_v2 where scenario_id=$SCENARIO_ID;")
+export TRAINING_SET_ID=$(mysql $connection_string --column-names=false -e "select training_set_id from scenarios_v2 where scenario_id = $SCENARIO_ID;")
+export LOAD_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select load_scenario_id from training_sets where training_set_id = $TRAINING_SET_ID;")
+export ENABLE_RPS=$(mysql $connection_string --column-names=false -e "select enable_rps from scenarios_v2 where scenario_id=$SCENARIO_ID;")
+export ENABLE_CARBON_CAP=$(mysql $connection_string --column-names=false -e "select enable_carbon_cap from scenarios_v2 where scenario_id=$SCENARIO_ID;")
+export STUDY_START_YEAR=$(mysql $connection_string --column-names=false -e "select study_start_year from training_sets where training_set_id=$TRAINING_SET_ID;")
+export STUDY_END_YEAR=$(mysql $connection_string --column-names=false -e "select study_start_year + years_per_period*number_of_periods from training_sets where training_set_id=$TRAINING_SET_ID;")
+number_of_years_per_period=$(mysql $connection_string --column-names=false -e "select years_per_period from training_sets where training_set_id=$TRAINING_SET_ID;")
 ###########################
 # Export data to be read into ampl.
 
@@ -115,9 +114,9 @@ cd  $write_to_path
 
 echo 'Exporting Scenario Information'
 echo 'Scenario Information' > scenario_information.txt
-mysql $connection_string -e "select * from scenarios where scenario_id = $SCENARIO_ID;" >> scenario_information.txt
+mysql $connection_string -e "select * from scenarios_v2 where scenario_id = $SCENARIO_ID;" >> scenario_information.txt
 echo 'Training Set Information' >> scenario_information.txt
-mysql $connection_string -e "select training_sets.* from training_sets join scenarios using (training_set_id) where scenario_id = $SCENARIO_ID;" >> scenario_information.txt
+mysql $connection_string -e "select * from training_sets where training_set_id=$TRAINING_SET_ID;" >> scenario_information.txt
 
 # The general format for the following files is for the first line to be:
 #	ampl.tab [number of key columns] [number of non-key columns]
@@ -128,7 +127,13 @@ echo 'Copying data from the database to input files...'
 
 echo '	study_hours.tab...'
 echo ampl.tab 1 5 > study_hours.tab
-mysql $connection_string -e "select study_hour as hour, period, study_date as date, $HOURS_IN_SAMPLE as hours_in_sample, month_of_year, hour_of_day from study_hours_all where $TIMESAMPLE order by 1;" >> study_hours.tab
+mysql $connection_string -e "\
+SELECT \
+  DATE_FORMAT(datetime_utc,'%Y%m%d%H') AS hour, period, \
+  DATE_FORMAT(datetime_utc,'%Y%m%d') AS date, hours_in_sample, \
+  MONTH(datetime_utc) AS month_of_year, HOUR(datetime_utc) as hour_of_day \
+FROM _training_set_timepoints JOIN study_timepoints  USING (timepoint_id) \
+WHERE training_set_id=$TRAINING_SET_ID order by 1;" >> study_hours.tab
 
 echo '	load_areas.tab...'
 echo ampl.tab 1 10 > load_areas.tab
@@ -150,15 +155,28 @@ echo '	transmission_lines.tab...'
 echo ampl.tab 2 5 > transmission_lines.tab
 mysql $connection_string -e "select load_area_start, load_area_end, existing_transfer_capacity_mw, transmission_line_id, transmission_length_km, transmission_efficiency, new_transmission_builds_allowed from transmission_lines order by 1,2;" >> transmission_lines.tab
 
-# TODO: adopt better load forecasts; this assumes a simple 1.0%/year increase - the amount projected for all of WECC from 2010 to 2018 by the EIA AEO 2008
-# currently we hit the middle of the period with number_of_years_per_period/2
 echo '	system_load.tab...'
 echo ampl.tab 2 2 > system_load.tab
-mysql $connection_string -e "select load_area, study_hour as hour, power(1.01, period + $number_of_years_per_period/2 - year(datetime_utc))*power as system_load, power(1.01, $present_year - year(datetime_utc))*power as present_day_system_load from system_load l join study_hours_all h on (h.hournum=l.hour) where $TIMESAMPLE order by study_hour, load_area;" >> system_load.tab
+mysql $connection_string -e "call prepare_load_exports($TRAINING_SET_ID); select load_area, DATE_FORMAT(datetime_utc,'%Y%m%d%H') as hour, system_load, present_day_system_load from scenario_loads_export WHERE training_set_id=$TRAINING_SET_ID; call clean_load_exports($TRAINING_SET_ID); "  >> system_load.tab
 
 echo '	max_system_loads.tab...'
 echo ampl.tab 2 1 > max_system_loads.tab
-mysql $connection_string -e "select load_area, period, round(power(1.01, period + $number_of_years_per_period/2 - year(datetime_utc))*max_power,2) as max_system_load from (select load_area, (select datetime_utc from _system_load join hours on(hour=hournum) where area_id=sl.area_id order by power desc limit 1) as datetime_utc, max(power) as max_power from system_load sl group by 1) as max_loads join (select $present_year as period UNION select distinct period from study_dates_all where $DATESAMPLE) as periods;" >> max_system_loads.tab
+mysql $connection_string -e "\
+SELECT load_area, YEAR(now()) as period, max(power) as max_system_load \
+  FROM _load_projections \
+    JOIN training_sets USING(load_scenario_id) \
+    JOIN load_area_info    USING(area_id) \
+  WHERE training_set_id=$TRAINING_SET_ID AND future_year = YEAR(now())  \
+  GROUP BY 1,2 \
+UNION \
+SELECT load_area, period_start as period, max(power) as max_system_load \
+  FROM training_sets \
+    JOIN _load_projections     USING(load_scenario_id)  \
+    JOIN load_area_info        USING(area_id) \
+    JOIN training_set_periods USING(training_set_id)  \
+  WHERE training_set_id=$TRAINING_SET_ID  \
+    AND future_year = FLOOR( period_start + years_per_period / 2) \
+  GROUP BY 1,2; " >> max_system_loads.tab
 
 echo '	existing_plants.tab...'
 echo ampl.tab 3 11 > existing_plants.tab
@@ -166,11 +184,30 @@ mysql $connection_string -e "select project_id, load_area, technology, plant_nam
 
 echo '	existing_intermittent_plant_cap_factor.tab...'
 echo ampl.tab 4 1 > existing_intermittent_plant_cap_factor.tab
-mysql $connection_string -e "select project_id, load_area, technology, study_hour as hour, cap_factor from  existing_intermittent_plant_cap_factor c join study_hours_all h on (h.hournum=c.hour) where $TIMESAMPLE order by 1, 2, 3, 4;" >> existing_intermittent_plant_cap_factor.tab
+mysql $connection_string -e "\
+SELECT project_id, load_area, technology, DATE_FORMAT(datetime_utc,'%Y%m%d%H') as hour, cap_factor \
+FROM _training_set_timepoints \
+  JOIN study_timepoints USING(timepoint_id)\
+  JOIN load_scenario_historic_timepoints USING(timepoint_id)\
+  JOIN existing_intermittent_plant_cap_factor ON(historic_hour=hour)\
+WHERE training_set_id=$TRAINING_SET_ID AND load_scenario_id=$LOAD_SCENARIO_ID;\
+" >> existing_intermittent_plant_cap_factor.tab
 
 echo '	hydro_monthly_limits.tab...'
 echo ampl.tab 4 1 > hydro_monthly_limits.tab
-mysql $connection_string -e "select project_id, load_area, technology, study_date as date, avg_output from hydro_monthly_limits l join study_dates_all d on l.year = year(d.date_utc) and l.month=month(d.date_utc) where $DATESAMPLE order by 1, 2, 3, 4;" >> hydro_monthly_limits.tab
+mysql $connection_string -e "\
+CREATE TEMPORARY TABLE study_dates_export\
+  SELECT distinct period, YEAR(hours.datetime_utc) as year, MONTH(hours.datetime_utc) AS month, DATE_FORMAT(study_timepoints.datetime_utc,'%Y%m%d') AS study_date\
+  FROM _training_set_timepoints \
+    JOIN _load_projections USING (timepoint_id)\
+    JOIN study_timepoints  USING (timepoint_id)\
+    JOIN hours ON(historic_hour=hournum)\
+  WHERE training_set_id=$TRAINING_SET_ID \
+    AND load_scenario_id = $LOAD_SCENARIO_ID\
+  ORDER BY 1,2;\
+SELECT project_id, load_area, technology, study_date as date, ROUND(avg_output,1) AS avg_output\
+  FROM hydro_monthly_limits \
+    JOIN study_dates_export USING(year, month);" >> hydro_monthly_limits.tab
 
 echo '	proposed_projects.tab...'
 echo ampl.tab 3 11 > proposed_projects.tab
@@ -186,11 +223,22 @@ mysql $connection_string -e "select load_area, fuel, year, fuel_price from fuel_
 
 echo '	biomass_supply_curve_slope.tab...'
 echo ampl.tab 3 1 > biomass_supply_curve_slope.tab
-mysql $connection_string -e "select load_area, year - ceil($number_of_years_per_period/2) as period, breakpoint_id, price_dollars_per_mmbtu_surplus_adjusted from biomass_solid_supply_curve join (select distinct period + ceil($number_of_years_per_period/2) as year from study_hours_all where $TIMESAMPLE) as period_table using (year) order by load_area, year, breakpoint_id" >> biomass_supply_curve_slope.tab
+mysql $connection_string -e "\
+SELECT load_area, period_start as period, breakpoint_id, price_dollars_per_mmbtu_surplus_adjusted \
+FROM biomass_solid_supply_curve, training_set_periods \
+WHERE year=period_start+(period_end-period_start+1)/2 \
+  AND training_set_id=$TRAINING_SET_ID \
+order by load_area, year, breakpoint_id;">> biomass_supply_curve_slope.tab
 
 echo '	biomass_supply_curve_breakpoint.tab...'
 echo ampl.tab 3 1 > biomass_supply_curve_breakpoint.tab
-mysql $connection_string -e "select load_area, year - ceil($number_of_years_per_period/2) as period, breakpoint_id, breakpoint_mmbtu_per_year from biomass_solid_supply_curve join (select distinct period + ceil($number_of_years_per_period/2) as year from study_hours_all where $TIMESAMPLE) as period_table using (year) where breakpoint_mmbtu_per_year is not null order by load_area, year, breakpoint_id" >> biomass_supply_curve_breakpoint.tab
+mysql $connection_string -e "\
+SELECT load_area, period_start as period, breakpoint_id, breakpoint_mmbtu_per_year \
+FROM biomass_solid_supply_curve, training_set_periods \
+WHERE year=period_start+(period_end-period_start+1)/2 \
+  AND breakpoint_mmbtu_per_year is not null \
+  AND training_set_id=$TRAINING_SET_ID \
+order by load_area, year, breakpoint_id;" >> biomass_supply_curve_breakpoint.tab
 
 echo '	fuel_info.tab...'
 echo ampl.tab 1 4 > fuel_info.tab
@@ -210,6 +258,16 @@ echo "param present_year  := $present_year;"  >> misc_params.dat
 
 echo '	cap_factor.tab...'
 echo ampl.tab 4 1 > cap_factor.tab
-mysql $connection_string -e "select project_id, proposed_projects.load_area, proposed_projects.technology, study_hour as hour, cap_factor from _cap_factor_intermittent_sites c join study_hours_all h on (h.hournum=c.hour) join proposed_projects using (project_id) join load_area_info using (area_id) where $INTERMITTENT_PROJECTS_SELECTION and $TIMESAMPLE;" >> cap_factor.tab
+mysql $connection_string -e "\
+select project_id, load_area, technology, DATE_FORMAT(datetime_utc,'%Y%m%d%H') as hour, cap_factor  \
+  FROM _training_set_timepoints \
+    JOIN study_timepoints USING(timepoint_id)\
+    JOIN load_scenario_historic_timepoints USING(timepoint_id)\
+    JOIN _cap_factor_intermittent_sites ON(historic_hour=hour)\
+    JOIN _proposed_projects USING(project_id)\
+    JOIN load_area_info USING(area_id)\
+  WHERE training_set_id=$TRAINING_SET_ID \
+    AND load_scenario_id=$LOAD_SCENARIO_ID \
+    AND $INTERMITTENT_PROJECTS_SELECTION;" >> cap_factor.tab
 
 cd ..
