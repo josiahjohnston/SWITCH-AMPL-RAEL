@@ -92,6 +92,7 @@ INSERT INTO _load_projections (load_scenario_id, area_id, timepoint_id, future_y
     hours.hournum as historic_hour,
     CAST( power(1.01, YEAR(study_timepoints.datetime_utc) - YEAR(hours.datetime_utc))*power AS DECIMAL(6,0)) as system_load
     FROM study_timepoints join load_scenario_historic_timepoints using(timepoint_id) join _system_load on (historic_hour=hour) join hours on (hour=hournum)
+    WHERE load_scenario_id=@BAU_load_scenario_id
     ;
 
 -- Daily summaries of load projections will simplify some other steps. 
