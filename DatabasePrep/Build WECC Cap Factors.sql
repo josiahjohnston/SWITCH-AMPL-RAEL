@@ -167,7 +167,7 @@ where load_area_info.area_id = avg_load_table.area_id;
 alter table load_area_info add column local_td_new_annual_payment_per_mw float;
 update load_area_info set local_td_new_annual_payment_per_mw = 
 	CASE 	WHEN primary_nerc_subregion = 'NWPP' THEN 66406.47311
-			WHEN primary_nerc_subregion = 'NWPP_Can' THEN 66406.47311
+			WHEN primary_nerc_subregion = 'NWPP_CAN' THEN 66406.47311
 			WHEN primary_nerc_subregion = 'CA' THEN 128039.8671
 			WHEN primary_nerc_subregion = 'AZNMSNV' THEN 61663.36634
 			WHEN primary_nerc_subregion = 'RMPA' THEN 61663.36634
@@ -180,7 +180,7 @@ alter table load_area_info add column local_td_sunk_annual_payment float;
 update load_area_info set local_td_sunk_annual_payment = 
 	total_yearly_load_mwh *
 	CASE 	WHEN primary_nerc_subregion = 'NWPP' THEN 19.2
-			WHEN primary_nerc_subregion = 'NWPP_Can' THEN 19.2
+			WHEN primary_nerc_subregion = 'NWPP_CAN' THEN 19.2
 			WHEN primary_nerc_subregion = 'CA' THEN 45.12
 			WHEN primary_nerc_subregion = 'AZNMSNV' THEN 20.16
 			WHEN primary_nerc_subregion = 'RMPA' THEN 20.16
@@ -192,7 +192,7 @@ alter table load_area_info add column transmission_sunk_annual_payment float;
 update load_area_info set transmission_sunk_annual_payment = 
 	total_yearly_load_mwh *
 	CASE 	WHEN primary_nerc_subregion = 'NWPP' THEN 8.64
-			WHEN primary_nerc_subregion = 'NWPP_Can' THEN 8.64
+			WHEN primary_nerc_subregion = 'NWPP_CAN' THEN 8.64
 			WHEN primary_nerc_subregion = 'CA' THEN 6.72
 			WHEN primary_nerc_subregion = 'AZNMSNV' THEN 6.72
 			WHEN primary_nerc_subregion = 'RMPA' THEN 6.72

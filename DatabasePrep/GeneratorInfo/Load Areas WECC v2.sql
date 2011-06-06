@@ -657,6 +657,10 @@ where 	wecc_load_areas.load_area = area_intersection_table.load_area
 and		area_intersection_table.load_area = max_area_table.load_area
 and 	max_intersection_area = intersection_area;
 
+-- found an error or two... CA_IID gets assigned to AZNMSNV... change it here to CA
+update wecc_load_areas set primary_nerc_subregion = 'CA' where load_area = 'CA_IID';
+-- also, canada needs caps for later joins
+update wecc_load_areas set primary_nerc_subregion = 'NWPP_CAN' where load_area like 'CAN%';
 
 -- PRIMARY STATE FOR EACH LOAD AREA
 -- does US states by population fraction of each state in each load area
