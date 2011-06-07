@@ -4,8 +4,15 @@ USE switch_inputs_wecc_v2_2;
 CREATE TABLE study_timepoints (
   timepoint_id INT UNSIGNED PRIMARY KEY,
   datetime_utc DATETIME NOT NULL,
-  index (datetime_utc)
+  month_of_year tinyint unsigned,
+  day_of_month tinyint unsigned,
+  hour_of_day tinyint unsigned,
+  timepoint_year year,
+  index (datetime_utc),
+  index (month_of_year, day_of_month, hour_of_day),
+  index (timepoint_year)  
 );
+
 
 -- Make a table with integers 0 to 999,999
 drop table if exists integers ;
@@ -21,6 +28,12 @@ INSERT INTO study_timepoints
   select num as timepoint_id, DATE_ADD( @start_date, INTERVAL num HOUR) as datetime_utc 
   FROM integers HAVING datetime_utc <= @end_date;
 drop table integers ;
+
+update study_timepoints
+set	month_of_year = MONTH(datetime_utc),
+  	day_of_month = DAY(datetime_utc),
+  	hour_of_day = HOUR(datetime_utc),
+  	timepoint_year = YEAR(datetime_utc);
 
 
 -- This table will keep track of our load growth scenarios. 

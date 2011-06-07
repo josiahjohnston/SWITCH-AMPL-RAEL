@@ -86,16 +86,28 @@ drop table if exists hours;
 CREATE TABLE hours (
   datetime_utc datetime NOT NULL COMMENT 'date & time in Coordinated Universal Time, with Daylight Savings Time ignored',
   hournum smallint unsigned NOT NULL COMMENT 'hournum = 0 is at datetime_utc = 2004-01-01 00:00:00, and counts up from there',
+  month_of_year tinyint unsigned,
+  day_of_month tinyint unsigned,
+  hour_of_day tinyint unsigned,
+  historical_year year,
   UNIQUE KEY datetime_utc (datetime_utc),
-  UNIQUE KEY hournum (hournum)
+  UNIQUE KEY hournum (hournum),
+  index date_ints (month_of_year, day_of_month, hour_of_day),
+  index historical_year (historical_year)  
 );
 
-insert into hours
+insert into hours (datetime_utc, hournum)
 select 	timepoint as datetime_utc,
 		timepoint_id as hournum
 	from weather.timepoints
-	where year( timepoint ) < 2006
 	order by datetime_utc;
+
+update hours
+set	month_of_year = MONTH(datetime_utc),
+  	day_of_month = DAY(datetime_utc),
+  	hour_of_day = HOUR(datetime_utc),
+  	historical_year = YEAR(datetime_utc);
+
 
 -- SYSTEM LOAD
 -- patched together from the old wecc loads...
