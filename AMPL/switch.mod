@@ -162,7 +162,7 @@ param fuel {TECHNOLOGIES} symbolic in FUELS;
 param biofuel {FUELS} binary default 0;
 
 # annual fuel price forecast in $/MMBtu
-param fuel_price {LOAD_AREAS, FUELS, YEARS} default 0, >= 0;
+param fuel_price {a in LOAD_AREAS, f in FUELS, y in YEARS} >= 0;
 	
 # carbon content (tons) per MBtu of each fuel.  Can be negative for bio ccs projects.
 param carbon_content {FUELS} default 0;

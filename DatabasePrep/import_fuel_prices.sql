@@ -155,3 +155,29 @@ drop procedure pivot_fuel_price_data;
 delete from regional_fuel_prices where year < 2011;
 -- also delete values that don't exist... uranium price projections only go out to 2030
 delete from regional_fuel_prices where fuel = 'Uranium' and year > 2030;
+
+-- add Mexico Fuel prices
+insert ignore into regional_fuel_prices ( load_area, fuel, year, fuel_price )
+select 	'MEX_BAJA',
+		fuel,
+		year,
+		fuel_price
+	from
+	(select fuel, year, fuel_price from regional_fuel_prices where load_area like 'CA_IID') as ca_fuel_prices;
+
+-- add Canada prices
+insert ignore into regional_fuel_prices ( load_area, fuel, year, fuel_price )
+select 	'CAN_BC',
+		fuel,
+		year,
+		fuel_price
+	from
+	(select fuel, year, fuel_price from regional_fuel_prices where load_area like 'WA_W') as wa_fuel_prices;
+
+insert ignore into regional_fuel_prices ( load_area, fuel, year, fuel_price )
+select 	'CAN_ALB',
+		fuel,
+		year,
+		fuel_price
+	from
+	(select fuel, year, fuel_price from regional_fuel_prices where load_area like 'MT_NW') as mt_fuel_prices;

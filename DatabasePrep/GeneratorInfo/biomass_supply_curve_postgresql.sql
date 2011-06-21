@@ -70,7 +70,7 @@ create table biomass_polysis_supply_curve_import(
 	quantity_2028 double precision,
 	quantity_2029 double precision,
 	quantity_2030 double precision,
-	primary key (simulation_id, biomass_type, asd)
+	primary key (simulation_id, biomass_type, asd_id)
 );
 
 CREATE INDEX simulation_id_idx on biomass_polysis_supply_curve_import (simulation_id);
@@ -132,7 +132,7 @@ create table biomass_polysis_supply_curve(
 	polysis_simulation_id char(1),
 	asd_id int,
 	biomass_type character varying(11),
-	price_per_dry_ton int,
+	price_per_dry_ton float,
 	year int,
 	quantity_million_dry_tons_per_year float,
 	price_dollars_per_mmbtu float,
@@ -195,6 +195,14 @@ drop function pivot_biomass();
 drop function exec(text);
 
 
+-- they ran polysis in nominal dollars(!) from 2007 to 2016, then in $2016 from then on  
+-- see: /Volumes/1TB_RAID/Models/GIS/Biomass_Resource_Supply_Module_NEMS_2007/EIA\ Dataset/Bill\ Morrow\'s\ biomass\ supply\ documentation.doc
+-- using the standard inflation rate of 3% per year, we correct the prices to real $2007.
+-- takes another ~10min
+update biomass_polysis_supply_curve
+set price_per_dry_ton = price_per_dry_ton * ( CASE WHEN year < 2016 THEN 0.97 ^ (year - 2007)
+											ELSE 0.97 ^ (2016 - 2007) END ) ;
+
 -- convert dry tons to mmbtu using the assumptions in
 -- Volumes/1TB_RAID/Models/GIS/Biomass_Resource_Supply_Module_NEMS_2007/EIA\ Dataset/BtuFeedstock.xls
 -- all quantities in the import are in million dry tonnes (hence the 1000000 below) ... convert them to million Btu here
@@ -223,6 +231,8 @@ set total_mmbtu_per_year =
 		WHEN biomass_type like 'Wheat_Straw' then 13.56
 		WHEN biomass_type like 'Soyb_Prdctn' then 14.11
 	END;
+
+
 
 -- AGGREGATE TO LOAD AREAS --------------------------------------------
 
@@ -1129,7 +1139,7 @@ delete from biomass_solid_supply_curve_by_load_area where marginal_mmbtu_per_yea
 -- to get the total biomass potential by feedstock in each load area
 drop table if exists biomass_solid_supply_curve_breakpoints_prices;
 create table biomass_solid_supply_curve_breakpoints_prices(
-	price_level_la_yr_id serial
+	price_level_la_yr_id serial,
 	breakpoint_id int,
 	load_area character varying(11),
 	year int,
@@ -1424,6 +1434,7 @@ create temporary table row_bp_la_yr_map(
 	max_price_dollars_per_mmbtu_surplus_adjusted double precision);
 
 -- don't include values that only have one breakpoint... they would mess up the loop below and don't have any error anyway
+-- we'll update these rows after the main procedure is done
 insert into row_bp_la_yr_map (max_row_id, min_row_id, max_price_dollars_per_mmbtu_surplus_adjusted)
 	select 	max_row_id,
 			min_row_id,
@@ -1440,7 +1451,6 @@ insert into row_bp_la_yr_map (max_row_id, min_row_id, max_price_dollars_per_mmbt
 	on (max_row_id = row_id)
 	where max_row_id <> min_row_id
 	order by max_row_id;
-
 
 	LOOP
 
@@ -1499,6 +1509,12 @@ insert into row_bp_la_yr_map (max_row_id, min_row_id, max_price_dollars_per_mmbt
 	-- the loop is done when we've enumerated all the possible combinations of breakpoints
 	EXIT WHEN ( (select count(*) from row_bp_la_yr_map) = 0 );
 	END LOOP;
+
+	-- we do need to have values for places that have only one breakpoint, so update them here before we go any futher
+	update biomass_solid_supply_curve_with_producer_surplus
+		set	price_dollars_per_mmbtu_surplus_adjusted_increasing_only = price_dollars_per_mmbtu_surplus_adjusted,
+			price_dollars_per_mmbtu_surplus_adjusted_and_shifted = price_dollars_per_mmbtu_surplus_adjusted
+		where	price_dollars_per_mmbtu_surplus_adjusted_increasing_only is null;
 
 	-- only the positive values of error have meaning here - the negative ones mean that there ISN'T error
 	-- but we're interested in summing up the total error, so we eliminate the negative error values here

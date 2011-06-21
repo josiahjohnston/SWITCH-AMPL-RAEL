@@ -333,157 +333,8 @@ END$$
 DELIMITER ;
 
 -- ---------------------------------------------------------------------
---        REGION-SPECIFIC GENERATOR COSTS & AVAILIBILITY
+--        FUELS
 -- ---------------------------------------------------------------------
-
--- FUEL PRICES-------------
--- run 'v2 wecc fuel price import no elasticity.sql' first
--- biomass fuel costs come from the biomass supply curve and thus aren't added here
-
-drop table if exists _fuel_prices_regional;
-CREATE TABLE _fuel_prices_regional (
-  scenario_id INT NOT NULL,
-  area_id smallint unsigned NOT NULL,
-  fuel VARCHAR(64),
-  year year,
-  fuel_price FLOAT NOT NULL COMMENT 'Regional fuel prices for various types of fuel in $2007 per MMBtu',
-  INDEX scenario_id(scenario_id),
-  INDEX area_id(area_id),
-  INDEX year_idx (year),
-  PRIMARY KEY (scenario_id, area_id, fuel, year),
-  CONSTRAINT area_id FOREIGN KEY area_id (area_id) REFERENCES load_area_info (area_id)
-);
-
-set @this_scenario_id := (select if( max(scenario_id) + 1 is null, 1, max(scenario_id) + 1 ) from _fuel_prices_regional);
-  
-insert into _fuel_prices_regional
-	select
-		@this_scenario_id as scenario_id,
-        area_id,
-        if(fuel like 'NaturalGas', 'Gas', fuel) as fuel,
-        year,
-        fuel_price
-    from fuel_prices.regional_fuel_prices, load_area_info
-    where load_area_info.load_area = fuel_prices.regional_fuel_prices.load_area
-    and fuel not like 'Bio_Solid';
-
--- add fuel price forcasts out to 2100 and beyond
--- this takes the fuel price from 5 years before the end of the fuel price projections
--- and the price from the last year of fuel price projections and linearly extrapolates the price onward in time
--- this could be done by a linear regression, but mysql support is limited.
-drop table if exists integer_tmp;
-create table integer_tmp( integer_val int not null AUTO_INCREMENT primary key, insert_tmp int );
-	insert into integer_tmp (insert_tmp) select hournum from hours limit 100;
-	
-insert into _fuel_prices_regional (scenario_id, area_id, fuel, year, fuel_price)
-	select 	slope_table.scenario_id,
-			slope_table.area_id,
-			slope_table.fuel,
-			integer_val + max_year as year,
-			price_slope * integer_val + fuel_price_max_year as fuel_price
-		from
-		integer_tmp,
-		(select max_year_table.scenario_id,
-						max_year_table.area_id,
-						max_year_table.fuel,
-						max_year,
-						fuel_price as fuel_price_max_year
-						from 
-						( select scenario_id, area_id, fuel, max(year) as max_year from _fuel_prices_regional group by 1, 2, 3 ) as max_year_table,
-						_fuel_prices_regional
-				where max_year_table.max_year = _fuel_prices_regional.year
-				and max_year_table.scenario_id = _fuel_prices_regional.scenario_id
-				and max_year_table.area_id = _fuel_prices_regional.area_id
-				and max_year_table.fuel = _fuel_prices_regional.fuel
-				) as max_year_table,
-	
-		(select  m.scenario_id,
-				m.area_id,
-				m.fuel,
-				( fuel_price_max_year - fuel_price_max_year_minus_five ) / 5 as price_slope
-				from
-		
-				(select max_year_table.scenario_id,
-						max_year_table.area_id,
-						max_year_table.fuel,
-						fuel_price as fuel_price_max_year
-						from 
-						( select scenario_id, area_id, fuel, max(year) as max_year from _fuel_prices_regional group by 1, 2, 3 ) as max_year_table,
-						_fuel_prices_regional
-				where max_year_table.max_year = _fuel_prices_regional.year
-				and max_year_table.scenario_id = _fuel_prices_regional.scenario_id
-				and max_year_table.area_id = _fuel_prices_regional.area_id
-				and max_year_table.fuel = _fuel_prices_regional.fuel
-				) as m,
-				(select 	max_year_table.scenario_id,
-						max_year_table.area_id,
-						max_year_table.fuel,
-						fuel_price as fuel_price_max_year_minus_five
-						from 
-						( select scenario_id, area_id, fuel, max(year) as max_year from _fuel_prices_regional group by 1, 2, 3 ) as max_year_table,
-						_fuel_prices_regional
-				where (max_year_table.max_year - 5 ) = _fuel_prices_regional.year
-				and max_year_table.scenario_id = _fuel_prices_regional.scenario_id
-				and max_year_table.area_id = _fuel_prices_regional.area_id
-				and max_year_table.fuel = _fuel_prices_regional.fuel
-				) as m5
-			where m.scenario_id = m5.scenario_id
-			and m.area_id = m5.area_id
-			and m.fuel = m5.fuel) as slope_table
-		where 	slope_table.scenario_id = max_year_table.scenario_id
-		and		slope_table.area_id = max_year_table.area_id
-		and		slope_table.fuel = max_year_table.fuel
-		;
-			
-
--- add in fuel prices for CCS - these are the same as for the non-CCS technologies, but with a CCS added to the name
-insert into _fuel_prices_regional
-	select 	scenario_id,
-			area_id,
-			concat(fuel, '_CCS') as fuel,
-			year,
-			fuel_price
-	from _fuel_prices_regional where fuel in ('Gas', 'Coal');
-
-  
-DROP VIEW IF EXISTS fuel_prices_regional;
-CREATE VIEW fuel_prices_regional as
-SELECT _fuel_prices_regional.scenario_id, load_area_info.area_id, load_area, fuel, year, fuel_price 
-    FROM _fuel_prices_regional, load_area_info
-    WHERE _fuel_prices_regional.area_id = load_area_info.area_id;
-
--- BIOMASS SUPPLY CURVE
-
--- the prices on this supply curve INCLUDE producer surplus.... create_bio_supply_curve.sql shows how this is done
-drop table if exists biomass_solid_supply_curve;
-create table biomass_solid_supply_curve(
-	breakpoint_id int,
-	load_area varchar(11),
-	year int,
-	price_dollars_per_mmbtu_surplus_adjusted double,
-	breakpoint_mmbtu_per_year double,
-	PRIMARY KEY (load_area, year, price_dollars_per_mmbtu_surplus_adjusted),
-	UNIQUE INDEX bp_la (breakpoint_id, load_area, year),
-	INDEX load_area (load_area)
-);
-
-load data local infile
-	'biomass_solid_supply_curve_breakpoints_prices.csv'
-	into table biomass_solid_supply_curve
-	fields terminated by	','
-	optionally enclosed by '"'
-	ignore 1 lines;
-
--- the AMPL forumlation of piecewise linear curves requires a slope above the last breakpoint.
--- this slope has no meaning for us, as we cap biomass installations above this level
--- but we still need something, so we'll say biomass costs $999999999/MMbtu above this level.
--- as we don't want to be mistaken, we'll set breakpoint_mmbtu_per_year for these values
-update 	biomass_solid_supply_curve
-set		breakpoint_mmbtu_per_year = null
-where	price_dollars_per_mmbtu_surplus_adjusted = 999999999;
-
-
--- RPS----------------------
 drop table if exists fuel_info;
 create table fuel_info(
 	fuel varchar(64),
@@ -556,6 +407,175 @@ insert into fuel_qualifies_for_rps
 			rps_fuel_category,
 			if(rps_fuel_category like 'renewable', 1, 0)
 		from fuel_info, load_area_info;
+
+
+-- FUEL PRICES-------------
+-- run 'v2 wecc fuel price import no elasticity.sql' first
+-- biomass fuel costs come from the biomass supply curve and thus aren't added here
+
+drop table if exists _fuel_prices_regional;
+CREATE TABLE _fuel_prices_regional (
+  scenario_id INT NOT NULL,
+  area_id smallint unsigned NOT NULL,
+  fuel VARCHAR(64),
+  year year,
+  fuel_price FLOAT NOT NULL COMMENT 'Regional fuel prices for various types of fuel in $2007 per MMBtu',
+  INDEX scenario_id(scenario_id),
+  INDEX area_id(area_id),
+  INDEX year_idx (year),
+  PRIMARY KEY (scenario_id, area_id, fuel, year),
+  CONSTRAINT area_id FOREIGN KEY area_id (area_id) REFERENCES load_area_info (area_id)
+);
+
+set @this_scenario_id := (select if( max(scenario_id) + 1 is null, 1, max(scenario_id) + 1 ) from _fuel_prices_regional);
+  
+insert into _fuel_prices_regional
+	select
+		@this_scenario_id as scenario_id,
+        area_id,
+        if(fuel like 'NaturalGas', 'Gas', fuel) as fuel,
+        year,
+        fuel_price
+    from fuel_prices.regional_fuel_prices
+    join load_area_info using (load_area)
+    where fuel not like 'Bio_Solid';
+
+-- add fuel price forcasts out to 2100
+-- this takes the fuel price from 5 years before the end of the fuel price projections
+-- and the price from the last year of fuel price projections and linearly extrapolates the price onward in time
+-- this could be done by a linear regression, but mysql support is limited.
+drop table if exists integer_tmp;
+create table integer_tmp( integer_val int not null AUTO_INCREMENT primary key, insert_tmp int );
+	insert into integer_tmp (insert_tmp) select hournum from hours limit 70;
+	
+insert into _fuel_prices_regional (scenario_id, area_id, fuel, year, fuel_price)
+	select 	slope_table.scenario_id,
+			slope_table.area_id,
+			slope_table.fuel,
+			integer_val + max_year as year,
+			price_slope * integer_val + fuel_price_max_year as fuel_price
+		from
+		integer_tmp,
+		(select max_year_table.scenario_id,
+						max_year_table.area_id,
+						max_year_table.fuel,
+						max_year,
+						fuel_price as fuel_price_max_year
+						from 
+						( select scenario_id, area_id, fuel, max(year) as max_year from _fuel_prices_regional group by 1, 2, 3 ) as max_year_table,
+						_fuel_prices_regional
+				where max_year_table.max_year = _fuel_prices_regional.year
+				and max_year_table.scenario_id = _fuel_prices_regional.scenario_id
+				and max_year_table.area_id = _fuel_prices_regional.area_id
+				and max_year_table.fuel = _fuel_prices_regional.fuel
+				) as max_year_table,
+	
+		(select  m.scenario_id,
+				m.area_id,
+				m.fuel,
+				( fuel_price_max_year - fuel_price_max_year_minus_five ) / 5 as price_slope
+				from
+		
+				(select max_year_table.scenario_id,
+						max_year_table.area_id,
+						max_year_table.fuel,
+						fuel_price as fuel_price_max_year
+						from 
+						( select scenario_id, area_id, fuel, max(year) as max_year from _fuel_prices_regional group by 1, 2, 3 ) as max_year_table,
+						_fuel_prices_regional
+				where max_year_table.max_year = _fuel_prices_regional.year
+				and max_year_table.scenario_id = _fuel_prices_regional.scenario_id
+				and max_year_table.area_id = _fuel_prices_regional.area_id
+				and max_year_table.fuel = _fuel_prices_regional.fuel
+				) as m,
+				(select 	max_year_table.scenario_id,
+						max_year_table.area_id,
+						max_year_table.fuel,
+						fuel_price as fuel_price_max_year_minus_five
+						from 
+						( select scenario_id, area_id, fuel, max(year) as max_year from _fuel_prices_regional group by 1, 2, 3 ) as max_year_table,
+						_fuel_prices_regional
+				where (max_year_table.max_year - 5 ) = _fuel_prices_regional.year
+				and max_year_table.scenario_id = _fuel_prices_regional.scenario_id
+				and max_year_table.area_id = _fuel_prices_regional.area_id
+				and max_year_table.fuel = _fuel_prices_regional.fuel
+				) as m5
+			where m.scenario_id = m5.scenario_id
+			and m.area_id = m5.area_id
+			and m.fuel = m5.fuel) as slope_table
+		where 	slope_table.scenario_id = max_year_table.scenario_id
+		and		slope_table.area_id = max_year_table.area_id
+		and		slope_table.fuel = max_year_table.fuel
+		;
+			
+delete from _fuel_prices_regional where year > 2100;
+
+-- add in fuel prices for CCS - these are the same as for the non-CCS technologies, but with a CCS added to the name
+insert into _fuel_prices_regional (scenario_id, area_id, fuel, year, fuel_price)
+	select 	scenario_id,
+			area_id,
+			concat(fuel, '_CCS') as fuel,
+			year,
+			fuel_price
+	from _fuel_prices_regional where fuel in ('Gas', 'Coal', 'DistillateFuelOil', 'ResidualFuelOil');
+
+-- add fuel prices of zero for renewables... this could be handedled through default fuel price values
+-- but in the past bugs have been caused by using a default fuel price of 0 in switch.mod
+-- biomass_solid gets a default of zero here, but it comes in on the biomass supply curve.
+insert into _fuel_prices_regional (scenario_id, area_id, fuel, year, fuel_price)
+	select 	scenario_id,
+			area_id,
+			fuel,
+			year,
+			0 as fuel_price
+	from 	( select distinct scenario_id, area_id, year from _fuel_prices_regional) as scenarios_areas_years,
+			fuel_info
+	where 	fuel not in (select distinct fuel from _fuel_prices_regional);
+
+-- add values for the fuel 'Storage'
+insert into _fuel_prices_regional (scenario_id, area_id, fuel, year, fuel_price)
+	select 	scenario_id,
+			area_id,
+			'Storage' as fuel,
+			year,
+			0 as fuel_price
+	from 	( select distinct scenario_id, area_id, year from _fuel_prices_regional) as scenarios_areas_years;
+  
+DROP VIEW IF EXISTS fuel_prices_regional;
+CREATE VIEW fuel_prices_regional as
+SELECT _fuel_prices_regional.scenario_id, load_area_info.area_id, load_area, fuel, year, fuel_price 
+    FROM _fuel_prices_regional, load_area_info
+    WHERE _fuel_prices_regional.area_id = load_area_info.area_id;
+
+-- BIOMASS SUPPLY CURVE
+
+-- the prices on this supply curve INCLUDE producer surplus.... create_bio_supply_curve.sql shows how this is done
+drop table if exists biomass_solid_supply_curve;
+create table biomass_solid_supply_curve(
+	breakpoint_id int,
+	load_area varchar(11),
+	year int,
+	price_dollars_per_mmbtu_surplus_adjusted double,
+	breakpoint_mmbtu_per_year double,
+	PRIMARY KEY (load_area, year, price_dollars_per_mmbtu_surplus_adjusted),
+	UNIQUE INDEX bp_la (breakpoint_id, load_area, year),
+	INDEX load_area (load_area)
+);
+
+load data local infile
+	'biomass_solid_supply_curve_breakpoints_prices.csv'
+	into table biomass_solid_supply_curve
+	fields terminated by	','
+	optionally enclosed by '"'
+	ignore 1 lines;
+
+-- the AMPL forumlation of piecewise linear curves requires a slope above the last breakpoint.
+-- this slope has no meaning for us, as we cap biomass installations above this level
+-- but we still need something, so we'll say biomass costs $999999999/MMbtu above this level.
+-- as we don't want to be mistaken, we'll set breakpoint_mmbtu_per_year for these values
+update 	biomass_solid_supply_curve
+set		breakpoint_mmbtu_per_year = null
+where	price_dollars_per_mmbtu_surplus_adjusted = 999999999;
 
 
 -- RPS COMPLIANCE INFO ---------------
