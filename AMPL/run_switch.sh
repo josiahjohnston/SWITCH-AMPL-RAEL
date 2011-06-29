@@ -164,6 +164,7 @@ if [ $cluster == 1 ]; then
 			short)   sed -e 's/^#PBS -l walltime=.*$/#PBS -l walltime=06:00:00/' $sed_in_place_flag "$f" ;;
 			normal)  sed -e 's/^#PBS -l walltime=.*$/#PBS -l walltime=24:00:00/' $sed_in_place_flag "$f" ;;
 			long)    sed -e 's/^#PBS -l walltime=.*$/#PBS -l walltime=72:00:00/' $sed_in_place_flag "$f" ;;
+			dkammen) sed -e 's/^#PBS -l walltime=.*$/#PBS -l walltime=168:00:00/' $sed_in_place_flag "$f" ;;
 			*) echo "queue option $queue not known. Please read the help message and try again"; print_help; exit ;;
 		esac
 		sed -e 's/^#PBS -q .*$/#PBS -q '"$queue"'/' $sed_in_place_flag "$f"

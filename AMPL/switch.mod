@@ -871,8 +871,11 @@ param transmission_capital_cost_annual_payment { (a1, a2) in TRANSMISSION_LINES_
 set TRANSMISSION_LINE_PERIODS := { (a1, a2) in TRANSMISSION_LINES, p in PERIODS };
 
 # the set of periods in which new transmission lines can be built
+# if an investment period is longer than the construction time of transmission lines, then let them be built in any period
+# because we're generally more interested in what happens in later parts of an investment period, by which transmission could have been built
 set TRANSMISSION_LINE_NEW_PERIODS := { (a1, a2, p) in TRANSMISSION_LINE_PERIODS:
-		(a1, a2) in TRANSMISSION_LINES_NEW_BUILDS_ALLOWED and p >= present_year + transmission_construction_time_years };
+		(a1, a2) in TRANSMISSION_LINES_NEW_BUILDS_ALLOWED
+		and p >= ( if num_years_per_period > transmission_construction_time_years then present_year else present_year + transmission_construction_time_years ) };
 
 # trans_line-vintage-hour combinations for which dispatch decisions must be made
 set TRANSMISSION_LINE_HOURS := { (a1, a2, p) in TRANSMISSION_LINE_PERIODS, h in TIMEPOINTS: p = period[h] };

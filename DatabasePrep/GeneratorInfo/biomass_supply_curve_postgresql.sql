@@ -1252,12 +1252,23 @@ create table biomass_solid_supply_curve_with_producer_surplus(
 	primary key (num_breakpoints_per_la_yr, load_area, year, price_dollars_per_mmbtu)
 );
 
-CREATE INDEX _biorowid_ ON biomass_solid_supply_curve_with_producer_surplus (row_id);
+CREATE UNIQUE INDEX _biorowid_ ON biomass_solid_supply_curve_with_producer_surplus (row_id);
 CREATE INDEX _bionumbp_ ON biomass_solid_supply_curve_with_producer_surplus (num_breakpoints_per_la_yr);
 CREATE INDEX _biobpla_ ON biomass_solid_supply_curve_with_producer_surplus (load_area);
 CREATE INDEX _biobpyr_ ON biomass_solid_supply_curve_with_producer_surplus (year);
 CREATE INDEX _biobpprice_ ON biomass_solid_supply_curve_with_producer_surplus (price_dollars_per_mmbtu);
 CREATE INDEX _biolayrbp_ ON biomass_solid_supply_curve_with_producer_surplus (load_area, year, num_breakpoints_per_la_yr);
+
+-- the below insert loop causes errors when there is a load area with only one breakpoint
+-- because both insert statments try to insert the same breakpoint, causing a pkey error
+-- the rule below is the postgresql version of mysql 'insert ignore'...
+-- the 'DO INSTEAD (SELECT 1)' does nothing except for keeping it from inserting the row it was trying to insert
+-- CREATE OR REPLACE RULE "insert_ignore_biomass_solid_supply_curve_with_producer_surplus" AS ON INSERT TO "biomass_solid_supply_curve_with_producer_surplus"
+--     WHERE
+--       EXISTS	(SELECT 1 FROM biomass_solid_supply_curve_with_producer_surplus
+--       				WHERE num_breakpoints_per_la_yr=NEW.num_breakpoints_per_la_yr and load_area=NEW.load_area and year=NEW.year and price_dollars_per_mmbtu=NEW.price_dollars_per_mmbtu)
+--     DO INSTEAD (SELECT 1);
+
 
 -- create a function that aggregates the bio supply curve by different price points
 -- with the goal of picking the one with the least producer surplus
@@ -1278,39 +1289,62 @@ select 0 into current_num_breakpoints_per_la_yr;
 
 	select current_num_breakpoints_per_la_yr + 1 into current_num_breakpoints_per_la_yr;
 	RAISE NOTICE 'current_num_breakpoints_per_la_yr is at %',current_num_breakpoints_per_la_yr;
-	
+
+	-- the insidemost select gets the cheapest biomass (min_price_la_yr)
+	-- and the price stepsize as a function of the max and min price (min_price_la_yr)
+	-- tmp_new_breakpoint_table sums up all of the biomass within the desired price range
+	-- ( [min_price_la_yr + ( integer_val - 1 ) * breakpoint_price_step] to [min_price_la_yr + integer_val * breakpoint_price_step])
+	-- and calculates the total cost for biomass within that range.
+	-- This cost will be used to calculate a new price for the aggregated bio supply in the outermost select
 	insert into biomass_solid_supply_curve_with_producer_surplus (num_breakpoints_per_la_yr, load_area, year, price_dollars_per_mmbtu, marginal_mmbtu_per_year, breakpoint_mmbtu_per_year)
-		select	current_num_breakpoints_per_la_yr,
-				load_area,
-				year,
-				total_cost / marginal_mmbtu_new_breakpoint as price_dollars_per_mmbtu,
-				marginal_mmbtu_new_breakpoint as marginal_mmbtu_per_year,
-				breakpoint_mmbtu_new as breakpoint_mmbtu_per_year
-		from
-			(select load_area,
+	select distinct num_breakpoints_per_la_yr, load_area, year, price_dollars_per_mmbtu, marginal_mmbtu_per_year, breakpoint_mmbtu_per_year
+	from (
+			select	current_num_breakpoints_per_la_yr as num_breakpoints_per_la_yr,
+					load_area,
 					year,
-					min_price_la_yr + integer_val * breakpoint_price_step as max_price_in_breakpoint,
-					sum( marginal_mmbtu_per_year ) as marginal_mmbtu_new_breakpoint,
-					sum( marginal_mmbtu_per_year * price_dollars_per_mmbtu ) as total_cost,
-					max( breakpoint_mmbtu_per_year ) as breakpoint_mmbtu_new
-			from 
-				(select generate_series(1,current_num_breakpoints_per_la_yr) as integer_val) as int_table,
-				biomass_solid_supply_curve_breakpoints_prices
-				join
-					(select load_area,
-							year,
-							( max( price_dollars_per_mmbtu ) - min( price_dollars_per_mmbtu ) ) / current_num_breakpoints_per_la_yr as breakpoint_price_step,
-							min( price_dollars_per_mmbtu ) as min_price_la_yr
-						from biomass_solid_supply_curve_breakpoints_prices
-						group by load_area, year
-					) as breakpoint_price_step_table
-				using (load_area, year)
-			where 	price_dollars_per_mmbtu >= min_price_la_yr + ( integer_val - 1 ) * breakpoint_price_step
-			and		price_dollars_per_mmbtu < min_price_la_yr + integer_val * breakpoint_price_step
-			group by load_area, year, max_price_in_breakpoint
-			) as tmp_new_breakpoint_table
+					total_cost / marginal_mmbtu_new_breakpoint as price_dollars_per_mmbtu,
+					marginal_mmbtu_new_breakpoint as marginal_mmbtu_per_year,
+					breakpoint_mmbtu_new as breakpoint_mmbtu_per_year
+			from
+				(select load_area,
+						year,
+						min_price_la_yr + integer_val * breakpoint_price_step as max_price_in_breakpoint,
+						sum( marginal_mmbtu_per_year ) as marginal_mmbtu_new_breakpoint,
+						sum( marginal_mmbtu_per_year * price_dollars_per_mmbtu ) as total_cost,
+						max( breakpoint_mmbtu_per_year ) as breakpoint_mmbtu_new
+				from 
+					(select generate_series(1,current_num_breakpoints_per_la_yr) as integer_val) as int_table,
+					biomass_solid_supply_curve_breakpoints_prices
+					join
+						(select load_area,
+								year,
+								( max( price_dollars_per_mmbtu ) - min( price_dollars_per_mmbtu ) ) / current_num_breakpoints_per_la_yr as breakpoint_price_step,
+								min( price_dollars_per_mmbtu ) as min_price_la_yr
+							from biomass_solid_supply_curve_breakpoints_prices
+							group by load_area, year
+						) as breakpoint_price_step_table
+					using (load_area, year)
+				where 	price_dollars_per_mmbtu >= min_price_la_yr + ( integer_val - 1 ) * breakpoint_price_step
+				and		price_dollars_per_mmbtu < min_price_la_yr + integer_val * breakpoint_price_step
+				group by load_area, year, max_price_in_breakpoint
+				) as tmp_new_breakpoint_table
+		UNION
+		-- the above code won't add the highest price marginal_mmbtu_per_year because it has (price_dollars_per_mmbtu < min_price_la_yr + integer_val * breakpoint_price_step)
+		-- so we add the highest price marginal_mmbtu_per_year to the top of each curve here
+		-- we union to the other select to make the row_ids correct because they're a serial column
+			select	current_num_breakpoints_per_la_yr as num_breakpoints_per_la_yr,
+					load_area,
+					year,
+					price_dollars_per_mmbtu,
+					marginal_mmbtu_per_year,
+					breakpoint_mmbtu_per_year
+			from 	biomass_solid_supply_curve_breakpoints_prices
+			join	(select load_area, year, max(price_dollars_per_mmbtu) as price_dollars_per_mmbtu
+						from biomass_solid_supply_curve_breakpoints_prices group by load_area, year) as max_price_table
+				using (load_area, year, price_dollars_per_mmbtu)
+		) as all_values_for_current_bp_la_yr
 		order by load_area, year, price_dollars_per_mmbtu, marginal_mmbtu_per_year, breakpoint_mmbtu_per_year;
-	
+
 	
 	-- there isn't any producer surplus to add for the first breakpoint, so price_dollars_per_mmbtu_surplus_adjusted = price_dollars_per_mmbtu
 	update biomass_solid_supply_curve_with_producer_surplus
@@ -1391,6 +1425,23 @@ drop function bio_producer_surplus();
 		and		ps.num_breakpoints_per_la_yr = la_yr_bp_levels_to_delete.num_breakpoints_per_la_yr;
 
 
+-- a tiny handful (200 out of hundreds of thousands) of rows have a redundant breakpoint_mmbtu_per_year... remove them here
+delete from biomass_solid_supply_curve_with_producer_surplus
+using					
+			(select row_id from
+			
+				(select 	row_id as row_id_one_level_below,
+								breakpoint_mmbtu_per_year as bp_mmbtu_one_level_below,
+								price_dollars_per_mmbtu as price_one_level_below
+						from 	biomass_solid_supply_curve_with_producer_surplus
+					) as one_below_table, 
+					biomass_solid_supply_curve_with_producer_surplus
+			where 	biomass_solid_supply_curve_with_producer_surplus.row_id = row_id_one_level_below + 1
+			and		price_dollars_per_mmbtu_surplus_adjusted is null
+			and 	breakpoint_mmbtu_per_year = bp_mmbtu_one_level_below
+			) as row_ids_to_delete
+where biomass_solid_supply_curve_with_producer_surplus.row_id = row_ids_to_delete.row_id;
+
 
 -- find the price level one below and calculate the price_dollars_per_mmbtu_surplus_adjusted
 	-- the area of the rectangle of producer surplus from moving from the price below to the current price
@@ -1418,20 +1469,14 @@ update 	biomass_solid_supply_curve_with_producer_surplus
 -- when we find this place, update surplus_error_total_cost with the error this induces
 -- and then move on down the price levels
 
-CREATE OR REPLACE FUNCTION calc_bio_surplus_error_total_cost() RETURNS VOID AS $$
-
-DECLARE current_max_row_id int;
-DECLARE current_min_row_id int;
-DECLARE current_row_id int;
-DECLARE current_price_dollars_per_mmbtu_surplus_adjusted double precision;
-
-BEGIN
-
 drop table if exists row_bp_la_yr_map;
-create temporary table row_bp_la_yr_map(
+create table row_bp_la_yr_map(
 	max_row_id int,
 	min_row_id int primary key,
 	max_price_dollars_per_mmbtu_surplus_adjusted double precision);
+
+CREATE INDEX max_row_id ON row_bp_la_yr_map (max_row_id);
+CREATE INDEX max_min_row_id ON row_bp_la_yr_map (min_row_id, max_row_id);
 
 -- don't include values that only have one breakpoint... they would mess up the loop below and don't have any error anyway
 -- we'll update these rows after the main procedure is done
@@ -1451,6 +1496,17 @@ insert into row_bp_la_yr_map (max_row_id, min_row_id, max_price_dollars_per_mmbt
 	on (max_row_id = row_id)
 	where max_row_id <> min_row_id
 	order by max_row_id;
+
+
+CREATE OR REPLACE FUNCTION calc_bio_surplus_error_total_cost() RETURNS VOID AS $$
+
+DECLARE current_max_row_id int;
+DECLARE current_min_row_id int;
+DECLARE current_row_id int;
+DECLARE current_price_dollars_per_mmbtu_surplus_adjusted double precision;
+
+BEGIN
+
 
 	LOOP
 
@@ -1527,6 +1583,7 @@ $$ LANGUAGE 'plpgsql';
 -- Actually call the function
 SELECT calc_bio_surplus_error_total_cost();
 drop function calc_bio_surplus_error_total_cost();
+drop table if exists row_bp_la_yr_map;
 
 
 
