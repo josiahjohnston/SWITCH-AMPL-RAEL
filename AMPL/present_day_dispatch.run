@@ -15,7 +15,7 @@ let CARBON_COSTS := { carbon_cost };
 let enable_carbon_cap := 0;
 let enable_rps := 0;
 redeclare param rps_fuel_category {FUELS} symbolic;
-let LOAD_AREAS_AND_FUEL_CATEGORY := setof{a in LOAD_AREAS} (a,'na');
+let RPS_AREAS_AND_FUEL_CATEGORY := setof{a in LOAD_AREAS} (a,'na');
 let {f in FUELS} rps_fuel_category[f] := 'na';
 redeclare param rps_fuel_category {FUELS} symbolic in RPS_FUEL_CATEGORY;
 redeclare param problem_basename symbolic := results_path & "sol_present_day_dispatch";
