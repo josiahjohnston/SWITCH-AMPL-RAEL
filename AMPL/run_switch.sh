@@ -32,12 +32,10 @@ function print_help {
 
 # Determine if this is being run in a cluster environment
 if [ -z $(which getid) ]; then cluster=0; else cluster=1; fi;
-# Figure out what platform this is running on and choose the appropriate sed syntax
+# Determine the number of cores available. Different platform require different strategies.
 if [ $(uname) == "Linux" ]; then 
-	sed_in_place_flag="--in-place"; 
 	num_cores=$(grep processor /proc/cpuinfo | wc -l | awk '{print $1}')
 elif [ $(uname) == "Darwin" ]; then 
-	sed_in_place_flag="-i ''"; 
 	num_cores=$(sysctl hw.ncpu | awk '{print $2}')
 else
 	echo "Unknown platform "$(uname); exit; 
@@ -85,7 +83,7 @@ done
 
 # Do cplex optimization if this script is being called as a worker.
 if [ "$is_worker" == 1 ]; then
-	if [ "$cluster" == 1 ]; then worker_id=$(getid | awk '{print $1}'); fi
+	if [ -z "$worker_id" ] && [ "$cluster" == 1 ]; then worker_id=$(getid | awk '{print $1}'); fi
 	
 	if [ -z "$worker_id" ]; then echo "ERROR! worker_id is unspecified."; exit; fi
 	if [ -z "$num_workers" ]; then echo "ERROR! num_workers was not specified."; exit; fi
@@ -112,7 +110,7 @@ if [ "$is_worker" == 1 ]; then
 fi
 
 # Update the number of threads cplex is allowed to use
-[ -n "$threads_per_cplex" ] && sed -e 's/^\(option cplex_options.*\)\(threads=[0-9]*\)\([^0-9].*\)$/\1threads='$threads_per_cplex'\3/' $sed_in_place_flag "load.run"
+[ -n "$threads_per_cplex" ] && sed -i -e 's/^\(option cplex_options.*\)\(threads=[0-9]*\)\([^0-9].*\)$/\1threads='$threads_per_cplex'\3/' "load.run"
 
 # Set up the .qsub files and submit job requests to the queue if this is operating on a cluster
 if [ $cluster == 1 ]; then
@@ -148,26 +146,26 @@ if [ $cluster == 1 ]; then
 		action=$(echo $f | sed -e 's/\.qsub//')
 
 		# Update these default parameters in each qsub file.
-		[ -n "$jobname" ] && sed -e 's/^#PBS -N .*$/#PBS -N '"$jobname-$action"'/' $sed_in_place_flag "$f"
-		[ -n "$email" ] && sed -e 's/^#PBS -M .*$/#PBS -M '"$email"'/' $sed_in_place_flag "$f"
-		sed -e 's|^working_dir=.*$|working_dir="'"$working_directory"'"|' $sed_in_place_flag "$f"
+		[ -n "$jobname" ] && sed -i -e 's/^#PBS -N .*$/#PBS -N '"$jobname-$action"'/' "$f"
+		[ -n "$email" ] && sed -i -e 's/^#PBS -M .*$/#PBS -M '"$email"'/' "$f"
+		sed -i -e 's|^working_dir=.*$|working_dir="'"$working_directory"'"|' "$f"
 	done
 
 	# Fill in the OPTIMIZE qsub file
 	f=optimize.qsub
 	# How many nodes & workers per node.
-	sed -e 's/^#PBS -l nodes=.*$/#PBS -l nodes='"$nodes"':ppn='"$workers_per_node"'/' $sed_in_place_flag "$f"
+	sed -i -e 's/^#PBS -l nodes=.*$/#PBS -l nodes='"$nodes"':ppn='"$workers_per_node"'/' "$f"
 	# Which queue to use. Assume we'll need all of the time the queue can offer
 	if [ -n "$queue" ]; then
 		case "$queue" in
-			express) sed -e 's/^#PBS -l walltime=.*$/#PBS -l walltime=00:30:00/' $sed_in_place_flag "$f" ;;
-			short)   sed -e 's/^#PBS -l walltime=.*$/#PBS -l walltime=06:00:00/' $sed_in_place_flag "$f" ;;
-			normal)  sed -e 's/^#PBS -l walltime=.*$/#PBS -l walltime=24:00:00/' $sed_in_place_flag "$f" ;;
-			long)    sed -e 's/^#PBS -l walltime=.*$/#PBS -l walltime=72:00:00/' $sed_in_place_flag "$f" ;;
-			dkammen) sed -e 's/^#PBS -l walltime=.*$/#PBS -l walltime=168:00:00/' $sed_in_place_flag "$f" ;;
+			express) sed -i -e 's/^#PBS -l walltime=.*$/#PBS -l walltime=00:30:00/' "$f" ;;
+			short)   sed -i -e 's/^#PBS -l walltime=.*$/#PBS -l walltime=06:00:00/' "$f" ;;
+			normal)  sed -i -e 's/^#PBS -l walltime=.*$/#PBS -l walltime=24:00:00/' "$f" ;;
+			long)    sed -i -e 's/^#PBS -l walltime=.*$/#PBS -l walltime=72:00:00/' "$f" ;;
+			dkammen) sed -i -e 's/^#PBS -l walltime=.*$/#PBS -l walltime=168:00:00/' "$f" ;;
 			*) echo "queue option $queue not known. Please read the help message and try again"; print_help; exit ;;
 		esac
-		sed -e 's/^#PBS -q .*$/#PBS -q '"$queue"'/' $sed_in_place_flag "$f"
+		sed -i -e 's/^#PBS -q .*$/#PBS -q '"$queue"'/' "$f"
 	fi
 	
 	echo "Submitting jobs to the scheduler."
