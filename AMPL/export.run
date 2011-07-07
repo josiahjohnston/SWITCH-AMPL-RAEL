@@ -273,7 +273,10 @@ for {c in CARBON_COSTS} {
       
       printf {a in LOAD_AREAS, h in TIMEPOINTS, p in PERIODS: period[h]=p} 
         "%s	%d	%d	%d	%s	%d	%d	%.2f	%.2f	%.2f	%.2f\n",
-        scenario_id, carbon_cost, p, load_area_id[a], a, date[h], h, hours_in_sample[h], system_load[a, h], Satisfy_Load[a, h], Satisfy_Load_Reserve[a, h]
+        scenario_id, carbon_cost, p, load_area_id[a], a,
+		(if present_day_optimization then present_day_date[h] else date[h]),
+        (if present_day_optimization then present_day_timepoint[h] else h),
+         hours_in_sample[h], system_load[a, h], Satisfy_Load[a, h], Satisfy_Load_Reserve[a, h]
         >> (outfile);
       close (outfile);
  

@@ -178,10 +178,10 @@ param fuel_cost_nominal {a in LOAD_AREAS, t in TECHNOLOGIES, p in PERIODS: fuel[
 # biomass supply curve params
 set LOAD_AREAS_AND_BIO_BREAKPOINTS dimen 3;
 
-param num_bio_breakpoints {a in LOAD_AREAS, p in PERIODS} = max( { (la, p, bp) in LOAD_AREAS_AND_BIO_BREAKPOINTS: la = a } bp , 0 );
-param price_dollars_per_mmbtu_surplus_adjusted {a in LOAD_AREAS, p in PERIODS, bp in 1..num_bio_breakpoints[a, p]}
+param num_bio_breakpoints {a in LOAD_AREAS, p in PERIODS_AND_PRESENT} = max( { (la, p, bp) in LOAD_AREAS_AND_BIO_BREAKPOINTS: la = a } bp , 0 );
+param price_dollars_per_mmbtu_surplus_adjusted {a in LOAD_AREAS, p in PERIODS_AND_PRESENT, bp in 1..num_bio_breakpoints[a, p]}
 	>= if bp = 1 then 0 else price_dollars_per_mmbtu_surplus_adjusted[a, p, bp-1];
-param breakpoint_mmbtu_per_year {a in LOAD_AREAS, p in PERIODS, bp in 1..num_bio_breakpoints[a, p]-1}
+param breakpoint_mmbtu_per_year {a in LOAD_AREAS, p in PERIODS_AND_PRESENT, bp in 1..num_bio_breakpoints[a, p]-1}
 	> if bp = 1 then 0 else breakpoint_mmbtu_per_year[a, p, bp-1];
 param breakpoint_mmbtu_per_period {a in LOAD_AREAS, p in PERIODS, bp in 1..num_bio_breakpoints[a, p]-1}
 	= breakpoint_mmbtu_per_year[a, p, bp] * num_years_per_period;

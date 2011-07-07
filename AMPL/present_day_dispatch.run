@@ -21,11 +21,16 @@ redeclare param rps_fuel_category {FUELS} symbolic in RPS_FUEL_CATEGORY;
 redeclare param problem_basename symbolic := results_path & "sol_present_day_dispatch";
 
 # timepoint params used in record_results.run - would be better to reset indexing of timepoints, but I don't know how to do this in AMPL
+# these get a bit complicated because the timepoint and date ids need to have different years
+# such that if the same date from two different years is picked in the investment optimization, the ids will still remain unique here
+# we do this by picking the max_year_simulated_in_each_period, subtracting that off of the timepoint or date id, then adding back in the month/day/hour info
+param max_year_simulated_in_each_period { p in PERIODS } = max { h in TIMEPOINTS: period[h] = p} precision(h, 4) / 1000000;
+let { h in TIMEPOINTS } present_day_timepoint[h] := 1000000 * ( precision(h, 4) / 1000000 - max_year_simulated_in_each_period[period[h]] + present_year ) + h - precision(h, 4);
+let {h in TIMEPOINTS} present_day_date[h] := 10000 * ( precision(date[h], 4) / 10000 - max_year_simulated_in_each_period[period[h]] + present_year ) + date[h] - precision(date[h], 4);
 
-let {h in TIMEPOINTS} present_day_timepoint[h] := 10000000 * ( present_year mod 2000 ) + ( h mod ( 10000000 * ( period[h] mod 2000 ) ) );
-let {h in TIMEPOINTS} present_day_date[h] := 1000000 * ( present_year mod 2000 ) + ( date[h] mod ( 1000000 * ( period[h] mod 2000 ) ) );
 # flag for present day cost optimization to signal record results that we're not looking at the investment optimization
 let present_day_optimization := 1;
+
 # slice and dice the timepoints to make one one-year period with the same timepoints that will be included in the subsequent investment optimization
 param total_number_of_hours_in_investment_optimization = sum {h in TIMEPOINTS} hours_in_sample[h];
 let {h in TIMEPOINTS} hours_in_sample[h] := hours_in_sample[h] * ( 8766 / total_number_of_hours_in_investment_optimization );

@@ -108,7 +108,7 @@ if [ $ExportOnly = 0 ]; then
   # now import all of the non-runtime results
   for file_base_name in gen_cap trans_cap local_td_cap transmission_dispatch system_load existing_trans_cost rps_reduced_cost generator_and_storage_dispatch load_wind_solar_operating_reserve_levels
   do
-   for file_name in `ls $results_dir/${file_base_name}_*txt | grep "[[:digit:]]"` 
+   for file_name in $(ls $results_dir/*${file_base_name}_*txt | grep "[[:digit:]]")
    do
   file_path="$current_dir/$file_name"
   echo "    ${file_name}  ->  ${DB_name}._${file_base_name}"
