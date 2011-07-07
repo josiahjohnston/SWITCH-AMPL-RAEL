@@ -18,8 +18,8 @@ insert into _gen_hourly_summary_tech_la
 
 -- add month and hour_of_day_UTC. 
 update _gen_hourly_summary_tech_la
-set	month = mod(floor(study_hour/100000),100),
-	hour_of_day_UTC = mod(floor(study_hour/1000),100)
+set	month = convert(left(right(study_hour, 6),2), decimal),
+	hour_of_day_UTC = convert(right(study_hour, 2), decimal)
 	where scenario_id = @scenario_id;
 
 
@@ -175,8 +175,8 @@ select 'Creating transmission summaries' as progress;
 
 -- add helpful columns to _transmission_dispatch
 update _transmission_dispatch
-	set month = mod(floor(study_hour/100000),100),
-		hour_of_day_UTC = mod(floor(study_hour/1000),100)
+set	month = convert(left(right(study_hour, 6),2), decimal),
+	hour_of_day_UTC = convert(right(study_hour, 2), decimal)
 	where scenario_id = @scenario_id;
 
 
@@ -353,8 +353,8 @@ insert into co2_cc
 
 -- SYSTEM LOAD ---------------
 update _system_load
-	set month = mod(floor(study_hour/100000),100),
-		hour_of_day_UTC = mod(floor(study_hour/1000),100)
+set	month = convert(left(right(study_hour, 6),2), decimal),
+	hour_of_day_UTC = convert(right(study_hour, 2), decimal)
 	where scenario_id = @scenario_id;
 
 -- add hourly system load aggregated by load area here
