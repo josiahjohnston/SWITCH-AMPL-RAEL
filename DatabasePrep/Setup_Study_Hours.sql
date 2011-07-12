@@ -59,6 +59,20 @@ CREATE OR REPLACE VIEW training_set_timepoints AS
   WHERE area_id = (SELECT MIN(area_id) FROM load_area_info)
 ;
 
+CREATE TABLE IF NOT EXISTS dispatch_test_sets (
+  training_set_id  INT UNSIGNED,
+  test_set_id      INT UNSIGNED,
+  periodnum        TINYINT UNSIGNED,
+  historic_hour    SMALLINT UNSIGNED,
+  timepoint_id     INT UNSIGNED,
+  hours_in_sample  decimal(6,1),
+  UNIQUE (training_set_id, test_set_id, timepoint_id),
+  INDEX (training_set_id, test_set_id, timepoint_id, historic_hour),
+  INDEX (training_set_id, periodnum),
+  CONSTRAINT training_set_id_fk FOREIGN KEY training_set_id_fk (training_set_id)
+    REFERENCES training_sets (training_set_id)
+);
+
 DROP PROCEDURE IF EXISTS prepare_load_exports;
 DELIMITER $$
 CREATE PROCEDURE prepare_load_exports( IN target_training_set_id INT UNSIGNED)
@@ -131,6 +145,8 @@ DROP TABLE IF EXISTS period_cursor;
 DROP TABLE IF EXISTS historic_timepoints_used;
 DROP TABLE IF EXISTS month_cursor;
 DROP TABLE IF EXISTS t_period_years;
+DROP TABLE IF EXISTS incomplete_test_sets;
+DROP TABLE IF EXISTS test_timepoints_per_period;
 
 -- create a tmp table off of which to go through the training sets loop
 create table training_sets_tmp as 
@@ -182,7 +198,7 @@ define_new_training_sets_loop: LOOP
 		SELECT periodnum, period_start + @period_offset + historic_year_factor as sampled_year
 			FROM training_set_periods, (SELECT DISTINCT year(datetime_utc)-@min_historic_year as historic_year_factor from hours JOIN load_scenario_historic_timepoints ON(historic_hour=hournum) WHERE load_scenario_id=@load_scenario_id) as foo
 			WHERE training_set_id = @training_set_id;
-	ALTER TABLE t_period_years ADD INDEX (periodnum), ADD INDEX (sampled_year);
+	ALTER TABLE t_period_years ADD INDEX (periodnum), ADD INDEX (sampled_year), CHANGE COLUMN periodnum periodnum TINYINT(3) UNSIGNED NULL DEFAULT NULL;
 	
 	-- make a list of dates for each period that we will select from
 	CREATE TABLE t_period_populations (
@@ -196,7 +212,6 @@ define_new_training_sets_loop: LOOP
 			FROM _load_projection_daily_summaries JOIN t_period_years ON(YEAR(date_utc) = sampled_year)
 			WHERE num_data_points = @num_load_areas * 24 -- Exclude dates that have incomplete data.
 				AND load_scenario_id=@load_scenario_id ; 
-	DROP TABLE t_period_years;
 
 
 	-- Pick samples for each period. Loop through periods sequentially to avoid picking more than one sample based on the same historic date.
@@ -296,18 +311,60 @@ define_new_training_sets_loop: LOOP
  	DROP TABLE period_cursor;
  	DROP TABLE historic_timepoints_used;
 
+  -- Make test sets to go along with this training set.
+  set @hours_per_test_set := 7*24;
+  set @first_historic_hour := (select min(historic_hour) from load_scenario_historic_timepoints where load_scenario_id=@load_scenario_id);
 
-	-- now we're done with that training set
+  -- Skip entries for the present year for now.
+--  INSERT INTO t_period_years
+--    SELECT NULL, year(now()) + historic_year_factor as sampled_year
+--      FROM (SELECT DISTINCT year(datetime_utc)-@min_historic_year as historic_year_factor from hours JOIN load_scenario_historic_timepoints ON(historic_hour=hournum) WHERE load_scenario_id=@load_scenario_id) as foo;
+  -- Add hourly entries for each distinct historical hour crossed with future periods (and the present)
+  INSERT INTO dispatch_test_sets (training_set_id, test_set_id, periodnum, historic_hour, timepoint_id)
+    SELECT @training_set_id, floor((historic_hour - @first_historic_hour)/@hours_per_test_set), periodnum, historic_hour, timepoint_id
+    FROM load_scenario_historic_timepoints 
+      JOIN study_timepoints USING(timepoint_id) 
+      JOIN t_period_years ON(timepoint_year=sampled_year)
+      JOIN _load_projection_daily_summaries ON(DATE(datetime_utc)=date_utc)
+    WHERE num_data_points = @num_load_areas * 24 AND
+      _load_projection_daily_summaries.load_scenario_id = @load_scenario_id AND
+      load_scenario_historic_timepoints.load_scenario_id = @load_scenario_id;
+  -- Make a list of test sets with incomplete data
+  CREATE TABLE incomplete_test_sets
+    SELECT test_set_id, COUNT(*) as cnt FROM dispatch_test_sets WHERE periodnum=0 AND training_set_id=@training_set_id GROUP BY 1 HAVING cnt != @hours_per_test_set;
+  ALTER TABLE incomplete_test_sets ADD UNIQUE (test_set_id);
+  -- Delete test sets that have incomplete data. 
+  DELETE dispatch_test_sets FROM dispatch_test_sets, incomplete_test_sets 
+    WHERE dispatch_test_sets.training_set_id = @training_set_id AND
+      dispatch_test_sets.test_set_id = incomplete_test_sets.test_set_id;
+  -- Determine how much to weight each test timepoint. 
+  CREATE TABLE test_timepoints_per_period -- Counts how many test timepoints are in each period
+    SELECT periodnum, COUNT(*) as cnt FROM dispatch_test_sets WHERE training_set_id=@training_set_id GROUP BY 1;
+  UPDATE dispatch_test_sets, test_timepoints_per_period
+    SET hours_in_sample = @years_per_period*8764/cnt
+    WHERE dispatch_test_sets.training_set_id = @training_set_id AND
+      dispatch_test_sets.periodnum = test_timepoints_per_period.periodnum;
+  set @present_day_period_length := (select @study_start_year - YEAR(NOW()));
+  UPDATE dispatch_test_sets, test_timepoints_per_period
+    SET hours_in_sample = @present_day_period_length*8764/cnt
+    WHERE dispatch_test_sets.training_set_id = @training_set_id AND
+      dispatch_test_sets.periodnum IS NULL AND 
+      test_timepoints_per_period.periodnum IS NULL;
+
+	-- We're finished processing this training set, so delete it from the work list.
 	delete from training_sets_tmp where training_set_id = @training_set_id;
 			
 	-- Drop the tables that are supposed to be temporary
- 	drop table if exists t_period_populations;
+ 	DROP TABLE IF EXISTS t_period_populations;
+ 	DROP TABLE IF EXISTS incomplete_test_sets;
+ 	DROP TABLE IF EXISTS test_timepoints_per_period;
+	DROP TABLE IF EXISTS t_period_years;
 
 	IF ( (select count(*) from training_sets_tmp) = 0 )
 			THEN LEAVE define_new_training_sets_loop;
 					END IF;
 END LOOP define_new_training_sets_loop;
-drop table training_sets_tmp;
+drop table if exists training_sets_tmp;
 drop table if exists tmonths;
 
 END;
