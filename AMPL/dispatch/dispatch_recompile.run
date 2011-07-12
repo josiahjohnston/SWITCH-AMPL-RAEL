@@ -1,0 +1,23 @@
+if ( file_exists(cost_solution_file) == 0 )
+then {
+  printf "Dispatch solution %s not found.\n", cost_solution_file;
+} else {
+  printf "Loading prior solution from %s.\n", cost_solution_file;
+  problem Dispatch_Only;
+  solution( cost_solution_file );
+  if( solve_result = 'infeasible' ) then {
+    printf "Dispatch-only problem is Infeasible.\n";
+    problem Dispatch_peakers_and_storage;
+    if( file_exists( peaker_solution_file ) == 0 and 
+        file_exists( ( peaker_problem_file & ".nl" ) ) == 0 ) then {
+      printf "Writing problem file to %s\n", ( peaker_problem_file & ".nl" );
+      let curtime := time();
+      write ("b" & peaker_problem_file);
+      printf "%d seconds to recompile and write the problem file.\n", time() - curtime;
+      printf "%d  %d  %s  %d\n", scenario_id, carbon_cost, "Cost_ReCompilation", time() - curtime  >> (solution_times_path);
+      close (solution_times_path);
+    }
+  } else {
+    printf "Dispatch-only problem was feasible.\n";
+  }
+}

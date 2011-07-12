@@ -1,0 +1,24 @@
+echo $(date) >>logs/recompile.log
+echo $(date) >>logs/recompile.err
+
+for ((worker=0; worker<$NUM_WORKERS; worker++)); do
+  prob_num=0
+  probs_path=tmp/compile-${worker}
+  for d in $(ls -1d test_set_*); do
+    if [ $(( $prob_num % $NUM_WORKERS )) -eq $worker ]; then
+      echo "\
+        cd $d; \
+        include dispatch_problem.run; \
+        for {c in CARBON_COSTS} { \
+          let carbon_cost := c; \
+          include dispatch_load_grid.run; \
+          include dispatch_recompile.run; \
+        } \
+        cd ..; \
+        reset;"
+    fi
+  prob_num++
+  done > $probs_path
+  ampl <$probs_path 1>>logs/recompile-${worker}.log 2>>logs/recompile-${worker}.err
+done
+wait

@@ -1,0 +1,9 @@
+problem Dispatch_Only;
+if ( file_exists(cost_solution_file) == 0 and file_exists( ( cost_problem_file & ".nl" ) ) == 0 ) then {
+  printf "Dispatch problem not found on disk for a carbon cost of %d. Writing optimization problem\n", carbon_cost;
+  let curtime := time();
+  write ("b" & cost_problem_file);
+  printf "%d seconds to compile and write the problem file.\n", time() - curtime;
+  printf "%d  %d  %s  %d\n", scenario_id, carbon_cost, "Cost_Compile", time() - curtime  >> (solution_times_path);
+  close (solution_times_path);
+}

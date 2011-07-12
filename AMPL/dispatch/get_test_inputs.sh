@@ -1,144 +1,168 @@
-# Export SWITCH input data from the Switch inputs database into text files that will be read in by AMPL
-# This script assumes that the input database has already been built by the script 'Build WECC Cap Factors.sql'
+#!/bin/bash
+# get_test_inputs.sh
+# SYNOPSIS
+#   ./get_test_inputs.sh
+# DESCRIPTION
+#   Prepare runtime directories and inputs for dispatch-only  verification on hours that 
+# were withheld from the investment/dispatch joint optimization.
+#
+# INPUTS. 
+#  --help                   Print this message
+#  -t | --tunnel            Initiate an ssh tunnel to connect to the database. This won't work if ssh prompts you for your password.
+#  -u [DB Username]
+#  -p [DB Password]
+#  -D [DB name]
+#  -P/--port [port number]
+#  -h [DB server]
+# All arguments are optional.
+
+# This function assumes that the lines at the top of the file that start with a # and a space or tab 
+# comprise the help message. It prints the matching lines with the prefix removed and stops at the first blank line.
+# Consequently, there needs to be a blank line separating the documentation of this program from this "help" function
+function print_help {
+	last_line=$(( $(egrep '^[ \t]*$' -n -m 1 $0 | sed 's/:.*//') - 1 ))
+	head -n $last_line $0 | sed -e '/^#[ 	]/ !d' -e 's/^#[ 	]//'
+}
+
 
 db_server="switch-db1.erg.berkeley.edu"
 DB_name="switch_inputs_wecc_v2_2"
 port=3306
-base_data_dir="/Volumes/Data/switch_dispatch_all_weeks"
+if [ $(hostname | grep 'citris' | wc -l) -gt 0 ]; then
+  base_data_dir="$HOME/shared/data/dispatch"
+else
+  base_data_dir="/Volumes/vtrak/switch_dispatch_all_weeks"
+fi
+if [ ! -d "$base_data_dir" ]; then 
+  echo "Cannot find a base directory for the dispatch inputs at $base_data_dir."
+  exit -1
+fi
+ssh_tunnel=0
 
 ###################################################
 # Detect optional command-line arguments
 help=0
 while [ -n "$1" ]; do
 case $1 in
+  -t | --tunnel)
+    ssh_tunnel=1; shift 1 ;;
   -u)
-    user=$2
-    shift 2
-  ;;
+    user=$2; shift 2 ;;
   -p)
-    password=$2
-    shift 2
-  ;;
+    password=$2; shift 2 ;;
   -P)
-    port=$2
-    shift 2
-  ;;
+    port=$2; shift 2 ;;
   --port)
-    port=$2
-    shift 2
-  ;;
+    port=$2; shift 2 ;;
   -D)
-    DB_name=$2
-    shift 2
-  ;;
+    DB_name=$2; shift 2 ;;
   -h)
-    db_server=$2
-    shift 2
-  ;;
+    db_server=$2; shift 2 ;;
   --help)
-    help=1
-    shift 1
-  ;;
+    print_help; exit 0 ;;
   *)
-    echo "Unknown option $1"
-    help=1
-    shift 1
-  ;;
+    echo "Unknown option $1"; print_help; exit 0 ;;
 esac
 done
 
-if [ $help = 1 ]
-then
-  echo "Usage: $0 [OPTIONS]"
-  echo "  --help                   Print this message"
-  echo "  -u [DB Username]"
-  echo "  -p [DB Password]"
-  echo "  -D [DB name]"
-  echo "  -P/--port [port number]"
-  echo "  -h [DB server]"
-  echo "All arguments are optional. "
-  exit 0
-fi
-
 ##########################
-# Get the user name and password 
+# Get the DB user name and password 
 # Note that passing the password to mysql via a command line parameter is considered insecure
 #	http://dev.mysql.com/doc/refman/5.0/en/password-security.html
+default_user=$(whoami)
 if [ ! -n "$user" ]
 then 
-	echo "User name for MySQL $DB_name on $db_server? "
+	printf "User name for MySQL $DB_name on $db_server [$default_user]? "
 	read user
+	if [ -z "$user" ]; then 
+	  user="$default_user"
+	fi
 fi
 if [ ! -n "$password" ]
 then 
-	echo "Password for MySQL $DB_name on $db_server? "
+	printf "Password for MySQL $DB_name on $db_server? "
 	stty_orig=`stty -g`   # Save screen settings
 	stty -echo            # To keep the password vaguely secure, don't let it show to the screen
 	read password
 	stty $stty_orig       # Restore screen settings
+	echo " "
 fi
 
-connection_string="-h $db_server --port $port -u $user -p$password $DB_name"
-test_connection=`mysql $connection_string --column-names=false -e "select count(*) from existing_plants;"`
+function clean_up {
+  [ $ssh_tunnel -eq 1 ] && kill -9 $ssh_pid # This ensures that the ssh tunnel will be taken down if the program exits abnormally
+  unset password
+}
+
+function is_port_free {
+  target_port=$1
+  if [ $(netstat -ant | \
+         sed -e '/^tcp/ !d' -e 's/^[^ ]* *[^ ]* *[^ ]* *.*[\.:]\([0-9]*\) .*$/\1/' | \
+         sort -g | uniq | \
+         grep $target_port | wc -l) -eq 0 ]; then
+    return 1
+  else
+    return 0
+  fi
+}
+
+#############
+# Try starting an ssh tunnel if requested
+if [ $ssh_tunnel -eq 1 ]; then 
+  echo "Trying to open an ssh tunnel. If it prompts you for your password, this method won't work."
+  local_port=3307
+  is_port_free $local_port
+  while [ $? -eq 0 ]; do
+    local_port=$((local_port+1))
+    is_port_free $local_port
+  done
+  ssh -N -p 22 -c 3des $db_server -L $local_port/$db_server/$port &
+  ssh_pid=$!
+  sleep 1
+  connection_string="-h 127.0.0.1 --port $local_port -u $user -p$password $DB_name"
+  trap "clean_up;" EXIT INT TERM 
+else
+  connection_string="-h $db_server --port $port -u $user -p$password $DB_name"
+fi
+
+# Test the database connection
+test_connection=$(mysql $connection_string --column-names=false -e "show databases;")
 if [ ! -n "$test_connection" ]
 then
 	connection_string=`echo "$connection_string" | sed -e "s/ -p[^ ]* / -pXXX /"`
 	echo "Could not connect to database with settings: $connection_string"
-	exit 0
+	clean_up
+	exit -1
 fi
-
 
 ###########################
 # These next variables determine which input data is used
-
-# get the present year that will make present day cost optimization possible
-present_year=`date "+%Y"`
-
 read SCENARIO_ID < ../scenario_id.txt
-
-REGIONAL_MULTIPLIER_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select regional_cost_multiplier_scenario_id from scenarios where scenario_id=$SCENARIO_ID;")
-REGIONAL_FUEL_COST_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select regional_fuel_cost_scenario_id from scenarios where scenario_id=$SCENARIO_ID;")
-REGIONAL_GEN_PRICE_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select regional_gen_price_scenario_id from scenarios where scenario_id=$SCENARIO_ID;") 
-ENABLE_RPS=$(mysql $connection_string --column-names=false -e "select enable_rps from scenarios where scenario_id=$SCENARIO_ID;")
-DATESAMPLE=`mysql $connection_string --column-names=false -e "select _datesample from scenarios where scenario_id=$SCENARIO_ID;"` 
-number_of_years_per_period=$(mysql $connection_string --column-names=false -e "select (max(period)-min(period))/(count(distinct period) - 1 ) from study_dates_all where $DATESAMPLE;")
-NUM_HISTORIC_YEARS=$(mysql $connection_string --column-names=false -e "select count(distinct year(datetime_utc)) from hours;")
-EXCLUDE_PERIODS=$(mysql $connection_string --column-names=false -e "select exclude_periods from scenarios where scenario_id=$SCENARIO_ID;")
-
+TRAINING_SET_ID=$(mysql $connection_string --column-names=false -e "select training_set_id from scenarios_v2 where scenario_id=$SCENARIO_ID;")
+LOAD_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select load_scenario_id from training_sets where training_set_id=$TRAINING_SET_ID;")
 
 ##########################
 # Make links to the common input files in the parent directory instead of exporting from the DB again
 input_dir="common_inputs"
-if [ ! -d $input_dir ]; then
-	mkdir $input_dir
-fi
-for f in enable_rps.txt load_areas.tab rps_load_area_targets.tab transmission_lines.tab existing_plants.tab proposed_projects.tab competing_locations.tab generator_info.tab fuel_costs.tab fuel_info.tab fuel_qualifies_for_rps.tab misc_params.dat carbon_cap_targets.tab biomass_supply_curve_breakpoint.tab biomass_supply_curve_slope.tab scenario_information.txt; do
-	if [ ! -L $input_dir/$f ]; then
-		ln -s ../../inputs/$f $input_dir/$f
-	fi
+mkdir -p $input_dir
+for f in balancing_areas.tab biomass_supply_curve_breakpoint.tab biomass_supply_curve_slope.tab carbon_cap_targets.tab existing_plants.tab fuel_costs.tab fuel_info.tab fuel_qualifies_for_rps.tab generator_info.tab load_areas.tab max_system_loads.tab misc_params.dat proposed_projects.tab rps_compliance_entity_targets.tab scenario_information.txt transmission_lines.tab; do
+  ln -sf ../../inputs/$f $input_dir/
 done
-f=scenario_id.txt
-if [ ! -L $f ]; then
-	ln -s ../$f .
-fi
-
+for b in InstallGen OperateEPDuringPeriod InstallTrans; do
+  for p in $(cd $input_dir; ls ../../results/$b*); do 
+    ln -sf $p $input_dir/
+  done
+done
+ln -sf ../scenario_id.txt .
 
 ##########################
-# Make directories and gather inputs for each dispatch week.
-for week_num in $(mysql $connection_string --column-names=false -e "select distinct week_num from dispatch_weeks;"); do
-	echo "Week $week_num:"
-	week_path=$(printf "week%.3d" $week_num)
-	if [ ! -d $week_path ]; then
-		mkdir $week_path
-	fi
-	input_dir=$week_path"/inputs"
-	if [ ! -d $input_dir ]; then
-		mkdir $input_dir
-	fi
-	data_dir=$base_data_dir/$week_path
-	if [ ! -d $data_dir ]; then
-		mkdir $data_dir
-	fi
+# Make directories and gather inputs for each dispatch week in the study.
+for test_set_id in $(mysql $connection_string --column-names=false -e "select distinct test_set_id from dispatch_test_sets WHERE training_set_id=$TRAINING_SET_ID;"); do
+	echo "test_set_id $test_set_id:"
+	test_path=$(printf "test_set_%.3d" $test_set_id)
+	input_dir=$test_path"/inputs"
+	data_dir=$base_data_dir/tr_set_$TRAINING_SET_ID/$test_path
+	# Make all the directories and the parent directories if they don't exists. Don't complain if they already exist.
+	mkdir -p $test_path $input_dir $data_dir
 
 	##########################
 	# Make links to the common input files 
@@ -149,81 +173,151 @@ for week_num in $(mysql $connection_string --column-names=false -e "select disti
 	done
 		
 	# Do the same for the code.
-	for f in basicstats.run record_results.run switch.run windsun.run windsun.mod windsun.dat; do
-		if [ ! -L $week_path/$f ]; then
-			ln -s ../../$f $week_path/$f
+	for f in load.run compile.run define_params.run basicstats.run export.run switch.mod switch.dat; do
+		if [ ! -L $test_path/$f ]; then
+			ln -s ../../$f $test_path/$f
 		fi
 	done
-	for f in record_dispatch_sums.run test.run; do
-		if [ ! -L $week_path/$f ]; then
-			ln -s ../$f $week_path/$f
+	for f in $(ls -1 *run); do
+		if [ ! -L $test_path/$f ]; then
+			ln -s ../$f $test_path/$f
 		fi
 	done
 
+	echo "$test_set_id" > $test_path/test_set_id.txt
+
 	###########################
-	# Export data to be read into ampl.
+	# Export data to be read into AMPL.
 	
 	# The general format for the following files is for the first line to be:
 	#	ampl.tab [number of key columns] [number of non-key columns]
 	# col1_name col2_name ...
 	# [rows of data]
-	echo "$week_num" > $week_path/week_num.txt
 
-	SAMPLE_RESTRICTIONS="week_num=$week_num and FIND_IN_SET( period, '$EXCLUDE_PERIODS')=0"
+	SAMPLE_RESTRICTIONS="test_set_id=$test_set_id"
 	INTERMITTENT_PROJECTS_SELECTION="(( avg_cap_factor_percentile_by_intermittent_tech >= 0.75 or cumulative_avg_MW_tech_load_area <= 3 * total_yearly_load_mwh / 8766 or rank_by_tech_in_load_area <= 5 or avg_cap_factor_percentile_by_intermittent_tech is null) and technology <> 'Concentrating_PV')"
 
 	f="study_hours.tab"
 	echo "	$f..."
 	if [ ! -f $data_dir/$f ]; then
 		echo ampl.tab 1 5 > $data_dir/$f
-		mysql $connection_string -e "select study_hour as hour, period, study_date as date, $number_of_years_per_period/$NUM_HISTORIC_YEARS as hours_in_sample, month_of_year, hour_of_day from dispatch_weeks where $SAMPLE_RESTRICTIONS order by 1;" >> $data_dir/$f
+    mysql $connection_string -e "\
+    SELECT \
+      DATE_FORMAT(datetime_utc,'%Y%m%d%H') AS hour, IF(period_start IS NULL, YEAR(NOW()), period_start) as period, \
+      DATE_FORMAT(datetime_utc,'%Y%m%d') AS date, hours_in_sample, \
+      MONTH(datetime_utc) AS month_of_year, HOUR(datetime_utc) as hour_of_day \
+    FROM dispatch_test_sets \
+      JOIN study_timepoints USING (timepoint_id) \
+      LEFT JOIN training_set_periods USING(training_set_id,periodnum) \
+    WHERE training_set_id=$TRAINING_SET_ID AND test_set_id=$test_set_id order by 1" >> $data_dir/$f
 	fi
-	if [ ! -L $input_dir/$f ]; then
-		ln -s $data_dir/$f $input_dir/$f
-	fi
+	[ -L $input_dir/$f ] && rm $input_dir/$f  # Remove the link if it exists. The 
+	ln -s $data_dir/$f $input_dir/$f          # Make a new link
 	
-	
-	# TODO: adopt better load forecasts; this assumes a simple 1.0%/year increase - the amount projected for all of WECC from 2010 to 2018 by the EIA AEO 2008
-	# currently we hit the middle of the period with number_of_years_per_period/2
 	f="system_load.tab"
 	echo "	$f..."
 	if [ ! -f $data_dir/$f ]; then
 		echo ampl.tab 2 2 > $data_dir/$f
-		mysql $connection_string -e "select load_area, study_hour as hour, power(1.01, period + $number_of_years_per_period/2 - year(datetime_utc))*power as system_load, power(1.01, $present_year - year(datetime_utc))*power as present_day_system_load from system_load l join dispatch_weeks h on (h.hournum=l.hour) where $SAMPLE_RESTRICTIONS order by study_hour, load_area;" >> $data_dir/$f
+    mysql $connection_string -e "\
+      SELECT load_area, DATE_FORMAT(datetime_utc,'%Y%m%d%H') as hour, power as system_load, 1 as present_day_system_load \
+        FROM load_projections JOIN dispatch_test_sets USING(timepoint_id) \
+        WHERE training_set_id=$TRAINING_SET_ID AND test_set_id=$test_set_id AND load_scenario_id=$LOAD_SCENARIO_ID ; "  >> $data_dir/$f
 	fi
-	if [ ! -L $input_dir/$f ]; then
-		ln -s $data_dir/$f $input_dir/$f
-	fi
+	[ -L $input_dir/$f ] && rm $input_dir/$f  # Remove the link if it exists
+	ln -s $data_dir/$f $input_dir/$f          # Make a new link
 	
 	f="existing_intermittent_plant_cap_factor.tab"
 	echo "	$f..."
 	if [ ! -f $data_dir/$f ]; then
 		echo ampl.tab 4 1 > $data_dir/$f
-		mysql $connection_string -e "select project_id, load_area, technology, study_hour as hour, cap_factor from  existing_intermittent_plant_cap_factor c join dispatch_weeks h on (h.hournum=c.hour) where $SAMPLE_RESTRICTIONS order by 1,2;" >> $data_dir/$f
+		mysql $connection_string -e "\
+      SELECT project_id, load_area, technology, DATE_FORMAT(datetime_utc,'%Y%m%d%H') as hour, cap_factor \
+      FROM dispatch_test_sets \
+        JOIN study_timepoints USING(timepoint_id)\
+        JOIN existing_intermittent_plant_cap_factor ON(historic_hour=hour)\
+      WHERE training_set_id=$TRAINING_SET_ID AND test_set_id=$test_set_id\
+      order by 1,2;" >> $data_dir/$f
 	fi
-	if [ ! -L $input_dir/$f ]; then
-		ln -s $data_dir/$f $input_dir/$f
-	fi
+	[ -L $input_dir/$f ] && rm $input_dir/$f  # Remove the link if it exists
+	ln -s $data_dir/$f $input_dir/$f          # Make a new link
 	
 	f="hydro_monthly_limits.tab"
 	echo "	$f..."
 	if [ ! -f $data_dir/$f ]; then
 		echo ampl.tab 4 1 > $data_dir/$f
-		mysql $connection_string -e "select project_id, load_area, technology, study_date as date, avg_output from hydro_monthly_limits l, (select distinct week_num, period, study_date, date_utc, month_of_year from dispatch_weeks where $SAMPLE_RESTRICTIONS) d where l.year = year(d.date_utc) and l.month=month(d.date_utc) order by 1, 2, month, year;" >> $data_dir/$f
+		mysql $connection_string -e "\
+    CREATE TEMPORARY TABLE study_dates_export\
+      SELECT distinct \
+        IF(period_start IS NULL, YEAR(NOW()), period_start) as period, \
+        YEAR(hours.datetime_utc) as year, MONTH(hours.datetime_utc) AS month, \
+        DATE_FORMAT(study_timepoints.datetime_utc,'%Y%m%d') AS study_date \
+      FROM dispatch_test_sets \
+        JOIN _load_projections USING (timepoint_id)\
+        JOIN study_timepoints  USING (timepoint_id)\
+        JOIN hours ON(dispatch_test_sets.historic_hour=hournum)\
+        LEFT JOIN training_set_periods USING(training_set_id,periodnum)\
+      WHERE training_set_id=$TRAINING_SET_ID \
+        AND load_scenario_id = $LOAD_SCENARIO_ID\
+        AND test_set_id=$test_set_id\
+      ORDER BY 1,2;\
+    SELECT project_id, load_area, technology, study_date as date, ROUND(avg_output,1) AS avg_output\
+      FROM hydro_monthly_limits \
+        JOIN study_dates_export USING(year, month);" >> $data_dir/$f
 	fi
-	if [ ! -L $input_dir/$f ]; then
-		ln -s $data_dir/$f $input_dir/$f
-	fi
+	[ -L $input_dir/$f ] && rm $input_dir/$f  # Remove the link if it exists
+	ln -s $data_dir/$f $input_dir/$f          # Make a new link
 	
 	f="cap_factor.tab"
 	echo "	$f..."
 	if [ ! -f $data_dir/$f ]; then
 		echo ampl.tab 4 1 > $data_dir/$f
-		mysql $connection_string -e "select project_id, proposed_projects.load_area, proposed_projects.technology, study_hour as hour, cap_factor from _cap_factor_intermittent_sites c join dispatch_weeks h on (h.hournum=c.hour) join proposed_projects using (project_id) join load_area_info using (area_id) where $INTERMITTENT_PROJECTS_SELECTION and $SAMPLE_RESTRICTIONS;" >> $data_dir/$f
+		if [ $LOAD_SCENARIO_ID -lt 10 ]; then 
+      mysql $connection_string -e "\
+      select project_id, load_area, technology, DATE_FORMAT(datetime_utc,'%Y%m%d%H') as hour, cap_factor  \
+        FROM dispatch_test_sets \
+          JOIN study_timepoints USING(timepoint_id)\
+          JOIN _cap_factor_intermittent_sites ON(historic_hour=hour)\
+          JOIN _proposed_projects USING(project_id)\
+          JOIN load_area_info USING(area_id)\
+        WHERE training_set_id=$TRAINING_SET_ID \
+          AND $INTERMITTENT_PROJECTS_SELECTION\
+          AND test_set_id=$test_set_id;" >> $data_dir/$f
+    else
+      mysql $connection_string -e "\
+      select project_id, load_area, technology, DATE_FORMAT(datetime_utc,'%Y%m%d%H') as hour, cap_factor  \
+        FROM dispatch_test_sets \
+          JOIN study_timepoints USING(timepoint_id)\
+          JOIN _cap_factor_intermittent_sites ON(historic_hour=hour)\
+          JOIN _proposed_projects USING(project_id)\
+          JOIN load_area_info USING(area_id)\
+        WHERE training_set_id=$TRAINING_SET_ID \
+          AND $INTERMITTENT_PROJECTS_SELECTION \
+          AND technology_id NOT IN (select technology_id from generator_info WHERE fuel='Solar')\
+          AND test_set_id=$test_set_id;" >> $data_dir/$f
+      # Get solar cap factors from 2005
+      mysql $connection_string -sN -e "\
+      CREATE TEMPORARY TABLE solar_tp_mapping \
+        SELECT distinct historic_hour, historic_hour-8760 as hour_2005 from load_scenario_historic_timepoints WHERE load_scenario_id=$LOAD_SCENARIO_ID; \
+      ALTER TABLE solar_tp_mapping ADD INDEX ( historic_hour, hour_2005 ), ADD INDEX ( hour_2005, historic_hour ); \
+      select project_id, load_area, technology, DATE_FORMAT(datetime_utc,'%Y%m%d%H') as hour, cap_factor  \
+        FROM dispatch_test_sets \
+          JOIN study_timepoints USING(timepoint_id)\
+          JOIN solar_tp_mapping USING (historic_hour) \
+          JOIN _cap_factor_intermittent_sites ON(hour_2005=hour)\
+          JOIN _proposed_projects USING(project_id)\
+          JOIN load_area_info USING(area_id)\
+        WHERE training_set_id=$TRAINING_SET_ID \
+          AND test_set_id=$test_set_id \
+          AND $INTERMITTENT_PROJECTS_SELECTION \
+          AND technology_id IN (select technology_id from generator_info WHERE fuel='Solar');" >> $data_dir/$f
+    fi
 	fi
-	if [ ! -L $input_dir/$f ]; then
-		ln -s $data_dir/$f $input_dir/$f
-	fi
+	[ -L $input_dir/$f ] && rm $input_dir/$f  # Remove the link if it exists
+	ln -s $data_dir/$f $input_dir/$f          # Make a new link
+
+# clean_up
+# exit
 
 done
 
+#clean_up

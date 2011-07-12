@@ -1,0 +1,82 @@
+if( file_exists( peaker_solution_file ) == 1 ) then {
+  problem Dispatch_peakers_and_storage;
+  solution(peaker_solution_file);
+  printf {p in PERIODS} "%d: %.3f additional capacity installed (%.3f peakers, %.3f storage).\n", p, 
+    (sum{(pid, a, t, p) in PROJECT_VINTAGES_ALL: t='Gas_Combustion_Turbine' or storage[t]} (InstallGen[pid, a, t, p] - InstallGen_Init[pid, a, t, p])),
+    (sum{(pid, a, t, p) in PROJECT_VINTAGES_ALL: t='Gas_Combustion_Turbine'} (InstallGen[pid, a, t, p] - InstallGen_Init[pid, a, t, p])),
+    (sum{(pid, a, t, p) in PROJECT_VINTAGES_ALL: storage[t]                } (InstallGen[pid, a, t, p] - InstallGen_Init[pid, a, t, p]));
+} else if ( file_exists(cost_solution_file) == 1 ) then {
+  problem Dispatch_Only;
+  solution( cost_solution_file );
+}
+
+include basicstats.run;
+
+#########################
+# Store the sums of the dispatches for each plant
+let outfile := results_path & sprintf( "dispatch_sums_%d.txt", carbon_cost );
+printf "scenario_id carbon_cost period  project_id  load_area_id  load_area balancing_area test_set_id  technology_id technology  new baseload  cogen storage fuel  fuel_category hours_in_sample power co2_tons  heat_rate fuel_cost carbon_cost_sum variable_o_m	spinning_reserve	quickstart_capacity	total_operating_reserve	spinning_co2_tons	spinning_fuel_cost	spinning_carbon_cost_incurred\n"
+  > (outfile);
+
+# New Plants
+printf { (pid, a, t, p) in PROJECT_VINTAGES: t <> 'Battery_Storage' and sum {h in TIMEPOINTS: period[h] = p} (Power_Produced[pid, a, t, p, h] + Total_Operating_Reserve_Provided[pid, a, t, p, h]) > 0.0001 } 
+  "%s %d  %d  %d  %d  %s  %s  %d  %d  %s  %d  %d  %d  %d  %s  %s  %.2f  %.2f  %.2f  %.2f  %.2f  %.2f  %.2f\n",
+  scenario_id, carbon_cost, p, pid, load_area_id[a], a, balancing_area[a], test_set_id,
+  technology_id[t], t, 1, baseload[t], 0, 0, fuel[t], rps_fuel_category_tech[t], 
+  dispatch_hours_in_sample[p],
+  (sum {h in TIMEPOINTS: period[h] = p} Power_Produced[pid, a, t, p, h] * hours_in_sample[h] ) / hours_per_period[p], 
+  (sum {h in TIMEPOINTS: period[h] = p} Carbon_Emissions[pid, a, t, p, h] * hours_in_sample[h] ) / hours_per_period[p],
+  heat_rate[pid, a, t], 
+  (sum {h in TIMEPOINTS: period[h] = p} Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] ) / hours_per_period[p],
+  (sum {h in TIMEPOINTS: period[h] = p} Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] ) / hours_per_period[p],
+  (sum {h in TIMEPOINTS: period[h] = p} Variable_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] ) / hours_per_period[p],
+  (sum {h in TIMEPOINTS: period[h] = p} Spinning_Reserve_Provided[pid, a, t, p, h] * hours_in_sample[h] ) / hours_per_period[p],
+  (sum {h in TIMEPOINTS: period[h] = p} Quickstart_Capacity_Provided[pid, a, t, p, h] * hours_in_sample[h] ) / hours_per_period[p],
+  (sum {h in TIMEPOINTS: period[h] = p} Total_Operating_Reserve_Provided[pid, a, t, p, h] * hours_in_sample[h] ) / hours_per_period[p],
+  (sum {h in TIMEPOINTS: period[h] = p} Thermal_Spinning_Reserve_Carbon_Emissions[pid, a, t, p, h] * hours_in_sample[h] ) / hours_per_period[p],
+  (sum {h in TIMEPOINTS: period[h] = p} Thermal_Spinning_Reserve_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] ) / hours_per_period[p],
+  (sum {h in TIMEPOINTS: period[h] = p} Thermal_Spinning_Reserve_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] ) / hours_per_period[p]
+  >> (outfile);
+
+
+# Existing Plants
+printf {(pid, a, t, p) in EP_PERIODS: sum {h in TIMEPOINTS: period[h] = p } (ProducePowerEP[pid, a, t, p, h] + Total_Operating_Reserve_Provided[pid, a, t, p, h]) >= 0.001} 
+  "%s %d  %d  %d  %d  %s  %s  %d  %d  %s  %d  %d  %d  %d  %s  %s  %.2f  %.2f  %.2f  %.2f  %.2f  %.2f  %.2f\n",
+  scenario_id, carbon_cost, p, pid, load_area_id[a], a, balancing_area[a], test_set_id,
+  technology_id[t], t, 0, baseload[t], cogen[t], 0, fuel[t], rps_fuel_category_tech[t], 
+  dispatch_hours_in_sample[p],
+  (sum {h in TIMEPOINTS: period[h] = p} ProducePowerEP[pid, a, t, p, h] * hours_in_sample[h] ) / hours_per_period[p], 
+  (sum {h in TIMEPOINTS: period[h] = p} EP_Carbon_Emissions[pid, a, t, p, h] * hours_in_sample[h] ) / hours_per_period[p],
+  ep_heat_rate[pid, a, t], 
+  (sum {h in TIMEPOINTS: period[h] = p} EP_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] ) / hours_per_period[p],
+  (sum {h in TIMEPOINTS: period[h] = p} EP_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] ) / hours_per_period[p],
+  (sum {h in TIMEPOINTS: period[h] = p} EP_Variable_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] ) / hours_per_period[p],
+  (sum {h in TIMEPOINTS: period[h] = p} Spinning_Reserve_Provided[pid, a, t, p, h] * hours_in_sample[h] ) / hours_per_period[p],
+  (sum {h in TIMEPOINTS: period[h] = p} Quickstart_Capacity_Provided[pid, a, t, p, h] * hours_in_sample[h] ) / hours_per_period[p],
+  (sum {h in TIMEPOINTS: period[h] = p} Total_Operating_Reserve_Provided[pid, a, t, p, h] * hours_in_sample[h] ) / hours_per_period[p],
+  (sum {h in TIMEPOINTS: period[h] = p} Thermal_Spinning_Reserve_Carbon_Emissions[pid, a, t, p, h] * hours_in_sample[h] ) / hours_per_period[p],
+  (sum {h in TIMEPOINTS: period[h] = p} Thermal_Spinning_Reserve_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] ) / hours_per_period[p],
+  (sum {h in TIMEPOINTS: period[h] = p} Thermal_Spinning_Reserve_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] ) / hours_per_period[p]
+  >> (outfile);
+
+# Store all STORAGE DISPATCH decisions
+printf {  (pid, a, t, p) in AVAILABLE_VINTAGES, fc in RPS_FUEL_CATEGORY: 
+    storage[t] and ( 
+      (sum {h in TIMEPOINTS: period[h] = p} abs(Storage_Net_Power[pid, a, t, p, h, fc]) ) > 0.01 or
+      (sum {h in TIMEPOINTS: period[h] = p} abs(Total_Storage_Operating_Reserve_Provided[pid, a, t, p, h]) ) > 0.01
+    ) }
+  "%s %d  %d  %d  %d  %s  %s  %d  %d  %s  %d  %d  %d  %d  %s  %s  %.2f  %.2f  %.2f  %.2f  %.2f  %.2f  %.2f\n",
+  scenario_id, carbon_cost, p, pid, load_area_id[a], a, balancing_area[a], test_set_id, 
+  technology_id[t], t, can_build_new[t], 0, 0, 1, 'Storage', fc, dispatch_hours_in_sample[p],
+  (sum {h in TIMEPOINTS: period[h] = p} Storage_Net_Power[pid, a, t, p, h, fc] * hours_in_sample[h] ) / hours_per_period[p],
+  0, 0, 0, 0,
+  (sum {h in TIMEPOINTS: period[h] = p} Storage_Variable_Cost_Incurred_Hourly[pid, a, t, p, h, fc] * hours_in_sample[h] ) / hours_per_period[p],
+  (sum {h in TIMEPOINTS: period[h] = p} Storage_Spinning_Reserve_Provided_by_Fuel_Category[pid, a, t, p, h, fc] * hours_in_sample[h] ) / hours_per_period[p],
+  (sum {h in TIMEPOINTS: period[h] = p} Storage_Quickstart_Capacity_Provided_by_Fuel_Category[pid, a, t, p, h, fc] * hours_in_sample[h] ) / hours_per_period[p],
+  (sum {h in TIMEPOINTS: period[h] = p} Storage_Operating_Reserve_Provided_by_Fuel_Category[pid, a, t, p, h, fc] * hours_in_sample[h] ) / hours_per_period[p],
+  0,
+  0,
+  0
+  >> (outfile);
+
+close(outfile);
