@@ -139,6 +139,11 @@ present_year=`date "+%Y"`
 INTERMITTENT_PROJECTS_SELECTION="(( avg_cap_factor_percentile_by_intermittent_tech >= 0.75 or cumulative_avg_MW_tech_load_area <= 3 * total_yearly_load_mwh / 8766 or rank_by_tech_in_load_area <= 5 or avg_cap_factor_percentile_by_intermittent_tech is null) and technology <> 'Concentrating_PV')"
 
 read SCENARIO_ID < scenario_id.txt
+# Make sure this scenario id is valid.
+if [ $(mysql $connection_string --column-names=false -e "select count(*) from scenarios_v2 where scenario_id=$SCENARIO_ID;") -eq 0 ]; then 
+	echo "ERROR! This scenario id ($SCENARIO_ID) is not in the database. Exiting."
+	exit;
+fi
 
 export REGIONAL_MULTIPLIER_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select regional_cost_multiplier_scenario_id from scenarios_v2 where scenario_id=$SCENARIO_ID;")
 export REGIONAL_FUEL_COST_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select regional_fuel_cost_scenario_id from scenarios_v2 where scenario_id=$SCENARIO_ID;")
