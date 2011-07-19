@@ -236,6 +236,7 @@ CREATE TABLE IF NOT EXISTS _gen_hourly_summary_tech_la (
   INDEX study_hour (study_hour),
   INDEX technology_id (technology_id),
   INDEX area_id (area_id),
+  INDEX fuel_cat_join (scenario_id, period, fuel, technology_id),
   FOREIGN KEY (area_id) REFERENCES load_areas(area_id), 
   FOREIGN KEY (technology_id) REFERENCES technologies(technology_id),
   PRIMARY KEY (scenario_id, carbon_cost, study_hour, area_id, technology_id, fuel)
