@@ -236,7 +236,6 @@ CREATE TABLE IF NOT EXISTS _gen_hourly_summary_tech_la (
   INDEX study_hour (study_hour),
   INDEX technology_id (technology_id),
   INDEX area_id (area_id),
-  INDEX fuel_cat_join (scenario_id, period, fuel, technology_id),
   FOREIGN KEY (area_id) REFERENCES load_areas(area_id), 
   FOREIGN KEY (technology_id) REFERENCES technologies(technology_id),
   PRIMARY KEY (scenario_id, carbon_cost, study_hour, area_id, technology_id, fuel)
@@ -697,6 +696,26 @@ CREATE OR REPLACE VIEW transmission_avg_directed as
   SELECT scenario_id, carbon_cost, period, transmission_line_id, load_area_start as load_area_from, load_area_end as load_area_receive, start_id as send_id, end_id as receive_id, directed_trans_avg
     FROM _transmission_avg_directed join transmission_lines using(transmission_line_id);
 		
+
+CREATE TABLE IF NOT EXISTS _consume_and_redirect_variables (
+  scenario_id int,
+  carbon_cost smallint,
+  period year,
+  area_id smallint,
+  study_date int,
+  study_hour int,
+  hours_in_sample double,
+  rps_fuel_category varchar(20),
+  consume_nondistributed_power double,
+  consume_distributed_power double,
+  redirect_distributed_power double,
+  INDEX carbon_cost (carbon_cost),
+  INDEX period (period),
+  INDEX study_hour (study_hour),
+  INDEX area_id (area_id),
+  INDEX rps_fuel_category (rps_fuel_category),
+  PRIMARY KEY (scenario_id, carbon_cost, period, study_hour, area_id, rps_fuel_category)
+) ROW_FORMAT=FIXED;
 
 CREATE TABLE IF NOT EXISTS _system_load (
   scenario_id int,

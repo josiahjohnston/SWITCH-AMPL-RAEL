@@ -264,19 +264,36 @@ for {c in CARBON_COSTS} {
       close (outfile);
       
       #######################
-      # system LOAD
+      # system LOAD and consume/redirect variables
       let output_section := 'system_load';
       let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
       if ( file_exists(outfile) == 0 ) then {
       printf "scenario_id	carbon_cost	period	load_area_id	load_area	date	hour	hours_in_sample	power	satisfy_load_reduced_cost	satisfy_load_reserve_reduced_cost\n"
         > (outfile); }
       
+	  # system load first
       printf {a in LOAD_AREAS, h in TIMEPOINTS, p in PERIODS: period[h]=p} 
         "%s	%d	%d	%d	%s	%d	%d	%.2f	%.2f	%.2f	%.2f\n",
         scenario_id, carbon_cost, p, load_area_id[a], a,
 		(if present_day_optimization then present_day_date[h] else date[h]),
         (if present_day_optimization then present_day_timepoint[h] else h),
          hours_in_sample[h], system_load[a, h], Satisfy_Load[a, h], Satisfy_Load_Reserve[a, h]
+        >> (outfile);
+      close (outfile);
+
+      # consume/redirect variables second
+      let output_section := 'consume_and_redirect_variables';
+      let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
+      if ( file_exists(outfile) == 0 ) then {
+      printf "scenario_id	carbon_cost	period	load_area_id	load_area	date	hour	hours_in_sample	fuel_category	consume_nondistributed_power	consume_distributed_power	redirect_distributed_power\n"
+        > (outfile); }
+  
+      printf {a in LOAD_AREAS, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY} 
+        "%s	%d	%d	%d	%s	%d	%d	%d	%s	%.2f	%.2f	%.2f\n",
+        scenario_id, carbon_cost, period[h], load_area_id[a], a,
+		(if present_day_optimization then present_day_date[h] else date[h]),
+        (if present_day_optimization then present_day_timepoint[h] else h),
+         hours_in_sample[h], fc, ConsumeNonDistributedPower[a, h, fc], ConsumeDistributedPower[a, h, fc], RedirectDistributedPower[a, h, fc]
         >> (outfile);
       close (outfile);
  
