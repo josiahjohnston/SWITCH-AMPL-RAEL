@@ -16,11 +16,6 @@
 # 	--email foo@berkeley.edu Send emails on the job progress to this email
 # 	--jobname foo_bar        Give the job this name
 # 	--queue long             Put this in the specified queue. Available queues are express, short, normal and long with maximum runtimes of 30 minutes, 6 hours, 24 hours and 72 hours. 
-# INPUTS INTENDED FOR INTERNAL USAGE
-# 	--is_worker              If this is specified, then this script is being executed as a worker and will perform optimization for certain carbon costs based on the workerid. 
-# 	--worker N               Used with is_worker in a non-cluster environment with a fork to indicate the worker id of the child process
-# 	--problems "results/prob1 results/prob2" 
-# 	                         Lists the base filename of the optimization problems that need to be divided among workers
 
 # This function assumes that the lines at the top of the file that start with a # and a space or tab 
 # comprise the help message. It prints the matching lines with the prefix removed and stops at the first blank line.
@@ -79,35 +74,6 @@ done
 # Make directories for logs & results if they don't already exist
 [ -d logs ] || mkdir logs
 [ -d results ] || mkdir results
-
-
-# Do cplex optimization if this script is being called as a worker.
-if [ "$is_worker" == 1 ]; then
-	if [ -z "$worker_id" ] && [ "$cluster" == 1 ]; then worker_id=$(getid | awk '{print $1}'); fi
-	
-	if [ -z "$worker_id" ]; then echo "ERROR! worker_id is unspecified."; exit; fi
-	if [ -z "$num_workers" ]; then echo "ERROR! num_workers was not specified."; exit; fi
-	if [ -z "$problems" ]; then echo "ERROR! problems was not specified."; exit; fi
-
-	cplex_options=$(sed -e "s/^[^']*'\([^']*\)'.*$/\1/" results/cplex_options)
-	scenario_id=$(grep 'scenario_id' inputs/misc_params.dat | sed 's/[^0-9]//g')
-	prob_number=-1
-	printf "problems is '$problems'\n";
-	for base_name in $problems; do
-		prob_number=$(($prob_number+1))
-		# Skip this problem if there is an available solution.
-		if [ -f $base_name".sol" ]; then continue; fi
-		# Skip this problem if it doesn't match up with this worker id
-		if [ $(( $prob_number % $num_workers )) -ne $worker_id ]; then continue; fi
-		# Otherwise, solve this problem
-		carbon_cost=$(echo "$base_name" | sed -e 's_^.*[^0-9]\([0-9][0-9]*\)[^/]*$_\1_')
-		log_base="logs/cplex_optimization_"$carbon_cost"_"$(date +'%m_%d_%H_%M_%S')
-		printf "About to run cplex. \n\tLogs are ${log_base}_cplex...\n\tcommand is: cplexamp $base_name -AMPL \"$cplex_options\"\n"
-		runtime=$((time -p cplexamp $base_name -AMPL "$cplex_options" 1>>$log_base"_cplex.log" 2>>$log_base"_cplex.error_log" )2>&1 | grep real | awk '{print $2}')
-		printf "$scenario_id\t$carbon_cost\tcplex_optimize\t"$(date +'%s')"\t$runtime\n" >> "$runtime_path"
-	done
-	exit
-fi
 
 # Update the number of threads cplex is allowed to use
 [ -n "$threads_per_cplex" ] && sed -i -e 's/^\(option cplex_options.*\)\(threads=[0-9]*\)\([^0-9].*\)$/\1threads='$threads_per_cplex'\3/' "load.run"
@@ -199,8 +165,7 @@ log_base="logs/worker_"$(date +'%m_%d_%H_%M_%S')
 pids=''
 printf "Worker pids are: "
 for ((i=0; i<$num_workers; i++)); do
-#	printf "./run_switch.sh --is_worker --num_workers $num_workers --worker $i --problems '$problems'\n"
-	./run_switch.sh --is_worker --num_workers $num_workers --worker $i --problems "$problems" 1>$log_base"-$i.log" 2>$log_base"-$i.log" &
+	./cplex_worker.sh --num_workers $num_workers --worker $i --problems "$problems" 1>$log_base"-$i.log" 2>$log_base"-$i.log" &
 	pids[$i]=$!
 	printf "%d " ${pids[$i]}
 done
