@@ -795,15 +795,112 @@ CREATE TABLE IF NOT EXISTS sum_hourly_weights_per_period_table (
 
 
 
+CREATE TABLE IF NOT EXISTS carbon_intensity_of_electricity (
+  scenario_id int,
+  carbon_cost smallint,
+  period year,
+  area_id smallint NOT NULL, 
+  total_emissions double,
+  carbon_intensity double,
+  PRIMARY KEY (scenario_id, carbon_cost, period, area_id),
+  FOREIGN KEY (area_id) REFERENCES load_areas(area_id)
+);
+
+CREATE TABLE IF NOT EXISTS fuel_categories (
+  fuel_category_id tinyint unsigned NOT NULL PRIMARY KEY AUTO_INCREMENT,
+  fuel_category VARCHAR(64) NOT NULL,
+  UNIQUE (fuel_category)
+) ROW_FORMAT=FIXED;
+
+CREATE TABLE IF NOT EXISTS fuel_category_definitions (
+  fuel_category_id tinyint unsigned NOT NULL,
+  scenario_id int NOT NULL,
+  period year NOT NULL,
+  technology_id tinyint unsigned NOT NULL, 
+  fuel VARCHAR(64) NOT NULL,
+  PRIMARY KEY (fuel_category_id, scenario_id, period, technology_id, fuel),
+  FOREIGN KEY (fuel_category_id) REFERENCES fuel_categories(fuel_category_id),
+  FOREIGN KEY (technology_id) REFERENCES technologies(technology_id)
+) ROW_FORMAT=FIXED;
+
+
+CREATE TABLE IF NOT EXISTS _gen_hourly_summary_fc_la (
+  scenario_id int,
+  carbon_cost smallint,
+  period year,
+  area_id smallint NOT NULL, 
+  study_date int,
+  study_hour int,
+  hours_in_sample double,
+  fuel_category_id tinyint unsigned NOT NULL,
+  storage boolean NOT NULL,
+  power double NOT NULL default 0,
+  total_co2_tons double NOT NULL default 0,
+  INDEX scenario_id (scenario_id),
+  INDEX carbon_cost (carbon_cost),
+  INDEX period (period),
+  INDEX study_hour (study_hour),
+  INDEX study_date (study_date),
+  INDEX area_id (area_id),
+  INDEX (scenario_id, carbon_cost, study_hour, area_id, fuel_category_id, storage, power),
+  FOREIGN KEY (area_id) REFERENCES load_areas(area_id), 
+  FOREIGN KEY (fuel_category_id) REFERENCES fuel_categories(fuel_category_id),
+  PRIMARY KEY (scenario_id, carbon_cost, study_hour, area_id, fuel_category_id, storage)
+) ROW_FORMAT=FIXED;
+
+CREATE TABLE IF NOT EXISTS hourly_la_emission_stocks (
+  fuel_category_id tinyint unsigned NOT NULL,
+  scenario_id int NOT NULL,
+  carbon_cost smallint,
+  area_id smallint NOT NULL, 
+  study_hour int,
+  study_date int,
+  iteration smallint NOT NULL, 
+  gross_emissions double NOT NULL DEFAULT 0,
+  net_emissions double NOT NULL DEFAULT 0,
+  generated_emissions double NOT NULL DEFAULT 0,
+  gross_power double DEFAULT 0,
+  net_power double NOT NULL default 0,
+  INDEX (scenario_id, carbon_cost, study_date, area_id, fuel_category_id, iteration),
+  FOREIGN KEY (area_id) REFERENCES load_areas(area_id), 
+  FOREIGN KEY (fuel_category_id) REFERENCES fuel_categories(fuel_category_id),
+  PRIMARY KEY (scenario_id, carbon_cost, study_hour, area_id, fuel_category_id, iteration)
+);
+
+CREATE TABLE IF NOT EXISTS carbon_intensity_timing (
+  scenario_id int NOT NULL,
+  num_carbon_costs smallint,
+  iteration smallint NOT NULL, 
+  storage_time TIME,
+  la_time TIME,
+  PRIMARY KEY (scenario_id, iteration)
+);
+
+CREATE TABLE IF NOT EXISTS daily_storage_emission_stocks (
+  fuel_category_id tinyint unsigned NOT NULL,
+  scenario_id INT NOT NULL,
+  carbon_cost smallint,
+  area_id smallint NOT NULL, 
+  study_date int,
+  iteration smallint NOT NULL, 
+  emissions double default 0,
+  total_power_released double default 0,
+  total_power_stored double default 0,
+  FOREIGN KEY (area_id) REFERENCES load_areas(area_id), 
+  FOREIGN KEY (fuel_category_id) REFERENCES fuel_categories(fuel_category_id),
+  PRIMARY KEY (scenario_id, carbon_cost, study_date, area_id, fuel_category_id, iteration)
+);
+
+
 -- create a procedure that clears all results for the scenario target_scenario_id
 -- by finding all columns in the results database with a scenario_id column
 -- and deleteing all entries for the target_scenario_id
-	DROP PROCEDURE IF EXISTS clear_scenario_results;
-	
-	delimiter $$
-	create procedure clear_scenario_results
-		(IN target_scenario_id int) 
-	BEGIN
+DROP PROCEDURE IF EXISTS clear_scenario_results;
+
+delimiter $$
+create procedure clear_scenario_results
+  (IN target_scenario_id int) 
+BEGIN
 	
 	-- query the inner workings of mysql for a list of tables to clear
 	drop table if exists tables_to_clear;
@@ -846,7 +943,268 @@ CREATE TABLE IF NOT EXISTS sum_hourly_weights_per_period_table (
 
 	select 'Finished Clearing Results' as progress;
 	
-	END;
-	$$
-	delimiter ;
+END;
+$$
+delimiter ;
 
+
+-- A procedure to calculate the carbon intensity of electricity for each load area.
+DROP PROCEDURE IF EXISTS calc_carbon_intensity;
+DELIMITER $$
+CREATE PROCEDURE calc_carbon_intensity(IN target_scenario_id INT)
+BEGIN
+  DECLARE round INT;
+  DECLARE max_round INT;
+  DECLARE num_carbon_costs INT;
+  DECLARE storage_time TIME;
+  DECLARE la_time TIME;
+  DECLARE start_time DATETIME;  
+  DECLARE convergence_threshold float;
+
+  SET convergence_threshold = 0.01;  
+  SET num_carbon_costs = (SELECT COUNT( DISTINCT carbon_cost ) FROM gen_cap_summary_fuel WHERE scenario_id=target_scenario_id);
+
+  -- Clear out any old results
+  DELETE FROM hourly_la_emission_stocks WHERE scenario_id = target_scenario_id;
+  DELETE FROM daily_storage_emission_stocks WHERE scenario_id = target_scenario_id;
+  DELETE FROM carbon_intensity_timing WHERE scenario_id = target_scenario_id;
+
+  -- Calculate total emissions for each study date / fc
+  DROP TABLE IF EXISTS daily_wecc_emissions;
+  CREATE TABLE daily_wecc_emissions
+    SELECT scenario_id, carbon_cost, study_date, SUM(total_co2_tons) AS total_daily_emissions
+      FROM _gen_hourly_summary_fc_la
+      WHERE scenario_id = target_scenario_id
+      GROUP BY scenario_id, carbon_cost, study_date;
+  ALTER TABLE daily_wecc_emissions ADD PRIMARY KEY (scenario_id, carbon_cost, study_date);
+  
+  -- ROUND 0: Emissions assigned to load areas they originate in
+  SET round = 0;
+  SET max_round = 100;
+  SET start_time = NOW();
+
+  -- Calculate gross power available for each fuel category in each load area and hour.
+  
+  -- Start the running total with locally-produced power.
+  INSERT INTO hourly_la_emission_stocks ( fuel_category_id, scenario_id, carbon_cost, area_id, study_hour, study_date, iteration, gross_power, generated_emissions )
+    SELECT fuel_category_id, scenario_id, carbon_cost, area_id, study_hour, study_date, round as iteration, SUM(power), SUM(total_co2_tons)
+      FROM _gen_hourly_summary_fc_la
+      WHERE scenario_id = target_scenario_id AND power > 0
+      GROUP BY fuel_category_id, scenario_id, carbon_cost, area_id, study_hour;
+  
+  -- Tally power received from transmission
+  DROP TABLE IF EXISTS trans_received;
+  CREATE TABLE trans_received
+    SELECT fuel_category_id, scenario_id, carbon_cost, receive_id as area_id, study_hour, study_date, SUM(power_received) AS trans_power_received
+      FROM _transmission_dispatch 
+        JOIN fuel_categories ON(fuel_category = rps_fuel_category)
+      WHERE scenario_id = target_scenario_id
+      GROUP BY fuel_category_id, scenario_id, carbon_cost, area_id, study_hour;
+  ALTER TABLE trans_received ADD PRIMARY KEY (fuel_category_id, scenario_id, carbon_cost, area_id, study_hour);
+  
+  -- Update the running total with power received from transmission. Add rows that aren't in the table yet, and update rows that already exist
+  INSERT INTO hourly_la_emission_stocks ( fuel_category_id, scenario_id, carbon_cost, area_id, study_hour, study_date, iteration, gross_power )
+    SELECT fuel_category_id, scenario_id, carbon_cost, area_id, study_hour, study_date, round as iteration, 
+      trans_power_received
+      FROM trans_received
+      WHERE scenario_id = target_scenario_id
+    ON DUPLICATE KEY UPDATE 
+      gross_power = gross_power + trans_power_received;
+  
+  -- Tally power sent out on transmission lines
+  DROP TABLE IF EXISTS trans_sent;
+  CREATE TABLE trans_sent
+    SELECT fuel_category_id, scenario_id, carbon_cost, send_id as area_id, study_hour, SUM(power_sent) AS trans_power_sent
+      FROM _transmission_dispatch 
+        JOIN fuel_categories ON(fuel_category = rps_fuel_category)
+      WHERE scenario_id = target_scenario_id
+      GROUP BY fuel_category_id, scenario_id, carbon_cost, area_id, study_hour;
+  ALTER TABLE trans_sent ADD PRIMARY KEY (fuel_category_id, scenario_id, carbon_cost, area_id, study_hour);
+  
+  -- Tally the power sent to storage
+  DROP TABLE IF EXISTS power_stored;
+  CREATE TABLE power_stored
+    SELECT fuel_category_id, scenario_id, carbon_cost, area_id, study_hour, SUM(power) AS power_stored
+      FROM _gen_hourly_summary_fc_la
+      WHERE scenario_id = target_scenario_id AND power < 0
+      GROUP BY fuel_category_id, scenario_id, carbon_cost, area_id, study_hour;
+  ALTER TABLE power_stored ADD PRIMARY KEY (fuel_category_id, scenario_id, carbon_cost, area_id, study_hour);
+  
+  -- Calculate net power from gross power, storage, and transmission out. Also set gross & net emissions to an initial value of locally-generated emissions.
+  UPDATE hourly_la_emission_stocks 
+      LEFT JOIN trans_sent USING(fuel_category_id, scenario_id, carbon_cost, area_id, study_hour)
+      LEFT JOIN power_stored USING(fuel_category_id, scenario_id, carbon_cost, area_id, study_hour)
+    SET net_power = gross_power + COALESCE(power_stored, 0) - COALESCE(trans_power_sent, 0), -- This use of the COALESCE function will replace the variable with 0 when it is NULL
+      gross_emissions = generated_emissions, net_emissions = generated_emissions
+    WHERE scenario_id = target_scenario_id
+      AND iteration=round;
+
+  -- Delete any entries with 0 gross power that snuck in.
+  DELETE FROM hourly_la_emission_stocks
+    WHERE gross_power = 0 and scenario_id = target_scenario_id;
+  SET la_time = TIMEDIFF(NOW(), start_time); -- Record timing info
+
+  -- Update storage emissions. Storage gets the emissions from its load area/fuel category over the whole day
+  SET start_time = NOW();
+  -- Calculate the total power released from storage over a day for each load area and study date
+  DROP TABLE IF EXISTS daily_storage_power_released;
+  CREATE TEMPORARY TABLE daily_storage_power_released 
+    SELECT fuel_category_id, scenario_id, carbon_cost, area_id, study_date, SUM(power) AS total_power_released, 0 AS total_power_stored
+    FROM _gen_hourly_summary_fc_la 
+    WHERE scenario_id = target_scenario_id AND storage = 1 AND power > 0
+    GROUP BY fuel_category_id, scenario_id, carbon_cost, area_id, study_date;
+  ALTER TABLE daily_storage_power_released ADD PRIMARY KEY ( fuel_category_id, scenario_id, carbon_cost, area_id, study_date);
+  INSERT INTO daily_storage_power_released (fuel_category_id, scenario_id, carbon_cost, area_id, study_date, total_power_released, total_power_stored)
+    SELECT fuel_category_id, scenario_id, carbon_cost, area_id, study_date, NULL AS total_power_released, SUM(-1*power) AS total_power_stored
+    FROM _gen_hourly_summary_fc_la 
+    WHERE scenario_id = target_scenario_id AND storage = 1 AND power < 0
+    GROUP BY fuel_category_id, scenario_id, carbon_cost, area_id, study_date
+  ON DUPLICATE KEY UPDATE 
+    total_power_stored = VALUES(total_power_stored);
+  
+  -- This sets the initial carbon emissions going into storage.
+  -- The gross_emissions for the first iteration is a low estimate as we haven't calculated any total emissions for transmission yet, so the power for which we have emissions at the start is just the locally generated power
+  INSERT INTO daily_storage_emission_stocks (fuel_category_id, scenario_id, carbon_cost, area_id, study_date, iteration, total_power_released, total_power_stored, emissions)
+    SELECT fuel_category_id, scenario_id, carbon_cost, area_id, hourly_la_emission_stocks.study_date, iteration, total_power_released, total_power_stored, 
+      SUM( gross_emissions * -1 * _gen_hourly_summary_fc_la.power / gross_power )
+    FROM hourly_la_emission_stocks
+      JOIN _gen_hourly_summary_fc_la    USING (fuel_category_id, scenario_id, carbon_cost, area_id, study_hour)
+      JOIN daily_storage_power_released USING (fuel_category_id, scenario_id, carbon_cost, area_id)
+    WHERE iteration = round 
+      AND scenario_id = target_scenario_id
+      AND storage = 1
+      AND gross_power > 0
+      AND _gen_hourly_summary_fc_la.power < 0
+      AND daily_storage_power_released.study_date = hourly_la_emission_stocks.study_date
+    GROUP BY fuel_category_id, scenario_id, carbon_cost, area_id, study_date, iteration, total_power_released, total_power_stored
+  ;
+  SET storage_time = TIMEDIFF(NOW(), start_time);
+  INSERT INTO carbon_intensity_timing (scenario_id, num_carbon_costs, iteration, storage_time, la_time)
+    VALUES (target_scenario_id, num_carbon_costs, round, storage_time, la_time);
+
+  DROP TABLE IF EXISTS release_from_storage;
+  CREATE TABLE release_from_storage
+    SELECT fuel_category_id, scenario_id, carbon_cost, area_id, study_hour, power
+    FROM _gen_hourly_summary_fc_la
+    WHERE scenario_id = target_scenario_id
+      AND storage = 1
+      AND power > 0;
+  ALTER TABLE release_from_storage ADD PRIMARY KEY (fuel_category_id, scenario_id, carbon_cost, area_id, study_hour);
+  
+  DROP TABLE IF EXISTS put_into_storage;
+  CREATE TABLE put_into_storage
+    SELECT fuel_category_id, scenario_id, carbon_cost, area_id, study_hour, power
+    FROM _gen_hourly_summary_fc_la
+    WHERE scenario_id = target_scenario_id
+      AND storage = 1
+      AND power < 0;
+  ALTER TABLE put_into_storage ADD PRIMARY KEY (fuel_category_id, scenario_id, carbon_cost, area_id, study_hour);
+
+  
+  -- ROUNDS 1 through N
+  -- ..repeat until we reach convergence or get tired of waiting. 
+  WHILE round < max_round DO
+    SET round = round + 1;
+    
+    
+    -- ROUND X: Update a load area's emissions based on imports & exports to other load areas and storage. 
+    SET start_time = NOW();
+    
+    -- Tally embedded emissions transfered into each load area
+    DROP TABLE IF EXISTS emissions_received_via_tx;
+    CREATE TABLE emissions_received_via_tx
+      SELECT fuel_category_id, scenario_id, carbon_cost, receive_id as area_id, study_hour, 
+        SUM( gross_emissions * power_sent / gross_power ) AS emissions_received
+      FROM _transmission_dispatch 
+        JOIN fuel_categories ON(fuel_category = rps_fuel_category)
+        JOIN hourly_la_emission_stocks USING (fuel_category_id, scenario_id, carbon_cost, study_hour)
+      WHERE scenario_id = target_scenario_id
+        AND area_id = send_id
+        AND iteration = round - 1
+      GROUP BY fuel_category_id, scenario_id, carbon_cost, receive_id, study_hour;
+    ALTER TABLE emissions_received_via_tx ADD PRIMARY KEY (fuel_category_id, scenario_id, carbon_cost, area_id, study_hour);
+
+    INSERT INTO hourly_la_emission_stocks (fuel_category_id, scenario_id, carbon_cost, area_id, study_hour, study_date, iteration, gross_power, net_power, generated_emissions, gross_emissions, net_emissions)
+      SELECT fuel_category_id, scenario_id, carbon_cost, area_id, study_hour, hourly_la_emission_stocks.study_date, round as iteration, gross_power, net_power, generated_emissions, 
+        ( -- GROSS emissions
+          -- Emissions from locally-generated power
+          generated_emissions   
+            -- Emissions for power released from storage
+          + COALESCE(daily_storage_emission_stocks.emissions,0) * COALESCE(released.power,0) / COALESCE(total_power_released, 1)
+            -- Emissions embedded in transmission. If no power was sent or received in this load hour, the COALESCE function will change the NULL value to a 0.
+          + COALESCE(emissions_received, 0)
+        ) as gross_emissions, 
+        ( -- NET emissions
+          -- Emissions from locally-generated power
+          generated_emissions   
+            -- Emissions for power released from storage
+          + COALESCE(daily_storage_emission_stocks.emissions,0) * COALESCE(released.power,0) / COALESCE(total_power_released, 1)
+            -- Emissions embedded in transmission. If no power was sent or received in this load hour, the COALESCE function will change the NULL value to a 0.
+          + COALESCE(emissions_received, 0)
+        ) * net_power / gross_power as net_emissions
+      FROM hourly_la_emission_stocks
+        LEFT JOIN daily_storage_emission_stocks      USING (fuel_category_id, scenario_id, carbon_cost, area_id, study_date, iteration) -- Storage's embedded emissions and power released over each day
+        LEFT JOIN release_from_storage released      USING (fuel_category_id, scenario_id, carbon_cost, area_id, study_hour) -- Energy released from storage
+        LEFT JOIN emissions_received_via_tx          USING (fuel_category_id, scenario_id, carbon_cost, area_id, study_hour) -- Transmission recieved
+      WHERE scenario_id = target_scenario_id
+        AND iteration = round - 1
+        AND gross_power > 0;
+    SET la_time = TIMEDIFF(NOW(), start_time);
+
+
+    -- Update storage emissions. Storage gets the emissions from its load area/fuel category over the whole day
+    SET start_time = NOW();
+    INSERT INTO daily_storage_emission_stocks (fuel_category_id, scenario_id, carbon_cost, area_id, study_date, iteration, total_power_released, total_power_stored, emissions)
+      SELECT fuel_category_id, scenario_id, carbon_cost, area_id, hourly_la_emission_stocks.study_date, iteration, total_power_released, total_power_stored, 
+        SUM( gross_emissions * -1 * _gen_hourly_summary_fc_la.power / gross_power )
+      FROM hourly_la_emission_stocks
+        JOIN _gen_hourly_summary_fc_la  USING (fuel_category_id, scenario_id, carbon_cost, area_id, study_hour)
+        JOIN daily_storage_power_released USING (fuel_category_id, scenario_id, carbon_cost, area_id)
+      WHERE hourly_la_emission_stocks.iteration = round 
+        AND scenario_id = target_scenario_id
+        AND storage = 1
+        AND gross_power > 0
+        AND _gen_hourly_summary_fc_la.power < 0
+        AND daily_storage_power_released.study_date = hourly_la_emission_stocks.study_date
+      GROUP BY fuel_category_id, scenario_id, carbon_cost, area_id, study_date, iteration, total_power_released, total_power_stored
+    ;
+    SET storage_time = TIMEDIFF(NOW(), start_time);
+    INSERT INTO carbon_intensity_timing (scenario_id, num_carbon_costs, iteration, storage_time, la_time)
+      VALUES (target_scenario_id, num_carbon_costs, round, storage_time, la_time);
+
+    DROP TABLE IF EXISTS change_between_iterations;
+    CREATE TABLE change_between_iterations
+      SELECT scenario_id, carbon_cost, n.study_date, SUM(abs(n.net_emissions - n_minus_1.net_emissions )) as sum_of_deltas
+        FROM hourly_la_emission_stocks n
+          JOIN hourly_la_emission_stocks n_minus_1 USING(fuel_category_id, scenario_id, carbon_cost, area_id, study_hour)
+        WHERE scenario_id = target_scenario_id
+          AND n.iteration = round
+          AND n_minus_1.iteration = round - 1
+        GROUP BY scenario_id, carbon_cost, study_date;
+    ALTER TABLE change_between_iterations ADD PRIMARY KEY (scenario_id, carbon_cost, study_date);
+    
+    SET @worst_delta := (SELECT max(sum_of_deltas/total_daily_emissions) FROM daily_wecc_emissions JOIN change_between_iterations USING (scenario_id, carbon_cost, study_date) WHERE scenario_id = target_scenario_id);
+    IF @worst_delta < convergence_threshold THEN
+      SET max_round = round;
+    END IF;
+  
+  END WHILE;
+
+  DROP TABLE IF EXISTS overall_emissions;
+  CREATE TEMPORARY TABLE overall_emissions
+    SELECT scenario_id, carbon_cost, study_hour, area_id, sum(net_emissions) as net_emissions
+      FROM hourly_la_emission_stocks 
+      WHERE scenario_id = target_scenario_id
+      GROUP BY scenario_id, carbon_cost, study_hour, area_id;
+  ALTER TABLE overall_emissions ADD PRIMARY KEY (scenario_id, carbon_cost, study_hour, area_id);
+  INSERT INTO carbon_intensity_of_electricity (scenario_id, carbon_cost, period, area_id, total_emissions, carbon_intensity)
+    SELECT scenario_id, carbon_cost, period, area_id, 
+        sum( hours_in_sample * net_emissions ) / sum( hours_in_sample ) as total_emissions, 
+        sum( hours_in_sample * net_emissions / power ) / sum( hours_in_sample ) as carbon_intensity
+      FROM overall_emissions
+        JOIN _system_load USING (scenario_id, carbon_cost, study_hour, area_id )
+      WHERE scenario_id = target_scenario_id
+      GROUP BY scenario_id, carbon_cost, period, area_id;
+  
+END$$
+DELIMITER ;
