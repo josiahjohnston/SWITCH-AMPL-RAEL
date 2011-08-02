@@ -107,7 +107,7 @@ CREATE TABLE IF NOT EXISTS _gen_cap (
   FOREIGN KEY (area_id) REFERENCES load_areas(area_id), 
   INDEX technology_id (technology_id),
   FOREIGN KEY (technology_id) REFERENCES technologies(technology_id), 
-  INDEX site (project_id)
+  INDEX site (project_id),
   PRIMARY KEY (scenario_id, carbon_cost, period, area_id, technology_id, project_id)
 )  ROW_FORMAT=FIXED;
 CREATE OR REPLACE VIEW gen_cap as
@@ -541,7 +541,7 @@ CREATE OR REPLACE VIEW trans_cap as
     FROM _trans_cap join load_areas start on(start_id=start.area_id) join load_areas end on(end_id=end.area_id) ;
 
 
-CREATE VIEW trans_cap_summary AS
+CREATE OR REPLACE VIEW trans_cap_summary AS
 select
 e.scenario_id, e.carbon_cost, e.period, e.transmission_line_id,
 load_area_start, load_area_end,
@@ -800,7 +800,7 @@ CREATE TABLE IF NOT EXISTS carbon_intensity_of_electricity (
   carbon_cost smallint,
   period year,
   area_id smallint NOT NULL, 
-  total_emissions double,
+  total_annual_emissions double,
   carbon_intensity double,
   PRIMARY KEY (scenario_id, carbon_cost, period, area_id),
   FOREIGN KEY (area_id) REFERENCES load_areas(area_id)
@@ -1195,14 +1195,16 @@ BEGIN
     SELECT scenario_id, carbon_cost, study_hour, area_id, sum(net_emissions) as net_emissions
       FROM hourly_la_emission_stocks 
       WHERE scenario_id = target_scenario_id
+        AND iteration = round
       GROUP BY scenario_id, carbon_cost, study_hour, area_id;
   ALTER TABLE overall_emissions ADD PRIMARY KEY (scenario_id, carbon_cost, study_hour, area_id);
-  INSERT INTO carbon_intensity_of_electricity (scenario_id, carbon_cost, period, area_id, total_emissions, carbon_intensity)
+  INSERT INTO carbon_intensity_of_electricity (scenario_id, carbon_cost, period, area_id, total_annual_emissions, carbon_intensity)
     SELECT scenario_id, carbon_cost, period, area_id, 
-        sum( hours_in_sample * net_emissions ) / sum( hours_in_sample ) as total_emissions, 
+        sum( hours_in_sample * net_emissions ) / years_per_period as total_annual_emissions, 
         sum( hours_in_sample * net_emissions / power ) / sum( hours_in_sample ) as carbon_intensity
       FROM overall_emissions
         JOIN _system_load USING (scenario_id, carbon_cost, study_hour, area_id )
+        JOIN sum_hourly_weights_per_period_table USING(scenario_id, period)
       WHERE scenario_id = target_scenario_id
       GROUP BY scenario_id, carbon_cost, period, area_id;
   
