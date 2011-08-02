@@ -560,4 +560,31 @@ update power_cost set total_cost =
 
 update power_cost set cost_per_mwh = total_cost / load_in_period_mwh
 	where scenario_id = @scenario_id;
-	
+
+-- Extract fuel category definitions from the results
+CREATE TEMPORARY TABLE fc_defs
+  SELECT DISTINCT scenario_id, period, technology_id, fuel, fuel_category
+    FROM _generator_and_storage_dispatch
+    WHERE scenario_id = @scenario_id;
+INSERT IGNORE INTO fuel_categories (fuel_category)
+  SELECT DISTINCT fuel_category FROM fc_defs;
+INSERT IGNORE INTO fuel_category_definitions (fuel_category_id, scenario_id, period, technology_id, fuel )
+  SELECT fuel_category_id, scenario_id, period, technology_id, fuel 
+    FROM fuel_categories JOIN fc_defs USING (fuel_category);
+
+-- Calculate summary stats based on fuel category
+-- We're incorectly adding emissions from spinning reserves to the locally produced power. Really, the spinning emissions need to be apportioned based on what they are spinning for. 
+-- Some of the emissions will be based on 5% of load for load areas in the balancing area. 
+-- The remainder of the emissions will be based on 3% of renewable output, and needs to be embedded with the renewable power and ultimately assigned to whichever load area consumes it. 
+-- This is too complicated for me for now and doesn't really matter because emissions from spinning reserves are less than .1% of total emissions. 
+INSERT INTO _gen_hourly_summary_fc_la 
+  (scenario_id, carbon_cost, period, area_id, study_date, study_hour, hours_in_sample, fuel_category_id, storage, power, total_co2_tons)
+  SELECT scenario_id, carbon_cost, period, area_id, study_date, study_hour, hours_in_sample, fuel_category_id, 
+      IF(fuel='Storage', 1, 0 ) AS storage, SUM(power), SUM(co2_tons + spinning_co2_tons)
+    FROM _generator_and_storage_dispatch 
+      JOIN fuel_categories USING( fuel_category)
+    WHERE scenario_id = @scenario_id
+    GROUP BY scenario_id, carbon_cost, period, area_id, study_date, study_hour, hours_in_sample, fuel_category_id, storage;
+
+-- Calculate the carbon intensity of electricity
+CALL calc_carbon_intensity(@scenario_id);
