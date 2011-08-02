@@ -27,11 +27,14 @@ working_dir="/global/home/users/siah/AMPL"
 
 # Initialize the environment
 cd "$working_dir"          # Go to the working directory
-module load ampl-cplex     # Load ampl & cplex. 
+# Load ampl & cplex if we're on the citris cluster. Test for the citris cluster by looking for "citris" in the hostname
+if( $( hostname | grep "citris" | wc -l ) -gt 0 ); then
+  module load ampl-cplex
+fi
 
 # Make a list of problems composed from .nl files that don't have accompanying .sol files. 
 problems=$(ls results/*nl | sed -e 's/.nl$//' | while read b; do if [ ! -f "$b.sol" ]; then echo $b; fi; done | tr '\n' ' ')
-# Spawn processes across nodes that will Ask CPLEX to solve MIPs
+# Spawn processes across nodes that will ask CPLEX to solve MIPs
 NUM_PROCS=`wc -l $PBS_NODEFILE| awk '{print $1}'`
 printf "Starting CPLEX optimization from initiating node\n";
-mpirun -v -np $NUM_PROCS ./run_switch.sh --is_worker --num_workers $NUM_PROCS --problems "$problems"
+mpirun -v -np $NUM_PROCS ./cplex_worker.sh --num_workers $NUM_PROCS --problems "$problems"
