@@ -1,0 +1,114 @@
+digraph example_emissions_tracking {
+node [style=filled];
+
+
+subgraph cluster_legend { 
+  graph [fontsize=30, label="Legend"]; 
+  verbiage [ label="Nodes are shaded according to their relative level of emissions.\nEdges are labelled with power sent and embedded emissions.", shape=none, color="transparent" ];
+  load_area [shape="ellipse", fillcolor="0 0 0.600", label="Load Area Name\nGross Power, Net Power\nGross Emissions, Net Emissions", fontsize=20, rank=min];
+  storage [shape="box", fillcolor="0 0 0.600", label="Storage\nTotal power in, Total power out\nGross (Total) Emissions", fontsize=20, rank=max];
+  load_area -> storage [color="transparent" ];
+storage -> verbiage [color="transparent"];
+  // , label="Nodes are shaded according to their relative level of emissions.\nEdges are labelled with power sent and embedded emissions.", labelloc=b ];
+}
+Storage_E_end -> load_area [color="transparent"];
+
+fake_root_node [color=transparent; label=""];
+fake_root_node -> A1 [color=transparent];
+fake_root_node -> A2 [color=transparent];
+
+A1 [shape="ellipse", fillcolor="0 0 0.651", label="A\n400 MW, 200 MW\n40 t, 20 t", fontsize=20];
+B1 [shape="ellipse", fillcolor="0 0 0.821", label="B\n390 MW, 200 MW\n20 t, 10 t", fontsize=20];
+C1 [shape="ellipse", fillcolor="0 0 1.000", label="C\n195 MW, 100 MW\n0 t, 0 t", fontsize=20];
+D1 [shape="ellipse", fillcolor="0 0 1.000", label="D\n250 MW, 100 MW\n0 t, 0 t", fontsize=20];
+E1 [shape="ellipse", fillcolor="0 0 0.825", label="E\n200 MW, 200 MW\n10 t, 10 t", fontsize=20];
+A2 [shape="ellipse", fillcolor="0 0 0.733", label="A\n380 MW, 290 MW\n20 t, 15 t", fontsize=20];
+B2 [shape="ellipse", fillcolor="0 0 0.913", label="B\n150 MW, 100 MW\n5 t, 5 t", fontsize=20];
+C2 [shape="ellipse", fillcolor="0 0 1.000", label="C\n1.8 GW, 0 MW\n0 t, 0 t", fontsize=20];
+D2 [shape="ellipse", fillcolor="0 0 1.000", label="D\n190 MW, 100 MW\n0 t, 0 t", fontsize=20];
+E2 [shape="ellipse", fillcolor="0 0 0.869", label="E\n200 MW, 150 MW\n10 t, 10 t", fontsize=20];
+
+
+subgraph cluster_hour_1 { 
+  graph [fontsize=20, bgcolor=cornsilk, label="Timepoint 1, Round 0"]; 
+  A1; B1; C1; D1; E1;
+{rank=same; C1; D1;}
+}
+subgraph cluster_hour_2 { 
+  graph [fontsize=20, bgcolor=cornsilk, label="Timepoint 2, Round 0"]; 
+  A2; B2; C2; D2; E2;
+}
+
+Storage_A [shape="box", fillcolor="0 0 1.000", label="A Storage\n90 MW out\n0 t"];
+Storage_E [shape="box", fillcolor="0 0 1.000", label="E Storage\n45 MW out\n0 t"];
+
+A1 -> B1 [penwidth=1.26, label="100 MW, 0 t"];
+B1 -> C1 [penwidth=1.26, label="100 MW, 0 t"];
+C1 -> D1 [penwidth=1.26, label="95 MW, 0 t"];
+D1 -> B1 [penwidth=1.26, label="100 MW, 0 t"];
+D1 -> E1 [penwidth=1.26, label="50 MW, 0 t"];
+
+A2 -> B2 [penwidth=1.26, label="100 MW, 0 t"];
+A2 -> C2 [penwidth=1.26, label="100 MW, 0 t"];
+C2 -> D2 [penwidth=1.26, label="95 MW, 0 t"];
+D2 -> E2 [penwidth=1.26, label="90 MW, 0 t"];
+
+A1 -> Storage_A [penwidth=1.26, label="100 MW, 0 t"];
+Storage_A -> A2 [penwidth=1.26, label="90 MW, 0 t"];
+
+E2 -> Storage_E [penwidth=1.26, label="50 MW, 0 t"];
+Storage_E -> E1 [penwidth=1.26, label="45 MW, 0 t"];
+
+
+
+// Begin Round 5
+fake_root_node_end [color=transparent; label=""];
+fake_root_node_end -> A1_end [color=transparent];
+fake_root_node_end -> A2_end [color=transparent];
+
+Storage_E -> fake_root_node_end [color="transparent"];
+
+
+A1_end [shape="ellipse", fillcolor="0 0 0.651", label="A\n400 MW, 200 MW\n40 t, 20 t", fontsize=20];
+B1_end [shape="ellipse", fillcolor="0 0 0.718", label="B\n390 MW, 200 MW\n32 t, 16 t", fontsize=20];
+C1_end [shape="ellipse", fillcolor="0 0 0.928", label="C\n195 MW, 100 MW\n8 t, 4 t", fontsize=20];
+D1_end [shape="ellipse", fillcolor="0 0 0.973", label="D\n250 MW, 100 MW\n4 t, 2 t", fontsize=20];
+E1_end [shape="ellipse", fillcolor="0 0 0.768", label="E\n200 MW, 200 MW\n13 t, 13 t", fontsize=20];
+A2_end [shape="ellipse", fillcolor="0 0 0.600", label="A\n380 MW, 290 MW\n30 t, 23 t", fontsize=20];
+B2_end [shape="ellipse", fillcolor="0 0 0.775", label="B\n150 MW, 100 MW\n13 t, 13 t", fontsize=20];
+C2_end [shape="ellipse", fillcolor="0 0 0.929", label="C\n1.8 GW, 0 MW\n8 t, 4 t", fontsize=20];
+D2_end [shape="ellipse", fillcolor="0 0 0.965", label="D\n190 MW, 100 MW\n4 t, 2 t", fontsize=20];
+E2_end [shape="ellipse", fillcolor="0 0 0.845", label="E\n200 MW, 150 MW\n12 t, 9 t", fontsize=20];
+
+subgraph cluster_hour_1_end { 
+  graph [fontsize=20, bgcolor=cornsilk, label="Timepoint 1 - Round 5"]; 
+  A1_end; B1_end; C1_end; D1_end; E1_end;
+{rank=same; C1_end; D1_end;}
+}
+subgraph cluster_hour_2_end { 
+  graph [fontsize=20, bgcolor=cornsilk, label="Timepoint 2 - Round 5"]; 
+  A2_end; B2_end; C2_end; D2_end; E2_end;
+}
+
+Storage_A_end [shape="box", fillcolor="0 0 1.000", label="A Storage\n90 MW out\n10 t"];
+Storage_E_end [shape="box", fillcolor="0 0 1.000", label="E Storage\n45 MW out\n3 t"];
+
+A1_end -> B1_end [penwidth=1.26, label="100 MW, 10 t"];
+B1_end -> C1_end [penwidth=1.26, label="100 MW, 8 t"];
+C1_end -> D1_end [penwidth=1.26, label="95 MW, 4 t"];
+D1_end -> B1_end [penwidth=1.26, label="100 MW, 2 t"];
+D1_end -> E1_end [penwidth=1.26, label="50 MW, 1 t"];
+
+A2_end -> B2_end [penwidth=1.26, label="100 MW, 8 t"];
+A2_end -> C2_end [penwidth=1.26, label="100 MW, 8 t"];
+C2_end -> D2_end [penwidth=1.26, label="95 MW, 4 t"];
+D2_end -> E2_end [penwidth=1.26, label="90 MW, 2 t"];
+
+A1_end -> Storage_A_end [penwidth=1.26, label="100 MW, 10 t"];
+Storage_A_end -> A2_end [penwidth=1.26, label="90 MW, 10 t"];
+
+E2_end -> Storage_E_end [penwidth=1.26, label="50 MW, 3 t"];
+Storage_E_end -> E1_end [penwidth=1.26, label="45 MW, 3 t"];
+
+
+}
