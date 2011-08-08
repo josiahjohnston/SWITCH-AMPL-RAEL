@@ -36,6 +36,7 @@ case $1 in
 	*)
     echo "Unknown option $1"; print_help; exit ;;
 esac
+done
 
 # Determine if this is being run in a cluster environment
 if [ -z $(which getid) ]; then cluster=0; else cluster=1; fi;
