@@ -191,12 +191,13 @@ param maximum_mmbtu_per_hour {a in LOAD_AREAS, p in PERIODS}
 # the set of load areas that have Bio_Solid and/or Bio_Gas resources available
 set BIO_FUELS_LOAD_AREAS := { f in FUELS, a in LOAD_AREAS, p in PERIODS: ( f = 'Bio_Solid' or f = 'Bio_Gas' ) };
 
-# the amount of fuel, in MMBtu/Hr available for each biofuel for each load area
+# the amount of fuel, in MMBtu/period available for each biofuel for each load area
 # this is the same in each period for bio gas
 # and varies by period for bio solid, which is taken from the top of the bio solid supply curve
 param bio_fuel_limit_by_load_area { (f, a, p) in BIO_FUELS_LOAD_AREAS }
-	= 	if f = 'Bio_Gas' then bio_gas_capacity_limit_mmbtu_per_hour[a]
-		else if f = 'Bio_Solid' then maximum_mmbtu_per_hour[a, p];
+	= 	( if f = 'Bio_Gas' then bio_gas_capacity_limit_mmbtu_per_hour[a]
+		else if f = 'Bio_Solid' then maximum_mmbtu_per_hour[a, p] )
+		* hours_in_period[p];
 		  
 # construction lead time (years)
 param construction_time_years {TECHNOLOGIES} >= 0;
@@ -1403,7 +1404,7 @@ subject to Maximum_Resource_Central_Station_Solar { (l, a) in CENTRAL_STATION_SO
 		/ capacity_limit_conversion[pid, a, t] )
 		<= central_station_solar_capacity_limit[l, a];
 
-# for Bio_Solid and Bio_Gas, bio_fuel_limit_by_load_area is in MMBtu/hr
+# for Bio_Solid and Bio_Gas, bio_fuel_limit_by_load_area is in MMBtu/period
 # which is then converted into MWh via the heat_rate rate and cogen_thermal_demand
 # cogen_thermal_demand is zero for non-cogen plants
 # Bio_Liquid isn't included here because it only has replacements of existing cogen plants,
@@ -1411,12 +1412,14 @@ subject to Maximum_Resource_Central_Station_Solar { (l, a) in CENTRAL_STATION_SO
 # also, we need both CCS and non CCS bio fuels to be constrained together here (they're the same fuel really), hence the fuel matching with f = sub(fuel[t],'_CCS', '')
 # if this constraint is changed, check var ConsumeBioSolid above - it may need to be changed as well
 subject to Maximum_Resource_Bio { (f, a, p) in BIO_FUELS_LOAD_AREAS: bio_fuel_limit_by_load_area[f, a, p] > 0 }:
+	(
 	( sum { (pid, a, t, p) in PROJECT_VINTAGES: f = sub(fuel[t],'_CCS', '') } 
 		( ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] ) * gen_availability[t]
 		* ( heat_rate[pid, a, t] + cogen_thermal_demand[pid, a, t] ) ) )
 	+ ( sum { (pid, a, t, p) in EP_PERIODS: f = sub(fuel[t],'_CCS', '') } 
 		( OperateEPDuringPeriod[pid, a, t, p] * ep_capacity_mw[pid, a, t] * gen_availability[t]
 		* ( ep_heat_rate[pid, a, t] + ep_cogen_thermal_demand[pid, a, t] ) ) )
+		) * hours_in_period[p]
 		<= bio_fuel_limit_by_load_area[f, a, p];
 
 
