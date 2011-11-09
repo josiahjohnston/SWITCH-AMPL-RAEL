@@ -909,10 +909,6 @@ var ConsumeDistributedPower {LOAD_AREAS, TIMEPOINTS, RPS_FUEL_CATEGORY} >= 0;
 var ConsumeNonDistributedPower_Reserve {LOAD_AREAS, TIMEPOINTS} >= 0;
 var ConsumeDistributedPower_Reserve {LOAD_AREAS, TIMEPOINTS} >= 0;
 
-# variables to decide whether to redirect distributed power to the larger transmission-level grid for consumption elsewhere
-var RedirectDistributedPower {LOAD_AREAS, TIMEPOINTS, RPS_FUEL_CATEGORY} >= 0;
-var RedirectDistributedPower_Reserve {LOAD_AREAS, TIMEPOINTS} >= 0;
-
 
 # Project-level decision variables about how much generation to make available and how much power to dispatch
 
@@ -1131,16 +1127,14 @@ subject to Satisfy_Load {a in LOAD_AREAS, h in TIMEPOINTS}:
 	 ( sum{ fc in RPS_FUEL_CATEGORY} ( ConsumeNonDistributedPower[a,h,fc] + ConsumeDistributedPower[a,h,fc] ) )
 		 = system_load[a, h] ;
 
-# non-distributed power production experiences distribution losses
-# and can be consumed, stored or transmitted or spilled (hence the <=).
+# non-distributed power production experiences distribution losses when consumed
+# but it can also be stored, transmitted, or spilled (hence the <=).
 subject to Conservation_Of_Energy_NonDistributed {a in LOAD_AREAS, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY}:
   ConsumeNonDistributedPower[a,h,fc] * (1 + distribution_losses)
   <= 
   (
-	# power redirected from distributed sources to the larger grid
-    RedirectDistributedPower[a,h,fc]
 	# power produced from new non-battery-storage projects  
-	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t] and rps_fuel_category_tech[t] = fc} DispatchGen[pid, a, t, p, h] )
+	  ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t] and rps_fuel_category_tech[t] = fc} DispatchGen[pid, a, t, p, h] )
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: intermittent[t] and t not in SOLAR_DIST_PV_TECHNOLOGIES and rps_fuel_category_tech[t] = fc }
 		( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
 			* cap_factor[pid, a, t, h] * gen_availability[t] )
@@ -1158,12 +1152,9 @@ subject to Conservation_Of_Energy_NonDistributed {a in LOAD_AREAS, h in TIMEPOIN
 	- ( sum { (a, a1, p, h) in TRANSMISSION_LINE_HOURS } DispatchTransFromXToY[a, a1, p, h, fc] )
   	);
 
-# distributed power production doesn't experience distribution losses
-# and must be either consumed immediately on site
-# or added to the transmission-level power mix of a load area, incurring distribution losses going out of the distribution network
+# distributed power production doesn't experience distribution losses and must be consumed immediately on site
 subject to Conservation_Of_Energy_Distributed {a in LOAD_AREAS, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY}:
-  ConsumeDistributedPower[a,h,fc] + RedirectDistributedPower[a,h,fc] * (1 + distribution_losses)
-  <= 
+  ConsumeDistributedPower[a,h,fc] <= 
 	  (sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES and rps_fuel_category_tech[t] = fc}
           ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
           	* gen_availability[t] * cap_factor[pid, a, t, h])
@@ -1186,11 +1177,9 @@ subject to Conservation_Of_Energy_NonDistributed_Reserve {a in LOAD_AREAS, h in 
   ( ConsumeNonDistributedPower_Reserve[a,h] * (1 + distribution_losses) )
   <= 
   (
-  # power redirected from distributed sources to the larger grid
-    RedirectDistributedPower_Reserve[a,h]
 	#    NEW PLANTS
   # new dispatchable capacity (no need to decide how to dispatch it; we just need to know it's available)
-	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t] and not storage[t]}
+	  ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t] and not storage[t]}
 		( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] ) )
   # output from new intermittent projects. 
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: intermittent[t] and t not in SOLAR_DIST_PV_TECHNOLOGIES} 
@@ -1234,7 +1223,7 @@ subject to Conservation_Of_Energy_NonDistributed_Reserve {a in LOAD_AREAS, h in 
 
 
 subject to Conservation_Of_Energy_Distributed_Reserve {a in LOAD_AREAS, h in TIMEPOINTS}:
-  ConsumeDistributedPower_Reserve[a, h] + RedirectDistributedPower_Reserve[a, h] * (1 + distribution_losses)
+  ConsumeDistributedPower_Reserve[a, h]
   <= 
 	  ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES}
           ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
@@ -1620,7 +1609,7 @@ problem Investment_Cost_Minimization:
   # Satisfy Load and Power Consumption
     Satisfy_Load,
 	Conservation_Of_Energy_NonDistributed, Conservation_Of_Energy_Distributed,
-    ConsumeNonDistributedPower, ConsumeDistributedPower, RedirectDistributedPower,
+    ConsumeNonDistributedPower, ConsumeDistributedPower,
   # Policy Constraints
 	Satisfy_RPS, Carbon_Cap,
   # Investment Decisions
@@ -1644,7 +1633,7 @@ problem Investment_Cost_Minimization:
   # Contigency Planning constraints
 	Satisfy_Load_Reserve, 
 	Conservation_Of_Energy_NonDistributed_Reserve, Conservation_Of_Energy_Distributed_Reserve,
-    ConsumeNonDistributedPower_Reserve, ConsumeDistributedPower_Reserve, RedirectDistributedPower_Reserve, 
+    ConsumeNonDistributedPower_Reserve, ConsumeDistributedPower_Reserve,
   # Operating Reserve Variables
     Spinning_Reserve_Requirement, Quickstart_Reserve_Requirement,
   # Operating Reserve Constraints
@@ -1659,7 +1648,7 @@ problem Present_Day_Cost_Minimization:
   # Satisfy Load and Power Consumption
     Satisfy_Load,
 	Conservation_Of_Energy_NonDistributed, Conservation_Of_Energy_Distributed,
-    ConsumeNonDistributedPower, ConsumeDistributedPower, RedirectDistributedPower,
+    ConsumeNonDistributedPower, ConsumeDistributedPower, 
   # Installation Decisions - only gas combustion turbines for the present day optimization
 	{(pid, a, t, p) in PROJECT_VINTAGES: t='Gas_Combustion_Turbine'} InstallGen[pid, a, t, p], 
   # Dispatch Decisions

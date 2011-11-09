@@ -23,7 +23,7 @@ problem Dispatch_Only:
 # Satisfy Load and Power Consumption
   Satisfy_Load,
   Conservation_Of_Energy_NonDistributed, Conservation_Of_Energy_Distributed,
-  ConsumeNonDistributedPower, ConsumeDistributedPower, RedirectDistributedPower,
+  ConsumeNonDistributedPower, ConsumeDistributedPower, 
   
 # Dispatch can install more peakers or local T&D only if the investments generate infeasibilities.
   Increase_Gen_Only,  
@@ -51,7 +51,7 @@ problem Dispatch_peakers_and_storage:
 # Satisfy Load and Power Consumption
   Satisfy_Load,
   Conservation_Of_Energy_NonDistributed, Conservation_Of_Energy_Distributed,
-  ConsumeNonDistributedPower, ConsumeDistributedPower, RedirectDistributedPower,
+  ConsumeNonDistributedPower, ConsumeDistributedPower, 
    
 # Dispatch can install more peakers or local T&D only if the investments generate infeasibilities.
   Increase_Gen_Only,
