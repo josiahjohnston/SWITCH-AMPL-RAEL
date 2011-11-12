@@ -4,14 +4,11 @@
 
 # Fixed Cash flows for each possible project for every period in the study.
 let { (pid, a, t, p) in PROJECT_VINTAGES }
-  Installed_To_Date [pid, a, t, p] :=
-	sum {(pid, a, t, online_yr) in PROJECT_VINTAGES: online_yr <= p < project_end_year[pid, a, t, online_yr] } InstallGen[pid, a, t, online_yr];
-let { (pid, a, t, p) in PROJECT_VINTAGES }
   Capital_Payments_by_Plant_and_Period[pid, a, t, p] :=
   	sum {(pid, a, t, online_yr) in PROJECT_VINTAGES: online_yr <= p < project_end_year[pid, a, t, online_yr] } (
 	    InstallGen[pid, a, t, online_yr] * capital_cost_annual_payment [pid, a, t, online_yr] * num_years_per_period );
 let { (pid, a, t, p) in PROJECT_VINTAGES }
-	Fixed_OM_by_Plant_and_Period[pid, a, t, p] :=	Installed_To_Date[pid, a, t, p] * fixed_o_m[pid, a, t] * num_years_per_period;
+	Fixed_OM_by_Plant_and_Period[pid, a, t, p] := Installed_To_Date[pid, a, t, p] * fixed_o_m[pid, a, t] * num_years_per_period;
 
 # Fixed Cash flows for each existing plant for every period in the study.
 let { (pid, a, t, p) in EP_PERIODS } EP_Capital_Payments_by_Plant_and_Period[pid, a, t, p] := 
@@ -48,7 +45,7 @@ let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: baseload[t] }
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: fuel[t] in BIO_SOLID_FUELS}
   Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := Power_Produced[pid, a, t, p, h] * heat_rate[pid, a, t] * Biomass_Solid_Fuel_Cost[a, p, h];
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: fuel[t] not in BIO_SOLID_FUELS}
-  Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := Power_Produced[pid, a, t, p, h] * heat_rate[pid, a, t] * fuel_cost_nominal[a, t, p];
+  Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := Power_Produced[pid, a, t, p, h] * heat_rate[pid, a, t] * fuel_price_in_period[pid, a, t, p];
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS }
   Carbon_Emissions[pid, a, t, p, h] :=  Power_Produced[pid, a, t, p, h] * heat_rate[pid, a, t] * carbon_content[fuel[t]];
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS }
@@ -63,7 +60,7 @@ let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }
 let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: fuel[t] in BIO_SOLID_FUELS }
   EP_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := ProducePowerEP[pid, a, t, p, h] * ep_heat_rate[pid, a, t] * Biomass_Solid_Fuel_Cost[a, p, h];
 let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: fuel[t] not in BIO_SOLID_FUELS }
-  EP_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := ProducePowerEP[pid, a, t, p, h] * ep_heat_rate[pid, a, t] * fuel_cost_nominal[a, t, p];
+  EP_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := ProducePowerEP[pid, a, t, p, h] * ep_heat_rate[pid, a, t] * fuel_price_in_period[pid, a, t, p];
 let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }
   EP_Variable_Cost_Incurred_Hourly[pid, a, t, p, h] := ProducePowerEP[pid, a, t, p, h] * ep_variable_o_m[pid, a, t];
 
@@ -102,24 +99,21 @@ let { b in BALANCING_AREAS, h in TIMEPOINTS } Wind_Generation_Level_in_Balancing
 		eip_cap_factor[pid, a, t, h] * ep_capacity_mw[pid, a, t]
 	# new wind
 	+ sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: balancing_area[a] = b and fuel[t] = 'Wind' } (
-	( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
-	* cap_factor[pid, a, t, h] );
+	Installed_To_Date[pid, a, t, p] * cap_factor[pid, a, t, h] );
 
 let { b in BALANCING_AREAS, h in TIMEPOINTS } Non_CSP_Solar_Generation_Level_in_Balancing_Area_in_Hour[b, h] :=
 	sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: balancing_area[a] = b and fuel[t] = 'Solar' and t not in SOLAR_CSP_TECHNOLOGIES } 
 		eip_cap_factor[pid, a, t, h] * ep_capacity_mw[pid, a, t]
 	# new solar
 	+ sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: balancing_area[a] = b and fuel[t] = 'Solar' and t not in SOLAR_CSP_TECHNOLOGIES } (
-	( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
-	* cap_factor[pid, a, t, h] ) ;
+	Installed_To_Date[pid, a, t, p] * cap_factor[pid, a, t, h] ) ;
 
 let { b in BALANCING_AREAS, h in TIMEPOINTS } CSP_Solar_Generation_Level_in_Balancing_Area_in_Hour[b, h] :=
 	sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: balancing_area[a] = b and t = 'CSP_Trough_No_Storage' } 
 		eip_cap_factor[pid, a, t, h] * ep_capacity_mw[pid, a, t]
 	# new solar
 	+ sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: balancing_area[a] = b and t = 'CSP_Trough_No_Storage' } (
-	( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
-	* cap_factor[pid, a, t, h] ) ;
+	Installed_To_Date[pid, a, t, p]	* cap_factor[pid, a, t, h] ) ;
 
 let { b in BALANCING_AREAS, h in TIMEPOINTS } Spinning_Reserve_Required_in_Balancing_Area_in_Hour[b, h] :=
 	load_only_spinning_reserve_requirement[b] * Load_Level_in_Balancing_Area_in_Hour[b, h]
@@ -253,12 +247,12 @@ let { (pid, a, t, p, h) in AVAILABLE_HOURS } Thermal_Spinning_Reserve_Carbon_Cos
 
 
 let { (pid, a, t, p, h) in AVAILABLE_HOURS: dispatchable[t] and t <> 'Compressed_Air_Energy_Storage' } Thermal_Spinning_Reserve_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] :=
-	Provide_Spinning_Reserve[pid, a, t, p, h] * heat_rate_spinning_reserve[pid, a, t] * fuel_cost_nominal[a, t, p];  
+	Provide_Spinning_Reserve[pid, a, t, p, h] * heat_rate_spinning_reserve[pid, a, t] * fuel_price_in_period[pid, a, t, p];  
 let { (pid, a, t, p, h) in AVAILABLE_HOURS: dispatchable[t] and t <> 'Compressed_Air_Energy_Storage' } Thermal_Spinning_Reserve_Carbon_Emissions[pid, a, t, p, h] :=  
 	Provide_Spinning_Reserve[pid, a, t, p, h] * heat_rate_spinning_reserve[pid, a, t] * carbon_content[fuel[t]];
 # for CAES, all of the fuel and carbon costs will be assigned to the gas turbine part in exporting results
 let { (pid, a, t, p, h) in AVAILABLE_HOURS: t = 'Compressed_Air_Energy_Storage' } Thermal_Spinning_Reserve_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] :=
-	Provide_Spinning_Reserve[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) * heat_rate_spinning_reserve[pid, a, t] * fuel_cost_nominal[a, t, p];  
+	Provide_Spinning_Reserve[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) * heat_rate_spinning_reserve[pid, a, t] * fuel_price_in_period[pid, a, t, p];  
 let { (pid, a, t, p, h) in AVAILABLE_HOURS: t = 'Compressed_Air_Energy_Storage' } Thermal_Spinning_Reserve_Carbon_Emissions[pid, a, t, p, h] :=  
 	Provide_Spinning_Reserve[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) * heat_rate_spinning_reserve[pid, a, t] * carbon_content[fuel[t]];	
 

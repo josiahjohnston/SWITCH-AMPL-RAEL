@@ -30,7 +30,6 @@ set RELEVANT_PROJ_VINT_HOURS dimen 5;
 
 ###################################
 # parameters used for reporting total generation and transmission
-param Installed_To_Date { (pid, a, t, p) in PROJECT_VINTAGES };
 param Capital_Payments_by_Plant_and_Period { (pid, a, t, p) in PROJECT_VINTAGES }; 
 param EP_Capital_Payments_by_Plant_and_Period { (pid, a, t, p) in EP_PERIODS }; 
 param Fixed_OM_by_Plant_and_Period { (pid, a, t, p) in PROJECT_VINTAGES };  

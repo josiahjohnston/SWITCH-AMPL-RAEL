@@ -170,11 +170,6 @@ param carbon_content {FUELS} default 0;
 # the amount of carbon per MBtu of fuel that is sequestered by CCS projects (is zero for non CCS)
 param carbon_sequestered {FUELS} default 0;
 
-# For now, all hours in each study period use the same fuel cost which averages annual prices over the course of each study period.
-# This could be updated to use fuel costs that vary by month, or for an hourly model, it could interpolate between annual forecasts 
-param fuel_cost_nominal {a in LOAD_AREAS, t in TECHNOLOGIES, p in PERIODS: fuel[t] not in BIO_SOLID_FUELS} := 
-		( sum{ y in YEARS: y >= p and y < p + num_years_per_period } fuel_price[a, fuel[t], y] ) / num_years_per_period;
-
 # biomass supply curve params
 set LOAD_AREAS_AND_BIO_BREAKPOINTS dimen 3;
 
@@ -667,52 +662,55 @@ param capital_cost_annual_payment {(pid, a, t, p) in AVAILABLE_VINTAGES} =
 
 # Convert annual payments made in each period the plant is operational to a lump-sum in the first year of the period and then discount back to the base year
 param capital_cost {(pid, a, t, online_yr) in PROJECT_VINTAGES} = 
-  sum {p in PERIODS: online_yr <= p < project_end_year[pid, a, t, online_yr]} capital_cost_annual_payment [pid, a, t, online_yr]
-  * discount_to_base_year[p];
+  sum {p in PERIODS: online_yr <= p < project_end_year[pid, a, t, online_yr]}
+  	capital_cost_annual_payment [pid, a, t, online_yr] * discount_to_base_year[p];
 
 # discount capital costs to a lump-sum value at the start of the study.
 param ep_capital_cost { (pid, a, t, p) in EP_PERIODS } =
-    if ep_could_be_operating_past_expected_lifetime[pid, a, t, p] then 0
+  if ep_could_be_operating_past_expected_lifetime[pid, a, t, p] then 0
     else capital_cost_annual_payment[pid, a, t, p] * discount_to_base_year[p];
 
+# discount fixed operations and maintenence costs to a lump-sum value at the start of the study.
+param fixed_o_m_discounted { (pid, a, t, online_yr) in PROJECT_VINTAGES } = 
+  sum {p in PERIODS: online_yr <= p < project_end_year[pid, a, t, online_yr]} fixed_o_m[pid, a, t]
+  * discount_to_base_year[p];
 
-# Take the stream of fixed annual O & M payments over the duration of the each period,
-# and discount to a lump-sum value at the start of the period,
-# then discount from there to the base_year.
-param fixed_o_m_by_period {(pid, a, t, p) in AVAILABLE_VINTAGES} = 
-  # Fixed annual costs that are paid while the plant is operating (up to the end of the study period)
-	( if can_build_new[t] then fixed_o_m[pid, a, t] else ep_fixed_o_m[pid, a, t] )
-    * discount_to_base_year[p];
+# same for existing plants
+# these are for each period rather than the whole plant lifetime because OperateEPDuringPeriod determines the plant's end_year.
+param ep_fixed_o_m_by_period { (pid, a, t, p) in EP_PERIODS } = 
+	ep_fixed_o_m[pid, a, t] * discount_to_base_year[p];
 
-# all variable costs ($/MWh) for generating a MWh of electricity in some
-# future hour, using a particular technology and vintage, 
-# discounted to reference year
-# these include O&M, fuel, carbon tax
-# We also multiply by the number of real hours represented by each sample,
-# because a case study could use only a limited subset of hours.
-# (this used to vary by vintage to allow for changing variable costs, but not anymore)
-# note: in a full hourly model, this should discount each hour based on its exact date,
-# but for now, since the hours are non-chronological samples within each study period,
-# they are all discounted by the same factor
+# For now, all hours in each study period use the same fuel cost which averages annual prices over the course of each study period.
+# This could be updated to use fuel costs that vary by month, or for an hourly model, it could interpolate between annual forecasts
+# Bio solid fuel costs are zero here - they'll be included in a seperate supply curve
+param fuel_price_in_period { (pid, a, t, p) in AVAILABLE_VINTAGES } := 
+		( sum{ y in YEARS: y >= p and y < p + num_years_per_period } fuel_price[a, fuel[t], y] ) / num_years_per_period;
+
+# variable operations and maintence cost per MWh in each period for each generator for hourly dispatch 
 # In variable costs, hours_in_sample is a weight intended to reflect how many hours are represented by a timepoint.
-# hours_in_sample is calculated using period length in MySQL: period_length * (days represented) * (subsampling factors),
-# so if you work through the math, variable costs are multiplied by period_length.
-param variable_cost {(pid, a, t, p, h) in AVAILABLE_HOURS} =
+param variable_o_m_cost_hourly { (pid, a, t, p, h) in AVAILABLE_HOURS } =
 	( if can_build_new[t] then variable_o_m[pid, a, t] else ep_variable_o_m[pid, a, t] )
-  	* ( hours_in_sample[h] / num_years_per_period )
-    * discount_to_base_year[p];
+	* ( hours_in_sample[h] / num_years_per_period ) * discount_to_base_year[p];
 
-param fuel_cost {(pid, a, t, p, h) in AVAILABLE_HOURS: fuel[t] not in BIO_SOLID_FUELS } =
+# same for the fuel cost per MWh
+param fuel_cost_hourly { (pid, a, t, p, h) in AVAILABLE_HOURS } =
 	( if can_build_new[t] then heat_rate[pid, a, t] else ep_heat_rate[pid, a, t] )
-  	* fuel_cost_nominal[a, t, p]
-  	* ( hours_in_sample[h] / num_years_per_period )
-    * discount_to_base_year[p];
+  	* fuel_price_in_period[pid, a, t, p]
+	* ( hours_in_sample[h] / num_years_per_period ) * discount_to_base_year[p];
 
-param carbon_cost_per_mwh {(pid, a, t, p, h) in AVAILABLE_HOURS} = 
-   	hours_in_sample[h] * (
-	  ( if can_build_new[t] then heat_rate[pid, a, t] else ep_heat_rate[pid, a, t] ) * carbon_content[fuel[t]] * carbon_cost
-	) / num_years_per_period
-	* discount_to_base_year[p];
+# same for the carbon cost per MWh
+param carbon_cost_per_mwh_hourly { (pid, a, t, p, h) in AVAILABLE_HOURS } = 
+	( if can_build_new[t] then heat_rate[pid, a, t] else ep_heat_rate[pid, a, t] )
+	* carbon_content[fuel[t]] * carbon_cost
+	* ( hours_in_sample[h] / num_years_per_period ) * discount_to_base_year[p];
+
+# now tally all variable costs ($/MWh costs) by period for generators that aren't dispached hourly (i.e. intermittent and baseload)
+# variable_cost is inclusive of variable o & m, fuel and carbon
+param variable_cost { (pid, a, t, online_yr) in PROJECT_VINTAGES: intermittent[t] or baseload[t] } = 
+  sum { p in PERIODS, h in TIMEPOINTS: online_yr <= p < project_end_year[pid, a, t, online_yr] and period[h] = p }
+	( ( if baseload[t] then 1 else if intermittent [t] then cap_factor[pid, a, t, h] ) * gen_availability[t]
+	* ( variable_o_m_cost_hourly[pid, a, t, p, h] + fuel_cost_hourly[pid, a, t, p, h] + carbon_cost_per_mwh_hourly[pid, a, t, p, h] ) );
+
 
 #######################################
 # Operating reserves
@@ -744,17 +742,13 @@ param heat_rate_spinning_reserve { (pid, a, t) in ALL_PLANTS } =
 	heat_rate_penalty_spinning_reserve[t] 
 	* ( if can_build_new[t] then heat_rate[pid, a, t] else ep_heat_rate[pid, a, t] );
 
-param fuel_cost_spinning_reserve { (pid, a, t, p, h) in AVAILABLE_HOURS: fuel[t] not in BIO_SOLID_FUELS } =
-	hours_in_sample[h] 
-	* ( heat_rate_spinning_reserve[pid, a, t] * fuel_cost_nominal[a, t, p]
-    ) / num_years_per_period 
-    * discount_to_base_year[p];
+param fuel_cost_hourly_spinning_reserve { (pid, a, t, p, h) in AVAILABLE_HOURS } =
+	heat_rate_spinning_reserve[pid, a, t] * fuel_price_in_period[pid, a, t, p]
+	* ( hours_in_sample[h] / num_years_per_period ) * discount_to_base_year[p];
 
-param carbon_cost_per_mwh_spinning_reserve { (pid, a, t, p, h) in AVAILABLE_HOURS } = 
-   	hours_in_sample[h]
-   	* ( heat_rate_spinning_reserve[pid, a, t] * carbon_content[fuel[t]] * carbon_cost
-	) / num_years_per_period
-	* discount_to_base_year[p];
+param carbon_cost_per_mwh_hourly_spinning_reserve { (pid, a, t, p, h) in AVAILABLE_HOURS } = 
+	heat_rate_spinning_reserve[pid, a, t] * carbon_content[fuel[t]] * carbon_cost
+	* ( hours_in_sample[h] / num_years_per_period ) * discount_to_base_year[p];
 
 # The maximum percentage of generator capacity that can be dedicated to spinning reserves (as opposed to useful generation)
 # In general, the amount of capacity that can be provided for spinning reserves is the generator's 10-minute ramp rate
@@ -915,6 +909,10 @@ var ConsumeDistributedPower_Reserve {LOAD_AREAS, TIMEPOINTS} >= 0;
 # number of MW to install for each project in each investment period
 var InstallGen {PROJECT_VINTAGES} >= 0;
 
+# derived variable which represents the total amount of capacity installed and active for each project in each investment period
+var Installed_To_Date { (pid, a, t, p) in PROJECT_VINTAGES } =
+	sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr];
+
 # number of MW to dispatch each dispatchable generator
 var DispatchGen {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t]} >= 0;
 
@@ -939,7 +937,7 @@ var ConsumeBioSolid {a in LOAD_AREAS, p in PERIODS: num_bio_breakpoints[a, p] > 
 	# the hourly MWh output of biomass solid projects in baseload mode is below
 		(
 		( sum { (pid, a, t, p) in PROJECT_VINTAGES: fuel[t] in BIO_SOLID_FUELS } 
-			( ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] ) * gen_availability[t]
+			( Installed_To_Date[pid, a, t, p] * gen_availability[t]
 			* ( heat_rate[pid, a, t] + cogen_thermal_demand[pid, a, t] ) ) )
 		+ ( sum { (pid, a, t, p) in EP_PERIODS: fuel[t] in BIO_SOLID_FUELS } 
 			( OperateEPDuringPeriod[pid, a, t, p] * ep_capacity_mw[pid, a, t] * gen_availability[t]
@@ -998,48 +996,38 @@ minimize Power_Cost:
 
 	#############################
 	#    NEW PLANTS
-	# Capital costs
-      ( sum {(pid, a, t, p) in PROJECT_VINTAGES} 
-        InstallGen[pid, a, t, p] * capital_cost[pid, a, t, p] )
-	# Fixed Costs
-	+ ( sum {(pid, a, t, p) in PROJECT_VINTAGES} 
-	    ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
-	    	* fixed_o_m_by_period[pid, a, t, p] )
-	# Variable costs for non-storage projects
-	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t] and t <> 'Compressed_Air_Energy_Storage' } 
-		DispatchGen[pid, a, t, p, h] * ( variable_cost[pid, a, t, p, h] + carbon_cost_per_mwh[pid, a, t, p, h] + fuel_cost[pid, a, t, p, h] ) )
-	+ ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: intermittent[t]} 
-		( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
-			* cap_factor[pid, a, t, h] * gen_availability[t] * ( variable_cost[pid, a, t, p, h] + carbon_cost_per_mwh[pid, a, t, p, h] ) )
-	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t]} 
-		( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
-	    	* gen_availability[t] * ( variable_cost[pid, a, t, p, h] + carbon_cost_per_mwh[pid, a, t, p, h] ) )
-	# Fuel costs - intermittent generators don't have fuel costs as they're either solar or wind
-	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t] and fuel[t] not in BIO_SOLID_FUELS} 
-		( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
-	    	* gen_availability[t] * fuel_cost[pid, a, t, p, h] )
+	# Capital costs and fixed costs
+      ( sum { (pid, a, t, p) in PROJECT_VINTAGES } 
+        InstallGen[pid, a, t, p] * ( capital_cost[pid, a, t, p] + fixed_o_m_discounted[pid, a, t, p] ) )
+	# Variable, fuel, and carbon costs for intermittent and baseload generators
+	# Bio_solid fuel cost isn't included here - it's in the bio supply curve
+    + ( sum { (pid, a, t, p) in PROJECT_VINTAGES: intermittent[t] or baseload[t] } 
+        InstallGen[pid, a, t, p] * variable_cost[pid, a, t, p] )
 	# BioSolid fuel costs - ConsumeBioSolid is the MMbtu of biomass consumed per period per load area
 	# this is annualized because costs in the objective function are annualized for proper discounting
-	+ ( sum {a in LOAD_AREAS, p in PERIODS: num_bio_breakpoints[a, p] > 0} 
+	+ ( sum { a in LOAD_AREAS, p in PERIODS: num_bio_breakpoints[a, p] > 0 } 
 		<< { bp in 1..num_bio_breakpoints[a, p] - 1 } breakpoint_mmbtu_per_period[a, p, bp]; 
 		   { bp in 1..num_bio_breakpoints[a, p] } price_dollars_per_mmbtu_surplus_adjusted[a, p, bp] >>
 	   		ConsumeBioSolid[a, p] * ( 1 / num_years_per_period ) * discount_to_base_year[p]  )
 
+	# Variable costs for dispatchable, non-storage projects
+	+ ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t] and t <> 'Compressed_Air_Energy_Storage' } 
+		DispatchGen[pid, a, t, p, h] * ( variable_o_m_cost_hourly[pid, a, t, p, h] + carbon_cost_per_mwh_hourly[pid, a, t, p, h] + fuel_cost_hourly[pid, a, t, p, h] ) )
 	# Variable costs for storage projects: currently attributed to the dispatch side of storage
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t] and t <> 'Compressed_Air_Energy_Storage' } 
-		ReleaseEnergy[pid, a, t, p, h, fc] * variable_cost[pid, a, t, p, h])
+		ReleaseEnergy[pid, a, t, p, h, fc] * variable_o_m_cost_hourly[pid, a, t, p, h])
 	# for CAES, power output is apportioned between DispatchGen and ReleaseEnergy by caes_storage_to_ng_ratio through the constraint CAES_Combined_Dispatch
 	# the sum of DispatchGen and ReleaseEnergy simplifies to DispatchGen * ( 1 + caes_storage_to_ng_ratio )
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t = 'Compressed_Air_Energy_Storage' } 
-	  DispatchGen[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) * ( variable_cost[pid, a, t, p, h] + carbon_cost_per_mwh[pid, a, t, p, h] + fuel_cost[pid, a, t, p, h] ) )
+	  DispatchGen[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) * ( variable_o_m_cost_hourly[pid, a, t, p, h] + carbon_cost_per_mwh_hourly[pid, a, t, p, h] + fuel_cost_hourly[pid, a, t, p, h] ) )
 	# fuel and carbon costs for keeping spinning reserves from new dispatchable plants (except for CAES)
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t] and t <> 'Compressed_Air_Energy_Storage' } 
-		Provide_Spinning_Reserve[pid, a, t, p, h] * ( carbon_cost_per_mwh_spinning_reserve[pid, a, t, p, h] + fuel_cost_spinning_reserve[pid, a, t, p, h] ) )
+		Provide_Spinning_Reserve[pid, a, t, p, h] * ( carbon_cost_per_mwh_hourly_spinning_reserve[pid, a, t, p, h] + fuel_cost_hourly_spinning_reserve[pid, a, t, p, h] ) )
 	# fuel and carbon costs for keeping spinning reserves from CAES
 	# the sum of spinning reserve provided by the natural gas and storage parts of CAES simplifies to
 	# Provide_Spinning_Reserve * ( 1 + caes_storage_to_ng_ratio )
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t = 'Compressed_Air_Energy_Storage' } 
-		Provide_Spinning_Reserve[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) * ( carbon_cost_per_mwh_spinning_reserve[pid, a, t, p, h] + fuel_cost_spinning_reserve[pid, a, t, p, h] ) )
+		Provide_Spinning_Reserve[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) * ( carbon_cost_per_mwh_hourly_spinning_reserve[pid, a, t, p, h] + fuel_cost_hourly_spinning_reserve[pid, a, t, p, h] ) )
 		      
 	#############################
 	#    EXISTING PLANTS
@@ -1048,20 +1036,18 @@ minimize Power_Cost:
 		ep_capacity_mw[pid, a, t] * ep_capital_cost[pid, a, t, p] )
 	# Calculate fixed costs for all existing plants
 	+ ( sum {(pid, a, t, p) in EP_PERIODS} 
-		( if ( intermittent[t] or hydro[t] ) then 1 else OperateEPDuringPeriod[pid, a, t, p] ) * ep_capacity_mw[pid, a, t] * fixed_o_m_by_period[pid, a, t, p] )
-	# Calculate variable and carbon costs for all existing plants
+		( if ( intermittent[t] or hydro[t] ) then 1 else OperateEPDuringPeriod[pid, a, t, p] ) * ep_capacity_mw[pid, a, t] * ep_fixed_o_m_by_period[pid, a, t, p] )
+	# Calculate variable, fuel, and carbon costs for all existing plants
+	# Bio_solid fuel cost isn't included here - it's in the bio supply curve
 	+ ( sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS}
-		ProducePowerEP[pid, a, t, p, h] * ( variable_cost[pid, a, t, p, h] + carbon_cost_per_mwh[pid, a, t, p, h] ) )
+		ProducePowerEP[pid, a, t, p, h] * ( variable_o_m_cost_hourly[pid, a, t, p, h] + fuel_cost_hourly[pid, a, t, p, h] + carbon_cost_per_mwh_hourly[pid, a, t, p, h] ) )
 	# variable costs for releasing energy from pumped hydro storage - currently zero because the variable O&M value is zero
 	# decision variables are on the load area level - this shares them out by plant (pid) in case plants have different variable costs within a load area
 	+ ( sum {(pid, a, t, p, h, fc) in PUMPED_HYDRO_AVAILABLE_HOURS_BY_FC_AND_PID}
-		Dispatch_Pumped_Hydro_Storage[a, t, p, h, fc] * ( ep_capacity_mw[pid, a, t] / hydro_capacity_mw_in_load_area[a, t] ) * variable_cost[pid, a, t, p, h] )
-	# Calculate fuel costs for all existing plants except for bio_solid - that's included in the supply curve
-	+ ( sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: fuel[t] not in BIO_SOLID_FUELS}
-	    ProducePowerEP[pid, a, t, p, h] * fuel_cost[pid, a, t, p, h] )
+		Dispatch_Pumped_Hydro_Storage[a, t, p, h, fc] * ( ep_capacity_mw[pid, a, t] / hydro_capacity_mw_in_load_area[a, t] ) * variable_o_m_cost_hourly[pid, a, t, p, h] )
 	# fuel and carbon costs for keeping spinning reserves from existing dispatchable thermal plants
 	+ ( sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: dispatchable[t]}
-		Provide_Spinning_Reserve[pid, a, t, p, h] * ( fuel_cost_spinning_reserve[pid, a, t, p, h] + carbon_cost_per_mwh_spinning_reserve[pid, a, t, p, h] ) )
+		Provide_Spinning_Reserve[pid, a, t, p, h] * ( fuel_cost_hourly_spinning_reserve[pid, a, t, p, h] + carbon_cost_per_mwh_hourly_spinning_reserve[pid, a, t, p, h] ) )
 	
 	########################################
 	#    TRANSMISSION & DISTRIBUTION
@@ -1109,8 +1095,8 @@ subject to Carbon_Cap {p in PERIODS}:
 	  + Provide_Spinning_Reserve[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) * heat_rate_spinning_reserve[pid, a, t] )
 	  * carbon_content[fuel[t]] * hours_in_sample[h] )
 	# Carbon emissions from new baseload plants
-	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t]} ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
-		* gen_availability[t] * heat_rate[pid, a, t] * carbon_content[fuel[t]] * hours_in_sample[h] )
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t]}
+		Installed_To_Date[pid, a, t, p] * gen_availability[t] * heat_rate[pid, a, t] * carbon_content[fuel[t]] * hours_in_sample[h] )
 	# Carbon emissions from existing plants
 	+ ( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS } (
 	ProducePowerEP[pid, a, t, p, h] * ep_heat_rate[pid, a, t]
@@ -1136,11 +1122,9 @@ subject to Conservation_Of_Energy_NonDistributed {a in LOAD_AREAS, h in TIMEPOIN
 	# power produced from new non-battery-storage projects  
 	  ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t] and rps_fuel_category_tech[t] = fc} DispatchGen[pid, a, t, p, h] )
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: intermittent[t] and t not in SOLAR_DIST_PV_TECHNOLOGIES and rps_fuel_category_tech[t] = fc }
-		( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
-			* cap_factor[pid, a, t, h] * gen_availability[t] )
+		Installed_To_Date[pid, a, t, p] * cap_factor[pid, a, t, h] * gen_availability[t] )
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t] and rps_fuel_category_tech[t] = fc }
-		( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
-			* gen_availability[t] )
+		Installed_To_Date[pid, a, t, p] * gen_availability[t] )
 	# power from new storage
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t]} ( ReleaseEnergy[pid, a, t, p, h, fc] - StoreEnergy[pid, a, t, p, h, fc] ) )
 	# power produced from existing plants
@@ -1156,8 +1140,7 @@ subject to Conservation_Of_Energy_NonDistributed {a in LOAD_AREAS, h in TIMEPOIN
 subject to Conservation_Of_Energy_Distributed {a in LOAD_AREAS, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY}:
   ConsumeDistributedPower[a,h,fc] <= 
 	  (sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES and rps_fuel_category_tech[t] = fc}
-          ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
-          	* gen_availability[t] * cap_factor[pid, a, t, h])
+          Installed_To_Date[pid, a, t, p] * cap_factor[pid, a, t, h] * gen_availability[t])
 	+ (sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES and rps_fuel_category_tech[t] = fc}
    	      ep_capacity_mw[pid, a, t] * gen_availability[t] * eip_cap_factor[pid, a, t, h] ) 
   ;
@@ -1180,15 +1163,13 @@ subject to Conservation_Of_Energy_NonDistributed_Reserve {a in LOAD_AREAS, h in 
 	#    NEW PLANTS
   # new dispatchable capacity (no need to decide how to dispatch it; we just need to know it's available)
 	  ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t] and not storage[t]}
-		( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] ) )
+		Installed_To_Date[pid, a, t, p] )
   # output from new intermittent projects. 
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: intermittent[t] and t not in SOLAR_DIST_PV_TECHNOLOGIES} 
-		( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
-			* cap_factor[pid, a, t, h] )
+		Installed_To_Date[pid, a, t, p] * cap_factor[pid, a, t, h] )
   # new baseload plants
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t]} 
-		( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
-			* ( 1 - scheduled_outage_rate[t] ) )
+		Installed_To_Date[pid, a, t, p] * ( 1 - scheduled_outage_rate[t] ) )
   # new storage projects
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t]} (
 		sum { fc in RPS_FUEL_CATEGORY } ( ReleaseEnergy[pid, a, t, p, h, fc] - StoreEnergy[pid, a, t, p, h, fc] ) ) )
@@ -1226,8 +1207,7 @@ subject to Conservation_Of_Energy_Distributed_Reserve {a in LOAD_AREAS, h in TIM
   ConsumeDistributedPower_Reserve[a, h]
   <= 
 	  ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES}
-          ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
-          	* cap_factor[pid, a, t, h] )
+          Installed_To_Date[pid, a, t, p] * cap_factor[pid, a, t, h] )
 	+ ( sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES}
    	      eip_cap_factor[pid, a, t, h] * ep_capacity_mw[pid, a, t] ) 
   ;
@@ -1247,8 +1227,7 @@ subject to Spinning_Reserve_Requirement_in_Balancing_Area_in_Hour {b in BALANCIN
 		eip_cap_factor[pid, a, t, h] * ep_capacity_mw[pid, a, t] )
 	# new wind
 	+ ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: balancing_area[a] = b and fuel[t] = 'Wind' } (
-	( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
-	* cap_factor[pid, a, t, h] ) )
+	Installed_To_Date[pid, a, t, p] * cap_factor[pid, a, t, h] ) )
 	)
 	+ solar_spinning_reserve_requirement[b] 
 	* (
@@ -1258,8 +1237,7 @@ subject to Spinning_Reserve_Requirement_in_Balancing_Area_in_Hour {b in BALANCIN
 		eip_cap_factor[pid, a, t, h] * ep_capacity_mw[pid, a, t] )
 	# new solar
 	+ (	sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: balancing_area[a] = b and fuel[t] = 'Solar' and t not in SOLAR_CSP_TECHNOLOGIES } (
-	( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
-	* cap_factor[pid, a, t, h] ) )
+	Installed_To_Date[pid, a, t, p] * cap_factor[pid, a, t, h] ) )
 	);
 
 subject to Quickstart_Reserve_Requirement_in_Balancing_Area_in_Hour {b in BALANCING_AREAS, h in TIMEPOINTS}:
@@ -1275,8 +1253,7 @@ subject to Quickstart_Reserve_Requirement_in_Balancing_Area_in_Hour {b in BALANC
 		eip_cap_factor[pid, a, t, h] * ep_capacity_mw[pid, a, t] )
 	# new CSP
 	+ (	sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: balancing_area[a] = b and t = 'CSP_Trough_No_Storage' } (
-	( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
-	* cap_factor[pid, a, t, h] ) )
+	Installed_To_Date[pid, a, t, p] * cap_factor[pid, a, t, h] ) )
 	);
 
 # Ensure that the spinning reserve requirement is met in each hour in each balancing area
@@ -1329,11 +1306,9 @@ subject to Satisfy_Quickstart_Reserve_Requirement {b in BALANCING_AREAS, h in TI
 # the total amount of useful energy, spinning reserve, and quickstart capacity cannot exceed the turbine capacity in any given hour
 subject to Power_and_Operating_Reserve_From_Dispatchable_Plants 
 	{ (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t] and t <> 'Compressed_Air_Energy_Storage' }:
-	DispatchGen[pid, a, t, p, h]
-	+ Provide_Spinning_Reserve[pid, a, t, p, h] + Provide_Quickstart_Capacity[pid, a, t, p, h] 
+	DispatchGen[pid, a, t, p, h] + Provide_Spinning_Reserve[pid, a, t, p, h] + Provide_Quickstart_Capacity[pid, a, t, p, h] 
 	<=
-	( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
-			* gen_availability[t]
+	Installed_To_Date[pid, a, t, p] * gen_availability[t]
 ;
 
 subject to EP_Operational_Continuity {(pid, a, t, p) in EP_PERIODS: p > first(PERIODS) and not intermittent[t] and not hydro[t]}:
@@ -1379,7 +1354,7 @@ subject to Spinning_Reserve_as_Fraction_of_Dispatch { (pid, a, t, p, h) in AVAIL
 # for residential and commercial PV, geothermal, offshore and onshore wind, and CAES,
 # the max resource is plant specific and is given by the capacity_limit
 subject to Maximum_Resource_Single_Location { (pid, a, t, p) in PROJECT_VINTAGES: resource_limited[t] and not competes_for_space[t] }:
-  ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
+	Installed_To_Date[pid, a, t, p]
   		<= capacity_limit[pid, a, t];
   
 # for solar, installation constraints are in the form of land area (capacity_limit_by_location) and the capacity_limit_conversion denotes the MW/km^2
@@ -1389,8 +1364,7 @@ subject to Maximum_Resource_Single_Location { (pid, a, t, p) in PROJECT_VINTAGES
 # (i.e. there is no Maximum_Resource_Single_Location constraint for central station solar projects)
 subject to Maximum_Resource_Central_Station_Solar { (l, a) in CENTRAL_STATION_SOLAR_LOCATIONS, p in PERIODS }:
 	( sum { (pid, a, t) in PROJECT_CENTRAL_STATION_SOLAR: location_id[pid, a, t] = l } 
-		( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
-		/ capacity_limit_conversion[pid, a, t] )
+		Installed_To_Date[pid, a, t, p] / capacity_limit_conversion[pid, a, t] )
 		<= central_station_solar_capacity_limit[l, a];
 
 # for Bio_Solid and Bio_Gas, bio_fuel_limit_by_load_area is in MMBtu/period
@@ -1403,7 +1377,7 @@ subject to Maximum_Resource_Central_Station_Solar { (l, a) in CENTRAL_STATION_SO
 subject to Maximum_Resource_Bio { (f, a, p) in BIO_FUELS_LOAD_AREAS: bio_fuel_limit_by_load_area[f, a, p] > 0 }:
 	(
 	( sum { (pid, a, t, p) in PROJECT_VINTAGES: f = sub(fuel[t],'_CCS', '') } 
-		( ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] ) * gen_availability[t]
+		( Installed_To_Date[pid, a, t, p] * gen_availability[t]
 		* ( heat_rate[pid, a, t] + cogen_thermal_demand[pid, a, t] ) ) )
 	+ ( sum { (pid, a, t, p) in EP_PERIODS: f = sub(fuel[t],'_CCS', '') } 
 		( OperateEPDuringPeriod[pid, a, t, p] * ep_capacity_mw[pid, a, t] * gen_availability[t]
@@ -1414,7 +1388,7 @@ subject to Maximum_Resource_Bio { (f, a, p) in BIO_FUELS_LOAD_AREAS: bio_fuel_li
 
 # for plants that replace existing cogen plants, this is just the old plant capacity
 subject to Maximum_Resource_EP_Cogen_Replacement { (l, a) in EP_COGEN_REPLACEMENT_PLANT_LOCATIONS, p in PERIODS }:
-  ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS: cogen[t] and can_build_new[t] and ep_project_replacement_id[pid, a, t] = l } InstallGen[pid, a, t, online_yr] )
+  ( sum { (pid, a, t, p) in PROJECT_VINTAGES: cogen[t] and ep_project_replacement_id[pid, a, t] = l } Installed_To_Date[pid, a, t, p] )
   		<= cogen_plant_capacity_limit[l, a];
 
 # Some generators (currently only Nuclear) have a minimum build size. This enforces that constraint
@@ -1494,8 +1468,7 @@ subject to CAES_Combined_Operating_Reserve { (pid, a, t, p, h) in PROJECT_VINTAG
 # StoreEnergy represents the load on the grid from storing electrons
 subject to Maximum_Store_Rate {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t]}:
   	sum {fc in RPS_FUEL_CATEGORY} StoreEnergy[pid, a, t, p, h, fc]
-  		<= ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
-  				* max_store_rate[t] * gen_availability[t];
+  		<= Installed_To_Date[pid, a, t, p] * max_store_rate[t] * gen_availability[t];
 
 # Maximum dispatch rate, derated for occasional forced outages
 # CAES dispatch is apportioned between DispatchGen and ReleaseEnergy for NG and stored energy respectivly
@@ -1503,10 +1476,10 @@ subject to Maximum_Store_Rate {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: stora
 # while other storage projects (currently only Battery_Storage) don't have input energy other than grid electricity
 subject to Maximum_Release_and_Operating_Reserve_Storage_Rate { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] }:
   	sum { fc in RPS_FUEL_CATEGORY } ReleaseEnergy[pid, a, t, p, h, fc] 
-  	+ ( if t = 'Compressed_Air_Energy_Storage' then ( DispatchGen[pid, a, t, p, h] + Provide_Spinning_Reserve[pid, a, t, p, h] + Provide_Quickstart_Capacity[pid, a, t, p, h] ) else 0 )
+  	+ ( if t = 'Compressed_Air_Energy_Storage'
+  		then ( DispatchGen[pid, a, t, p, h] + Provide_Spinning_Reserve[pid, a, t, p, h] + Provide_Quickstart_Capacity[pid, a, t, p, h] ) else 0 )
   	+ Storage_Operating_Reserve[pid, a, t, p, h] 
-  		<= ( sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] )
-  				* gen_availability[t];
+  		<= Installed_To_Date[pid, a, t, p] * gen_availability[t];
 
 # Energy balance
 # The parameter round_trip_efficiency below expresses the relationship between the amount of electricity from the grid used
@@ -1600,8 +1573,7 @@ subject to Pumped_Hydro_Energy_Balance { (a, t, p, d) in PUMPED_HYDRO_DATES: per
 	sum { h in TIMEPOINTS: date[h]=d } ( sum {fc in RPS_FUEL_CATEGORY} Store_Pumped_Hydro[a, t, p, h, fc] ) * storage_efficiency[t];
 
 
-
-
+################################################################################
 
 problem Investment_Cost_Minimization: 
   # Objective function 
