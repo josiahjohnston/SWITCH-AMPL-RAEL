@@ -517,6 +517,20 @@ CREATE TABLE IF NOT EXISTS power_cost (
   PRIMARY KEY (scenario_id, carbon_cost, period)
 );
 
+CREATE TABLE _rps_reduced_cost (
+  scenario_id int,
+  carbon_cost smallint,
+  period year,
+  rps_compliance_entity varchar(20),
+  rps_compilance_type varchar(20),
+  rps_reduced_cost double DEFAULT NULL,
+  PRIMARY KEY (scenario_id,carbon_cost,period,rps_compliance_entity),
+  KEY scenario_id (scenario_id),
+  KEY carbon_cost (carbon_cost),
+  KEY period (period),
+  KEY rps_compliance_entity (rps_compliance_entity)
+);
+
 CREATE TABLE IF NOT EXISTS _trans_cap (
   scenario_id int,
   carbon_cost smallint,
@@ -557,6 +571,18 @@ and e.new = 0
 and n.new = 1
 order by 1,2,3,5,6;
 
+CREATE TABLE IF NOT EXISTS _existing_trans_cost (
+  scenario_id int,
+  carbon_cost smallint,
+  period year,
+  area_id smallint NOT NULL,
+  existing_trans_cost double DEFAULT NULL,
+  PRIMARY KEY (scenario_id, carbon_cost, period, area_id),
+  KEY scenario_id (scenario_id),
+  KEY carbon_cost (carbon_cost),
+  KEY period (period),
+  KEY area_id (area_id)
+);
 
 CREATE TABLE IF NOT EXISTS _existing_trans_cost_and_rps_reduced_cost (
   scenario_id int,

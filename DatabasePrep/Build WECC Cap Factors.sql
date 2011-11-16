@@ -581,11 +581,12 @@ where	price_dollars_per_mmbtu_surplus_adjusted = 999999999;
 -- RPS COMPLIANCE INFO ---------------
 drop table if exists rps_compliance_entity_targets;
 create table rps_compliance_entity_targets(
-	rps_compliance_entity character varying(11),
-	compliance_year year,
-	compliance_fraction float,
-	PRIMARY KEY (rps_compliance_entity, compliance_year),
-	INDEX compliance_year (compliance_year)
+	rps_compliance_entity character varying(20),
+	rps_compliance_type character varying(20),
+	rps_compliance_year year,
+	rps_compliance_fraction float,
+	PRIMARY KEY (rps_compliance_entity, rps_compliance_type, rps_compliance_year),
+	INDEX rps_compliance_year (rps_compliance_year)
 	);
 
 load data local infile
@@ -595,30 +596,6 @@ load data local infile
 	optionally enclosed by '"'
 	ignore 1 lines;
 
-alter table rps_compliance_entity_targets add unique index (rps_compliance_entity, compliance_year);
-	
--- RPS targets are assumed to go on in the future, so targets out past 2010 are added here
--- as the compliance fraction of the last year
-drop table if exists integer_tmp;
-create table integer_tmp( integer_val int not null AUTO_INCREMENT primary key, insert_tmp int );
-	insert into integer_tmp (insert_tmp) select hournum from hours limit 100;
-
-insert into rps_compliance_entity_targets ( rps_compliance_entity, compliance_year, compliance_fraction )
-	select 	rps_compliance_entity,
-			integer_val + max_year as compliance_year,
-			compliance_fraction_in_max_year as compliance_fraction
-	from	integer_tmp,
-			(select rps_compliance_entity_targets.rps_compliance_entity,
-					max_year,
-					compliance_fraction as compliance_fraction_in_max_year
-			from	rps_compliance_entity_targets,
-					( select rps_compliance_entity, max(compliance_year) as max_year from rps_compliance_entity_targets group by 1 ) as max_year_table
-			where	max_year_table.rps_compliance_entity = rps_compliance_entity_targets.rps_compliance_entity
-			and		max_year_table.max_year = rps_compliance_entity_targets.compliance_year
-			) as compliance_fraction_in_max_year_table
-	;
-
-drop table integer_tmp;
 
 -- CARBON CAP INFO ---------------
 -- the current carbon cap in SWITCH is set by a linear decrease

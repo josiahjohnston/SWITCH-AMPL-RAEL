@@ -57,7 +57,7 @@ table study_hours "inputs/study_hours.tab" IN:
 read table study_hours;
 
 table load_areas "inputs/load_areas.tab" IN: 
-  LOAD_AREAS <- [load_area], load_area_id, balancing_area, rps_compliance_entity, economic_multiplier, 
+  LOAD_AREAS <- [load_area], load_area_id, primary_state, balancing_area, rps_compliance_entity, economic_multiplier, 
   	max_coincident_load_for_local_td, local_td_new_annual_payment_per_mw, local_td_sunk_annual_payment, transmission_sunk_annual_payment,
   	ccs_distance_km, bio_gas_capacity_limit_mmbtu_per_hour;
 read table load_areas;
@@ -67,7 +67,7 @@ table balancing_areas "inputs/balancing_areas.tab" IN:
 read table balancing_areas;
 
 table rps_compliance_entity_targets "inputs/rps_compliance_entity_targets.tab" IN: 
-  [rps_compliance_entity, rps_compliance_year], rps_compliance_fraction;
+  RPS_TARGETS_ALL <- [rps_compliance_entity, rps_compliance_type, rps_compliance_year], rps_compliance_fraction;
 read table rps_compliance_entity_targets;
 
 table carbon_cap_targets "inputs/carbon_cap_targets.tab" IN: 

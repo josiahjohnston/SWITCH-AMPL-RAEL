@@ -197,16 +197,16 @@ FROM _training_set_timepoints JOIN study_timepoints  USING (timepoint_id) \
 WHERE training_set_id=$TRAINING_SET_ID order by 1;" >> study_hours.tab
 
 echo '	load_areas.tab...'
-echo ampl.tab 1 10 > load_areas.tab
-mysql $connection_string -e "select load_area, area_id as load_area_id, primary_nerc_subregion as balancing_area, rps_compliance_entity, economic_multiplier, max_coincident_load_for_local_td, local_td_new_annual_payment_per_mw, local_td_sunk_annual_payment, transmission_sunk_annual_payment, ccs_distance_km, bio_gas_capacity_limit_mmbtu_per_hour from load_area_info;" >> load_areas.tab
+echo ampl.tab 1 11 > load_areas.tab
+mysql $connection_string -e "select load_area, area_id as load_area_id, primary_state, primary_nerc_subregion as balancing_area, rps_compliance_entity, economic_multiplier, max_coincident_load_for_local_td, local_td_new_annual_payment_per_mw, local_td_sunk_annual_payment, transmission_sunk_annual_payment, ccs_distance_km, bio_gas_capacity_limit_mmbtu_per_hour from load_area_info;" >> load_areas.tab
 
 echo '	balancing_areas.tab...'
 echo ampl.tab 1 4 > balancing_areas.tab
 mysql $connection_string -e "select balancing_area, load_only_spinning_reserve_requirement, wind_spinning_reserve_requirement, solar_spinning_reserve_requirement, quickstart_requirement_relative_to_spinning_reserve_requirement from balancing_areas;" >> balancing_areas.tab
 
 echo '	rps_compliance_entity_targets.tab...'
-echo ampl.tab 2 1 > rps_compliance_entity_targets.tab
-mysql $connection_string -e "select rps_compliance_entity, compliance_year as rps_compliance_year, compliance_fraction as rps_compliance_fraction from rps_compliance_entity_targets where compliance_year >= $STUDY_START_YEAR and compliance_year <= $STUDY_END_YEAR;" >> rps_compliance_entity_targets.tab
+echo ampl.tab 3 1 > rps_compliance_entity_targets.tab
+mysql $connection_string -e "select rps_compliance_entity, rps_compliance_type, rps_compliance_year, rps_compliance_fraction from rps_compliance_entity_targets where rps_compliance_year >= $STUDY_START_YEAR and rps_compliance_year <= $STUDY_END_YEAR;" >> rps_compliance_entity_targets.tab
 
 echo '	carbon_cap_targets.tab...'
 echo ampl.tab 1 1 > carbon_cap_targets.tab

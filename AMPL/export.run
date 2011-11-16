@@ -217,20 +217,15 @@ for {c in CARBON_COSTS} {
         > (outfile); }
       
       if (enable_rps = 1) then {
-        printf { r in RPS_AREAS, p in PERIODS: rps_compliance_fraction_in_period [r, p] > 0 }:
-          "%s	%d	%d	%s	%.2f\n",
-          scenario_id, carbon_cost, p, r,
-          Satisfy_RPS[r, p]
-          >> (outfile);
-        printf { r in RPS_AREAS, p in PERIODS: rps_compliance_fraction_in_period [r, p] = 0 }:
-          "%s	%d	%d	%s	%.2f\n",
-          scenario_id, carbon_cost, p, r,
-          0
+        printf { (r, c, p) in RPS_TARGETS: able_to_meet_rps[r, c, p] }:
+          "%s	%d	%d	%s	%s	%.2f\n",
+          scenario_id, carbon_cost, p, r, c,
+          Satisfy_RPS[r, c, p]
           >> (outfile);
        } else {
         printf { r in RPS_AREAS, p in PERIODS }:
-          "%s	%d	%d	%s	%.2f\n",
-          scenario_id, carbon_cost, p, r,
+          "%s	%d	%d	%s	%s	%.2f\n",
+          scenario_id, carbon_cost, p, r, 'none',
           0
           >> (outfile);
       }

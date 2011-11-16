@@ -66,6 +66,9 @@ set LOAD_AREAS;
 # load area id, useful for rapidly referencing the database
 param load_area_id {LOAD_AREAS} >= 0;
 
+# primary state of each load area
+param primary_state {LOAD_AREAS} symbolic;
+
 # system load (MW)
 param system_load {LOAD_AREAS, TIMEPOINTS} >= 0;
 
@@ -355,60 +358,6 @@ check {(pid, a, t, h) in PROJ_INTERMITTENT_HOURS: not( t in SOLAR_TECHNOLOGIES )
 check {(pid, a, t, h) in PROJ_INTERMITTENT_HOURS: t in SOLAR_TECHNOLOGIES }: cap_factor[pid, a, t, h] <= 1.4;
 check {(pid, a, t) in PROJ_INTERMITTENT}: intermittent[t];
 
-
-##################################################################
-#
-# RPS goals for each load area 
-
-set RPS_AREAS_AND_FUEL_CATEGORY dimen 2;
-set RPS_AREAS = setof { (rps_compliance_entity, rps_fuel_category) in RPS_AREAS_AND_FUEL_CATEGORY } (rps_compliance_entity);
-set RPS_FUEL_CATEGORY = setof { (load_area, rps_fuel_category) in RPS_AREAS_AND_FUEL_CATEGORY } (rps_fuel_category);
-
-param enable_rps >= 0, <= 1 default 0;
-
-# RPS compliance entity for each load area
-param rps_compliance_entity {LOAD_AREAS} symbolic in RPS_AREAS;
-
-# whether fuels in a load area qualify for rps 
-param fuel_qualifies_for_rps {RPS_AREAS_AND_FUEL_CATEGORY};
-
-# determines if fuel falls in solar/wind/geo or gas/coal/nuclear/hydro
-param rps_fuel_category {FUELS} symbolic in RPS_FUEL_CATEGORY;
-
-param rps_fuel_category_tech {t in TECHNOLOGIES: t <> 'Battery_Storage'} symbolic = rps_fuel_category[fuel[t]];
-
-# rps compliance fraction as a function of yearly load
-param rps_compliance_fraction {RPS_AREAS, YEARS} >= 0 default 0;
-
-# average the RPS compliance percentages over a period to get the RPS target for that period
-# the end year is the year after the last period, so this sum doesn't include it.
-param rps_compliance_fraction_in_period { r in RPS_AREAS, p in PERIODS} = 
-	( sum { yr in YEARS: yr >= p and yr < p + num_years_per_period }
-	rps_compliance_fraction[r, yr] ) / num_years_per_period;
-
-###############################################
-# Carbon Policy
-
-### Carbon Cost
-# cost of carbon emissions ($/ton), e.g., from a carbon tax
-# can also be set negative to drive renewables out of the system
-param carbon_cost default 0;
-
-# set and parameters used to make carbon cost curves
-set CARBON_COSTS ordered;
-
-### Carbon Cap
-# does this scenario include a cap on carbon emissions?
-param enable_carbon_cap >= 0, <= 1 default 1;
-
-# the base (1990) carbon emissions in tCO2/Yr
-param base_carbon_emissions = 284800000;
-# the fraction of emissions relative to the base year of 1990 that should be allowed in a given year
-param carbon_emissions_relative_to_base {YEARS};
-# add up all the targets for each period to get the total cap level in each period
-param carbon_cap {p in PERIODS} = base_carbon_emissions *
-		( sum{ y in YEARS: y >= p and y < p + num_years_per_period } carbon_emissions_relative_to_base[y] );
-
 ###############################################
 # Existing generators
 
@@ -527,6 +476,79 @@ set EP_AVAILABLE_HOURS := { (pid, a, t, p, h) in AVAILABLE_HOURS: not can_build_
 # project-vintage-hour combinations when new plants are available. 
 set PROJECT_VINTAGE_HOURS := { (pid, a, t, p, h) in AVAILABLE_HOURS: can_build_new[t] };
 
+##################################################################
+# RPS goals for each load area 
+
+set RPS_AREAS_AND_FUEL_CATEGORY dimen 2;
+set RPS_AREAS = setof { (rps_compliance_entity, rps_fuel_category) in RPS_AREAS_AND_FUEL_CATEGORY } (rps_compliance_entity);
+set RPS_FUEL_CATEGORY = setof { (load_area, rps_fuel_category) in RPS_AREAS_AND_FUEL_CATEGORY } (rps_fuel_category);
+
+param enable_rps >= 0, <= 1 default 1;
+
+# RPS compliance entity for each load area
+param rps_compliance_entity {LOAD_AREAS} symbolic in RPS_AREAS;
+
+# whether fuels in a load area qualify for rps 
+param fuel_qualifies_for_rps {RPS_AREAS_AND_FUEL_CATEGORY};
+
+# determines if fuel falls in solar/wind/geo or gas/coal/nuclear/hydro
+param rps_fuel_category {FUELS} symbolic in RPS_FUEL_CATEGORY;
+
+param rps_fuel_category_tech {t in TECHNOLOGIES: t <> 'Battery_Storage'} symbolic = rps_fuel_category[fuel[t]];
+
+# read in the set of all rps targets, even the rps_areas with targets of zero
+set RPS_TARGETS_ALL dimen 3; #RPS_AREAS, RPS_COMPLIANCE_TYPES, YEARS
+set RPS_COMPLIANCE_TYPES = setof { (r, rps_compliance_type, yr) in RPS_TARGETS_ALL } (rps_compliance_type);
+
+# rps compliance fraction as a function of yearly load
+param rps_compliance_fraction {RPS_AREAS, RPS_COMPLIANCE_TYPES, YEARS} >= 0, <= 1;
+
+# average the RPS compliance percentages over a period to get the RPS target for that period
+# the end year is the year after the last period, so this sum doesn't include it.
+param rps_compliance_fraction_in_period { r in RPS_AREAS, c in RPS_COMPLIANCE_TYPES, p in PERIODS } = 
+	sum { yr in YEARS: yr >= p and yr < p + num_years_per_period }
+	rps_compliance_fraction[r, c, yr] / num_years_per_period;
+
+# now restrict the RPS_TARGETS set to periods for which there is a target of > 0.
+set RPS_TARGETS = { r in RPS_AREAS, c in RPS_COMPLIANCE_TYPES, p in PERIODS: rps_compliance_fraction_in_period[r, c, p] > 0 };
+
+# a small but pesky amount of rps area/period combos don't have enough energy to meet the distributed rps in toy problems
+# these are really small rps areas, so droping the distributed rps requirement won't change the solution significantally
+# the able_to_meet_rps param will be used below to drop Satisfy_RPS for these distributed rps area/period combos
+# (able_to_meet_rps = 1 for all primary RPS)
+param able_to_meet_rps { (r, c, p) in RPS_TARGETS } binary =
+  if c = 'Distributed' and 
+   ( ( sum { (pid, a, t, p, h) in AVAILABLE_HOURS: rps_compliance_entity[a] = r and t in SOLAR_DIST_PV_TECHNOLOGIES }
+      ( if can_build_new[t] then capacity_limit[pid, a, t] * cap_factor[pid, a, t, h]
+        else ep_capacity_mw[pid, a, t] * eip_cap_factor[pid, a, t, h] )
+	  * hours_in_sample[h] * gen_availability[t] )
+  < ( sum { a in LOAD_AREAS, h in TIMEPOINTS: rps_compliance_entity[a] = r and period[h] = p } 
+      system_load[a, h] * hours_in_sample[h]* rps_compliance_fraction_in_period[r, c, p] ) )
+  then 0 else 1;
+	
+###############################################
+# Carbon Policy
+
+### Carbon Cost
+# cost of carbon emissions ($/ton), e.g., from a carbon tax
+# can also be set negative to drive renewables out of the system
+param carbon_cost default 0;
+
+# set and parameters used to make carbon cost curves
+set CARBON_COSTS ordered;
+
+### Carbon Cap
+# does this scenario include a cap on carbon emissions?
+param enable_carbon_cap >= 0, <= 1 default 1;
+
+# the base (1990) carbon emissions in tCO2/Yr
+param base_carbon_emissions = 284800000;
+# the fraction of emissions relative to the base year of 1990 that should be allowed in a given year
+param carbon_emissions_relative_to_base {YEARS};
+# add up all the targets for each period to get the total cap level in each period
+param carbon_cap {p in PERIODS} = base_carbon_emissions *
+		( sum{ y in YEARS: y >= p and y < p + num_years_per_period } carbon_emissions_relative_to_base[y] );
+
 ##############################################
 # Existing hydro plants (assumed impossible to build more, but these last forever)
 
@@ -591,7 +613,7 @@ param avg_hydro_output_load_area_agg { (a, t, p, d) in HYDRO_DATES }
 		else avg_hydro_output_load_area_agg_unrestricted[a, t, p, d];
 	
 
-#####################
+###############################################
 # calculate discounted costs for plants
 
 # apply projected annual real cost changes to each technology,
@@ -1071,13 +1093,28 @@ minimize Power_Cost:
 ###### Policy Constraints #######
 
 # RPS constraint
-# windsun.run will drop this constraint if enable_rps is 0
-subject to Satisfy_RPS { r in RPS_AREAS, p in PERIODS: rps_compliance_fraction_in_period[r, p] > 0 }:
-    ( sum { a in LOAD_AREAS, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY: rps_compliance_entity[a] = r and period[h] = p and fuel_qualifies_for_rps[r, fc] } 
+# load.run will drop this constraint if enable_rps is 0
+subject to Satisfy_RPS { (r, c, p) in RPS_TARGETS: able_to_meet_rps[r, c, p] }:
+	# primary RPS is an RPS target without generator-specific requirements
+	# this RPS can be met with any qualifying distributed or non-distributed power
+   ( if c = 'Primary' then
+	( sum { a in LOAD_AREAS, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY: rps_compliance_entity[a] = r and period[h] = p and fuel_qualifies_for_rps[r, fc] } 
       ( ConsumeNonDistributedPower[a,h,fc] + ConsumeDistributedPower[a,h,fc] ) * hours_in_sample[h] )
+	# distributed RPS is an RPS target that must be met by distributed power, modeled in SWITCH currently as distributed PV
+	else if c = 'Distributed' then
+	( sum { a in LOAD_AREAS, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY: rps_compliance_entity[a] = r and period[h] = p and fuel_qualifies_for_rps[r, fc] } 
+      ConsumeDistributedPower[a,h,fc] * hours_in_sample[h] )
+      )
   / ( sum { a in LOAD_AREAS, h in TIMEPOINTS: rps_compliance_entity[a] = r and period[h] = p } 
       system_load[a, h] * hours_in_sample[h] )
-      >= rps_compliance_fraction_in_period[r, p];
+      >= rps_compliance_fraction_in_period[r, c, p];
+
+# the California Solar Initiative has the goal (and funding to back the goal)
+# of bringing on 3000 MW of distributed solar by 2016 in California (http://www.cpuc.ca.gov/PUC/energy/Solar/aboutsolar.htm)
+subject to Meet_California_Solar_Initiative { p in PERIODS: p >= 2016 }:
+  sum { (pid, a, t, p) in PROJECT_VINTAGES: t in SOLAR_DIST_PV_TECHNOLOGIES and primary_state[a] = 'CA' }
+     Installed_To_Date[pid, a, t, p]
+     >= 3000;
 
 # Carbon Cap constraint
 # load.run will drop this constraint if enable_carbon_cap is 0
@@ -1583,7 +1620,7 @@ problem Investment_Cost_Minimization:
 	Conservation_Of_Energy_NonDistributed, Conservation_Of_Energy_Distributed,
     ConsumeNonDistributedPower, ConsumeDistributedPower,
   # Policy Constraints
-	Satisfy_RPS, Carbon_Cap,
+	Satisfy_RPS, Meet_California_Solar_Initiative, Carbon_Cap,
   # Investment Decisions
 	InstallGen, BuildGenOrNot, InstallTrans, 
   # Installation Constraints

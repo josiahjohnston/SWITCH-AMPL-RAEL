@@ -62,8 +62,10 @@ OR_W	fossilish	0
 OR_W	renewable	1
 OR_WA_BPA	fossilish	0
 OR_WA_BPA	renewable	1
-UT_PACE	fossilish	0
-UT_PACE	renewable	1
+UT_N	fossilish	0
+UT_N	renewable	1
+UT_S	fossilish	0
+UT_S	renewable	1
 WA_ID_AVA	fossilish	0
 WA_ID_AVA	renewable	1
 WA_N_CEN	fossilish	0

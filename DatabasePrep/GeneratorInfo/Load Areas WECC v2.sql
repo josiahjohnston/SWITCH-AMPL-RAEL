@@ -791,6 +791,13 @@ where load_area like 'CAN_ALB';
 -- define a map between load_area and rps_compliance_entity based on the structure
 -- of utilities inside each state as shown in the ventyx data (manual matching)
 -- and the DSIRE database (as of May 2011) www.dsireusa.org/
+
+-- customer sited targets
+-- a few states have customer cited generation targets, generally but not always geared towards distributed PV
+-- as distributed PV is the only distributed resource in SWITCH currently, we'll meet these targets exclusivly with distributed PV
+-- these targets are tabulated by dsire.org and can be found in the folder /Volumes/1TB_RAID/Models/Switch_Input_Data/RPS
+-- the distributed_compliance_fraction represents the % of total load that must be met by distributed resources
+
 alter table wecc_load_areas add column rps_compliance_entity character varying(20);
 
 update wecc_load_areas
@@ -800,7 +807,6 @@ set rps_compliance_entity =
 			WHEN load_area like 'CA_SCE%' 				THEN 'CA_SCE'
 			WHEN load_area in ('CO_DEN', 'CO_NW') 		THEN 'CO_PSC'
 			WHEN load_area like 'NV_%' 					THEN 'NV_ENERGY'
-			WHEN load_area like 'UT_%' 					THEN 'UT_PACE'
 			ELSE load_area
 	END;
 
@@ -808,14 +814,15 @@ set rps_compliance_entity =
 -- import the proper rps_compliance_entity compliance targets from www.dsireusa.org/
 drop table if exists rps_state_targets;
 create table rps_state_targets(
-	state character varying(10),
-	compliance_year int,
-	compliance_fraction float,
-	PRIMARY KEY (state, compliance_year)
+	state character varying (10),
+	rps_compliance_type character varying(20),
+	rps_compliance_year int,
+	rps_compliance_fraction float,
+	PRIMARY KEY (state, rps_compliance_type, rps_compliance_year)
 	);
 
 copy rps_state_targets from
-'/Volumes/1TB_RAID/Models/GIS/RPS/RPS_Compliance_WECC.csv'
+'/Volumes/1TB_RAID/Models/Switch_Input_Data/RPS/rps_compliance_targets.csv'
 with csv header;
 
 -- divides rps state level targets by year into load area targets on the basis of population
@@ -823,19 +830,21 @@ with csv header;
 drop table if exists rps_compliance_entity_targets;
 create table rps_compliance_entity_targets(
 	rps_compliance_entity character varying(20),
-	compliance_year int,
-	compliance_fraction float,
-	PRIMARY KEY (rps_compliance_entity, compliance_year)
+	rps_compliance_type character varying(20),
+	rps_compliance_year int,
+	rps_compliance_fraction float,
+	PRIMARY KEY (rps_compliance_entity, rps_compliance_type, rps_compliance_year)
 	);
 
 -- do the US load areas
--- we're assuming that load (and thus compliance_fractions) are proportional to load
+-- we're assuming that load (and thus compliance fractions) are proportional to load
 -- so this uses the population fraction across state lines for each rps_compliance_entity (as described by the nasty CASE)
 -- to figure out how much of each state's target to include in each rps_compliance_entity
-insert into rps_compliance_entity_targets
+insert into rps_compliance_entity_targets (rps_compliance_entity, rps_compliance_type, rps_compliance_year, rps_compliance_fraction)
 	select  compliance_entity_population_table.rps_compliance_entity,
-			compliance_year,
-			sum( compliance_fraction * compliance_entity_state_population / compliance_entity_population ) as compliance_fraction
+			rps_compliance_type,
+			rps_compliance_year,
+			sum( rps_compliance_fraction * compliance_entity_state_population / compliance_entity_population ) as rps_compliance_fraction
 	from	rps_state_targets,
 		(select rps_compliance_entity,
 				sum(popdensity) as compliance_entity_population
@@ -861,48 +870,82 @@ insert into rps_compliance_entity_targets
 		and	load_area <> 'CAN_ALB'
 		and	load_area <> 'CAN_BC'
 		and	load_area <> 'MEX_BAJA'
-		group by rps_compliance_entity,state
+		group by rps_compliance_entity, state
 		) as compliance_entity_state_population_table
 	where	rps_state_targets.state = compliance_entity_state_population_table.state
 	and		compliance_entity_population_table.rps_compliance_entity = compliance_entity_state_population_table.rps_compliance_entity
-	group by compliance_entity_population_table.rps_compliance_entity, compliance_year
-	order by rps_compliance_entity, compliance_year;
+	group by compliance_entity_population_table.rps_compliance_entity, rps_compliance_type, rps_compliance_year
+	order by rps_compliance_entity, rps_compliance_type, rps_compliance_year;
 
 -- the Navajo nation (AZ_NM_N) doesn't have to adhere to rps targets
 update rps_compliance_entity_targets
-set compliance_fraction = 0
+set rps_compliance_fraction = 0
 where rps_compliance_entity = 'AZ_NM_N';
 
 -- parts of Colorado (CO_E and CO_SW) are composed primarily of munis and coops...
 -- they have a different target found in rps_state_targets as 'CO_MUNI'
 -- they're all inside Colorado, so we don't have to worry about apportioning their compliance_fraction across state lines
+-- colorado non-munis have a distributed energy carveout, but munis don't have a similar target (hence the CASE)
+delete from rps_compliance_entity_targets where rps_compliance_entity in ('CO_E', 'CO_SW');
 update rps_compliance_entity_targets
-set compliance_fraction = rps_state_targets.compliance_fraction
+set rps_compliance_fraction = rps_state_targets.rps_compliance_fraction
 from rps_state_targets
 where rps_compliance_entity in ('CO_E', 'CO_SW')
 and rps_state_targets.state = 'CO_MUNI'
-and rps_compliance_entity_targets.compliance_year = rps_state_targets.compliance_year;
+and rps_compliance_entity_targets.rps_compliance_year = rps_state_targets.rps_compliance_year
+and rps_state_targets.rps_compliance_type = 'Primary';
 
+-- via the population fraction apportionment above, a few rps_compliance_fractions are tiny... zero them out here
+update rps_compliance_entity_targets
+set rps_compliance_fraction = 0
+where rps_compliance_fraction < 0.0001;
 
--- at the moment Canada (Alberta and BC) and Mexico (Baja) don't have RPS-like targets, so zero them out for completeness
-insert into rps_compliance_entity_targets
+-- this rule is equal to 'INSERT IGNORE' in mysql
+CREATE RULE "rps_compliance_entity_targets_insert_ignore" AS ON INSERT TO "rps_compliance_entity_targets"
+  WHERE EXISTS(SELECT 1 FROM rps_compliance_entity_targets
+  		WHERE (rps_compliance_entity, rps_compliance_type, rps_compliance_year)
+  				= (NEW.rps_compliance_entity, NEW.rps_compliance_type, NEW.rps_compliance_year))
+  DO INSTEAD NOTHING;
+
+-- zero out all other year/rps target type combos for completeness (including canada and mexico)
+-- the insert ignore rule above will make it such that this insert statement doens't write over targets > 0
+insert into rps_compliance_entity_targets (rps_compliance_entity, rps_compliance_type, rps_compliance_year, rps_compliance_fraction)
 	select 	rps_compliance_entity,
-			compliance_year,
-			0 as compliance_fraction
-	from 	(select rps_compliance_entity from wecc_load_areas where rps_compliance_entity not in
-				(select distinct rps_compliance_entity from rps_compliance_entity_targets)
-			) as compliance_entity_without_rps,
-			(select distinct compliance_year from rps_compliance_entity_targets) as compliance_years
-			order by 1,2;
+			rps_compliance_type,
+			rps_compliance_year,
+			0 as rps_compliance_fraction
+	from 	(select distinct rps_compliance_entity from wecc_load_areas) as rce,
+			(select distinct rps_compliance_type from rps_compliance_entity_targets) as rct,
+			(select distinct rps_compliance_year from rps_compliance_entity_targets) as rcy;
 
+DROP RULE "rps_compliance_entity_targets_insert_ignore" ON "rps_compliance_entity_targets";
+
+
+-- RPS targets are assumed to go on in the future, so targets out to 2080 are added here
+-- at the compliance fraction of the last year
+insert into rps_compliance_entity_targets (rps_compliance_entity, rps_compliance_type, rps_compliance_year, rps_compliance_fraction)
+	select 	rps_compliance_entity,
+			rps_compliance_type,
+			generate_series(1, 2080 - rps_compliance_year) + rps_compliance_year as rps_compliance_year,
+			compliance_fraction_in_max_year as rps_compliance_fraction
+	from	(select rps_compliance_entity_targets.rps_compliance_entity,
+					rps_compliance_type,
+					rps_compliance_year,
+					rps_compliance_fraction as compliance_fraction_in_max_year
+			from	( select rps_compliance_entity, rps_compliance_type, max(rps_compliance_year) as rps_compliance_year
+						from rps_compliance_entity_targets group by rps_compliance_entity, rps_compliance_type ) as max_year_table
+			join	rps_compliance_entity_targets using (rps_compliance_entity, rps_compliance_type, rps_compliance_year)
+			) as compliance_fraction_in_max_year_table
+	;
 
 -- export rps complaince info to mysql
 copy 
 (select	rps_compliance_entity,
- 		compliance_year,
- 		compliance_fraction
+  		rps_compliance_type,
+		rps_compliance_year,
+ 		rps_compliance_fraction
 from	rps_compliance_entity_targets
-order by rps_compliance_entity, compliance_year)
+order by rps_compliance_entity, rps_compliance_type, rps_compliance_year)
 to '/Volumes/1TB_RAID/Models/GIS/RPS/rps_compliance_targets.csv'
 with CSV HEADER;
 
