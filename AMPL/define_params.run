@@ -53,7 +53,7 @@ param Variable_Cost_Incurred_Hourly { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS
 param Pumped_Hydro_Storage_Stored { PUMPED_HYDRO_AVAILABLE_HOURS_BY_FC_AND_PID };
 param Pumped_Hydro_Storage_Released { PUMPED_HYDRO_AVAILABLE_HOURS_BY_FC_AND_PID };
 param Storage_Net_Power { (pid, a, t, p, h) in AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t] };
-param Storage_Variable_Cost_Incurred_Hourly { (pid, a, t, p, h) in AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t] };
+param Storage_Variable_Cost_Incurred_Hourly { (pid, a, t, p, h) in AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t] and t <> 'Compressed_Air_Energy_Storage' };
 param Total_New_Storage_Installed_To_Date { p in PERIODS };
 param EP_Variable_Cost_Incurred_Hourly { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }; 
 param Local_TD_Existing_Cost_Per_Period { a in LOAD_AREAS, p in PERIODS };

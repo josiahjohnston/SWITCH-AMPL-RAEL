@@ -98,7 +98,7 @@ for {c in CARBON_COSTS} {
         technology_id[t], t, can_build_new[t], 0, 0, 1, 'Storage', fc, hours_in_sample[h],
         Storage_Net_Power[pid, a, t, p, h, fc],
         0, 0, 0, 0,
-        Storage_Variable_Cost_Incurred_Hourly[pid, a, t, p, h, fc],
+        if dispatchable[t] then 0 else Storage_Variable_Cost_Incurred_Hourly[pid, a, t, p, h, fc],
         Storage_Spinning_Reserve_Provided_by_Fuel_Category[pid, a, t, p, h, fc],
         Storage_Quickstart_Capacity_Provided_by_Fuel_Category[pid, a, t, p, h, fc],
         Storage_Operating_Reserve_Provided_by_Fuel_Category[pid, a, t, p, h, fc],
