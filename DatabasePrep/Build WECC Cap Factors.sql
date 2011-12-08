@@ -271,6 +271,7 @@ create table generator_info (
 	intermittent boolean,
 	resource_limited boolean,
 	baseload boolean,
+	flexible_baseload boolean,
 	dispatchable boolean,
 	cogen boolean,
 	min_build_capacity float,
@@ -282,6 +283,8 @@ create table generator_info (
 	max_store_rate float,
 	max_spinning_reserve_fraction_of_capacity float,
 	heat_rate_penalty_spinning_reserve float,
+	minimum_loading float,
+	deep_cycling_penalty float,
 	Data_Source varchar(512),
 	index techology_id_name (technology_id, technology)
 );

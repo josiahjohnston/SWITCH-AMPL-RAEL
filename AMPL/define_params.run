@@ -92,3 +92,10 @@ param Fraction_of_Nonthermal_Reserves_That_Are_Spinning_in_Balancing_Area_in_Hou
 param Total_Stored_Energy_by_Date { (pid, a, t, p) in AVAILABLE_VINTAGES, d in DATES: period_of_date[d] = p and storage[t] };
 param Fraction_of_Dispatched_Energy_by_Fuel_Category { (pid, a, t, p) in AVAILABLE_VINTAGES, d in DATES, fc in RPS_FUEL_CATEGORY: period_of_date[d] = p and storage[t] };
 
+param Amount_Deep_Cycled { (pid, a, t, p, h) in AVAILABLE_HOURS };
+param Deep_Cycling_Fuel_Cost_Incurred_Hourly { (pid, a, t, p, h) in AVAILABLE_HOURS };
+param Deep_Cycling_Carbon_Emissions { (pid, a, t, p, h) in AVAILABLE_HOURS };
+param Deep_Cycling_Cost_Per_Period {p in PERIODS};
+param Deep_Cycling_Carbon_Cost_Incurred_Hourly { (pid, a, t, p, h) in AVAILABLE_HOURS };
+param Yearly_Deep_Cycling_Carbon_Emissions {p in PERIODS};
+
