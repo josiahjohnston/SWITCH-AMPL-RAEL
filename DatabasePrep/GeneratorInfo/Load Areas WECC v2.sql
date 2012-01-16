@@ -103,29 +103,6 @@ update wecc_trans_lines_that_cross_load_area_borders set transline_geom = the_ge
 alter table wecc_trans_lines_that_cross_load_area_borders drop column the_geom;
 
 
--- finds the approximate existing transfer capacity between load areas
--- by finding the average transfer capacity per kV line from the WECC links
--- should use geolocated transfer data when we get it.
-drop table if exists mw_transfer_cap_by_kv;
-create temporary table mw_transfer_cap_by_kv as
-SELECT bus1_kv as teppc_bus_kv, avg(cap_fromto) as avgcap
-FROM public.wecc_link_busses_in_teppc_areas
-where bus1_kv = bus2_kv
-group by bus1_kv
-order by bus1_kv desc;
-
--- the DC line from BPA to LADWP shows up as 800kv in Ventyx,
--- but no such high voltage line exists in the TEPPC database
--- the transfer capacity of this line is 3100 MW in the TEPPC database
--- so we'll set 800 kV = 3100 MW here
--- the intermountain DC line is 500 kV in Ventyx and has a similar transfer capacity
--- to 500 kV lines (1840 MW in TEPPC vs 2300 MW average) and it's schedule for an upgrade to 2400 MW,
--- so we'll leave in the 500 kV category here... good enough for now to determine the load area centers
-insert into mw_transfer_cap_by_kv (teppc_bus_kv, avgcap)
-values (800, 3100);
-
--- check on a map that there aren't any transmission lines that were missed in the creation of the wecc load area polygons
-
 -- LOAD AREA SUBSTATION CENTERS--------------
 -- finding load area centers by highest capacity substation
 -- takes about 20 min total
@@ -290,22 +267,26 @@ and load_area like 'CA_SCE_SE';
 
 -- TRANS LINES------------------
 -- make transmission lines between the load areas
--- autumn should update with her code here...
 drop table if exists wecc_trans_lines;
 create table wecc_trans_lines(
 	transmission_line_id serial primary key,
 	load_area_start character varying(11),
-	load_area_end	character varying(11),
-	existing_transfer_capacity_mw double precision,
+	load_area_end character varying(11),
+	load_areas_border_each_other boolean,
+	straightline_distance_km double precision,
+	distances_along_existing_lines_km double precision,
 	transmission_length_km double precision,
-	load_areas_border_each_other boolean
-) with oids;
+	existing_transfer_capacity_mw double precision default 0,
+	transmission_efficiency double precision,
+	new_transmission_builds_allowed smallint default 1
+	dc_line smallint default 0
+);
 
-SELECT AddGeometryColumn ('public','wecc_trans_lines','the_geom',4326,'LINESTRING',2);
+SELECT AddGeometryColumn ('public','wecc_trans_lines','straightline_geom',4326,'LINESTRING',2);
+SELECT AddGeometryColumn ('public','wecc_trans_lines','route_geom',4326,'MULTILINESTRING',2);
 
--- old... not used any more in favor of Autumn's code that measures the distance along existing lines
--- updated below
-insert into wecc_trans_lines (load_area_start, load_area_end, transmission_length_km, the_geom)
+-- first add straightline_distance_km
+insert into wecc_trans_lines (load_area_start, load_area_end, straightline_distance_km, straightline_geom)
 select	la1,
 		la2,
 		st_distance_sphere(the_geom1, the_geom2)/1000,
@@ -314,181 +295,6 @@ from
 (select load_area as la1, substation_geom as the_geom1 from wecc_load_area_substation_centers) as la1_table,
 (select load_area as la2, substation_geom as the_geom2 from wecc_load_area_substation_centers) as la2_table
 where la1 <> la2;
-
-
-
--- lines that completly match nicely are updated first
-update wecc_trans_lines
-set existing_transfer_capacity_mw = cap_mw
-from (
-	SELECT load_area_start, load_area_end, sum(rate1) as cap_mw
-  		FROM wecc_trans_lines_that_cross_load_area_borders v, wecc_f715_branch_info_pk f
- 		where v.bus_connection_id = f.bus_connection_id
-		and v.bus_connection_id is not null
-		and v.num_715_lines is null
-		group by 1,2
-		) as nice_match_table
-where (
-		( wecc_trans_lines.load_area_start = nice_match_table.load_area_start and wecc_trans_lines.load_area_end = nice_match_table.load_area_end)
-	or
-		( wecc_trans_lines.load_area_start = nice_match_table.load_area_end and wecc_trans_lines.load_area_end = nice_match_table.load_area_start)
-	);
-
--- lines that have two entries in ventyx and only one in ferc (assume that ferc is correct so only insert one value per line)
--- the flag for this type of match is num_715_lines = 1
-update wecc_trans_lines
-set existing_transfer_capacity_mw = 
-	(case when (nice_match_table.existing_transfer_capacity_mw IS NULL) 
-		THEN rate1 ELSE (nice_match_table.existing_transfer_capacity_mw + nice_match_table.rate1) END )
-from (
-SELECT distinct mw_table.load_area_start, mw_table.load_area_end, w.existing_transfer_capacity_mw, mw_table.rate1
-from (
-	SELECT load_area_start, load_area_end, rate1
-  		FROM wecc_trans_lines_that_cross_load_area_borders v, wecc_f715_branch_info_pk f
- 		where v.bus_connection_id = f.bus_connection_id
-		and v.bus_connection_id is not null
-		and v.num_715_lines = 1
-		) 
-		as mw_table,
-		wecc_trans_lines w
-		where (
-			( mw_table.load_area_start = w.load_area_start and mw_table.load_area_end = w.load_area_end)
-			or
-			( mw_table.load_area_start = w.load_area_end and mw_table.load_area_end = w.load_area_start)
-		)
-	) as nice_match_table
-where (
-		( wecc_trans_lines.load_area_start = nice_match_table.load_area_start and wecc_trans_lines.load_area_end = nice_match_table.load_area_end)
-	or
-		( wecc_trans_lines.load_area_start = nice_match_table.load_area_end and wecc_trans_lines.load_area_end = nice_match_table.load_area_start)
-	);
-
--- lines that have many entries in FERC and fewer in ventyx
--- take the ferc number of lines and add up all the transfer capacites between the two busses at the voltage of the ventyx line
-update wecc_trans_lines
-set existing_transfer_capacity_mw = (case when (nice_match_table.existing_transfer_capacity_mw IS NULL) 
-		THEN cap_mw ELSE (nice_match_table.existing_transfer_capacity_mw + nice_match_table.cap_mw) END )
-from (select mw_table.load_area_start, mw_table.load_area_end, w.existing_transfer_capacity_mw, cap_mw
-	from (select to_match.load_area_start, to_match.load_area_end, sum(w.rate1) as cap_mw
-		from (select bus1_id, bus2_id, bus1_kv, load_area_start, load_area_end
-			from	wecc_f715_branch_info_pk,
-				(SELECT bus_connection_id, load_area_start, load_area_end 
-				from wecc_trans_lines_that_cross_load_area_borders 
-				where num_715_lines > 1) 
-			as bus_connection_ids_of_interest
-			where bus_connection_ids_of_interest.bus_connection_id = wecc_f715_branch_info_pk.bus_connection_id
-		) as to_match, 
-		wecc_f715_branch_info_pk w
-		where (w.bus1_id = to_match.bus1_id) and (w.bus2_id = to_match.bus2_id) and (w.bus1_kv = to_match.bus1_kv)
-		group by to_match.load_area_start, to_match.load_area_end
-	) as mw_table,
-	wecc_trans_lines w
-	where (( mw_table.load_area_start = w.load_area_start and mw_table.load_area_end = w.load_area_end)
-	or ( mw_table.load_area_start = w.load_area_end and mw_table.load_area_end = w.load_area_start)
-	)
-) as nice_match_table
-where (
-		( wecc_trans_lines.load_area_start = nice_match_table.load_area_start and wecc_trans_lines.load_area_end = nice_match_table.load_area_end)
-	or
-		( wecc_trans_lines.load_area_start = nice_match_table.load_area_end and wecc_trans_lines.load_area_end = nice_match_table.load_area_start)
-	);
-
-
--- find the average transfer capacity per kV line from the WECC links for lines that we can't match between the Ventyx and FERC datasets
--- (generally only small ( < 230 kV ) lines
--- and then update the transfer capacity between load areas with these values for all unmatched lines
-drop table if exists mw_transfer_cap_by_kv;
-create temporary table mw_transfer_cap_by_kv as
-SELECT bus1_kv as teppc_bus_kv, avg(cap_fromto) as avgcap
-FROM public.wecc_link_busses_in_teppc_areas
-where bus1_kv = bus2_kv
-group by bus1_kv
-order by bus1_kv desc;
-
-update wecc_trans_lines
-set existing_transfer_capacity_mw = (case when (grouped_trans_cap_table.existing_transfer_capacity_mw IS NULL) 
-		THEN cap_mw ELSE (grouped_trans_cap_table.existing_transfer_capacity_mw + grouped_trans_cap_table.cap_mw) END )
-from(select mw_table.load_area_start, mw_table.load_area_end, w.existing_transfer_capacity_mw, mw_table.existing_transfer_capacity_mw as cap_mw
-from
-	(select 	load_area_start,
-				load_area_end,
-				sum(existing_transfer_capacity_mw) as existing_transfer_capacity_mw
-	from
-		(
-			select 	load_area_start,
-					load_area_end,
-					sum( avgcap * num_lines) as existing_transfer_capacity_mw
-			from 	wecc_trans_lines_that_cross_load_area_borders,
-					mw_transfer_cap_by_kv
-			where 	wecc_trans_lines_that_cross_load_area_borders.voltage_kv = mw_transfer_cap_by_kv.teppc_bus_kv
-			and 	wecc_trans_lines_that_cross_load_area_borders.volt_class not like 'DC Line'
-			and		wecc_trans_lines_that_cross_load_area_borders.bus_connection_id is null
-			group by load_area_start, load_area_end
-		UNION
-			select 	load_area_end,
-					load_area_start,
-					sum( avgcap * num_lines) as existing_transfer_capacity_mw
-			from 	wecc_trans_lines_that_cross_load_area_borders,
-					mw_transfer_cap_by_kv
-			where 	wecc_trans_lines_that_cross_load_area_borders.voltage_kv = mw_transfer_cap_by_kv.teppc_bus_kv
-			and 	wecc_trans_lines_that_cross_load_area_borders.volt_class not like 'DC Line'
-			and		wecc_trans_lines_that_cross_load_area_borders.bus_connection_id is null
-			group by load_area_start, load_area_end
-		) as all_trans_cap_table
-	group by 1,2
-	) as mw_table,
-	wecc_trans_lines w
-	where (( mw_table.load_area_start = w.load_area_start and mw_table.load_area_end = w.load_area_end)
-	or ( mw_table.load_area_start = w.load_area_end and mw_table.load_area_end = w.load_area_start)
-	
-	) as grouped_trans_cap_table
-where 
-	(
-	(grouped_trans_cap_table.load_area_start = wecc_trans_lines.load_area_start
-		and grouped_trans_cap_table.load_area_end = wecc_trans_lines.load_area_end)
-	or
-	(grouped_trans_cap_table.load_area_end = wecc_trans_lines.load_area_start
-		and grouped_trans_cap_table.load_area_start = wecc_trans_lines.load_area_end)
-	)
-;
-
--- get the Pacific DC line and update its length
-update wecc_trans_lines
-set existing_transfer_capacity_mw = 3100,  distances_along_existing_lines_m = (580.437+264.593)*1000
-from 
-	(select load_area as load_area_start
-		from ventyx_e_substn_point, wecc_load_areas
-		where ventyx_e_substn_point.rec_id = 34019
-		and intersects(wecc_load_areas.polygon_geom, ventyx_e_substn_point.the_geom)) as load_area_start_table,
-	(select load_area as load_area_end
-		from ventyx_e_substn_point, wecc_load_areas
-		where ventyx_e_substn_point.rec_id = 24410
-		and intersects(wecc_load_areas.polygon_geom, ventyx_e_substn_point.the_geom)) as load_area_end_table
-where 	(wecc_trans_lines.load_area_end = load_area_end_table.load_area_end and
-		wecc_trans_lines.load_area_start = load_area_start_table.load_area_start)
-or
-		(wecc_trans_lines.load_area_end = load_area_start_table.load_area_start
-		and wecc_trans_lines.load_area_start = load_area_end_table.load_area_end)
-;
-
--- get the Intermountain Utah-California line
-update wecc_trans_lines
-set existing_transfer_capacity_mw = 1920
-from 
-	(select load_area as load_area_start
-		from ventyx_e_substn_point, wecc_load_areas
-		where ventyx_e_substn_point.rec_id = 24230
-		and intersects(wecc_load_areas.polygon_geom, ventyx_e_substn_point.the_geom)) as load_area_start_table,
-	(select load_area as load_area_end
-		from ventyx_e_substn_point, wecc_load_areas
-		where ventyx_e_substn_point.rec_id = 34630
-		and intersects(wecc_load_areas.polygon_geom, ventyx_e_substn_point.the_geom)) as load_area_end_table
-where 	(wecc_trans_lines.load_area_end = load_area_end_table.load_area_end and
-		wecc_trans_lines.load_area_start = load_area_start_table.load_area_start)
-or
-		(wecc_trans_lines.load_area_end = load_area_start_table.load_area_start
-		and wecc_trans_lines.load_area_start = load_area_end_table.load_area_end)
-;
 
 -- test to see if the load areas border each other
 update wecc_trans_lines
@@ -504,97 +310,153 @@ where 	intersection_table.load_area_start = wecc_trans_lines.load_area_start
 and 	intersection_table.load_area_end = wecc_trans_lines.load_area_end;
 
 
-
 -- note... Autumn should fill in all values for distances_along_existing_lines_m
 -- and the creation of this column
--- 3 didn't have distances, so this makes a crappy fix.
---Autumn says: why are these needing distances in the first place?  
---There are no transmission lines between these places -- 1586 is CO_SW to CA_IID, 1237 is MEX_BAJA to CA_SMUD, and 558 is CA_SMUD to OR_WA_BPA
-
---update wecc_trans_lines
---set distances_along_existing_lines_m = 1.3 * 1000 * transmission_length_km
---where transmission_line_id in (1586, 1237, 558);
-
---Don't run this unless you want to wait for a while.  Also, if you're changing the inputs at all, you'll want to see <some other file I'm going to make>
-select distances_along_translines('test_segment_start_end_dist_amp', 'test_segment_start_end_dist_amp_vertices', 'distances_along_existing_trans_lines');
-update wecc_trans_lines set distances_along_existing_lines_m = ,
-from distances_along_existing_trans_lines d where (d.load_area_start like wecc_trans_lines.load_area_start and d.load_area_end like wecc_trans_lines.load_area_end)  
-
--- Autumn should insert the script that outputs transline geoms here
-SELECT AddGeometryColumn ('public','wecc_trans_lines','route_geom',4326,'MULTILINESTRING',2);
-update wecc_trans_lines set route_geom = wecc_trans_lines_old.route_geom
-from wecc_trans_lines_old
-where 	wecc_trans_lines.load_area_start = wecc_trans_lines_old.load_area_start
-and		wecc_trans_lines.load_area_end = wecc_trans_lines_old.load_area_end;
-
 --Autumn: I'm going to change this to a new column instead--no sense losing the calculated distances every time.  
 --But it's still going to be called distances_along_existing_lines_m.  The new column is called calculated_distances_along_existing_lines
 -- if the distance along existing lines is double as long as the straight line distance between load areas,
 -- set the distance to double the straight line distance, reflecting the high added cost and added length of making a new right of way
 
--- exports the wecc trans lines for pickup by mysql
--- the where clause gets all the lines that we're going to consider in this study
+--Don't run this unless you want to wait for a while.  Also, if you're changing the inputs at all, you'll want to see <some other file I'm going to make>
+select distances_along_translines('test_segment_start_end_dist_amp', 'test_segment_start_end_dist_amp_vertices', 'distances_along_existing_trans_lines');
+update wecc_trans_lines set distances_along_existing_lines_km = distances_along_existing_trans_lines.distance/1000
+from distances_along_existing_trans_lines d where (d.load_area_start like wecc_trans_lines.load_area_start and d.load_area_end like wecc_trans_lines.load_area_end)  
+
+-- Autumn should insert the script that outputs transline geoms here
+update wecc_trans_lines set route_geom = wecc_trans_lines_old.route_geom
+from wecc_trans_lines_old
+where 	wecc_trans_lines.load_area_start = wecc_trans_lines_old.load_area_start
+and		wecc_trans_lines.load_area_end = wecc_trans_lines_old.load_area_end;
+
+-- update the transmission_length_km to be along existing lines whenever possible
 -- the case selects out lines which have really long distances along existing transmission lines
 -- this effectivly limits their distance to 1.5 x that of the straight-line distance
+update wecc_trans_lines	set transmission_length_km = 
+	CASE WHEN ( distances_along_existing_lines_km > 1.5 * straightline_distance_km or distances_along_existing_lines_km is null )
+			THEN 1.5 * straightline_distance_km
+		ELSE distances_along_existing_lines_km END;
+
+
+-- TRANSFER CAPACITY AND SUSCEPTANCE -----
+-- add approximate single circuit transfer capacites for lines that cross load area borders
+-- this data comes primarly from the WREZ excel transmission planning model which can be found at
+-- /Volumes/1TB_RAID/Models/Switch_Input_Data/Transmission/GTMWG\ Version\ 2_0\ June\ 2009.xlsm
+-- also, data for <230kV class transfer capacities is found at
+-- http://www.idahopower.com/pdfs/AboutUs/PlanningForFuture/ProjectNews/wrep/PresentationTransmissionParamMar2207.pdf
+-- a copy of which is in the same folder as above
+
+drop table if exists transmission_line_average_rated_capacities;
+create table transmission_line_average_rated_capacities (
+	voltage_kv int primary key,
+	volt_class character varying(10),
+	rated_capacity_mw double precision,
+	resistance_ohms_per_km double precision,
+	reactance_ohms_per_km double precision);
+	
+insert into transmission_line_average_rated_capacities (voltage_kv, volt_class, rated_capacity_mw) values
+	(69, 'Under 100', 50),
+	(115, '100-161', 100),
+	(138, '100-161', 150),
+	(230, '230-287', 400),
+	(345, '345', 750),
+	(500, '500', 1500);
+	
+
+-- now add in the average reactance and resistance values per km from ferc 715 data
+-- 100MVA system base, so to convert reactances from per unit quantities to ohms, multiply by Zbase= voltage^2/MVAbase,
+-- st is 'in service'
+-- dividing by 1.609344 converts from miles (the native unit of length here) to km
+update transmission_line_average_rated_capacities 
+set resistance_ohms_per_km = f715_resist_react.resistance_ohms_per_km,
+	reactance_ohms_per_km = f715_resist_react.reactance_ohms_per_km
+from
+	( select * from 
+		(select bus1_kv as voltage_kv,
+			avg(resist*(bus1_kv*1000)^2/(length*100000000))/1.609344 as resistance_ohms_per_km,
+			avg(react*(bus1_kv*1000)^2/(length*100000000))/1.609344 as reactance_ohms_per_km,
+			count(*) as cnt
+		from wecc_f715_branch_info_pk
+		where rate1 > 0
+		and length > 10
+		and react > 0
+		and resist > 0
+		and st = 1
+		group by bus1_kv order by bus1_kv) as foo
+		where cnt > 10 ) as f715_resist_react
+where transmission_line_average_rated_capacities.voltage_kv = f715_resist_react.voltage_kv
+	;
+
+-- dc lines won't match on voltage
+-- get the Pacific DC line capacity and length
+update wecc_trans_lines
+set existing_transfer_capacity_mw = 3100, 
+	distances_along_existing_lines_km = (580.437+264.593),
+	transmission_length_km = (580.437+264.593),
+	dc_line = 1
+where 	( load_area_start = 'OR_WA_BPA' and load_area_end = 'CA_LADWP');
+
+-- get the Intermountain Utah-California line
+update wecc_trans_lines
+set existing_transfer_capacity_mw = 1920, 
+	dc_line = 1
+where 	( load_area_start = 'UT_S' and load_area_end = 'CA_SCE_CEN');
+
+-- Intermountain doesn't have quite the correct route_geom, but add something here that is almost correct
+update wecc_trans_lines
+set route_geom = transline_geom
+from (select transline_geom from wecc_trans_lines_that_cross_load_area_borders where load_area_end = 'UT_S' and load_area_start = 'CA_SCE_CEN') as intermountain_geom
+where ( load_area_start = 'UT_S' and load_area_end = 'CA_SCE_CEN') or ( load_area_end = 'UT_S' and load_area_start = 'CA_SCE_CEN');
+
+-- now update capacites and that match on voltage_kv
+update wecc_trans_lines
+set existing_transfer_capacity_mw = existing_transfer_capacity_mw_voltage_kv
+from 
+	( select 	load_area_start,
+				load_area_end,
+				sum( num_lines * rated_capacity_mw ) as existing_transfer_capacity_mw_voltage_kv
+	from wecc_trans_lines_that_cross_load_area_borders
+	join transmission_line_average_rated_capacities using (voltage_kv)
+	where wecc_trans_lines_that_cross_load_area_borders.volt_class != 'DC Line'
+	group by load_area_start, load_area_end ) as cap_voltage_kv
+where 	wecc_trans_lines.load_area_start = cap_voltage_kv.load_area_start
+and		wecc_trans_lines.load_area_end = cap_voltage_kv.load_area_end;
+
+-- now update capacites that match on volt_class but not voltage_kv
+update wecc_trans_lines
+set existing_transfer_capacity_mw = existing_transfer_capacity_mw + existing_transfer_capacity_mw_volt_class
+from 
+	( select 	load_area_start,
+				load_area_end,
+				sum(rated_capacity_mw * num_lines) as existing_transfer_capacity_mw_volt_class
+	from wecc_trans_lines_that_cross_load_area_borders
+	join (select volt_class, avg(rated_capacity_mw) as rated_capacity_mw from transmission_line_average_rated_capacities group by volt_class) as volt_class_agg using (volt_class)
+	where wecc_trans_lines_that_cross_load_area_borders.voltage_kv not in (select voltage_kv from transmission_line_average_rated_capacities)
+	and	wecc_trans_lines_that_cross_load_area_borders.volt_class != 'DC Line'
+	group by load_area_start, load_area_end) as cap_volt_class
+where 	wecc_trans_lines.load_area_start = cap_volt_class.load_area_start
+and		wecc_trans_lines.load_area_end = cap_volt_class.load_area_end;
+
+-- each line needs to have the same capacity in both directions, which is the sum of the lines in each direction
+-- (the 'direction' of each line is arbitrary - power can flow either way on any line)
+update wecc_trans_lines w1
+set existing_transfer_capacity_mw = w1.existing_transfer_capacity_mw + w2.existing_transfer_capacity_mw,
+	dc_line = case when ( w1.dc_line = 1 or w2.dc_line = 1 ) then 1 else 0 end
+from wecc_trans_lines w2
+where 	w1.load_area_start = w2.load_area_end
+and		w1.load_area_end = w2.load_area_start;
+
+
 
 -- calculate losses as 1 percent losses per 100 miles or 1 percent per 160.9344 km (reference from ReEDS Solar Vision Study documentation)
--- transmission lines with really short distances and therefore very high efficiencies were giving SWITCH problems with RPS runs
--- presumably because it was very difficult for the optimization to figure out how to send power around the network correctly.
--- as these very short lines are really a collection of many different lines, some of which are longer, we'll cap the transmission efficieny at 98.5 %,
--- the point at which it became computationally difficult for SWITCH.
+update wecc_trans_lines set transmission_efficiency = 1 - (0.01 / 160.9344 * transmission_length_km);
 
-
-drop table if exists wecc_trans_lines_for_export;
-create table wecc_trans_lines_for_export(
-	transmission_line_id serial primary key,
-	load_area_start character varying(11),
-	load_area_end	character varying(11),
-	existing_transfer_capacity_mw double precision,
-	transmission_length_km double precision,
-	transmission_efficiency double precision,
-	new_transmission_builds_allowed smallint default 1
-);
-
-SELECT AddGeometryColumn ('public','wecc_trans_lines_for_export','straightline_geom',4326,'LINESTRING',2);
-SELECT AddGeometryColumn ('public','wecc_trans_lines_for_export','route_geom',4326,'MULTILINESTRING',2);
-
-insert into wecc_trans_lines_for_export
-			(transmission_line_id, load_area_start, load_area_end, existing_transfer_capacity_mw,
-			transmission_length_km, transmission_efficiency, straightline_geom, route_geom)
-	select	transmission_line_id,
-			load_area_start,
-			load_area_end,
-			existing_transfer_capacity_mw,
-			CASE WHEN ( distances_along_existing_lines_m / 1000 > 1.5 * transmission_length_km )
-				THEN 1.5 * transmission_length_km
-				ELSE distances_along_existing_lines_m/1000
-			END as transmission_length_km,
-			CASE 	WHEN ( 1 - (0.01 / 160.9344 * transmission_length_km) ) > 0.985
-					THEN 0.985
-					ELSE ( 1 - (0.01 / 160.9344 * transmission_length_km) )
-			END as transmission_efficiency,
-			the_geom,
-			route_geom
- 	from wecc_trans_lines
- 	where (existing_transfer_capacity_mw > 0 or load_areas_border_each_other);
-
--- a handful of the transmission lines are redundant, so these are removed here
-delete from wecc_trans_lines_for_export
-where	(load_area_start like 'MT_SW' and load_area_end like 'WA_ID_AVA')
-or		(load_area_start like 'CA_PGE_CEN' and load_area_end like 'CA_SCE_CEN')
-or		(load_area_start like 'CA_SCE_CEN' and load_area_end like 'CA_SCE_SE')
-or		(load_area_start like 'CO_E' and load_area_end like 'CO_NW')
-;
-
--- now get the other direction
-delete from wecc_trans_lines_for_export 
-where (load_area_end, load_area_start) not in
-	( select load_area_start, load_area_end from wecc_trans_lines_for_export);
+-- to reduce the number of decision variables, delete all transmission lines that aren't existing paths or that don't have load areas that border each other
+delete from wecc_trans_lines where (existing_transfer_capacity_mw = 0 and not load_areas_border_each_other);
 
 
 -- a handful of existing long transmission lines are effectivly the combination of a few shorter ones in SWITCH,
 -- so they are flagged here to prevent new builds along the longer corridors
-update wecc_trans_lines_for_export
+update wecc_trans_lines
 set new_transmission_builds_allowed = 0
 where	(load_area_start like 'AZ_APS_N' and load_area_end like 'NV_S')
 or		(load_area_start like 'AZ_APS_SW' and load_area_end like 'CA_SCE_S')
@@ -610,10 +472,28 @@ or		(load_area_start like 'WA_N_CEN' and load_area_end like 'WA_SEATAC')
 ;
 
 -- now get the other direction
-update wecc_trans_lines_for_export
+update wecc_trans_lines
 set new_transmission_builds_allowed = 0
 where (load_area_start, load_area_end) in
-	( select load_area_end, load_area_start from wecc_trans_lines_for_export where new_transmission_builds_allowed = 0 );
+	( select load_area_end, load_area_start from wecc_trans_lines where new_transmission_builds_allowed = 0 );
+
+
+-- a handful of new transmission lines (ones without existing capacity) are redundant, so these are removed here
+delete from wecc_trans_lines
+where	(load_area_start like 'MT_SW' and load_area_end like 'WA_ID_AVA')
+or		(load_area_start like 'CA_PGE_CEN' and load_area_end like 'CA_SCE_CEN')
+or		(load_area_start like 'CA_SCE_CEN' and load_area_end like 'CA_SCE_SE')
+or		(load_area_start like 'CO_E' and load_area_end like 'CO_NW')
+;
+
+-- now get the other direction
+delete from wecc_trans_lines 
+where (load_area_end, load_area_start) not in
+	( select load_area_start, load_area_end from wecc_trans_lines_for_export);
+
+
+
+
 
 
 COPY 
@@ -624,7 +504,8 @@ COPY
 		transmission_length_km,
 		transmission_efficiency,
 		new_transmission_builds_allowed
-	from 	wecc_trans_lines_for_export)
+	from 	wecc_trans_lines
+	order by load_area_start, load_area_end)
 TO 		'/Volumes/1TB_RAID/Models/Switch\ Input\ Data/Transmission/wecc_trans_lines.csv'
 WITH 	CSV
 		HEADER;
@@ -901,7 +782,7 @@ set rps_compliance_fraction = 0
 where rps_compliance_fraction < 0.0001;
 
 -- this rule is equal to 'INSERT IGNORE' in mysql
-CREATE RULE "rps_compliance_entity_targets_insert_ignore" AS ON INSERT TO "rps_compliance_entity_targets"
+CREATE RULE 'rps_compliance_entity_targets_insert_ignore' AS ON INSERT TO 'rps_compliance_entity_targets'
   WHERE EXISTS(SELECT 1 FROM rps_compliance_entity_targets
   		WHERE (rps_compliance_entity, rps_compliance_type, rps_compliance_year)
   				= (NEW.rps_compliance_entity, NEW.rps_compliance_type, NEW.rps_compliance_year))
@@ -918,7 +799,7 @@ insert into rps_compliance_entity_targets (rps_compliance_entity, rps_compliance
 			(select distinct rps_compliance_type from rps_compliance_entity_targets) as rct,
 			(select distinct rps_compliance_year from rps_compliance_entity_targets) as rcy;
 
-DROP RULE "rps_compliance_entity_targets_insert_ignore" ON "rps_compliance_entity_targets";
+DROP RULE 'rps_compliance_entity_targets_insert_ignore' ON 'rps_compliance_entity_targets';
 
 
 -- RPS targets are assumed to go on in the future, so targets out to 2080 are added here
