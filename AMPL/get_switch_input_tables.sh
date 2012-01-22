@@ -314,11 +314,6 @@ echo '	fuel_info.tab...'
 echo ampl.tab 1 4 > fuel_info.tab
 mysql $connection_string -e "select fuel, rps_fuel_category, biofuel, carbon_content, carbon_sequestered from fuel_info;" >> fuel_info.tab
 
-echo '	fuel_qualifies_for_rps.tab...'
-echo ampl.tab 2 1 > fuel_qualifies_for_rps.tab
-mysql $connection_string -e "select rps_compliance_entity, rps_fuel_category, qualifies from fuel_qualifies_for_rps;" >> fuel_qualifies_for_rps.tab
-
-
 echo '	misc_params.dat...'
 echo "param scenario_id           := $SCENARIO_ID;" >  misc_params.dat
 echo "param enable_rps            := $ENABLE_RPS;"  >> misc_params.dat

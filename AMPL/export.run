@@ -77,7 +77,7 @@ for {c in CARBON_COSTS} {
         scenario_id, carbon_cost, p, pid, load_area_id[a], a, balancing_area[a],
         (if present_day_optimization then present_day_date[h] else date[h]),
         (if present_day_optimization then present_day_timepoint[h] else h),
-        technology_id[t], t, 0, baseload[t], cogen[t], 0, fuel[t], rps_fuel_category_tech[t], hours_in_sample[h],
+        technology_id[t], t, 0, baseload[t], cogen[t], 0, fuel[t], rps_fuel_category[fuel[t]], hours_in_sample[h],
         ProducePowerEP[pid, a, t, p, h], 
         EP_Carbon_Emissions[pid, a, t, p, h],
         ep_heat_rate[pid, a, t], 
@@ -98,18 +98,18 @@ for {c in CARBON_COSTS} {
       
       
       # Store all STORAGE DISPATCH decisions.  Don't have to pay variable O&M for storing at the moment.
-      printf {  (pid, a, t, p, h) in AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t] and ( not ( -0.01 < Storage_Net_Power[pid, a, t, p, h, fc] < 0.01 ) or Total_Storage_Operating_Reserve_Provided[pid, a, t, p, h] > 0 ) } 
+      printf {  (pid, a, t, p, h) in AVAILABLE_HOURS: storage[t] and ( not ( -0.01 < Storage_Net_Power[pid, a, t, p, h] < 0.01 ) or Storage_Operating_Reserve_Provided[pid, a, t, p, h] > 0 ) } 
         "%s	%d	%d	%d	%d	%s	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	 %.2f	 %.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
         scenario_id, carbon_cost, p, pid, load_area_id[a], a, balancing_area[a],
         (if present_day_optimization then present_day_date[h] else date[h]),
         (if present_day_optimization then present_day_timepoint[h] else h),
-        technology_id[t], t, can_build_new[t], 0, 0, 1, 'Storage', fc, hours_in_sample[h],
-        Storage_Net_Power[pid, a, t, p, h, fc],
+        technology_id[t], t, can_build_new[t], 0, 0, 1, 'Storage', 'na', hours_in_sample[h],
+        Storage_Net_Power[pid, a, t, p, h],
         0, 0, 0, 0,
-        if dispatchable[t] then 0 else Storage_Variable_Cost_Incurred_Hourly[pid, a, t, p, h, fc],
-        Storage_Spinning_Reserve_Provided_by_Fuel_Category[pid, a, t, p, h, fc],
-        Storage_Quickstart_Capacity_Provided_by_Fuel_Category[pid, a, t, p, h, fc],
-        Storage_Operating_Reserve_Provided_by_Fuel_Category[pid, a, t, p, h, fc],
+        if dispatchable[t] then 0 else Storage_Variable_Cost_Incurred_Hourly[pid, a, t, p, h],
+        Storage_Spinning_Reserve_Provided[pid, a, t, p, h],
+        Storage_Quickstart_Capacity_Provided[pid, a, t, p, h],
+        Storage_Operating_Reserve_Provided[pid, a, t, p, h],
         0,
         0,
         0,
@@ -192,16 +192,17 @@ for {c in CARBON_COSTS} {
       printf "scenario_id	carbon_cost	period	transmission_line_id	load_area_receive_id	load_area_from_id	load_area_receive	load_area_from	date	hour	rps_fuel_category	power_sent	power_received	hours_in_sample\n"
         > (outfile); }
       
-      # detailed imports & exports
-      printf { (a1, a2, p, h) in TRANSMISSION_LINE_HOURS, fc in RPS_FUEL_CATEGORY: DispatchTransFromXToY[a1, a2, p, h, fc] > 0.001} 
+      # detailed non-rps transmission imports & exports
+      printf { (a1, a2, fc, p, h) in TRANSMISSION_LINE_HOURS: DispatchTrans[a1, a2, fc, p, h] > 0.001 } 
         "%s	%d	%d	%d	%d	%d	%s	%s	%d	%d	%s	%.2f	%.2f	%.2f\n",
         scenario_id, carbon_cost, period[h], transmission_line_id[a1, a2], load_area_id[a2], load_area_id[a1], a2, a1,
         (if present_day_optimization then present_day_date[h] else date[h]),
         (if present_day_optimization then present_day_timepoint[h] else h),
-        fc, DispatchTransFromXToY[a1, a2, p, h, fc],
-        DispatchTransFromXToY[a1, a2, p, h, fc] * transmission_efficiency[a1, a2],
+        fc, DispatchTrans[a1, a2, fc, p, h],
+        DispatchTrans[a1, a2, fc, p, h] * transmission_efficiency[a1, a2],
         hours_in_sample[h]
         >> (outfile);
+
       close (outfile);
       
       ########################
@@ -232,7 +233,7 @@ for {c in CARBON_COSTS} {
         printf { (r, c, p) in RPS_TARGETS: able_to_meet_rps[r, c, p] }:
           "%s	%d	%d	%s	%s	%.2f\n",
           scenario_id, carbon_cost, p, r, c,
-          Satisfy_RPS[r, c, p]
+          (if c = 'Primary' then Satisfy_Primary_RPS[r, c, p] else if c = 'Distributed' then Satisfy_Distributed_RPS[r, c, p] else 0)
           >> (outfile);
        } else {
         printf { r in RPS_AREAS, p in PERIODS }:
@@ -292,15 +293,15 @@ for {c in CARBON_COSTS} {
       let output_section := 'consume_variables';
       let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
       if ( file_exists(outfile) == 0 ) then {
-      printf "scenario_id	carbon_cost	period	load_area_id	load_area	date	hour	hours_in_sample	fuel_category	consume_nondistributed_power	consume_distributed_power\n"
+      printf "scenario_id	carbon_cost	period	load_area_id	load_area	date	hour	hours_in_sample	fuel_category	consume_nondistributed_power\n"
         > (outfile); }
   
-      printf {a in LOAD_AREAS, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY} 
-        "%s	%d	%d	%d	%s	%d	%d	%d	%s	%.2f	%.2f\n",
+      printf {a in LOAD_AREAS, h in TIMEPOINTS} 
+        "%s	%d	%d	%d	%s	%d	%d	%d	%.2f\n",
         scenario_id, carbon_cost, period[h], load_area_id[a], a,
 		(if present_day_optimization then present_day_date[h] else date[h]),
         (if present_day_optimization then present_day_timepoint[h] else h),
-         hours_in_sample[h], fc, ConsumeNonDistributedPower[a, h, fc], ConsumeDistributedPower[a, h, fc]
+         hours_in_sample[h], ConsumeNonDistributedPower[a, h]
         >> (outfile);
       close (outfile);
  

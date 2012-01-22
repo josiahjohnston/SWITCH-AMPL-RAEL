@@ -60,20 +60,20 @@ printf {(pid, a, t, p) in EP_PERIODS: sum {h in TIMEPOINTS: period[h] = p } (Pro
   >> (outfile);
 
 # Store all STORAGE DISPATCH decisions
-printf {  (pid, a, t, p) in AVAILABLE_VINTAGES, fc in RPS_FUEL_CATEGORY: 
-    storage[t] and ( 
-      (sum {h in TIMEPOINTS: period[h] = p} abs(Storage_Net_Power[pid, a, t, p, h, fc]) ) > 0.01 or
-      (sum {h in TIMEPOINTS: period[h] = p} abs(Total_Storage_Operating_Reserve_Provided[pid, a, t, p, h]) ) > 0.01
+printf {  (pid, a, t, p) in AVAILABLE_VINTAGES: storage[t]
+	and ( 
+      (sum {h in TIMEPOINTS: period[h] = p} abs(Storage_Net_Power[pid, a, t, p, h]) ) > 0.01 or
+      (sum {h in TIMEPOINTS: period[h] = p} abs(Storage_Operating_Reserve_Provided[pid, a, t, p, h]) ) > 0.01
     ) }
   "%s %d  %d  %d  %d  %s  %s  %d  %d  %s  %d  %d  %d  %d  %s  %s  %.2f  %.2f  %.2f  %.2f  %.2f  %.2f  %.2f\n",
   scenario_id, carbon_cost, p, pid, load_area_id[a], a, balancing_area[a], test_set_id, 
-  technology_id[t], t, can_build_new[t], 0, 0, 1, 'Storage', fc, dispatch_hours_in_sample[p],
-  (sum {h in TIMEPOINTS: period[h] = p} Storage_Net_Power[pid, a, t, p, h, fc] * hours_in_sample[h] ) / hours_per_period[p],
+  technology_id[t], t, can_build_new[t], 0, 0, 1, 'Storage', 'Storage', dispatch_hours_in_sample[p],
+  (sum {h in TIMEPOINTS: period[h] = p} Storage_Net_Power[pid, a, t, p, h] * hours_in_sample[h] ) / hours_per_period[p],
   0, 0, 0, 0,
-  (sum {h in TIMEPOINTS: period[h] = p} Storage_Variable_Cost_Incurred_Hourly[pid, a, t, p, h, fc] * hours_in_sample[h] ) / hours_per_period[p],
-  (sum {h in TIMEPOINTS: period[h] = p} Storage_Spinning_Reserve_Provided_by_Fuel_Category[pid, a, t, p, h, fc] * hours_in_sample[h] ) / hours_per_period[p],
-  (sum {h in TIMEPOINTS: period[h] = p} Storage_Quickstart_Capacity_Provided_by_Fuel_Category[pid, a, t, p, h, fc] * hours_in_sample[h] ) / hours_per_period[p],
-  (sum {h in TIMEPOINTS: period[h] = p} Storage_Operating_Reserve_Provided_by_Fuel_Category[pid, a, t, p, h, fc] * hours_in_sample[h] ) / hours_per_period[p],
+  (sum {h in TIMEPOINTS: period[h] = p} Storage_Variable_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] ) / hours_per_period[p],
+  (sum {h in TIMEPOINTS: period[h] = p} Storage_Spinning_Reserve_Provided[pid, a, t, p, h] * hours_in_sample[h] ) / hours_per_period[p],
+  (sum {h in TIMEPOINTS: period[h] = p} Storage_Quickstart_Capacity_Provided[pid, a, t, p, h] * hours_in_sample[h] ) / hours_per_period[p],
+  (sum {h in TIMEPOINTS: period[h] = p} Storage_Operating_Reserve_Provided[pid, a, t, p, h] * hours_in_sample[h] ) / hours_per_period[p],
   0,
   0,
   0

@@ -139,10 +139,6 @@ table fuel_info "inputs/fuel_info.tab" IN:
 read table fuel_info;
 let FUELS := FUELS union {"Storage"};
 
-table fuel_qualifies_for_rps "inputs/fuel_qualifies_for_rps.tab" IN:
-	RPS_AREAS_AND_FUEL_CATEGORY <- [rps_compliance_entity, rps_fuel_category], fuel_qualifies_for_rps ~ qualifies;
-read table fuel_qualifies_for_rps; 
-
 ###################################
 # update some params that can't be easily dealt with elsewhere
 
@@ -161,16 +157,8 @@ for { t in TECHNOLOGIES } {
 ###################################
 # Change the problem to remove policy constraints that are not in effect
 problem Investment_Cost_Minimization;
-if (enable_rps = 0) then { drop Satisfy_RPS; } 
+if (enable_rps = 0) then { drop Satisfy_Primary_RPS; drop Satisfy_Distributed_RPS; drop Conservation_of_REC; let {f in FUELS} rps_fuel_category[f] := 'na'; } 
 if (enable_carbon_cap = 0) then { drop Carbon_Cap; } 
-# Simplify transmission & storage if RPS is not in effect
-redeclare param rps_fuel_category {FUELS} symbolic;
-if (enable_rps = 0) then {
-  let RPS_AREAS_AND_FUEL_CATEGORY := setof { (r, fc) in RPS_AREAS_AND_FUEL_CATEGORY } (r,'na');
-  let {f in FUELS} rps_fuel_category[f] := 'na';
-} 
-redeclare param rps_fuel_category {FUELS} symbolic in RPS_FUEL_CATEGORY;
-
 
 ############################################################
 

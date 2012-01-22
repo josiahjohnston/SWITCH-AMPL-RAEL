@@ -38,10 +38,9 @@ param Power_Produced { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery
 param Spinning_Reserve_Provided { (pid, a, t, p, h) in AVAILABLE_HOURS };
 param Quickstart_Capacity_Provided { (pid, a, t, p, h) in AVAILABLE_HOURS };
 param Total_Operating_Reserve_Provided { (pid, a, t, p, h) in AVAILABLE_HOURS };
-param Total_Storage_Operating_Reserve_Provided { (pid, a, t, p, h) in AVAILABLE_HOURS: storage[t] };
-param Storage_Operating_Reserve_Provided_by_Fuel_Category { (pid, a, t, p, h) in AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t] };
-param Storage_Spinning_Reserve_Provided_by_Fuel_Category { (pid, a, t, p, h) in AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t] };
-param Storage_Quickstart_Capacity_Provided_by_Fuel_Category { (pid, a, t, p, h) in AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t] };
+param Storage_Operating_Reserve_Provided { (pid, a, t, p, h) in AVAILABLE_HOURS: storage[t] };
+param Storage_Spinning_Reserve_Provided { (pid, a, t, p, h) in AVAILABLE_HOURS: storage[t] };
+param Storage_Quickstart_Capacity_Provided { (pid, a, t, p, h) in AVAILABLE_HOURS: storage[t] };
 param Carbon_Emissions { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }; 
 param EP_Carbon_Emissions { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }; 
 param Carbon_Cost_Incurred_Hourly { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }; 
@@ -50,10 +49,10 @@ param Biomass_Solid_Fuel_Cost { a in LOAD_AREAS, p in PERIODS, h in TIMEPOINTS: 
 param Fuel_Cost_Incurred_Hourly { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }; 
 param EP_Fuel_Cost_Incurred_Hourly { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }; 
 param Variable_Cost_Incurred_Hourly { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' }; 
-param Pumped_Hydro_Storage_Stored { PUMPED_HYDRO_AVAILABLE_HOURS_BY_FC_AND_PID };
-param Pumped_Hydro_Storage_Released { PUMPED_HYDRO_AVAILABLE_HOURS_BY_FC_AND_PID };
-param Storage_Net_Power { (pid, a, t, p, h) in AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t] };
-param Storage_Variable_Cost_Incurred_Hourly { (pid, a, t, p, h) in AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t] and t <> 'Compressed_Air_Energy_Storage' };
+param Pumped_Hydro_Storage_Stored { PUMPED_HYDRO_AVAILABLE_HOURS_BY_PID };
+param Pumped_Hydro_Storage_Released { PUMPED_HYDRO_AVAILABLE_HOURS_BY_PID };
+param Storage_Net_Power { (pid, a, t, p, h) in AVAILABLE_HOURS: storage[t] };
+param Storage_Variable_Cost_Incurred_Hourly { (pid, a, t, p, h) in AVAILABLE_HOURS: storage[t] and t <> 'Compressed_Air_Energy_Storage' };
 param Total_New_Storage_Installed_To_Date { p in PERIODS };
 param EP_Variable_Cost_Incurred_Hourly { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }; 
 param Local_TD_Existing_Cost_Per_Period { a in LOAD_AREAS, p in PERIODS };
@@ -90,7 +89,6 @@ param Total_Spinning_Reserve_Provided_in_Balancing_Area_in_Hour { b in BALANCING
 param Total_Quickstart_Capacity_Provided_in_Balancing_Area_in_Hour { b in BALANCING_AREAS, h in TIMEPOINTS };
 param Fraction_of_Nonthermal_Reserves_That_Are_Spinning_in_Balancing_Area_in_Hour { b in BALANCING_AREAS, h in TIMEPOINTS };
 param Total_Stored_Energy_by_Date { (pid, a, t, p) in AVAILABLE_VINTAGES, d in DATES: period_of_date[d] = p and storage[t] };
-param Fraction_of_Dispatched_Energy_by_Fuel_Category { (pid, a, t, p) in AVAILABLE_VINTAGES, d in DATES, fc in RPS_FUEL_CATEGORY: period_of_date[d] = p and storage[t] };
 
 param Amount_Deep_Cycled { (pid, a, t, p, h) in AVAILABLE_HOURS };
 param Deep_Cycling_Fuel_Cost_Incurred_Hourly { (pid, a, t, p, h) in AVAILABLE_HOURS };

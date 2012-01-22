@@ -132,7 +132,7 @@ if [ $ExportOnly = 0 ]; then
     ;;
     load_wind_solar_operating_reserve_levels) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" into table _load_wind_solar_operating_reserve_levels ignore 1 lines (scenario_id, carbon_cost, period, balancing_area, study_date, study_hour, hours_in_sample, load_level, wind_generation, noncsp_solar_generation, csp_generation, spinning_reserve_requirement, quickstart_capacity_requirement, total_spinning_reserve_provided, total_quickstart_capacity_provided, spinning_thermal_reserve_provided, spinning_nonthermal_reserve_provided, quickstart_thermal_capacity_provided, quickstart_nonthermal_capacity_provided);" ) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
     ;;
-    consume_variables) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" into table _consume_and_redirect_variables ignore 1 lines (scenario_id, carbon_cost, period, area_id, @junk, study_date, study_hour, hours_in_sample, rps_fuel_category, consume_nondistributed_power, consume_distributed_power);" ) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
+    consume_variables) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" into table _consume_and_redirect_variables ignore 1 lines (scenario_id, carbon_cost, period, area_id, @junk, study_date, study_hour, hours_in_sample, consume_nondistributed_power);" ) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
     ;;
    esac
    done
