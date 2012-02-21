@@ -53,3 +53,25 @@ ALTER TABLE scenarios_v2
 UPDATE scenarios_v2 set 
   carbon_cap_scenario_id = enable_carbon_cap;
 
+ALTER TABLE scenarios_v2
+  DROP INDEX `unique_params`,
+  ADD UNIQUE INDEX unique_params (training_set_id, regional_cost_multiplier_scenario_id, regional_fuel_cost_scenario_id, gen_price_scenario_id, enable_rps, carbon_cap_scenario_id, model_version, inputs_adjusted),
+  DROP COLUMN enable_carbon_cap;
+
+DELIMITER $$
+DROP FUNCTION IF EXISTS clone_scenario_v2$$
+CREATE FUNCTION clone_scenario_v2 (name varchar(128), model_v varchar(16), inputs_diff varchar(16), source_scenario_id int ) RETURNS int
+BEGIN
+
+	DECLARE new_id INT DEFAULT 0;
+	INSERT INTO scenarios_v2 (scenario_name, training_set_id, regional_cost_multiplier_scenario_id, regional_fuel_cost_scenario_id, regional_gen_price_scenario_id, enable_rps, carbon_cap_scenario_id, notes, model_version, inputs_adjusted)
+
+  SELECT name, training_set_id, regional_cost_multiplier_scenario_id, regional_fuel_cost_scenario_id, regional_gen_price_scenario_id, enable_rps, carbon_cap_scenario_id, notes, model_v, inputs_diff
+		FROM scenarios_v2 where scenario_id=source_scenario_id;
+
+  SELECT LAST_INSERT_ID() into new_id;
+
+  RETURN (new_id);
+END$$
+
+DELIMITER ;
