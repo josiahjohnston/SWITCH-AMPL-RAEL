@@ -160,11 +160,12 @@ fi
 export REGIONAL_MULTIPLIER_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select regional_cost_multiplier_scenario_id from scenarios_v2 where scenario_id=$SCENARIO_ID;")
 export REGIONAL_FUEL_COST_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select regional_fuel_cost_scenario_id from scenarios_v2 where scenario_id=$SCENARIO_ID;")
 export GEN_PRICE_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select gen_price_scenario_id from scenarios_v2 where scenario_id=$SCENARIO_ID;")
+export CARBON_CAP_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select carbon_cap_scenario_id from scenarios_v2 where scenario_id=$SCENARIO_ID;")
 export SCENARIO_NAME=$(mysql $connection_string --column-names=false -e "select scenario_name from scenarios_v2 where scenario_id=$SCENARIO_ID;")
 export TRAINING_SET_ID=$(mysql $connection_string --column-names=false -e "select training_set_id from scenarios_v2 where scenario_id = $SCENARIO_ID;")
 export LOAD_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select load_scenario_id from training_sets where training_set_id = $TRAINING_SET_ID;")
 export ENABLE_RPS=$(mysql $connection_string --column-names=false -e "select enable_rps from scenarios_v2 where scenario_id=$SCENARIO_ID;")
-export ENABLE_CARBON_CAP=$(mysql $connection_string --column-names=false -e "select enable_carbon_cap from scenarios_v2 where scenario_id=$SCENARIO_ID;")
+export ENABLE_CARBON_CAP=$(mysql $connection_string --column-names=false -e "select if(carbon_cap_scenario_id>0,1,0) from scenarios_v2 where scenario_id=$SCENARIO_ID;")
 export STUDY_START_YEAR=$(mysql $connection_string --column-names=false -e "select study_start_year from training_sets where training_set_id=$TRAINING_SET_ID;")
 export STUDY_END_YEAR=$(mysql $connection_string --column-names=false -e "select study_start_year + years_per_period*number_of_periods from training_sets where training_set_id=$TRAINING_SET_ID;")
 number_of_years_per_period=$(mysql $connection_string --column-names=false -e "select years_per_period from training_sets where training_set_id=$TRAINING_SET_ID;")
@@ -210,7 +211,7 @@ mysql $connection_string -e "select rps_compliance_entity, rps_compliance_type, 
 
 echo '	carbon_cap_targets.tab...'
 echo ampl.tab 1 1 > carbon_cap_targets.tab
-mysql $connection_string -e "select year, carbon_emissions_relative_to_base from carbon_cap_targets where year >= $STUDY_START_YEAR and year <= $STUDY_END_YEAR;" >> carbon_cap_targets.tab
+mysql $connection_string -e "select year, carbon_emissions_relative_to_base from carbon_cap_targets where year >= $STUDY_START_YEAR and year <= $STUDY_END_YEAR and carbon_cap_scenario_id=$CARBON_CAP_SCENARIO_ID;" >> carbon_cap_targets.tab
 
 echo '	transmission_lines.tab...'
 echo ampl.tab 2 5 > transmission_lines.tab

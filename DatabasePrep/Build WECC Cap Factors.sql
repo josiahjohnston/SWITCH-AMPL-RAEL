@@ -604,11 +604,28 @@ load data local infile
 -- the current carbon cap in SWITCH is set by a linear decrease
 -- from 100% of 1990 levels in 2020 to 20% of 1990 levels in 2050
 -- these two goals are the california emission goals.
-drop table if exists carbon_cap_targets;
-create table carbon_cap_targets(
-	year year primary key,
-	carbon_emissions_relative_to_base float
-	);
+drop table if exists carbon_cap_scenarios;
+create table carbon_cap_scenarios(
+  carbon_cap_scenario_id int unsigned PRIMARY KEY,
+  name text,
+  description text
+);
+
+
+drop table if exists _carbon_cap_targets;
+create table _carbon_cap_targets(
+  carbon_cap_scenario_id INT UNSIGNED,
+	year YEAR,
+	carbon_emissions_relative_to_base FLOAT,
+	PRIMARY KEY (carbon_cap_scenario_id,year),
+	FOREIGN KEY (carbon_cap_scenario_id) REFERENCES carbon_cap_scenarios(carbon_cap_scenario_id)
+);
+
+
+drop view if exists carbon_cap_targets;
+CREATE VIEW carbon_cap_targets as
+  SELECT carbon_cap_scenario_id, carbon_cap_scenarios.name as carbon_cap_scenario_name, year, carbon_emissions
+    FROM _carbon_cap_targets join carbon_cap_scenarios using (carbon_cap_scenario_id);
 
 load data local infile
 	'carbon_cap_targets.csv'
@@ -616,6 +633,7 @@ load data local infile
 	fields terminated by	','
 	optionally enclosed by '"'
 	ignore 1 lines;
+
 
 -- EXISTING PLANTS---------
 -- made in 'build existing plants table.sql'

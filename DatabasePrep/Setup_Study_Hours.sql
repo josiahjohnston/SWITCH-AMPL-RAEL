@@ -1,8 +1,7 @@
+-- This file defines database schema and methods for subsampling timepoints.
+
 create database if not exists switch_inputs_wecc_v2_2;
 use switch_inputs_wecc_v2_2;
-
--- add entries to the insert into training_sets statement to add training sets to the model
--- also, to make good subsampling scenarios, add lines to DefineScenarios.SQL
 	
 CREATE TABLE IF NOT EXISTS training_sets (
   training_set_id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
@@ -72,6 +71,35 @@ CREATE TABLE IF NOT EXISTS dispatch_test_sets (
   CONSTRAINT training_set_id_fk FOREIGN KEY training_set_id_fk (training_set_id)
     REFERENCES training_sets (training_set_id)
 );
+
+CREATE TABLE IF NOT EXISTS scenarios_v2 (
+  scenario_id INT NOT NULL AUTO_INCREMENT,
+  scenario_name VARCHAR(128),
+  training_set_id INT NOT NULL,
+  regional_cost_multiplier_scenario_id INT NOT NULL DEFAULT 1, 
+  regional_fuel_cost_scenario_id INT NOT NULL DEFAULT 1, 
+  gen_price_scenario_id MEDIUMINT NOT NULL DEFAULT 1, 
+  enable_rps BOOLEAN NOT NULL DEFAULT 0 COMMENT 'This controls whether Renewable Portfolio Standards are considered in the optimization.', 
+  carbon_cap_scenario_id int unsigned DEFAULT 0 COMMENT 'The default scenario is no cap. Browse existing scenarios or define new ones in the table carbon_cap_scenarios.',
+  enable_carbon_cap BOOLEAN NOT NULL DEFAULT 0 COMMENT 'This controls whether a carbon cap is considered in the optimization.',
+  notes TEXT,
+  model_version varchar(16) NOT NULL,
+  inputs_adjusted varchar(16) NOT NULL DEFAULT 'no',
+  PRIMARY KEY (scenario_id), 
+  UNIQUE KEY unique_params (training_set_id, regional_cost_multiplier_scenario_id, regional_fuel_cost_scenario_id, gen_price_scenario_id, enable_rps, enable_carbon_cap, model_version, inputs_adjusted), 
+  CONSTRAINT training_set_id FOREIGN KEY training_set_id (training_set_id)
+    REFERENCES training_sets (training_set_id), 
+  CONSTRAINT regional_cost_multiplier_scenario_id FOREIGN KEY regional_cost_multiplier_scenario_id (regional_cost_multiplier_scenario_id)
+    REFERENCES regional_economic_multiplier (scenario_id), 
+  CONSTRAINT regional_fuel_cost_scenario_id FOREIGN KEY regional_fuel_cost_scenario_id (regional_fuel_cost_scenario_id)
+    REFERENCES regional_fuel_prices (scenario_id), 
+  CONSTRAINT gen_price_scenario_id FOREIGN KEY gen_price_scenario_id (gen_price_scenario_id)
+    REFERENCES generator_price_scenarios (gen_price_scenario_id)
+	CONSTRAINT carbon_cap_scenario_id FOREIGN KEY carbon_cap_scenario_id (carbon_cap_scenario_id) 
+	  REFERENCES carbon_cap_scenarios (carbon_cap_scenario_id)
+)
+COMMENT = 'Each record in this table is a specification of how to compile a set of inputs for a specific run. Several fields specify how to subselect timepoints from a given training_set. Other fields indicate which set of regional price data to use.';
+
 
 DROP PROCEDURE IF EXISTS prepare_load_exports;
 DELIMITER $$
@@ -370,34 +398,6 @@ drop table if exists tmonths;
 END;
 $$
 delimiter ;
-
-
-
-CREATE TABLE IF NOT EXISTS scenarios_v2 (
-  scenario_id INT NOT NULL AUTO_INCREMENT,
-  scenario_name VARCHAR(128),
-  training_set_id INT NOT NULL,
-  regional_cost_multiplier_scenario_id INT NOT NULL DEFAULT 1, 
-  regional_fuel_cost_scenario_id INT NOT NULL DEFAULT 1, 
-  gen_price_scenario_id MEDIUMINT NOT NULL DEFAULT 1, 
-  enable_rps BOOLEAN NOT NULL DEFAULT 0 COMMENT 'This controls whether Renewable Portfolio Standards are considered in the optimization.', 
-  enable_carbon_cap BOOLEAN NOT NULL DEFAULT 0 COMMENT 'This controls whether a carbon cap is considered in the optimization.',
-  notes TEXT,
-  model_version varchar(16) NOT NULL,
-  inputs_adjusted varchar(16) NOT NULL DEFAULT 'no',
-  PRIMARY KEY (scenario_id), 
-  UNIQUE KEY unique_params (training_set_id, regional_cost_multiplier_scenario_id, regional_fuel_cost_scenario_id, gen_price_scenario_id, enable_rps, enable_carbon_cap, model_version, inputs_adjusted), 
-  CONSTRAINT training_set_id FOREIGN KEY training_set_id (training_set_id)
-    REFERENCES training_sets (training_set_id), 
-  CONSTRAINT regional_cost_multiplier_scenario_id FOREIGN KEY regional_cost_multiplier_scenario_id (regional_cost_multiplier_scenario_id)
-    REFERENCES regional_economic_multiplier (scenario_id), 
-  CONSTRAINT regional_fuel_cost_scenario_id FOREIGN KEY regional_fuel_cost_scenario_id (regional_fuel_cost_scenario_id)
-    REFERENCES regional_fuel_prices (scenario_id), 
-  CONSTRAINT gen_price_scenario_id FOREIGN KEY gen_price_scenario_id (gen_price_scenario_id)
-    REFERENCES generator_price_scenarios (gen_price_scenario_id)
-)
-COMMENT = 'Each record in this table is a specification of how to compile a set of inputs for a specific run. Several fields specify how to subselect timepoints from a given training_set. Other fields indicate which set of regional price data to use.';
-
 
 
 DELIMITER $$
