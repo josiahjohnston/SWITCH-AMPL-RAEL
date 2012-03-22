@@ -54,6 +54,20 @@ load data local infile
 update load_area_info join ccs_distances using (load_area)
 set ccs_distance_km = distance_km;
 
+-- add nems_region column for fuel supply curves
+alter table load_area_info add column nems_fuel_region varchar(20);
+
+-- for now these actually match up to the primary nerc subregion/balancing areas, but I wanted to keep them separate as I don't know if they will also match if we expand to the East
+update	load_area_info set nems_fuel_region =
+	CASE	WHEN primary_nerc_subregion = 'AZNMSNV' THEN 'Southwest'
+			WHEN primary_nerc_subregion = 'CA' THEN 'CA' 
+			WHEN primary_nerc_subregion = 'MX' THEN 'Baja_Mexico'
+			WHEN primary_nerc_subregion = 'NWPP' THEN 'NWPP' 
+			WHEN primary_nerc_subregion = 'NWPP_CAN' THEN 'Canada_WECC'
+			WHEN primary_nerc_subregion = 'RMPA' THEN 'Rockies'
+	END;
+
+
 
 -- BALANCING AREA INFO
 -- based on the load area info table
@@ -415,9 +429,10 @@ insert into fuel_qualifies_for_rps
 -- FUEL PRICES-------------
 -- run 'v2 wecc fuel price import no elasticity.sql' first
 -- biomass fuel costs come from the biomass supply curve and thus aren't added here
+-- natural gas fuel costs come from the natural gas supply curve and are also set to 0 here
 
-drop table if exists _fuel_prices_regional;
-CREATE TABLE _fuel_prices_regional (
+drop table if exists _fuel_prices;
+CREATE TABLE _fuel_prices (
   scenario_id INT NOT NULL,
   area_id smallint unsigned NOT NULL,
   fuel VARCHAR(64),
@@ -430,15 +445,17 @@ CREATE TABLE _fuel_prices_regional (
   CONSTRAINT area_id FOREIGN KEY area_id (area_id) REFERENCES load_area_info (area_id)
 );
 
-set @this_scenario_id := (select if( max(scenario_id) + 1 is null, 1, max(scenario_id) + 1 ) from _fuel_prices_regional);
-  
-insert into _fuel_prices_regional
+set @this_scenario_id := (select if( max(scenario_id) + 1 is null, 1, max(scenario_id) + 1 ) from _fuel_prices);
+
+-- insert fuel prices
+-- for natural gas, insert 0 as the price because we'll have natural gas consumption on a supply curve
+insert into _fuel_prices
 	select
 		@this_scenario_id as scenario_id,
         area_id,
         if(fuel like 'NaturalGas', 'Gas', fuel) as fuel,
         year,
-        fuel_price
+        if(fuel like 'NaturalGas', 0, fuel_price) as fuel_price
     from fuel_prices.regional_fuel_prices
     join load_area_info using (load_area)
     where fuel not like 'Bio_Solid';
@@ -451,7 +468,7 @@ drop table if exists integer_tmp;
 create table integer_tmp( integer_val int not null AUTO_INCREMENT primary key, insert_tmp int );
 	insert into integer_tmp (insert_tmp) select hournum from hours limit 70;
 	
-insert into _fuel_prices_regional (scenario_id, area_id, fuel, year, fuel_price)
+insert into _fuel_prices (scenario_id, area_id, fuel, year, fuel_price)
 	select 	slope_table.scenario_id,
 			slope_table.area_id,
 			slope_table.fuel,
@@ -465,12 +482,12 @@ insert into _fuel_prices_regional (scenario_id, area_id, fuel, year, fuel_price)
 						max_year,
 						fuel_price as fuel_price_max_year
 						from 
-						( select scenario_id, area_id, fuel, max(year) as max_year from _fuel_prices_regional group by 1, 2, 3 ) as max_year_table,
-						_fuel_prices_regional
-				where max_year_table.max_year = _fuel_prices_regional.year
-				and max_year_table.scenario_id = _fuel_prices_regional.scenario_id
-				and max_year_table.area_id = _fuel_prices_regional.area_id
-				and max_year_table.fuel = _fuel_prices_regional.fuel
+						( select scenario_id, area_id, fuel, max(year) as max_year from _fuel_prices group by 1, 2, 3 ) as max_year_table,
+						_fuel_prices
+				where max_year_table.max_year = _fuel_prices.year
+				and max_year_table.scenario_id = _fuel_prices.scenario_id
+				and max_year_table.area_id = _fuel_prices.area_id
+				and max_year_table.fuel = _fuel_prices.fuel
 				) as max_year_table,
 	
 		(select  m.scenario_id,
@@ -484,24 +501,24 @@ insert into _fuel_prices_regional (scenario_id, area_id, fuel, year, fuel_price)
 						max_year_table.fuel,
 						fuel_price as fuel_price_max_year
 						from 
-						( select scenario_id, area_id, fuel, max(year) as max_year from _fuel_prices_regional group by 1, 2, 3 ) as max_year_table,
-						_fuel_prices_regional
-				where max_year_table.max_year = _fuel_prices_regional.year
-				and max_year_table.scenario_id = _fuel_prices_regional.scenario_id
-				and max_year_table.area_id = _fuel_prices_regional.area_id
-				and max_year_table.fuel = _fuel_prices_regional.fuel
+						( select scenario_id, area_id, fuel, max(year) as max_year from _fuel_prices group by 1, 2, 3 ) as max_year_table,
+						_fuel_prices
+				where max_year_table.max_year = _fuel_prices.year
+				and max_year_table.scenario_id = _fuel_prices.scenario_id
+				and max_year_table.area_id = _fuel_prices.area_id
+				and max_year_table.fuel = _fuel_prices.fuel
 				) as m,
 				(select 	max_year_table.scenario_id,
 						max_year_table.area_id,
 						max_year_table.fuel,
 						fuel_price as fuel_price_max_year_minus_five
 						from 
-						( select scenario_id, area_id, fuel, max(year) as max_year from _fuel_prices_regional group by 1, 2, 3 ) as max_year_table,
-						_fuel_prices_regional
-				where (max_year_table.max_year - 5 ) = _fuel_prices_regional.year
-				and max_year_table.scenario_id = _fuel_prices_regional.scenario_id
-				and max_year_table.area_id = _fuel_prices_regional.area_id
-				and max_year_table.fuel = _fuel_prices_regional.fuel
+						( select scenario_id, area_id, fuel, max(year) as max_year from _fuel_prices group by 1, 2, 3 ) as max_year_table,
+						_fuel_prices
+				where (max_year_table.max_year - 5 ) = _fuel_prices.year
+				and max_year_table.scenario_id = _fuel_prices.scenario_id
+				and max_year_table.area_id = _fuel_prices.area_id
+				and max_year_table.fuel = _fuel_prices.fuel
 				) as m5
 			where m.scenario_id = m5.scenario_id
 			and m.area_id = m5.area_id
@@ -511,44 +528,111 @@ insert into _fuel_prices_regional (scenario_id, area_id, fuel, year, fuel_price)
 		and		slope_table.fuel = max_year_table.fuel
 		;
 			
-delete from _fuel_prices_regional where year > 2100;
+delete from _fuel_prices where year > 2100;
 
 -- add in fuel prices for CCS - these are the same as for the non-CCS technologies, but with a CCS added to the name
-insert into _fuel_prices_regional (scenario_id, area_id, fuel, year, fuel_price)
+insert into _fuel_prices (scenario_id, area_id, fuel, year, fuel_price)
 	select 	scenario_id,
 			area_id,
 			concat(fuel, '_CCS') as fuel,
 			year,
 			fuel_price
-	from _fuel_prices_regional where fuel in ('Gas', 'Coal', 'DistillateFuelOil', 'ResidualFuelOil');
+	from _fuel_prices where fuel in ('Gas', 'Coal', 'DistillateFuelOil', 'ResidualFuelOil');
 
 -- add fuel prices of zero for renewables... this could be handedled through default fuel price values
 -- but in the past bugs have been caused by using a default fuel price of 0 in switch.mod
 -- biomass_solid gets a default of zero here, but it comes in on the biomass supply curve.
-insert into _fuel_prices_regional (scenario_id, area_id, fuel, year, fuel_price)
+insert into _fuel_prices (scenario_id, area_id, fuel, year, fuel_price)
 	select 	scenario_id,
 			area_id,
 			fuel,
 			year,
 			0 as fuel_price
-	from 	( select distinct scenario_id, area_id, year from _fuel_prices_regional) as scenarios_areas_years,
+	from 	( select distinct scenario_id, area_id, year from _fuel_prices) as scenarios_areas_years,
 			fuel_info
-	where 	fuel not in (select distinct fuel from _fuel_prices_regional);
+	where 	fuel not in (select distinct fuel from _fuel_prices);
 
 -- add values for the fuel 'Storage'
-insert into _fuel_prices_regional (scenario_id, area_id, fuel, year, fuel_price)
+insert into _fuel_prices (scenario_id, area_id, fuel, year, fuel_price)
 	select 	scenario_id,
 			area_id,
 			'Storage' as fuel,
 			year,
 			0 as fuel_price
-	from 	( select distinct scenario_id, area_id, year from _fuel_prices_regional) as scenarios_areas_years;
+	from 	( select distinct scenario_id, area_id, year from _fuel_prices) as scenarios_areas_years;
   
-DROP VIEW IF EXISTS fuel_prices_regional;
-CREATE VIEW fuel_prices_regional as
-SELECT _fuel_prices_regional.scenario_id, load_area_info.area_id, load_area, fuel, year, fuel_price 
-    FROM _fuel_prices_regional, load_area_info
-    WHERE _fuel_prices_regional.area_id = load_area_info.area_id;
+DROP VIEW IF EXISTS fuel_prices;
+CREATE VIEW fuel_prices as
+SELECT _fuel_prices.scenario_id, load_area_info.area_id, load_area, fuel, year, fuel_price 
+    FROM _fuel_prices, load_area_info
+    WHERE _fuel_prices.area_id = load_area_info.area_id;
+
+
+-- NATURAL GAS SUPPLY CURVE
+
+-- the prices in the supply curve include producer surplus
+-- the supply curves are created in postgresql -- see build_fuel_supply_cuves.sql
+-- regional adders are also included in addition to the supply curve to account for variations in wellhead and transportation costs across regions
+
+-- supply curve
+drop table if exists natural_gas_supply_curve;
+create table natural_gas_supply_curve(
+	fuel varchar(40),
+	nems_scenario varchar(40),
+	simulation_year int,
+	breakpoint_id int,
+	consumption_breakpoint double,
+	price_surplus_adjusted double,
+	PRIMARY KEY (fuel, nems_scenario, simulation_year, breakpoint_id),
+	INDEX fuel (fuel),
+	INDEX nems_scenario (nems_scenario)
+);
+
+load data local infile
+	'/DatabasePrep/NG_supply_curve/natural_gas_supply_curve.csv'
+	into table natural_gas_supply_curve
+	fields terminated by	','
+	optionally enclosed by '"'
+	ignore 1 lines;
+
+
+-- regional price adders
+drop table if exists natural_gas_regional_price_adders;
+create table natural_gas_regional_price_adders(
+	fuel varchar(40),
+	nems_region varchar(40),
+	nems_scenario varchar(40),
+	simulation_year int,
+	regional_price_adder double,
+	PRIMARY KEY (fuel, nems_region, nems_scenario, simulation_year),
+	INDEX fuel (fuel),
+	INDEX nems_region (nems_region),
+	INDEX nems_scenario (nems_scenario)
+);
+
+load data local infile
+	'/DatabasePrep/NG_supply_curve/natural_gas_regional_price_adders.csv'
+	into table natural_gas_regional_price_adders
+	fields terminated by	','
+	optionally enclosed by '"'
+	ignore 1 lines;
+
+-- add nems scenarios to be able to vary the NG supply curve starting point depending on consumption in the rest of the economy
+drop table if exists nems_fuel_scenarios;
+create table nems_fuel_scenarios(
+nems_fuel_scenario_id int,
+nems_fuel_scenario varchar(40),
+PRIMARY KEY (nems_fuel_scenario_id)
+);
+
+-- manually enter the scenario ids for now
+insert into nems_fuel_scenarios (nems_fuel_scenario_id, nems_fuel_scenario)
+SELECT 1, 'Reference' UNION
+SELECT 2, 'High growth' UNION
+SELECT 3, 'Low growth' UNION
+SELECT 4, 'Low renewable cost' UNION
+SELECT 5, 'High renewable cost';
+
 
 -- BIOMASS SUPPLY CURVE
 

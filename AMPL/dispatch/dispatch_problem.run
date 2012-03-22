@@ -28,7 +28,7 @@ problem Dispatch_Only:
   Increase_Gen_Only,  
 
 # Dispatch Decisions
-  DispatchGen, DispatchFlexibleBaseload, ProducePowerEP, ConsumeBioSolid,
+  DispatchGen, DispatchFlexibleBaseload, ProducePowerEP, ConsumeBioSolid, ConsumeNaturalGas, ConsumeNaturalGasRegional,
   DispatchTrans,
   StoreEnergy, ReleaseEnergy,
   DispatchHydro, Dispatch_Pumped_Hydro_Storage, Store_Pumped_Hydro,
@@ -63,7 +63,7 @@ problem Dispatch_peakers_and_storage:
   {(pid, a, t, p) in PROJECT_VINTAGES: t='Gas_Combustion_Turbine' or storage[t] } InstallGen[pid, a, t, p],
   
 # Dispatch Decisions
-  DispatchGen, DispatchFlexibleBaseload, ProducePowerEP, ConsumeBioSolid,
+  DispatchGen, DispatchFlexibleBaseload, ProducePowerEP, ConsumeBioSolid, ConsumeNaturalGas, ConsumeNaturalGasRegional,
   DispatchTrans,
   StoreEnergy, ReleaseEnergy,
   DispatchHydro, Dispatch_Pumped_Hydro_Storage, Store_Pumped_Hydro,

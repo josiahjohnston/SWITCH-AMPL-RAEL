@@ -166,6 +166,7 @@ export TRAINING_SET_ID=$(mysql $connection_string --column-names=false -e "selec
 export LOAD_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select load_scenario_id from training_sets where training_set_id = $TRAINING_SET_ID;")
 export ENABLE_RPS=$(mysql $connection_string --column-names=false -e "select enable_rps from scenarios_v2 where scenario_id=$SCENARIO_ID;")
 export ENABLE_CARBON_CAP=$(mysql $connection_string --column-names=false -e "select if(carbon_cap_scenario_id>0,1,0) from scenarios_v2 where scenario_id=$SCENARIO_ID;")
+export NEMS_FUEL_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select nems_fuel_scenario_id from scenarios_v2 where scenario_id=$SCENARIO_ID;")
 export STUDY_START_YEAR=$(mysql $connection_string --column-names=false -e "select study_start_year from training_sets where training_set_id=$TRAINING_SET_ID;")
 export STUDY_END_YEAR=$(mysql $connection_string --column-names=false -e "select study_start_year + years_per_period*number_of_periods from training_sets where training_set_id=$TRAINING_SET_ID;")
 number_of_years_per_period=$(mysql $connection_string --column-names=false -e "select years_per_period from training_sets where training_set_id=$TRAINING_SET_ID;")
@@ -198,8 +199,8 @@ FROM _training_set_timepoints JOIN study_timepoints  USING (timepoint_id) \
 WHERE training_set_id=$TRAINING_SET_ID order by 1;" >> study_hours.tab
 
 echo '	load_areas.tab...'
-echo ampl.tab 1 11 > load_areas.tab
-mysql $connection_string -e "select load_area, area_id as load_area_id, primary_state, primary_nerc_subregion as balancing_area, rps_compliance_entity, economic_multiplier, max_coincident_load_for_local_td, local_td_new_annual_payment_per_mw, local_td_sunk_annual_payment, transmission_sunk_annual_payment, ccs_distance_km, bio_gas_capacity_limit_mmbtu_per_hour from load_area_info;" >> load_areas.tab
+echo ampl.tab 1 12 > load_areas.tab
+mysql $connection_string -e "select load_area, area_id as load_area_id, primary_state, primary_nerc_subregion as balancing_area, rps_compliance_entity, economic_multiplier, max_coincident_load_for_local_td, local_td_new_annual_payment_per_mw, local_td_sunk_annual_payment, transmission_sunk_annual_payment, ccs_distance_km, bio_gas_capacity_limit_mmbtu_per_hour, nems_fuel_region from load_area_info;" >> load_areas.tab
 
 echo '	balancing_areas.tab...'
 echo ampl.tab 1 4 > balancing_areas.tab
@@ -281,7 +282,59 @@ mysql $connection_string -e "select technology, technology_id, min_build_year, f
 
 echo '	fuel_costs.tab...'
 echo ampl.tab 3 1 > fuel_costs.tab
-mysql $connection_string -e "select load_area, fuel, year, fuel_price from fuel_prices_regional where scenario_id = $REGIONAL_FUEL_COST_SCENARIO_ID and year <= $STUDY_END_YEAR order by load_area, fuel, year" >> fuel_costs.tab
+mysql $connection_string -e "select load_area, fuel, year, fuel_price from fuel_prices where scenario_id = $REGIONAL_FUEL_COST_SCENARIO_ID and year <= $STUDY_END_YEAR order by load_area, fuel, year" >> fuel_costs.tab
+
+echo '	ng_supply_curve_slope.tab...'
+echo ampl.tab 2 1 > ng_supply_curve_slope.tab
+mysql $connection_string -e "\
+select period_start as period, breakpoint_id, price_surplus_adjusted as ng_price_surplus_adjusted \
+from natural_gas_supply_curve, training_set_periods \
+where simulation_year=period_start+(period_end-period_start+1)/2 \
+and nems_scenario = (select nems_fuel_scenario from nems_fuel_scenarios where nems_fuel_scenario_id = $NEMS_FUEL_SCENARIO_ID) \
+and training_set_id=$TRAINING_SET_ID \
+UNION \
+select $present_year, breakpoint_id, price_surplus_adjusted as ng_price_surplus_adjusted \
+from natural_gas_supply_curve, training_set_periods \
+where simulation_year=$present_year \
+and nems_scenario = (select nems_fuel_scenario from nems_fuel_scenarios where nems_fuel_scenario_id = $NEMS_FUEL_SCENARIO_ID) \
+and training_set_id=$TRAINING_SET_ID \
+order by period, breakpoint_id" >> ng_supply_curve_slope.tab
+
+echo '	ng_supply_curve_breakpoint_consumption.tab...'
+echo ampl.tab 2 1 > ng_supply_curve_breakpoint_consumption.tab
+mysql $connection_string -e "\
+select period_start as period, breakpoint_id, consumption_breakpoint as ng_consumption_breakpoint \
+from natural_gas_supply_curve, training_set_periods \
+where simulation_year=period_start+(period_end-period_start+1)/2 \
+and consumption_breakpoint > 0 \
+and nems_scenario = (select nems_fuel_scenario from nems_fuel_scenarios where nems_fuel_scenario_id = $NEMS_FUEL_SCENARIO_ID) \
+and training_set_id=$TRAINING_SET_ID \
+UNION \
+select $present_year, breakpoint_id, consumption_breakpoint as ng_consumption_breakpoint \
+from natural_gas_supply_curve, training_set_periods \
+where simulation_year=$present_year \
+and consumption_breakpoint > 0 \
+and nems_scenario = (select nems_fuel_scenario from nems_fuel_scenarios where nems_fuel_scenario_id = $NEMS_FUEL_SCENARIO_ID) \
+and training_set_id=$TRAINING_SET_ID \
+order by period, breakpoint_id" >> ng_supply_curve_breakpoint_consumption.tab
+
+echo '	ng_regional_price_adders.tab...'
+echo ampl.tab 2 1 > ng_regional_price_adders.tab
+mysql $connection_string -e "\
+select nems_region, period_start as period, regional_price_adder as ng_regional_price_adder \
+from 	natural_gas_regional_price_adders, training_set_periods \
+where	simulation_year = period_start+(period_end-period_start+1)/2 \
+and		nems_scenario = (select nems_fuel_scenario from nems_fuel_scenarios where nems_fuel_scenario_id = $NEMS_FUEL_SCENARIO_ID) \
+and training_set_id=$TRAINING_SET_ID \
+UNION \
+select nems_region, $present_year, regional_price_adder as ng_regional_price_adder \
+from 	natural_gas_regional_price_adders, training_set_periods \
+where	simulation_year = $present_year \
+and		nems_scenario = (select nems_fuel_scenario from nems_fuel_scenarios where nems_fuel_scenario_id = $NEMS_FUEL_SCENARIO_ID) \
+and training_set_id=$TRAINING_SET_ID \
+order by nems_region, period \
+" >> ng_regional_price_adders.tab
+
 
 echo '	biomass_supply_curve_slope.tab...'
 echo ampl.tab 3 1 > biomass_supply_curve_slope.tab

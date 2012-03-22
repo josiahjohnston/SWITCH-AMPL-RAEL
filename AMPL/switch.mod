@@ -103,6 +103,9 @@ set BALANCING_AREAS;
 # Balancing areas param in LOAD_AREAS
 param balancing_area {LOAD_AREAS} symbolic in BALANCING_AREAS;
 
+param nems_fuel_region {LOAD_AREAS} symbolic;
+set NEMS_FUEL_REGIONS = setof {a in LOAD_AREAS} (nems_fuel_region[a]);
+
 
 ###################
 # Financial data
@@ -707,7 +710,7 @@ param ep_fixed_o_m_by_period { (pid, a, t, p) in EP_PERIODS } =
 
 # For now, all hours in each study period use the same fuel cost which averages annual prices over the course of each study period.
 # This could be updated to use fuel costs that vary by month, or for an hourly model, it could interpolate between annual forecasts
-# Bio solid fuel costs are zero here - they'll be included in a seperate supply curve
+# Bio solid fuel costs and natural gas costs are zero here - they'll be included via separate supply curves
 param fuel_price_in_period { (pid, a, t, p) in AVAILABLE_VINTAGES } := 
 		( sum{ y in YEARS: y >= p and y < p + num_years_per_period } fuel_price[a, fuel[t], y] ) / num_years_per_period;
 
@@ -718,6 +721,7 @@ param variable_o_m_cost_hourly { (pid, a, t, p, h) in AVAILABLE_HOURS } =
 	* ( hours_in_sample[h] / num_years_per_period ) * discount_to_base_year[p];
 
 # same for the fuel cost per MWh
+# fuel_price_in_period is 0 for bio solid and natural gas fuels as all bio solid and NG fuel costs are calculated via their respective supply curves
 param fuel_cost_hourly { (pid, a, t, p, h) in AVAILABLE_HOURS } =
 	( if can_build_new[t] then heat_rate[pid, a, t] else ep_heat_rate[pid, a, t] )
   	* fuel_price_in_period[pid, a, t, p]
@@ -1044,6 +1048,42 @@ var Hydro_Operating_Reserve { (a, t, p, h) in HYDRO_AVAILABLE_HOURS} >= 0;
 var Pumped_Hydro_Storage_Operating_Reserve { (a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS } >= 0;
 
 
+############ Fuel consumption ###############
+
+set NG_SUPPLY_CURVE_PERIOD_BREAKPOINTS dimen 2;
+set NG_REGIONAL_PRICE_ADDERS_PERIODS dimen 2;
+
+# natural gas supply curve parameters; the surplus-adjusted price and regional price adder are in $/MMBtu; the natural gas consumption is in MMBtu
+param num_ng_breakpoints { p in PERIODS_AND_PRESENT} = card ( { (p, bp) in NG_SUPPLY_CURVE_PERIOD_BREAKPOINTS } );
+param ng_price_surplus_adjusted { (p, bp) in NG_SUPPLY_CURVE_PERIOD_BREAKPOINTS } >= if bp = 1 then 0 else ng_price_surplus_adjusted[p, bp-1];
+param ng_consumption_breakpoint { p in PERIODS_AND_PRESENT, bp in 1..(num_ng_breakpoints[p]-1) } > if bp = 1 then 0 else ng_consumption_breakpoint[p, bp-1];
+param ng_consumption_breakpoint_per_period {p in PERIODS, bp in 1..num_ng_breakpoints[p]-1}
+	= ng_consumption_breakpoint[p, bp] * num_years_per_period;
+param ng_regional_price_adder { (nr, p) in NG_REGIONAL_PRICE_ADDERS_PERIODS }; 
+
+
+# Derived variable for total fuel consumption by NEMS fuel region
+# Region-specific fuel consumption (used to calculate additional cost to reflect variations in wellhead prices and/or transportation costs across regions)
+var ConsumeNaturalGasRegional { (nr, p) in NG_REGIONAL_PRICE_ADDERS_PERIODS } =
+  # New plants
+	( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: nems_fuel_region[a] = nr and ( fuel[t] = 'Gas' or fuel[t] = 'Gas_CCS' ) } 
+	  ( if t = 'Compressed_Air_Energy_Storage' then ( 1 + caes_storage_to_ng_ratio[t] ) else 1 )
+	  * ( if dispatchable[t] then DispatchGen[pid, a, t, p, h] 
+	      else if baseload[t] then ( Installed_To_Date[pid, a, t, p] * gen_availability[t] )
+	             else 0 
+	       ) * heat_rate[pid, a, t] * hours_in_sample[h] )
+  # Existing plants
+	+ ( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: nems_fuel_region[a] = nr and ( fuel[t] = 'Gas' or fuel[t] = 'Gas_CCS' ) } 
+	    ProducePowerEP[pid, a, t, p, h] * ep_heat_rate[pid, a, t] * hours_in_sample[h] )
+ # Spinning reserves: fuel use for providing spinning reserves from new and existing plants
+    + ( sum {(pid, a, t, p, h) in AVAILABLE_HOURS: nems_fuel_region[a] = nr and dispatchable[t] and ( fuel[t] = 'Gas' or fuel[t] = 'Gas_CCS' ) } 	  
+      ( if t = 'Compressed_Air_Energy_Storage' then ( 1 + caes_storage_to_ng_ratio[t] ) else 1 )
+      * Provide_Spinning_Reserve[pid, a, t, p, h] *  heat_rate_spinning_reserve[pid, a, t] * hours_in_sample[h] )
+  ;
+
+var ConsumeNaturalGas {p in PERIODS} = 
+  sum { nr in NEMS_FUEL_REGIONS } ConsumeNaturalGasRegional [nr, p];
+
 #### OBJECTIVE ####
 
 # minimize the total cost of power over all study periods and hours, including carbon tax
@@ -1071,8 +1111,17 @@ minimize Power_Cost:
 		<< { bp in 1..num_bio_breakpoints[a, p] - 1 } breakpoint_mmbtu_per_period[a, p, bp]; 
 		   { bp in 1..num_bio_breakpoints[a, p] } price_dollars_per_mmbtu_surplus_adjusted[a, p, bp] >>
 	   		ConsumeBioSolid[a, p] * ( 1 / num_years_per_period ) * discount_to_base_year[p]  )
-
-	# Variable costs for dispatchable, non-storage projects
+	# Natural gas fuel costs
+   		# WECC-wide supply curves
+   + ( sum { p in PERIODS } 
+		<< { bp in 1..num_ng_breakpoints[p] - 1  } ng_consumption_breakpoint_per_period[p, bp]; 
+		   { bp in 1..num_ng_breakpoints[p]} ng_price_surplus_adjusted[p, bp] >>
+	   		ConsumeNaturalGas[p] * ( 1 / num_years_per_period ) * discount_to_base_year[p]  )
+   		# Regional adder NG fuel costs
+   	+ ( sum { nr in NEMS_FUEL_REGIONS, p in PERIODS } 
+     ConsumeNaturalGasRegional[nr, p] * ng_regional_price_adder[nr, p] * ( 1 / num_years_per_period ) * discount_to_base_year[p] )
+    # Variable costs for dispatchable, non-storage projects
+    # fuel_cost_hourly is 0 for bio solid and natural gas plants (fuel costs are calculated via the supply curves instead), so NG and bio solid fuel costs are not double counted here
 	+ ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t] and t <> 'Compressed_Air_Energy_Storage' } 
 		DispatchGen[pid, a, t, p, h] * ( variable_o_m_cost_hourly[pid, a, t, p, h] + carbon_cost_per_mwh_hourly[pid, a, t, p, h] + fuel_cost_hourly[pid, a, t, p, h] ) )
 	# Variable costs for new flexible baseload projects
@@ -1719,7 +1768,7 @@ problem Investment_Cost_Minimization:
 	Maximum_Resource_Central_Station_Solar, Maximum_Resource_Bio, Maximum_Resource_Single_Location, Maximum_Resource_EP_Cogen_Replacement,
 	Minimum_GenSize, BuildGenOrNot_Constraint, SymetricalTrans, 
   # Dispatch Decisions
-	DispatchGen, DispatchFlexibleBaseload, OperateEPDuringPeriod, ProducePowerEP, ConsumeBioSolid,
+	DispatchGen, DispatchFlexibleBaseload, OperateEPDuringPeriod, ProducePowerEP, ConsumeBioSolid, ConsumeNaturalGas, ConsumeNaturalGasRegional,
 	DispatchTrans,  
 	StoreEnergy, ReleaseEnergy,
 	DispatchHydro, Dispatch_Pumped_Hydro_Storage, Store_Pumped_Hydro,
@@ -1756,7 +1805,7 @@ problem Present_Day_Cost_Minimization:
   # Installation Decisions - only gas combustion turbines for the present day optimization
 	{(pid, a, t, p) in PROJECT_VINTAGES: t='Gas_Combustion_Turbine'} InstallGen[pid, a, t, p], 
   # Dispatch Decisions
-	DispatchGen, DispatchFlexibleBaseload, ProducePowerEP, ConsumeBioSolid,
+	DispatchGen, DispatchFlexibleBaseload, ProducePowerEP, ConsumeBioSolid, ConsumeNaturalGas, ConsumeNaturalGasRegional,
 	DispatchTrans, 
 	{(pid, a, t, p) in EP_PERIODS: not intermittent[t] and not hydro[t] and ep_could_be_operating_past_expected_lifetime[pid, a, t, p]} OperateEPDuringPeriod[pid, a, t, p],
 	DispatchHydro, Dispatch_Pumped_Hydro_Storage, Store_Pumped_Hydro,

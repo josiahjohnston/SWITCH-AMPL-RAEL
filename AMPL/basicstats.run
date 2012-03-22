@@ -27,7 +27,16 @@ let { a in LOAD_AREAS, p in PERIODS, h in TIMEPOINTS: period[h] = p and num_bio_
            { bp in 1..num_bio_breakpoints[a, p] } price_dollars_per_mmbtu_surplus_adjusted[a, p, bp] >>
           ConsumeBioSolid[a, p])
     # divided by the total fuel usage
-       / ConsumeBioSolid[a, p];	   		
+       / ConsumeBioSolid[a, p];	
+       
+let { p in PERIODS } NG_Wellhead_Price_in_Period[p] := 
+  if ConsumeNaturalGas[p] = 0 then 0 else (
+  # total cost for natural gas fuel
+    ( << { bp in 1..num_ng_breakpoints[p]-1  } ng_consumption_breakpoint_per_period[p, bp]; 
+		   { bp in 1..num_ng_breakpoints[p] } ng_price_surplus_adjusted[p, bp] >>
+	   		ConsumeNaturalGas[p] )
+  # divided by the total fuel usage
+       / ConsumeNaturalGas[p] );	 
 
 # Speed up calculations by initially setting all these values to 0, then only calculate values for projects that have installed capacity
 let {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage'} Power_Produced[pid, a, t, p, h] := 0;
@@ -47,10 +56,12 @@ let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: baseload[t] }
   Power_Produced[pid, a, t, p, h] := Installed_To_Date[pid, a, t, p] * gen_availability[t];
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: fuel[t] in BIO_SOLID_FUELS}
   Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := Power_Produced[pid, a, t, p, h] * heat_rate[pid, a, t] * Biomass_Solid_Fuel_Cost[a, p, h];
-let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: fuel[t] not in BIO_SOLID_FUELS and t <> 'Compressed_Air_Energy_Storage' }
+let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: fuel[t] not in BIO_SOLID_FUELS and fuel[t] <> 'Gas' and fuel[t] <> 'Gas_CCS' }
   Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := Power_Produced[pid, a, t, p, h] * heat_rate[pid, a, t] * fuel_price_in_period[pid, a, t, p];
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: t = 'Compressed_Air_Energy_Storage' }
-  Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := Power_Produced[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) * heat_rate[pid, a, t] * fuel_price_in_period[pid, a, t, p];
+  Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := Power_Produced[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) * heat_rate[pid, a, t] * ( NG_Wellhead_Price_in_Period[p] + ng_regional_price_adder[nems_fuel_region[a], p] );
+let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: ( fuel[t] = 'Gas' or fuel[t] = 'Gas_CCS' ) and t <> 'Compressed_Air_Energy_Storage' }
+  Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := Power_Produced[pid, a, t, p, h] * heat_rate[pid, a, t] * ( NG_Wellhead_Price_in_Period[p] + ng_regional_price_adder[nems_fuel_region[a], p] );
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: t <> 'Compressed_Air_Energy_Storage' }
   Carbon_Emissions[pid, a, t, p, h] :=  Power_Produced[pid, a, t, p, h] * heat_rate[pid, a, t] * carbon_content[fuel[t]];
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: t = 'Compressed_Air_Energy_Storage' }
@@ -68,8 +79,10 @@ let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }
   EP_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] := EP_Carbon_Emissions[pid, a, t, p, h] * carbon_cost;
 let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: fuel[t] in BIO_SOLID_FUELS }
   EP_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := ProducePowerEP[pid, a, t, p, h] * ep_heat_rate[pid, a, t] * Biomass_Solid_Fuel_Cost[a, p, h];
-let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: fuel[t] not in BIO_SOLID_FUELS }
+let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: fuel[t] not in BIO_SOLID_FUELS and fuel[t] <> 'Gas' and fuel[t] <> 'Gas_CCS' }
   EP_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := ProducePowerEP[pid, a, t, p, h] * ep_heat_rate[pid, a, t] * fuel_price_in_period[pid, a, t, p];
+let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: fuel[t] = 'Gas' or fuel[t] = 'Gas_CCS' }
+  EP_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := ProducePowerEP[pid, a, t, p, h] * ep_heat_rate[pid, a, t] * ( NG_Wellhead_Price_in_Period[p] + ng_regional_price_adder[nems_fuel_region[a], p] ) ;
 let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }
   EP_Variable_Cost_Incurred_Hourly[pid, a, t, p, h] := ProducePowerEP[pid, a, t, p, h] * ep_variable_o_m[pid, a, t];
 
@@ -243,12 +256,12 @@ let { (pid, a, t, p, h) in AVAILABLE_HOURS } Thermal_Spinning_Reserve_Carbon_Cos
 
 
 let { (pid, a, t, p, h) in AVAILABLE_HOURS: dispatchable[t] and t <> 'Compressed_Air_Energy_Storage' } Thermal_Spinning_Reserve_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] :=
-	Provide_Spinning_Reserve[pid, a, t, p, h] * heat_rate_spinning_reserve[pid, a, t] * fuel_price_in_period[pid, a, t, p];  
+	Provide_Spinning_Reserve[pid, a, t, p, h] * heat_rate_spinning_reserve[pid, a, t] * ( NG_Wellhead_Price_in_Period[p] + ng_regional_price_adder[nems_fuel_region[a], p] );  
 let { (pid, a, t, p, h) in AVAILABLE_HOURS: dispatchable[t] and t <> 'Compressed_Air_Energy_Storage' } Thermal_Spinning_Reserve_Carbon_Emissions[pid, a, t, p, h] :=  
 	Provide_Spinning_Reserve[pid, a, t, p, h] * heat_rate_spinning_reserve[pid, a, t] * carbon_content[fuel[t]];
 # for CAES, all of the fuel and carbon costs will be assigned to the gas turbine part in exporting results
 let { (pid, a, t, p, h) in AVAILABLE_HOURS: t = 'Compressed_Air_Energy_Storage' } Thermal_Spinning_Reserve_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] :=
-	Provide_Spinning_Reserve[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) * heat_rate_spinning_reserve[pid, a, t] * fuel_price_in_period[pid, a, t, p];  
+	Provide_Spinning_Reserve[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) * heat_rate_spinning_reserve[pid, a, t] * ( NG_Wellhead_Price_in_Period[p] + ng_regional_price_adder[nems_fuel_region[a], p] );  
 let { (pid, a, t, p, h) in AVAILABLE_HOURS: t = 'Compressed_Air_Energy_Storage' } Thermal_Spinning_Reserve_Carbon_Emissions[pid, a, t, p, h] :=  
 	Provide_Spinning_Reserve[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) * heat_rate_spinning_reserve[pid, a, t] * carbon_content[fuel[t]];	
 
@@ -269,7 +282,7 @@ let { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] } Amount_Deep_C
   Deep_Cycle_Amount[pid, a, t, p, date[h]];
 let { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] } Deep_Cycling_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h]  :=
   Deep_Cycle_Amount[pid, a, t, p, date[h]]
-	    * deep_cycling_penalty[t] * ( if can_build_new[t] then heat_rate[pid, a, t] else ep_heat_rate[pid, a, t] ) * fuel_price_in_period[pid, a, t, p];
+	    * deep_cycling_penalty[t] * ( if can_build_new[t] then heat_rate[pid, a, t] else ep_heat_rate[pid, a, t] ) * fuel_price_in_period[pid, a, t, p] ;
 
 let { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] } Deep_Cycling_Carbon_Emissions[pid, a, t, p, h]  :=
   Deep_Cycle_Amount[pid, a, t, p, date[h]] * deep_cycling_penalty[t] * ( if can_build_new[t] then heat_rate[pid, a, t] else ep_heat_rate[pid, a, t] ) * carbon_content[fuel[t]];
