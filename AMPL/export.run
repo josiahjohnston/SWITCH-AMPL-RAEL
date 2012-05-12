@@ -42,12 +42,12 @@ for {c in CARBON_COSTS} {
       let output_section := 'generator_and_storage_dispatch';
       let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
       if ( file_exists(outfile) == 0 ) then {
-      printf "scenario_id	carbon_cost	period	project_id	load_area_id	load_area	balancing_area	date	hour	technology_id	technology	new	baseload	cogen	storage	fuel	fuel_category	hours_in_sample	power	co2_tons	heat_rate	fuel_cost	carbon_cost_hourly	variable_o_m	spinning_reserve	quickstart_capacity	total_operating_reserve	spinning_co2_tons	spinning_fuel_cost	spinning_carbon_cost_incurred	deep_cycling_amount	deep_cycling_fuel_cost	deep_cycling_carbon_cost	deep_cycling_co2_tons\n"
+      printf "scenario_id	carbon_cost	period	project_id	load_area_id	load_area	balancing_area	date	hour	technology_id	technology	new	baseload	cogen	storage	fuel	fuel_category	hours_in_sample	power	co2_tons	heat_rate	fuel_cost	carbon_cost_hourly	variable_o_m	spinning_reserve	quickstart_capacity	total_operating_reserve	spinning_co2_tons	spinning_fuel_cost	spinning_carbon_cost_incurred	deep_cycling_amount	deep_cycling_fuel_cost	deep_cycling_carbon_cost	deep_cycling_co2_tons	mw_started_up	startup_fuel_cost	startup_nonfuel_cost	startup_carbon_cost	startup_co2_tons\n"
         > (outfile); }
       
       # New Plants
       printf {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' and ( Power_Produced[pid, a, t, p, h] + Total_Operating_Reserve_Provided[pid, a, t, p, h] ) > 0.001 } 
-        "%s	%d	%d	%d	%d	%s	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	 %.2f	 %.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
+        "%s	%d	%d	%d	%d	%s	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	 %.2f	 %.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
         scenario_id, carbon_cost, p, pid, load_area_id[a], a, balancing_area[a],
         (if present_day_optimization then present_day_date[h] else date[h]),
         (if present_day_optimization then present_day_timepoint[h] else h),
@@ -67,13 +67,18 @@ for {c in CARBON_COSTS} {
         Amount_Deep_Cycled[pid, a, t, p, h],
         Deep_Cycling_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h],
         Deep_Cycling_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h],
-        Deep_Cycling_Carbon_Emissions[pid, a, t, p, h]
+        Deep_Cycling_Carbon_Emissions[pid, a, t, p, h],
+        Startup_MW[pid, a, t, p, h],
+        Startup_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h],
+        Startup_NonFuel_Cost_Incurred_Hourly[pid, a, t, p, h],
+        Startup_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h],
+        Startup_Carbon_Emissions[pid, a, t, p, h]
         >> (outfile);
       
       
       # Existing Plants
       printf {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: ( ProducePowerEP[pid, a, t, p, h] + Total_Operating_Reserve_Provided[pid, a, t, p, h] ) > 0.001} 
-        "%s	%d	%d	%d	%d	%s	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	 %.2f	 %.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
+        "%s	%d	%d	%d	%d	%s	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	 %.2f	 %.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
         scenario_id, carbon_cost, p, pid, load_area_id[a], a, balancing_area[a],
         (if present_day_optimization then present_day_date[h] else date[h]),
         (if present_day_optimization then present_day_timepoint[h] else h),
@@ -93,13 +98,18 @@ for {c in CARBON_COSTS} {
         Amount_Deep_Cycled[pid, a, t, p, h],
         Deep_Cycling_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h],
         Deep_Cycling_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h],
-        Deep_Cycling_Carbon_Emissions[pid, a, t, p, h]
+        Deep_Cycling_Carbon_Emissions[pid, a, t, p, h],
+        Startup_MW[pid, a, t, p, h],
+        Startup_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h],
+        Startup_NonFuel_Cost_Incurred_Hourly[pid, a, t, p, h],
+        Startup_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h],
+        Startup_Carbon_Emissions[pid, a, t, p, h]
         >> (outfile);
       
       
       # Store all STORAGE DISPATCH decisions.  Don't have to pay variable O&M for storing at the moment.
       printf {  (pid, a, t, p, h) in AVAILABLE_HOURS: storage[t] and ( not ( -0.01 < Storage_Net_Power[pid, a, t, p, h] < 0.01 ) or Storage_Operating_Reserve_Provided[pid, a, t, p, h] > 0 ) } 
-        "%s	%d	%d	%d	%d	%s	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	 %.2f	 %.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
+        "%s	%d	%d	%d	%d	%s	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	 %.2f	 %.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
         scenario_id, carbon_cost, p, pid, load_area_id[a], a, balancing_area[a],
         (if present_day_optimization then present_day_date[h] else date[h]),
         (if present_day_optimization then present_day_timepoint[h] else h),
@@ -110,6 +120,11 @@ for {c in CARBON_COSTS} {
         Storage_Spinning_Reserve_Provided[pid, a, t, p, h],
         Storage_Quickstart_Capacity_Provided[pid, a, t, p, h],
         Storage_Operating_Reserve_Provided[pid, a, t, p, h],
+        0,
+        0,
+        0,
+        0,
+        0,
         0,
         0,
         0,

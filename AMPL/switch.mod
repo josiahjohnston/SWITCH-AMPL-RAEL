@@ -56,6 +56,15 @@ param num_years_per_period;
 # used for discounting series of annual payments back to a lump sum at the start of the payment window
 param end_year = last(PERIODS) + num_years_per_period;
 
+# first and last study hour of each study date
+param first_hour_of_date {d in DATES} = min { h in TIMEPOINTS: date[h] = d } h;
+param last_hour_of_date {d in DATES} = max { h in TIMEPOINTS: date[h] = d } h;
+
+# cyclical implementation of previous timepoint by date used in determining startup costs
+param previous_timepoint {h in TIMEPOINTS} =
+	if h <> first_hour_of_date[date[h]]
+	then prev(h, TIMEPOINTS)
+	else last_hour_of_date[date[h]];
 
 ###############################################
 # System loads and areas
@@ -273,6 +282,12 @@ param competes_for_space {TECHNOLOGIES} binary;
 set SOLAR_TECHNOLOGIES = {t in TECHNOLOGIES: fuel[t] = 'Solar'};
 set SOLAR_CSP_TECHNOLOGIES = {"CSP_Trough_No_Storage", "CSP_Trough_6h_Storage"};
 set SOLAR_DIST_PV_TECHNOLOGIES = {"Residential_PV", "Commercial_PV"};
+
+# Peaker techonlogies that incur startup costs
+set PEAKER_TECHNOLOGIES = { "Gas_Combustion_Turbine", "Gas_Combustion_Turbine_CCS", "Gas_Combustion_Turbine_EP", "Gas_Internal_Combustion_Engine_EP", "DistillateFuelOil_Combustion_Turbine_EP", "DistillateFuelOil_Internal_Combustion_Engine_EP", "Compressed_Air_Energy_Storage" };
+
+# Intermediate technologies that incur startup and deep cycling costs
+set INTERMEDIATE_TECHNOLOGIES = { "CCGT", "CCGT_CCS", "CCGT_EP", "Gas_Steam_Turbine_EP"};
 
 #####################
 
@@ -789,14 +804,38 @@ param fraction_of_time_operating_reserves_are_deployed := 0.01;
 
 
 #######################################
-# Flexible baseload deep-cycling
+# Deep-cycling (flexible baseload coal and intermediate plants) and startup costs (peakers and intermediate plants)
 
 # fraction of flexible baseload generator capacity that must run in baseload mode
-param minimum_loading {TECHNOLOGIES};
+param minimum_loading {TECHNOLOGIES} >= 0;
 
 # cycling penalty incurred by flexible baseload plants when below full load
-param deep_cycling_penalty {TECHNOLOGIES};
+param deep_cycling_penalty {TECHNOLOGIES} >= 0;
 
+# startup fuel use (MMBtu/MW) and other nonfuel costs ($/MW)
+param startup_mmbtu_per_mw {TECHNOLOGIES} >= 0;
+param startup_nonfuel_cost_dollars_per_mw {TECHNOLOGIES} >= 0;
+
+param startup_nonfuel_cost_per_mw_hourly { (pid, a, t, p, h) in AVAILABLE_HOURS } =
+	hours_in_sample[h]
+	* startup_nonfuel_cost_dollars_per_mw[t]
+  	/ num_years_per_period
+    * discount_to_base_year[p];
+
+# fuel_price_in_period is 0 for natural gas plants (handled via the NG supply curve), but this does apply to oil peaker plants
+param startup_fuel_cost_per_mw_hourly { (pid, a, t, p, h) in AVAILABLE_HOURS } =
+	hours_in_sample[h]
+	* startup_mmbtu_per_mw[t] * fuel_price_in_period[pid, a, t, p]
+  	/ num_years_per_period
+    * discount_to_base_year[p];
+
+param startup_carbon_cost_per_mw_hourly { (pid, a, t, p, h) in AVAILABLE_HOURS } = 
+   	hours_in_sample[h] 
+   	* ( startup_mmbtu_per_mw[t] * carbon_content[fuel[t]] * carbon_cost
+	) / num_years_per_period
+	* discount_to_base_year[p];
+	
+    
 
 ###############################################
 # Local T&D
@@ -973,6 +1012,10 @@ var DispatchGen {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t]} >=
 # number of MW to dispatch from each flexible baseload generator each day
 var DispatchFlexibleBaseload { (pid, a, t, p, d) in AVAILABLE_DATES: flexible_baseload[t] } >= 0;
 
+# CCGT capacity committed and online in each hour
+var Commit_Intermediate_Gen { (pid, a, t, p, h) in AVAILABLE_HOURS: t in INTERMEDIATE_TECHNOLOGIES } >= 0;
+
+  
 # binary constraint that restricts small plants of certain types of generators from being built
 # this quantity is one when there is there is not a constraint on how small plants can be
 # and is zero when there is a constraint
@@ -994,6 +1037,11 @@ var Deep_Cycle_Amount { (pid, a, t, p, d) in AVAILABLE_DATES: flexible_baseload[
 	    - DispatchFlexibleBaseload[pid, a, t, p, d] )
  else ( OperateEPDuringPeriod[pid, a, t, p] * ep_capacity_mw[pid, a, t] * gen_availability[t]
 		- DispatchFlexibleBaseload[pid, a, t, p, d] );
+
+# Startup variables
+# how much peaker and CCGT capacity was started up since the previous hour
+# variable has to be non-negative as a penalty is only applied when ramping up
+var Startup_MW_from_Last_Hour { (pid, a, t, p, h) in AVAILABLE_HOURS: t in PEAKER_TECHNOLOGIES or t in INTERMEDIATE_TECHNOLOGIES } >= 0;
 
 # a derived variable indicating the number of MMbtu of Biomass Solid fuel to consume each period in each load area,
 # as a function of the installed biomass generation capacity.
@@ -1079,6 +1127,15 @@ var ConsumeNaturalGasRegional { (nr, p) in NG_REGIONAL_PRICE_ADDERS_PERIODS } =
     + ( sum {(pid, a, t, p, h) in AVAILABLE_HOURS: nems_fuel_region[a] = nr and dispatchable[t] and ( fuel[t] = 'Gas' or fuel[t] = 'Gas_CCS' ) } 	  
       ( if t = 'Compressed_Air_Energy_Storage' then ( 1 + caes_storage_to_ng_ratio[t] ) else 1 )
       * Provide_Spinning_Reserve[pid, a, t, p, h] *  heat_rate_spinning_reserve[pid, a, t] * hours_in_sample[h] )
+ # fuel use for keeping CCGT plants below full load (beyond spinning reserves; if DispatchGen + Provide_Spinning_Reserve = Commit_Intermediate_Gen, no additional cost is incurred as the cost for keeping spinning_reserves is already taken into account above )
+	 + ( sum { (pid, a, t, p, h) in AVAILABLE_HOURS: nems_fuel_region[a] = nr and ( t in INTERMEDIATE_TECHNOLOGIES ) and ( fuel[t] = 'Gas' or fuel[t] = 'Gas_CCS' ) } (
+	 	( Commit_Intermediate_Gen[pid, a, t, p, h] - ( ( if can_build_new[t] then DispatchGen[pid, a, t, p, h] else ProducePowerEP[pid, a, t, p, h] ) + Provide_Spinning_Reserve[pid, a, t, p, h] ) )
+	 	* deep_cycling_penalty[t] * ( if can_build_new[t] then heat_rate[pid, a, t] else ep_heat_rate[pid, a, t] ) * hours_in_sample[h] )
+	 	)
+  # fuel use for starting up intermediate and peaker plants
+	+ ( sum { (pid, a, t, p, h) in AVAILABLE_HOURS: nems_fuel_region[a] = nr and ( t in PEAKER_TECHNOLOGIES or t in INTERMEDIATE_TECHNOLOGIES ) and ( fuel[t] = 'Gas' or fuel[t] = 'Gas_CCS' ) } (
+	    Startup_MW_from_Last_Hour[pid, a, t, p, h] * startup_mmbtu_per_mw[t] * hours_in_sample[h] ) 
+	    )
   ;
 
 var ConsumeNaturalGas {p in PERIODS} = 
@@ -1134,7 +1191,8 @@ minimize Power_Cost:
 	# the sum of DispatchGen and ReleaseEnergy simplifies to DispatchGen * ( 1 + caes_storage_to_ng_ratio )
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t = 'Compressed_Air_Energy_Storage' } 
 	  DispatchGen[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) * ( variable_o_m_cost_hourly[pid, a, t, p, h] + carbon_cost_per_mwh_hourly[pid, a, t, p, h] + fuel_cost_hourly[pid, a, t, p, h] ) )
-	# fuel and carbon costs for keeping spinning reserves from new dispatchable plants (except for CAES)
+	# fuel and carbon costs for keeping spinning reserves from new dispatchable plants (oil and gas except for CAES)
+	# for natural gas plants, fuel costs for spinning reserves are handled via the NG supply curve so for NG, fuel_cost_hourly_spinning_reserve = 0; however, fuels cost are calculated here for oil plants
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t] and t <> 'Compressed_Air_Energy_Storage' } 
 		Provide_Spinning_Reserve[pid, a, t, p, h] * ( carbon_cost_per_mwh_hourly_spinning_reserve[pid, a, t, p, h] + fuel_cost_hourly_spinning_reserve[pid, a, t, p, h] ) )
 	# fuel and carbon costs for keeping spinning reserves from CAES
@@ -1142,10 +1200,18 @@ minimize Power_Cost:
 	# Provide_Spinning_Reserve * ( 1 + caes_storage_to_ng_ratio )
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t = 'Compressed_Air_Energy_Storage' } 
 		Provide_Spinning_Reserve[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) * ( carbon_cost_per_mwh_hourly_spinning_reserve[pid, a, t, p, h] + fuel_cost_hourly_spinning_reserve[pid, a, t, p, h] ) )
-	# cost incurred for keeping flexible baseload plant below full load
+	# cost incurred for keeping new flexible baseload plants below full load
 	+ ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: flexible_baseload[t] } (
 	    Deep_Cycle_Amount[pid, a, t, p, date[h]]
 	    * deep_cycling_penalty[t] * ( carbon_cost_per_mwh_hourly[pid, a, t, p, h] + fuel_cost_hourly[pid, a, t, p, h] ) )
+	    )
+	# carbon cost incurred for keeping new intermediate plants below full load (fuel costs are handled via the NG supply curve)
+	+ ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t in INTERMEDIATE_TECHNOLOGIES } (
+	    ( Commit_Intermediate_Gen[pid, a, t, p, h] - ( DispatchGen[pid, a, t, p, h] + Provide_Spinning_Reserve[pid, a, t, p, h] ) ) * deep_cycling_penalty[t] * carbon_cost_per_mwh_hourly[pid, a, t, p, h] )
+		)
+	# costs for starting up intermediate and peaker plants (fuel costs are included here for oil generators only; for gas, they are handled via the natural gas supply curve so startup_fuel_cost_per_mw_hourly is 0 )
+	+ ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t in PEAKER_TECHNOLOGIES or t in INTERMEDIATE_TECHNOLOGIES } (
+	    Startup_MW_from_Last_Hour[pid, a, t, p, h] * ( startup_fuel_cost_per_mw_hourly[pid, a, t, p, h] + startup_nonfuel_cost_per_mw_hourly[pid, a, t, p, h] + startup_carbon_cost_per_mw_hourly[pid, a, t, p, h] ) ) 
 	    )
 		      
 	#############################
@@ -1164,12 +1230,20 @@ minimize Power_Cost:
 	# decision variables are on the load area level - this shares them out by plant (pid) in case plants have different variable costs within a load area
 	+ ( sum {(pid, a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS_BY_PID}
 		Dispatch_Pumped_Hydro_Storage[a, t, p, h] * ( ep_capacity_mw[pid, a, t] / hydro_capacity_mw_in_load_area[a, t] ) * variable_o_m_cost_hourly[pid, a, t, p, h] )
-	# fuel and carbon costs for keeping spinning reserves from existing dispatchable thermal plants
+	# carbon costs for keeping spinning reserves from existing dispatchable thermal plants (fuel costs for NG generators are handled via the NG supply curve, but is included in fuel_cost_hourly_spinning_reserve for oil plants)
 	+ ( sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: dispatchable[t] }
 		Provide_Spinning_Reserve[pid, a, t, p, h] * ( fuel_cost_hourly_spinning_reserve[pid, a, t, p, h] + carbon_cost_per_mwh_hourly_spinning_reserve[pid, a, t, p, h] ) )
 	+ ( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: flexible_baseload[t] }
 	    Deep_Cycle_Amount[pid, a, t, p, date[h]]
 	    * deep_cycling_penalty[t] * ( carbon_cost_per_mwh_hourly[pid, a, t, p, h] + fuel_cost_hourly[pid, a, t, p, h] ) )
+	# carbon cost incurred for keeping existing intermediate plants below full load (fuel costs are handled via the NG supply curve)
+	+ ( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: t in INTERMEDIATE_TECHNOLOGIES } (
+	    ( Commit_Intermediate_Gen[pid, a, t, p, h] - ( ProducePowerEP[pid, a, t, p, h] + Provide_Spinning_Reserve[pid, a, t, p, h] ) ) * deep_cycling_penalty[t] * carbon_cost_per_mwh_hourly[pid, a, t, p, h] )
+		)
+	# costs for starting up existing intermediate and peaker plants (fuel costs are included here for oil generators only; for gas, they are handled via the natural gas supply curve and startup_fuel_cost_per_mw_hourly is 0
+	+ ( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: t in PEAKER_TECHNOLOGIES or t in INTERMEDIATE_TECHNOLOGIES } (
+	    Startup_MW_from_Last_Hour[pid, a, t, p, h] * ( startup_fuel_cost_per_mw_hourly[pid, a, t, p, h] + startup_nonfuel_cost_per_mw_hourly[pid, a, t, p, h] + startup_carbon_cost_per_mw_hourly[pid, a, t, p, h] ) ) 
+	    )
 	    
 	########################################
 	#    TRANSMISSION & DISTRIBUTION
@@ -1250,6 +1324,16 @@ subject to Carbon_Cap {p in PERIODS}:
 	+ ( sum { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] } (
 	    Deep_Cycle_Amount[pid, a, t, p, date[h]] * deep_cycling_penalty[t] 
 	    * ( if can_build_new[t] then heat_rate[pid, a, t] else ep_heat_rate[pid, a, t] )
+	    * carbon_content[fuel[t]] * hours_in_sample[h] )
+	    )
+	# carbon emissions from keeping intermediate plants below full load
+	 + ( sum { (pid, a, t, p, h) in AVAILABLE_HOURS: t in INTERMEDIATE_TECHNOLOGIES } (
+	 	( Commit_Intermediate_Gen[pid, a, t, p, h] - ( ( if can_build_new[t] then DispatchGen[pid, a, t, p, h] else ProducePowerEP[pid, a, t, p, h] ) + Provide_Spinning_Reserve[pid, a, t, p, h] ) )
+	 	* deep_cycling_penalty[t] * ( if can_build_new[t] then heat_rate[pid, a, t] else ep_heat_rate[pid, a, t] ) * carbon_content[fuel[t]] * hours_in_sample[h] )
+	 	)
+	 # emissions from starting up new and existing intermediate plants and peaker plants
+	+ ( sum { (pid, a, t, p, h) in AVAILABLE_HOURS: t in PEAKER_TECHNOLOGIES or t in INTERMEDIATE_TECHNOLOGIES } (
+	    Startup_MW_from_Last_Hour[pid, a, t, p, h] * startup_mmbtu_per_mw[t] 
 	    * carbon_content[fuel[t]] * hours_in_sample[h] )
 	    )
   	<= carbon_cap[p];
@@ -1492,6 +1576,38 @@ subject to Minimum_Loading_New_Flexible_Baseload_Plants { (pid, a, t, p, d) in P
 	minimum_loading[t] * Installed_To_Date[pid, a, t, p]
 ;
 
+# intermediate plants; can't have more intermediate capacity online that the total capacity installed
+subject to Maximum_Intermediate_Capacity_Online { (pid, a, t, p, h) in AVAILABLE_HOURS: t in INTERMEDIATE_TECHNOLOGIES }:
+	Commit_Intermediate_Gen[pid, a, t, p, h]
+	<= 
+	( if can_build_new[t] then Installed_To_Date[pid, a, t, p] else OperateEPDuringPeriod[pid, a, t, p] * ep_capacity_mw[pid, a, t] ) * gen_availability[t] ;
+
+# CCGTs can't provide more energy and spinning reserves than the capacity of plants committed in that hour
+subject to Maximum_Dispatch_Intermediate_Gen { (pid, a, t, p, h) in AVAILABLE_HOURS: t in INTERMEDIATE_TECHNOLOGIES }:
+	( if can_build_new[t] then DispatchGen[pid, a, t, p, h] else ProducePowerEP[pid, a, t, p, h] ) + Provide_Spinning_Reserve[pid, a, t, p, h]
+	<= Commit_Intermediate_Gen[pid, a, t, p, h];
+
+# Minimum loading for intermediate generation
+subject to Minimum_Loading_Intermediate_Gen { (pid, a, t, p, h) in AVAILABLE_HOURS: t in INTERMEDIATE_TECHNOLOGIES }:
+	( if can_build_new[t] then DispatchGen[pid, a, t, p, h] else ProducePowerEP[pid, a, t, p, h] ) 
+	>= minimum_loading[t] * Commit_Intermediate_Gen[pid, a, t, p, h] ;
+
+# Intermediate generation started up (new and existing)
+# this constraint ensures that the variable Startup_MW_from_Last_Hour equals the difference between
+# the power dispatched in the current hour minus the power dispatched in the previous hour
+# Startup_MW_from_Last_Hour also has to be non-negative by definition
+# so this constraint is not binding when ramping down (i.e. when the difference is negative)
+# The implementation is cyclical over the course of a day: the previous timepoint for the first timepoint of each date is assumed to be the last timepoint of that date
+subject to Intermediate_Gen_Startup { (pid, a, t, p, h) in AVAILABLE_HOURS: t in INTERMEDIATE_TECHNOLOGIES }:
+  Startup_MW_from_Last_Hour[pid, a, t, p, h] >= Commit_Intermediate_Gen[pid, a, t, p, h] - Commit_Intermediate_Gen[pid, a, t, p, previous_timepoint[h]] ;
+
+# Peaker plant startup
+subject to Peaker_Plant_Startup { (pid, a, t, p, h) in AVAILABLE_HOURS: t in PEAKER_TECHNOLOGIES }: 
+	Startup_MW_from_Last_Hour[pid, a, t, p, h] 
+	>= if can_build_new[t] 
+	   then ( DispatchGen[pid, a, t, p, h] - DispatchGen[pid, a, t, p, previous_timepoint[h]] )
+	   else ( ProducePowerEP[pid, a, t, p, h] - ProducePowerEP[pid, a, t, p, previous_timepoint[h]] );
+ 
 subject to EP_Operational_Continuity {(pid, a, t, p) in EP_PERIODS: p > first(PERIODS) and not intermittent[t] and not hydro[t]}:
 	OperateEPDuringPeriod[pid, a, t, p] <= OperateEPDuringPeriod[pid, a, t, prev(p, PERIODS)];
 
@@ -1534,11 +1650,14 @@ subject to EP_Power_From_Hydro_Plants { (pid, a, t, p, h) in EP_AVAILABLE_HOURS:
 # Max capacity that can be dedicated to spinning reserves
 # Spinning reserve is constrained to dispatch to ensure that spinning reserve is provided only when the plant is also providing useful energy
 # Not enforced for storage and hydro plants as it is assumed that they can ramp up very quickly to full capacity
+# For new CCGTs, the maximum spinning reserve is constrained by the total capacity that is online rather than DispatchGen because the plant may be operating below full load, i.e. Dispatch+Spinning can be less than online capacity
 subject to Spinning_Reserve_as_Fraction_of_Dispatch { (pid, a, t, p, h) in AVAILABLE_HOURS: dispatchable[t] }:
 	Provide_Spinning_Reserve[pid, a, t, p, h] <= 
+	if t in INTERMEDIATE_TECHNOLOGIES
+	then ( max_spinning_reserve_fraction_of_capacity[t] * Commit_Intermediate_Gen[pid, a, t, p, h] )
+	else (	
 	( max_spinning_reserve_fraction_of_capacity[t] / ( 1 - max_spinning_reserve_fraction_of_capacity[t] ) ) 
-	* ( if can_build_new[t] then DispatchGen[pid, a, t, p, h] else ProducePowerEP[pid, a, t, p, h] );
-
+	* ( if can_build_new[t] then DispatchGen[pid, a, t, p, h] else ProducePowerEP[pid, a, t, p, h] ) );
 
 
 ########################################
@@ -1768,26 +1887,24 @@ problem Investment_Cost_Minimization:
 	Maximum_Resource_Central_Station_Solar, Maximum_Resource_Bio, Maximum_Resource_Single_Location, Maximum_Resource_EP_Cogen_Replacement,
 	Minimum_GenSize, BuildGenOrNot_Constraint, SymetricalTrans, 
   # Dispatch Decisions
-	DispatchGen, DispatchFlexibleBaseload, OperateEPDuringPeriod, ProducePowerEP, ConsumeBioSolid, ConsumeNaturalGas, ConsumeNaturalGasRegional,
+	DispatchGen, DispatchFlexibleBaseload, Deep_Cycle_Amount, Commit_Intermediate_Gen, Startup_MW_from_Last_Hour, OperateEPDuringPeriod, ProducePowerEP, ConsumeBioSolid, ConsumeNaturalGas, ConsumeNaturalGasRegional,
 	DispatchTrans,  
 	StoreEnergy, ReleaseEnergy,
 	DispatchHydro, Dispatch_Pumped_Hydro_Storage, Store_Pumped_Hydro,
 	Provide_Spinning_Reserve, Provide_Quickstart_Capacity, Storage_Operating_Reserve, Hydro_Operating_Reserve, Pumped_Hydro_Storage_Operating_Reserve,
   # Dispatch Constraints
-	Power_and_Operating_Reserve_From_Dispatchable_Plants, Power_From_New_Flexible_Baseload_Plants, Minimum_Loading_New_Flexible_Baseload_Plants,
-    Spinning_Reserve_as_Fraction_of_Dispatch,
-	EP_Operational_Continuity, EP_Power_and_Operating_Reserve_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Hydro_Plants, 
-	EP_Power_From_Baseload_Plants, EP_Power_From_Flexible_Baseload_Plants, Maximum_Loading_Existing_Flexible_Baseload_Plants, Minimum_Loading_Existing_Flexible_Baseload_Plants, 
+	Power_and_Operating_Reserve_From_Dispatchable_Plants, Maximum_Intermediate_Capacity_Online, Maximum_Dispatch_Intermediate_Gen, Minimum_Loading_Intermediate_Gen,
+    Intermediate_Gen_Startup, Peaker_Plant_Startup, Power_From_New_Flexible_Baseload_Plants, Minimum_Loading_New_Flexible_Baseload_Plants,
+    EP_Operational_Continuity, EP_Power_and_Operating_Reserve_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Hydro_Plants, 
+	EP_Power_From_Baseload_Plants, EP_Power_From_Flexible_Baseload_Plants, Maximum_Loading_Existing_Flexible_Baseload_Plants, Minimum_Loading_Existing_Flexible_Baseload_Plants, Spinning_Reserve_as_Fraction_of_Dispatch,
 	Maximum_DispatchTrans, 
 	Mexican_Export_Limit, 
 	Maximum_Dispatch_and_Operating_Reserve_Hydro, Minimum_Dispatch_Hydro, Average_Hydro_Output, Max_Operating_Reserve_Hydro,
 	Maximum_Store_Pumped_Hydro, Pumped_Hydro_Energy_Balance,
-	CAES_Combined_Dispatch, CAES_Combined_Operating_Reserve, Maximum_Store_Rate, Maximum_Release_and_Operating_Reserve_Storage_Rate, Storage_Projects_Energy_Balance, 
-  # Deep Cycling
-    Deep_Cycle_Amount,
-  # Contigency Planning constraints
+	CAES_Combined_Dispatch, CAES_Combined_Operating_Reserve, Maximum_Store_Rate, Maximum_Release_and_Operating_Reserve_Storage_Rate, Storage_Projects_Energy_Balance,
+  # Contigency Planning Constraints
 	Satisfy_Load_Reserve, 
-	Conservation_Of_Energy_NonDistributed_Reserve, ConsumeNonDistributedPower_Reserve, 
+	Conservation_Of_Energy_NonDistributed_Reserve, ConsumeNonDistributedPower_Reserve,
   # Operating Reserve Variables
     Spinning_Reserve_Requirement, Quickstart_Reserve_Requirement,
   # Operating Reserve Constraints
@@ -1805,23 +1922,21 @@ problem Present_Day_Cost_Minimization:
   # Installation Decisions - only gas combustion turbines for the present day optimization
 	{(pid, a, t, p) in PROJECT_VINTAGES: t='Gas_Combustion_Turbine'} InstallGen[pid, a, t, p], 
   # Dispatch Decisions
-	DispatchGen, DispatchFlexibleBaseload, ProducePowerEP, ConsumeBioSolid, ConsumeNaturalGas, ConsumeNaturalGasRegional,
+	DispatchGen, DispatchFlexibleBaseload, Deep_Cycle_Amount, Commit_Intermediate_Gen, Startup_MW_from_Last_Hour, ProducePowerEP, ConsumeBioSolid, ConsumeNaturalGas, ConsumeNaturalGasRegional,
 	DispatchTrans, 
 	{(pid, a, t, p) in EP_PERIODS: not intermittent[t] and not hydro[t] and ep_could_be_operating_past_expected_lifetime[pid, a, t, p]} OperateEPDuringPeriod[pid, a, t, p],
 	DispatchHydro, Dispatch_Pumped_Hydro_Storage, Store_Pumped_Hydro,
-	Provide_Spinning_Reserve, Provide_Quickstart_Capacity, Hydro_Operating_Reserve, Pumped_Hydro_Storage_Operating_Reserve,
+	Provide_Spinning_Reserve, Provide_Quickstart_Capacity, Hydro_Operating_Reserve, Pumped_Hydro_Storage_Operating_Reserve, 
   # Dispatch Constraints
-	Power_and_Operating_Reserve_From_Dispatchable_Plants,
-	Spinning_Reserve_as_Fraction_of_Dispatch,
+	Power_and_Operating_Reserve_From_Dispatchable_Plants, Maximum_Intermediate_Capacity_Online, Maximum_Dispatch_Intermediate_Gen, Minimum_Loading_Intermediate_Gen,
+    Intermediate_Gen_Startup, Peaker_Plant_Startup,
 	EP_Power_and_Operating_Reserve_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Hydro_Plants,
 	EP_Power_From_Baseload_Plants, EP_Power_From_Flexible_Baseload_Plants,
-    Maximum_Loading_Existing_Flexible_Baseload_Plants, Minimum_Loading_Existing_Flexible_Baseload_Plants, 
+    Maximum_Loading_Existing_Flexible_Baseload_Plants, Minimum_Loading_Existing_Flexible_Baseload_Plants, Spinning_Reserve_as_Fraction_of_Dispatch,
 	Maximum_DispatchTrans, Mexican_Export_Limit,
 	Maximum_Dispatch_and_Operating_Reserve_Hydro, Average_Hydro_Output, Minimum_Dispatch_Hydro,
 	Max_Operating_Reserve_Hydro,
 	Maximum_Store_Pumped_Hydro, Pumped_Hydro_Energy_Balance,
-  # Deep Cycling
-    Deep_Cycle_Amount,
   # Operating Reserve Variables
     Spinning_Reserve_Requirement, Quickstart_Reserve_Requirement,
   # Operating Reserve Constraints

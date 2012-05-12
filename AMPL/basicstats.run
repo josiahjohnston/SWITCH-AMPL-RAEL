@@ -269,28 +269,52 @@ let { (pid, a, t, p, h) in AVAILABLE_HOURS: dispatchable[t] } Thermal_Spinning_R
 	Thermal_Spinning_Reserve_Carbon_Emissions[pid, a, t, p, h] * carbon_cost;
 
 
-# RAMPING / DEEP CYCLING
+# DEEP CYCLING AND STARTUP COSTS
 
-# calculate the fuel and carbon costs incurred for deep cycling flexible baseload generators
+# calculate the fuel and carbon costs incurred for deep cycling flexible baseload and intermediate generators, and startup costs for intermediate plants and peakers
 
 let { (pid, a, t, p, h) in AVAILABLE_HOURS} Amount_Deep_Cycled[pid, a, t, p, h]  := 0;
 let { (pid, a, t, p, h) in AVAILABLE_HOURS} Deep_Cycling_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h]  := 0;
 let { (pid, a, t, p, h) in AVAILABLE_HOURS} Deep_Cycling_Carbon_Emissions[pid, a, t, p, h]  := 0;
 let { (pid, a, t, p, h) in AVAILABLE_HOURS} Deep_Cycling_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h]  := 0;
 
+# flexible baseload plants
 let { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] } Amount_Deep_Cycled[pid, a, t, p, h]  :=
   Deep_Cycle_Amount[pid, a, t, p, date[h]];
-let { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] } Deep_Cycling_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h]  :=
-  Deep_Cycle_Amount[pid, a, t, p, date[h]]
-	    * deep_cycling_penalty[t] * ( if can_build_new[t] then heat_rate[pid, a, t] else ep_heat_rate[pid, a, t] ) * fuel_price_in_period[pid, a, t, p] ;
 
-let { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] } Deep_Cycling_Carbon_Emissions[pid, a, t, p, h]  :=
-  Deep_Cycle_Amount[pid, a, t, p, date[h]] * deep_cycling_penalty[t] * ( if can_build_new[t] then heat_rate[pid, a, t] else ep_heat_rate[pid, a, t] ) * carbon_content[fuel[t]];
+# intermediate generation
+let { (pid, a, t, p, h) in AVAILABLE_HOURS: t in INTERMEDIATE_TECHNOLOGIES } Amount_Deep_Cycled[pid, a, t, p, h]  :=
+  Commit_Intermediate_Gen[pid, a, t, p, h] - ( ( if can_build_new[t] then DispatchGen[pid, a, t, p, h] else ProducePowerEP[pid, a, t, p, h] ) + Provide_Spinning_Reserve[pid, a, t, p, h] ) ;
+  
+let { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] or t in INTERMEDIATE_TECHNOLOGIES } Deep_Cycling_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h]  :=
+  Amount_Deep_Cycled[pid, a, t, p, h]
+	    * deep_cycling_penalty[t]
+	    * ( if can_build_new[t] then heat_rate[pid, a, t] else ep_heat_rate[pid, a, t] )
+	    * ( if ( fuel[t] = 'Gas' or fuel[t] = 'Gas_CCS' ) then ( NG_Wellhead_Price_in_Period[p] + ng_regional_price_adder[nems_fuel_region[a], p] ) else fuel_price_in_period[pid, a, t, p] ) ;
 
-let { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] } Deep_Cycling_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h]  :=
+let { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] or t in INTERMEDIATE_TECHNOLOGIES } Deep_Cycling_Carbon_Emissions[pid, a, t, p, h]  :=
+  Amount_Deep_Cycled[pid, a, t, p, h] * deep_cycling_penalty[t] * ( if can_build_new[t] then heat_rate[pid, a, t] else ep_heat_rate[pid, a, t] ) * carbon_content[fuel[t]];
+
+let { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] or t in INTERMEDIATE_TECHNOLOGIES } Deep_Cycling_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h]  :=
   Deep_Cycling_Carbon_Emissions[pid, a, t, p, h] * carbon_cost;
 
+# calculate the costs incurred when starting up intermediate and peaker plants
+let { (pid, a, t, p, h) in AVAILABLE_HOURS} Startup_MW[pid, a, t, p, h]  := 0;
+let { (pid, a, t, p, h) in AVAILABLE_HOURS} Startup_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h]  := 0;
+let { (pid, a, t, p, h) in AVAILABLE_HOURS } Startup_NonFuel_Cost_Incurred_Hourly[pid, a, t, p, h] := 0;
+let { (pid, a, t, p, h) in AVAILABLE_HOURS} Startup_Carbon_Emissions[pid, a, t, p, h]  := 0;
+let { (pid, a, t, p, h) in AVAILABLE_HOURS} Startup_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h]  := 0;
 
+let { (pid, a, t, p, h) in AVAILABLE_HOURS: t in PEAKER_TECHNOLOGIES or t in INTERMEDIATE_TECHNOLOGIES } Startup_MW[pid, a, t, p, h] := Startup_MW_from_Last_Hour[pid, a, t, p, h];
+let { (pid, a, t, p, h) in AVAILABLE_HOURS: t in PEAKER_TECHNOLOGIES or t in INTERMEDIATE_TECHNOLOGIES } Startup_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h]  :=
+  Startup_MW[pid, a, t, p, h] * startup_mmbtu_per_mw[t] * ( if ( fuel[t] = 'Gas' or fuel[t] = 'Gas_CCS' ) then ( NG_Wellhead_Price_in_Period[p] + ng_regional_price_adder[nems_fuel_region[a], p] ) else fuel_price_in_period[pid, a, t , p] );
+let { (pid, a, t, p, h) in AVAILABLE_HOURS: t in PEAKER_TECHNOLOGIES or t in INTERMEDIATE_TECHNOLOGIES } Startup_NonFuel_Cost_Incurred_Hourly[pid, a, t, p, h]  :=
+  Startup_MW[pid, a, t, p, h] * startup_nonfuel_cost_dollars_per_mw[t];
+let { (pid, a, t, p, h) in AVAILABLE_HOURS: t in PEAKER_TECHNOLOGIES or t in INTERMEDIATE_TECHNOLOGIES } Startup_Carbon_Emissions[pid, a, t, p, h] :=  
+	Startup_MW[pid, a, t, p, h] * startup_mmbtu_per_mw[t] * carbon_content[fuel[t]];
+let { (pid, a, t, p, h) in AVAILABLE_HOURS: t in PEAKER_TECHNOLOGIES or t in INTERMEDIATE_TECHNOLOGIES } Startup_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h]  :=
+  Startup_Carbon_Emissions[pid, a, t, p, h] * carbon_cost;
+  
 # T&D
 
 # costs for existing local T&D
@@ -358,10 +382,15 @@ let {p in PERIODS} Power_Cost_Per_Period[p] :=
 	    Thermal_Spinning_Reserve_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] +
 	    Thermal_Spinning_Reserve_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] 
 	  ) + 
-	  sum { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] } (
+	  sum { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] or t in INTERMEDIATE_TECHNOLOGIES } (
 	    Deep_Cycling_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] +
 	    Deep_Cycling_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h]
-	  ) 
+	  ) +
+	  sum { (pid, a, t, p, h) in AVAILABLE_HOURS: t in PEAKER_TECHNOLOGIES or t in INTERMEDIATE_TECHNOLOGIES } (
+	    Startup_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] +
+		Startup_NonFuel_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] +
+	    Startup_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h]
+	  )
 	)
 	/ total_loads_by_period_weighted[p];
 
@@ -379,17 +408,31 @@ let {p in PERIODS} Yearly_Thermal_Spinning_Carbon_Emissions[p] :=
 
 # deep cycling emissions
 let { p in PERIODS } Yearly_Deep_Cycling_Carbon_Emissions[p] :=
-     sum { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] } (
+     sum { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] or t in INTERMEDIATE_TECHNOLOGIES } (
 	    Deep_Cycling_Carbon_Emissions[pid, a, t, p, h] * hours_in_sample[h] / num_years_per_period );
  
 # deep cycling costs
 let { p in PERIODS } Deep_Cycling_Cost_Per_Period[p] := (
-	  sum { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] } (
+	  sum { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] or t in INTERMEDIATE_TECHNOLOGIES } (
 	    Deep_Cycling_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] +
 	    Deep_Cycling_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h]
 	  )
 	)
 	/ total_loads_by_period_weighted[p];
+
+# Startup costs
+let { p in PERIODS } Startup_Cost_Per_Period[p] := (
+	  sum { (pid, a, t, p, h) in AVAILABLE_HOURS: t in PEAKER_TECHNOLOGIES or t in INTERMEDIATE_TECHNOLOGIES } (
+	    Startup_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] +
+		Startup_NonFuel_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] +
+	    Startup_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] )
+	  )
+	/ total_loads_by_period_weighted[p];
+
+# Startup emissions
+let { p in PERIODS } Yearly_Startup_Carbon_Emissions[p] :=
+     sum { (pid, a, t, p, h) in AVAILABLE_HOURS: t in PEAKER_TECHNOLOGIES or t in INTERMEDIATE_TECHNOLOGIES } (
+	    Startup_Carbon_Emissions[pid, a, t, p, h] * hours_in_sample[h] / num_years_per_period );
 
 # total carbon emissions
 let {p in PERIODS} Yearly_Carbon_Emissions[p] :=
@@ -399,8 +442,10 @@ let {p in PERIODS} Yearly_Carbon_Emissions[p] :=
 		  EP_Carbon_Emissions[pid, a, t, p, h] * hours_in_sample[h] / num_years_per_period +
 	  sum { (pid, a, t, p, h) in AVAILABLE_HOURS: dispatchable[t]  }
 		  Thermal_Spinning_Reserve_Carbon_Emissions[ pid, a, t, p, h ] * hours_in_sample[h] / num_years_per_period +
-	  sum { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] }
-	    Deep_Cycling_Carbon_Emissions[pid, a, t, p, h] * hours_in_sample[h] / num_years_per_period;
+	  sum { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] or t in INTERMEDIATE_TECHNOLOGIES }
+	      Deep_Cycling_Carbon_Emissions[pid, a, t, p, h] * hours_in_sample[h] / num_years_per_period +
+	  sum { (pid, a, t, p, h) in AVAILABLE_HOURS: t in PEAKER_TECHNOLOGIES or t in INTERMEDIATE_TECHNOLOGIES }
+	      Startup_Carbon_Emissions[pid, a, t, p, h] * hours_in_sample[h] / num_years_per_period;
   
 let {p in PERIODS} Carbon_Costs_Per_Period_per_MWh[p] :=
 	( # Cash flow in the given period, discounted to the start of the period.
@@ -410,8 +455,10 @@ let {p in PERIODS} Carbon_Costs_Per_Period_per_MWh[p] :=
 		EP_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h]
 	  + sum { (pid, a, t, p, h) in AVAILABLE_HOURS: dispatchable[t] }
 		Thermal_Spinning_Reserve_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h]
-	  + sum { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] }
-	    Deep_Cycling_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h]		
+	  + sum { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] or t in INTERMEDIATE_TECHNOLOGIES }
+	    Deep_Cycling_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h]	
+	  + sum { (pid, a, t, p, h) in AVAILABLE_HOURS: t in PEAKER_TECHNOLOGIES or t in INTERMEDIATE_TECHNOLOGIES }
+	    Startup_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h]
 	) / total_loads_by_period_weighted[p];
 	
 let {p in PERIODS} Gross_Power_by_Period[p]  := 
@@ -500,6 +547,8 @@ for {p in PERIODS} {
 	printf "Thermal Spinning Carbon Emissions = %.3f MtCO2/yr\n", Yearly_Thermal_Spinning_Carbon_Emissions[p]/1000000;
 	printf "Deep Cycling Cost = $%.3f/MWh\n", Deep_Cycling_Cost_Per_Period[p];
 	printf "Deep Cycling Carbon Emissions = %.3f MtCO2/yr\n", Yearly_Deep_Cycling_Carbon_Emissions[p]/1000000;
+	printf "Startup Cost = $%.3f/MWh\n", Startup_Cost_Per_Period[p];
+	printf "Startup Carbon Emissions = %.3f MtCO2/yr\n", Yearly_Startup_Carbon_Emissions[p]/1000000;
 	
 	printf "\n";
 }

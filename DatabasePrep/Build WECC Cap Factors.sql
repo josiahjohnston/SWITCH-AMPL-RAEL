@@ -299,6 +299,8 @@ create table generator_info (
 	heat_rate_penalty_spinning_reserve float,
 	minimum_loading float,
 	deep_cycling_penalty float,
+	startup_mmbtu_per_mw float,
+	startup_cost_dollars_per_mw float,
 	Data_Source varchar(512),
 	index techology_id_name (technology_id, technology)
 );

@@ -34,7 +34,7 @@ option substout 1, linelim 1;
 # Options to enable timing of compilation
 # option show_stats 1, times 1, gentimes 1;
 option solver cplexamp;
-option cplex_options (" threads=6 lpdisplay=1 bardisplay=2 barobjrange=1e30 mipstartalg=4 mipdisplay=4 presolve=1 prestats=1 timing=1 nodefile=2" );
+option cplex_options (" threads=4 lpdisplay=1 bardisplay=2 barobjrange=1e30 comptol=5e-9 mipstartalg=4 mipdisplay=4 presolve=1 prestats=1 timing=1 nodefile=2" );
 # Use the option string below to enable iisfind when you are trying to diagnose infeasibilities
 #option cplex_options (" lpdisplay=1 iisfind=1 mipdisplay=2 presolve=1 prestats=1 timing=1 nodefile=2 treememory=15000 threads=4" );
 option cplex_options > results/cplex_options;
@@ -119,7 +119,7 @@ table generator_info "inputs/generator_info.tab" IN:
  	year_1_cost_fraction, year_2_cost_fraction, year_3_cost_fraction, year_4_cost_fraction, year_5_cost_fraction, year_6_cost_fraction,
 	max_age_years, forced_outage_rate, scheduled_outage_rate,
 	can_build_new, ccs, intermittent, resource_limited, baseload, flexible_baseload, dispatchable, cogen, min_build_capacity, competes_for_space,
-	storage, storage_efficiency, max_store_rate, max_spinning_reserve_fraction_of_capacity, heat_rate_penalty_spinning_reserve, minimum_loading, deep_cycling_penalty;
+	storage, storage_efficiency, max_store_rate, max_spinning_reserve_fraction_of_capacity, heat_rate_penalty_spinning_reserve, minimum_loading, deep_cycling_penalty, startup_mmbtu_per_mw, startup_nonfuel_cost_dollars_per_mw ~ startup_cost_dollars_per_mw;
 read table generator_info;
 
 table fuel_costs "inputs/fuel_costs.tab" IN:

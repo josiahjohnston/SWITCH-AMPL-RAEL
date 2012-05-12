@@ -98,3 +98,11 @@ param Deep_Cycling_Cost_Per_Period {p in PERIODS};
 param Deep_Cycling_Carbon_Cost_Incurred_Hourly { (pid, a, t, p, h) in AVAILABLE_HOURS };
 param Yearly_Deep_Cycling_Carbon_Emissions {p in PERIODS};
 
+param Startup_MW { (pid, a, t, p, h) in AVAILABLE_HOURS };
+param Startup_Fuel_Cost_Incurred_Hourly { (pid, a, t, p, h) in AVAILABLE_HOURS };
+param Startup_NonFuel_Cost_Incurred_Hourly { (pid, a, t, p, h) in AVAILABLE_HOURS };
+param Startup_Carbon_Emissions { (pid, a, t, p, h) in AVAILABLE_HOURS };
+param Startup_Cost_Per_Period {p in PERIODS};
+param Startup_Carbon_Cost_Incurred_Hourly { (pid, a, t, p, h) in AVAILABLE_HOURS };
+param Yearly_Startup_Carbon_Emissions {p in PERIODS};
+
