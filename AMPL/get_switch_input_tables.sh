@@ -14,7 +14,6 @@
 #  -D [DB name]
 #  -P/--port [port number]
 #  -h [DB server]
-#  -np | --no-password      Do not prompt for or use a password to connect to the database
 # All arguments are optional.
 
 # This function assumes that the lines at the top of the file that start with a # and a space or tab 
@@ -35,7 +34,6 @@ db_server="switch-db1.erg.berkeley.edu"
 DB_name="switch_inputs_wecc_v2_2"
 port=3306
 ssh_tunnel=0
-no_password=0
 
 ###################################################
 # Detect optional command-line arguments
@@ -46,8 +44,6 @@ case $1 in
     ssh_tunnel=1; shift 1 ;;
   -u)
     user=$2; shift 2 ;;
-  -np | --no-password)
-    no_password=1; shift 1 ;;
   -p)
     password=$2; shift 2 ;;
   -P)
@@ -79,7 +75,7 @@ then
 	  user="$default_user"
 	fi
 fi
-if [ ! -n "$password" ] && [ $no_password -eq 0 ]
+if [ ! -n "$password" ] 
 then 
 	printf "Password for MySQL $DB_name on $db_server? "
 	stty_orig=`stty -g`   # Save screen settings
@@ -119,18 +115,10 @@ if [ $ssh_tunnel -eq 1 ]; then
   ssh -N -p 22 -c 3des $db_server -L $local_port/$db_server/$port &
   ssh_pid=$!
   sleep 1
-  if [ $no_password -eq 0 ]; then
-    connection_string="-h 127.0.0.1 --port $local_port -u $user -p$password $DB_name"
-  else
-    connection_string="-h 127.0.0.1 --port $local_port -u $user $DB_name"
-  fi
+  connection_string="-h 127.0.0.1 --port $local_port -u $user -p$password $DB_name"
   trap "clean_up;" EXIT INT TERM 
 else
-  if [ $no_password -eq 0 ]; then
-    connection_string="-h $db_server --port $port -u $user -p$password $DB_name"
-  else
-    connection_string="-h $db_server --port $port -u $user $DB_name"
-  fi
+  connection_string="-h $db_server --port $port -u $user -p$password $DB_name"
 fi
 
 test_connection=`mysql $connection_string --column-names=false -e "select count(*) from existing_plants;"`
