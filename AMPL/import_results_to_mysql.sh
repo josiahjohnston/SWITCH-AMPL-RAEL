@@ -4,13 +4,14 @@
 #		./import_results_to_mysql.sh -h 127.0.0.1 -P 3307 # For connecting through an ssh tunnel
 #		./import_results_to_mysql.sh                      # For connecting to the DB directly
 # INPUTS
+#  --help                   Print this message
+#  -t | --tunnel            Initiate an ssh tunnel to connect to the database. This won't work if ssh prompts you for your password.
 #   -u [DB Username]
 #   -p [DB Password]
 #   -D [DB name]
 #   -P/--port [port number]
 #   -h [DB server]
 #   --ExportOnly             Only export summaries of the results, don't import or crunch data in the DB
-#   --help                   
 # All arguments are optional.
 
 # This function assumes that the lines at the top of the file that start with a # and a space or tab 
@@ -27,21 +28,17 @@ read SCENARIO_ID < scenario_id.txt
 DB_name='switch_results_wecc_v2_2'
 db_server='switch-db1.erg.berkeley.edu'
 port=3306
-current_dir=`pwd`
-
-results_graphing_dir="results_for_graphing"
-# check if results_for_graphing directory exists and make it if it does not
-if [ ! -d $results_graphing_dir ]; then
-  echo "Making Results Directory For Output Graphing"
-  mkdir $results_graphing_dir
-fi 
+ssh_tunnel=0
 results_dir="results"
+results_graphing_dir="results_for_graphing"
 
 ###################################################
 # Detect optional command-line arguments
 ExportOnly=0
 while [ -n "$1" ]; do
 case $1 in
+  -t | --tunnel)
+    ssh_tunnel=1; shift 1 ;;
   -u)
     user=$2; shift 2 ;;
   -p)
@@ -66,10 +63,14 @@ done
 # Get the user name and password 
 # Note that passing the password to mysql via a command line parameter is considered insecure
 # http://dev.mysql.com/doc/refman/5.0/en/password-security.html
+default_user=$(whoami)
 if [ ! -n "$user" ]
 then 
-  echo "User name for MySQL $DB_name on $db_server? "
-  read user
+	printf "User name for MySQL $DB_name on $db_server [$default_user]? "
+	read user
+	if [ -z "$user" ]; then 
+	  user="$default_user"
+	fi
 fi
 if [ ! -n "$password" ]
 then 
@@ -78,9 +79,45 @@ then
   stty -echo            # To keep the password vaguely secure, don't let it show to the screen
   read password
   stty $stty_orig       # Restore screen settings
+	echo " "
 fi
 
-connection_string="-h $db_server --port $port -u $user -p$password $DB_name"
+function clean_up {
+  [ $ssh_tunnel -eq 1 ] && kill -9 $ssh_pid # This ensures that the ssh tunnel will be taken down if the program exits abnormally
+  unset password
+}
+
+function is_port_free {
+  target_port=$1
+  if [ $(netstat -ant | \
+         sed -e '/^tcp/ !d' -e 's/^[^ ]* *[^ ]* *[^ ]* *.*[\.:]\([0-9]*\) .*$/\1/' | \
+         sort -g | uniq | \
+         grep $target_port | wc -l) -eq 0 ]; then
+    return 1
+  else
+    return 0
+  fi
+}
+
+#############
+# Try starting an ssh tunnel if requested
+if [ $ssh_tunnel -eq 1 ]; then 
+  echo "Trying to open an ssh tunnel. If it prompts you for your password, this method won't work."
+  local_port=3307
+  is_port_free $local_port
+  while [ $? -eq 0 ]; do
+    local_port=$((local_port+1))
+    is_port_free $local_port
+  done
+  ssh -N -p 22 -c 3des $db_server -L $local_port/$db_server/$port &
+  ssh_pid=$!
+  sleep 1
+  connection_string="-h 127.0.0.1 --port $local_port -u $user -p$password $DB_name"
+  trap "clean_up;" EXIT INT TERM 
+else
+  connection_string="-h $db_server --port $port -u $user -p$password $DB_name"
+fi
+
 test_connection=`mysql $connection_string --column-names=false -e "show tables;"`
 if [ -z "$test_connection" ]
 then
@@ -110,7 +147,7 @@ if [ $ExportOnly = 0 ]; then
   do
    for file_name in $(ls $results_dir/*${file_base_name}_*txt | grep "[[:digit:]]")
    do
-  file_path="$current_dir/$file_name"
+  file_path="$(pwd)/$file_name"
   echo "    ${file_name}  ->  ${DB_name}._${file_base_name}"
   # Import the file in question into the DB
   case $file_base_name in
@@ -330,6 +367,9 @@ rm $fuel_path
 
 ###################################################
 # Export summaries of the results
+# Make output directories if needed
+mkdir -p $results_graphing_dir
+
 echo 'Exporting gen_summary_by_tech.txt...'
 mysql $connection_string -e "select * from gen_summary_by_tech WHERE scenario_id = $SCENARIO_ID;" > $results_graphing_dir/gen_summary_by_tech.txt
 
