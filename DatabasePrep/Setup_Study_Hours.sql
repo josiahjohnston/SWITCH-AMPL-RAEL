@@ -129,7 +129,7 @@ BEGIN
 		PRIMARY KEY(training_set_id,area_id,timepoint_id), 
 		INDEX(timepoint_id,area_id)
 	);
-	INSERT INTO scenario_loads_export ( training_set_id, area_id, timepoint_id, system_load )
+	REPLACE INTO scenario_loads_export ( training_set_id, area_id, timepoint_id, system_load )
 		SELECT training_set_id, f.area_id, f.timepoint_id, f.power as system_load
 		FROM _training_set_timepoints
 			JOIN _load_projections f USING (timepoint_id)
