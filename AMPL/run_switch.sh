@@ -77,7 +77,7 @@ done
 [ -d results ] || mkdir results
 
 # Update the number of threads cplex is allowed to use
-[ -n "$threads_per_cplex" ] && sed -i -e 's/^\(option cplex_options.*\)\(threads=[0-9]*\)\([^0-9].*\)$/\1threads='$threads_per_cplex'\3/' "load.run"
+[ -n "$threads_per_cplex" ] && sed -i".orig" -e 's/^\(option cplex_options.*\)\(threads=[0-9]*\)\([^0-9].*\)$/\1threads='$threads_per_cplex'\3/' "load.run"
 
 # Set up the .qsub files and submit job requests to the queue if this is operating on a cluster
 if [ $cluster == 1 ]; then
@@ -113,26 +113,26 @@ if [ $cluster == 1 ]; then
 		action=$(echo $f | sed -e 's/\.qsub//')
 
 		# Update these default parameters in each qsub file.
-		[ -n "$jobname" ] && sed -i -e 's/^#PBS -N .*$/#PBS -N '"$jobname-$action"'/' "$f"
-		[ -n "$email" ] && sed -i -e 's/^#PBS -M .*$/#PBS -M '"$email"'/' "$f"
-		sed -i -e 's|^working_dir=.*$|working_dir="'"$working_directory"'"|' "$f"
+		[ -n "$jobname" ] && sed -i".orig" -e 's/^#PBS -N .*$/#PBS -N '"$jobname-$action"'/' "$f"
+		[ -n "$email" ] && sed -i".orig" -e 's/^#PBS -M .*$/#PBS -M '"$email"'/' "$f"
+		sed -i".orig" -e 's|^working_dir=.*$|working_dir="'"$working_directory"'"|' "$f"
 	done
 
 	# Fill in the OPTIMIZE qsub file
 	f=optimize.qsub
 	# How many nodes & workers per node.
-	sed -i -e 's/^#PBS -l nodes=.*$/#PBS -l nodes='"$nodes"':ppn='"$workers_per_node"'/' "$f"
+	sed -i".orig" -e 's/^#PBS -l nodes=.*$/#PBS -l nodes='"$nodes"':ppn='"$workers_per_node"'/' "$f"
 	# Which queue to use. Assume we'll need all of the time the queue can offer
 	if [ -n "$queue" ]; then
 		case "$queue" in
-			express) sed -i -e 's/^#PBS -l walltime=.*$/#PBS -l walltime=00:30:00/' "$f" ;;
-			short)   sed -i -e 's/^#PBS -l walltime=.*$/#PBS -l walltime=06:00:00/' "$f" ;;
-			normal)  sed -i -e 's/^#PBS -l walltime=.*$/#PBS -l walltime=24:00:00/' "$f" ;;
-			long)    sed -i -e 's/^#PBS -l walltime=.*$/#PBS -l walltime=72:00:00/' "$f" ;;
-			dkammen) sed -i -e 's/^#PBS -l walltime=.*$/#PBS -l walltime=168:00:00/' "$f" ;;
+			express) sed -i".orig" -e 's/^#PBS -l walltime=.*$/#PBS -l walltime=00:30:00/' "$f" ;;
+			short)   sed -i".orig" -e 's/^#PBS -l walltime=.*$/#PBS -l walltime=06:00:00/' "$f" ;;
+			normal)  sed -i".orig" -e 's/^#PBS -l walltime=.*$/#PBS -l walltime=24:00:00/' "$f" ;;
+			long)    sed -i".orig" -e 's/^#PBS -l walltime=.*$/#PBS -l walltime=72:00:00/' "$f" ;;
+			dkammen) sed -i".orig" -e 's/^#PBS -l walltime=.*$/#PBS -l walltime=168:00:00/' "$f" ;;
 			*) echo "queue option $queue not known. Please read the help message and try again"; print_help; exit ;;
 		esac
-		sed -i -e 's/^#PBS -q .*$/#PBS -q '"$queue"'/' "$f"
+		sed -i".orig" -e 's/^#PBS -q .*$/#PBS -q '"$queue"'/' "$f"
 	fi
 	
 	echo "Submitting jobs to the scheduler."
