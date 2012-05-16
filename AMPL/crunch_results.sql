@@ -423,7 +423,7 @@ insert into system_load_summary_hourly (scenario_id, carbon_cost, period, study_
 			study_hour,
 			month,
 			hour_of_day_UTC,
-			mod(hour_of_day_UTC - 8, 24) as hour_of_day_PST,
+			mod(convert(hour_of_day_UTC, signed integer) - 8, 24) as hour_of_day_PST,
 			hours_in_sample,
 			sum( power ) as system_load,
 			sum( satisfy_load_reduced_cost ) as satisfy_load_reduced_cost,
@@ -465,111 +465,129 @@ insert into power_cost (scenario_id, carbon_cost, period, load_in_period_mwh )
 -- local_td costs
 update power_cost set existing_local_td_cost =
 	(select sum(fixed_cost) from _local_td_cap t
-		where t.scenario_id = @scenario_id and t.scenario_id = power_cost.scenario_id
+		where t.scenario_id = power_cost.scenario_id
 		and t.carbon_cost = power_cost.carbon_cost and t.period = power_cost.period and 
-		new = 0 );
+		new = 0 )
+where scenario_id = @scenario_id;
 
 update power_cost set new_local_td_cost =
 	(select sum(fixed_cost) from _local_td_cap t
-		where t.scenario_id = @scenario_id and t.scenario_id = power_cost.scenario_id
+		where t.scenario_id = power_cost.scenario_id
 		and t.carbon_cost = power_cost.carbon_cost and t.period = power_cost.period and 
-		new = 1 );
+		new = 1 )
+where scenario_id = @scenario_id;
 
 -- transmission costs
 update power_cost set existing_transmission_cost =
 	(select sum(existing_trans_cost) from _existing_trans_cost t
-		where t.scenario_id = @scenario_id and t.scenario_id = power_cost.scenario_id
-		and t.carbon_cost = power_cost.carbon_cost and t.period = power_cost.period );
+		where t.scenario_id = power_cost.scenario_id
+		and t.carbon_cost = power_cost.carbon_cost and t.period = power_cost.period )
+where scenario_id = @scenario_id;
 
 update power_cost set new_transmission_cost =
 	(select sum(fixed_cost) from _trans_cap t
-		where t.scenario_id = @scenario_id and t.scenario_id = power_cost.scenario_id
+		where t.scenario_id = power_cost.scenario_id
 		and t.carbon_cost = power_cost.carbon_cost and t.period = power_cost.period and 
-		new = 1 );
+		new = 1 )
+where scenario_id = @scenario_id;
 
 -- generation costs
 update power_cost set existing_plant_sunk_cost =
 	(select sum(capital_cost) from _gen_cap_summary_tech g
-		where g.scenario_id = @scenario_id and g.scenario_id = power_cost.scenario_id
+		where g.scenario_id = power_cost.scenario_id
 		and g.carbon_cost = power_cost.carbon_cost and g.period = power_cost.period and 
-		technology_id	in (select technology_id from technologies where can_build_new = 0) );
+		technology_id	in (select technology_id from technologies where can_build_new = 0) )
+where scenario_id = @scenario_id;
 
 update power_cost set existing_plant_operational_cost =
 	(select sum(o_m_cost_total) from _gen_cap_summary_tech g
-		where g.scenario_id = @scenario_id and g.scenario_id = power_cost.scenario_id
+		where g.scenario_id = power_cost.scenario_id
 		and g.carbon_cost = power_cost.carbon_cost and g.period = power_cost.period and 
-		technology_id	in (select technology_id from technologies where can_build_new = 0) );
+		technology_id	in (select technology_id from technologies where can_build_new = 0) )
+where scenario_id = @scenario_id;
 
 update power_cost set new_coal_nonfuel_cost =
 	(select sum(capital_cost) + sum(o_m_cost_total) from _gen_cap_summary_tech g
-		where g.scenario_id = @scenario_id and g.scenario_id = power_cost.scenario_id
+		where g.scenario_id = power_cost.scenario_id
 		and g.carbon_cost = power_cost.carbon_cost and g.period = power_cost.period and 
-		technology_id	in (select technology_id from technologies where fuel in ('Coal', 'Coal_CCS') and can_build_new = 1) );
+		technology_id	in (select technology_id from technologies where fuel in ('Coal', 'Coal_CCS') and can_build_new = 1) )
+where scenario_id = @scenario_id;
 
 update power_cost set coal_fuel_cost =
 	(select sum(fuel_cost) from _gen_cap_summary_tech g
-		where g.scenario_id = @scenario_id and g.scenario_id = power_cost.scenario_id
+		where g.scenario_id = power_cost.scenario_id
 		and g.carbon_cost = power_cost.carbon_cost and g.period = power_cost.period and 
-		technology_id	in (select technology_id from technologies where fuel in ('Coal', 'Coal_CCS') ) );
+		technology_id	in (select technology_id from technologies where fuel in ('Coal', 'Coal_CCS') ) )
+where scenario_id = @scenario_id;
 
 update power_cost set new_gas_nonfuel_cost =
 	(select sum(capital_cost) + sum(o_m_cost_total) from _gen_cap_summary_tech g
-		where g.scenario_id = @scenario_id and g.scenario_id = power_cost.scenario_id
+		where g.scenario_id = power_cost.scenario_id
 		and g.carbon_cost = power_cost.carbon_cost and g.period = power_cost.period and 
-		technology_id	in (select technology_id from technologies where fuel in ('Gas', 'Gas_CCS') and storage = 0 and can_build_new = 1 ) );
+		technology_id	in (select technology_id from technologies where fuel in ('Gas', 'Gas_CCS') and storage = 0 and can_build_new = 1 ) )
+where scenario_id = @scenario_id;
 
 update power_cost set gas_fuel_cost =
 	(select sum(fuel_cost) from _gen_cap_summary_tech g
-		where g.scenario_id = @scenario_id and g.scenario_id = power_cost.scenario_id
+		where g.scenario_id = power_cost.scenario_id
 		and g.carbon_cost = power_cost.carbon_cost and g.period = power_cost.period and 
-		technology_id	in (select technology_id from technologies where fuel in ('Gas', 'Gas_CCS') ) );
+		technology_id	in (select technology_id from technologies where fuel in ('Gas', 'Gas_CCS') ) )
+where scenario_id = @scenario_id;
 
 update power_cost set new_nuclear_nonfuel_cost =
 	(select sum(capital_cost) + sum(o_m_cost_total) from _gen_cap_summary_tech g
-		where g.scenario_id = @scenario_id and g.scenario_id = power_cost.scenario_id
+		where g.scenario_id = power_cost.scenario_id
 		and g.carbon_cost = power_cost.carbon_cost and g.period = power_cost.period and 
-		technology_id	in (select technology_id from technologies where fuel = 'Uranium' and can_build_new = 1) );
+		technology_id	in (select technology_id from technologies where fuel = 'Uranium' and can_build_new = 1) )
+where scenario_id = @scenario_id;
 
 update power_cost set nuclear_fuel_cost =
 	(select sum(fuel_cost) from _gen_cap_summary_tech g
-		where g.scenario_id = @scenario_id and g.scenario_id = power_cost.scenario_id
+		where g.scenario_id = power_cost.scenario_id
 		and g.carbon_cost = power_cost.carbon_cost and g.period = power_cost.period and 
-		technology_id	in (select technology_id from technologies where fuel = 'Uranium') );
+		technology_id	in (select technology_id from technologies where fuel = 'Uranium') )
+where scenario_id = @scenario_id;
 
 update power_cost set new_geothermal_cost =
 	(select sum(capital_cost) + sum(o_m_cost_total) + sum(fuel_cost) from _gen_cap_summary_tech g
-		where g.scenario_id = @scenario_id and g.scenario_id = power_cost.scenario_id
+		where g.scenario_id = power_cost.scenario_id
 		and g.carbon_cost = power_cost.carbon_cost and g.period = power_cost.period and 
-		technology_id	in (select technology_id from technologies where fuel = 'Geothermal' and can_build_new = 1 ) );
+		technology_id	in (select technology_id from technologies where fuel = 'Geothermal' and can_build_new = 1 ) )
+where scenario_id = @scenario_id;
 
 update power_cost set new_bio_cost =
 	(select sum(capital_cost) + sum(o_m_cost_total) + sum(fuel_cost) from _gen_cap_summary_tech g
-		where g.scenario_id = @scenario_id and g.scenario_id = power_cost.scenario_id
+		where g.scenario_id = power_cost.scenario_id
 		and g.carbon_cost = power_cost.carbon_cost and g.period = power_cost.period and 
-		technology_id	in (select technology_id from technologies where fuel in ('Bio_Gas', 'Bio_Solid', 'Bio_Gas_CCS', 'Bio_Solid_CCS') and can_build_new = 1 ) );
+		technology_id	in (select technology_id from technologies where fuel in ('Bio_Gas', 'Bio_Solid', 'Bio_Gas_CCS', 'Bio_Solid_CCS') and can_build_new = 1 ) )
+where scenario_id = @scenario_id;
 
 update power_cost set new_wind_cost =
 	(select sum(capital_cost) + sum(o_m_cost_total) + sum(fuel_cost) from _gen_cap_summary_tech g
-		where g.scenario_id = @scenario_id and g.scenario_id = power_cost.scenario_id
+		where g.scenario_id = power_cost.scenario_id
 		and g.carbon_cost = power_cost.carbon_cost and g.period = power_cost.period and 
-		technology_id	in (select technology_id from technologies where fuel = 'Wind' and can_build_new = 1 ) );
+		technology_id	in (select technology_id from technologies where fuel = 'Wind' and can_build_new = 1 ) )
+where scenario_id = @scenario_id;
 
 update power_cost set new_solar_cost =
 	(select sum(capital_cost) + sum(o_m_cost_total) + sum(fuel_cost) from _gen_cap_summary_tech g
-		where g.scenario_id = @scenario_id and g.scenario_id = power_cost.scenario_id
+		where g.scenario_id = power_cost.scenario_id
 		and g.carbon_cost = power_cost.carbon_cost and g.period = power_cost.period and 
-		technology_id	in (select technology_id from technologies where fuel = 'Solar' and can_build_new = 1 ) );
+		technology_id	in (select technology_id from technologies where fuel = 'Solar' and can_build_new = 1 ) )
+where scenario_id = @scenario_id;
 
 update power_cost set new_storage_nonfuel_cost =
 	(select sum(capital_cost) + sum(o_m_cost_total) from _gen_cap_summary_tech g
-		where g.scenario_id = @scenario_id and g.scenario_id = power_cost.scenario_id
+		where g.scenario_id = power_cost.scenario_id
 		and g.carbon_cost = power_cost.carbon_cost and g.period = power_cost.period and 
-		technology_id	in (select technology_id from technologies where storage = 1 and can_build_new = 1 ) );
+		technology_id	in (select technology_id from technologies where storage = 1 and can_build_new = 1 ) )
+where scenario_id = @scenario_id;
 
 update power_cost set carbon_cost_total =
 	(select sum(carbon_cost_total) from _gen_cap_summary_tech g
-		where g.scenario_id = @scenario_id and g.scenario_id = power_cost.scenario_id
-		and g.carbon_cost = power_cost.carbon_cost and g.period = power_cost.period );
+		where g.scenario_id = power_cost.scenario_id
+		and g.carbon_cost = power_cost.carbon_cost and g.period = power_cost.period )
+where scenario_id = @scenario_id;
 
 update power_cost set total_cost =
 	existing_local_td_cost + new_local_td_cost + existing_transmission_cost + new_transmission_cost
