@@ -16,6 +16,13 @@ let enable_carbon_cap := 0;
 let enable_rps := 0;
 redeclare param problem_basename symbolic := results_path & "sol_present_day_dispatch";
 
+# Change file names of exported results. 
+let { f in RESULT_FILES} result_file_path_templates[f] := 'present_' & result_file_path_templates[f];
+redeclare param InstallGen_tab_path            symbolic := results_path & "present_InstallGen" & carbon_cost & ".tab";
+redeclare param OperateEPDuringPeriod_tab_path symbolic := results_path & "present_OperateEPDuringPeriod" & carbon_cost & ".tab";
+redeclare param InstallTrans_tab_path          symbolic := results_path & "present_InstallTrans" & carbon_cost & ".tab";
+redeclare param install_local_td_tab_path        symbolic := results_path & "present_install_local_td" & carbon_cost & ".tab";
+
 # timepoint params used in record_results.run - would be better to reset indexing of timepoints, but I don't know how to do this in AMPL
 # these get a bit complicated because the timepoint and date ids need to have different years
 # such that if the same date from two different years is picked in the investment optimization, the ids will still remain unique here
@@ -46,30 +53,37 @@ let {(pid, a, t, p) in PROJECT_VINTAGES} InstallGen[pid, a, t, p] := 0;
 # Now actually solve the present day cost optimization problem
 # Determine if a present day cost solution already exists. 
 
-printf "\nCompiling problem file for Present Day Dispatch.\n";
-let curtime := time();
+# Only compile this problem if neither the solution nor problem file exists. 
+if ( (file_exists(solution_path) ==  0) and (file_exists(problem_path) == 0)) then {
+  printf "\nCompiling problem file for Present Day Dispatch.\n";
+  let curtime := time();
+  
+  # option auxfiles cfrsu; write ("m" & problem_basename);  # Uncomment this line to write the problem as text files (for debugging)
+  
+  # write out the problem file for solving by CPLEX
+  display problem_basename;
+  write ("b" & problem_basename);
+  let compile_time := time() - curtime;
+  printf "%d seconds to compile and write the problem file.\n", compile_time;
+  printf "%d	%d	%s	%d\n", scenario_id, carbon_cost, "Present_Day_Cost_Compilation", compile_time  >> (solution_times_path);
+  close (solution_times_path);
+} else {
+  printf "Skipping compilation because it has already been done.\n";
+}
 
-# option auxfiles cfrsu; write ("m" & problem_basename);  # Uncomment this line to write the problem as text files (for debugging)
+# Only solve the problem and export the results if the solution does not exist. 
+if ( file_exists(solution_path) ==  0) then {
+  let curtime := time();
+  solve;
+  let sol_time := time() - curtime;
+  printf "%d seconds to optimize for present day cost.\n", sol_time;
+  printf "%d	%d	%s	%d\n", scenario_id, carbon_cost, "Present_Day_Cost_Optimization", sol_time  >> (solution_times_path);
+  close (solution_times_path);
 
-# write out the problem file for solving by CPLEX
-display problem_basename;
-write ("b" & problem_basename);
-let compile_time := time() - curtime;
-printf "%d seconds to compile and write the problem file.\n", compile_time;
-printf "%d	%d	%s	%d\n", scenario_id, carbon_cost, "Present_Day_Cost_Compilation", compile_time  >> (solution_times_path);
-close (solution_times_path);
+  # Export the results to csv files and the like. We changed the file names above. 
+  include export.run;
 
-let curtime := time();
-solve;
-let sol_time := time() - curtime;
-printf "%d seconds to optimize for present day cost.\n", sol_time;
-printf "%d	%d	%s	%d\n", scenario_id, carbon_cost, "Present_Day_Cost_Optimization", sol_time  >> (solution_times_path);
-close (solution_times_path);
+} else {
+  printf "Found solution to present-day cost. This job is already done.\n";
+}
 
-# Export the results to csv files and the like. First change the file names though. 
-let { f in RESULT_FILES} result_file_path_templates[f] := 'present_' & result_file_path_templates[f];
-redeclare param InstallGen_tab_path            symbolic := results_path & "present_InstallGen" & carbon_cost & ".tab";
-redeclare param OperateEPDuringPeriod_tab_path symbolic := results_path & "present_OperateEPDuringPeriod" & carbon_cost & ".tab";
-redeclare param InstallTrans_tab_path          symbolic := results_path & "present_InstallTrans" & carbon_cost & ".tab";
-redeclare param install_local_td_tab_path        symbolic := results_path & "present_install_local_td" & carbon_cost & ".tab";
-include export.run;
