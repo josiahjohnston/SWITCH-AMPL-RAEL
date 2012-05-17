@@ -17,7 +17,7 @@ for ((worker=0; worker<$NUM_WORKERS; worker++)); do
         cd ..; \
         reset;"
     fi
-  prob_num++
+  prob_num=$(($prob_num+1))
   done > $probs_path
   ampl <$probs_path 1>>logs/recompile-${worker}.log 2>>logs/recompile-${worker}.err
 done
