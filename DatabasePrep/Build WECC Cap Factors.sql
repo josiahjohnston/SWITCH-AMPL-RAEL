@@ -622,7 +622,7 @@ load data local infile
 -- add nems scenarios to be able to vary the NG supply curve starting point depending on consumption in the rest of the economy
 drop table if exists nems_fuel_scenarios;
 create table nems_fuel_scenarios(
-nems_fuel_scenario_id int,
+nems_fuel_scenario_id int unsigned,
 nems_fuel_scenario varchar(40),
 PRIMARY KEY (nems_fuel_scenario_id)
 );
