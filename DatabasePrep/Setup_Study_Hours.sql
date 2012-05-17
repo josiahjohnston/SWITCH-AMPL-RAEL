@@ -81,6 +81,7 @@ CREATE TABLE IF NOT EXISTS scenarios_v2 (
   gen_price_scenario_id MEDIUMINT NOT NULL DEFAULT 1, 
   enable_rps BOOLEAN NOT NULL DEFAULT 0 COMMENT 'This controls whether Renewable Portfolio Standards are considered in the optimization.', 
   carbon_cap_scenario_id int unsigned DEFAULT 0 COMMENT 'The default scenario is no cap. Browse existing scenarios or define new ones in the table carbon_cap_scenarios.',
+  nems_fuel_scenario_id int unsigned DEFAULT 1 COMMENT 'The default scenario is the reference case. Check out the nems_fuel_scenarios table for other scenarios.',
   notes TEXT,
   model_version varchar(16) NOT NULL,
   inputs_adjusted varchar(16) NOT NULL DEFAULT 'no',
@@ -95,7 +96,9 @@ CREATE TABLE IF NOT EXISTS scenarios_v2 (
   CONSTRAINT gen_price_scenario_id FOREIGN KEY gen_price_scenario_id (gen_price_scenario_id)
     REFERENCES generator_price_scenarios (gen_price_scenario_id)
 	CONSTRAINT carbon_cap_scenario_id FOREIGN KEY carbon_cap_scenario_id (carbon_cap_scenario_id) 
-	  REFERENCES carbon_cap_scenarios (carbon_cap_scenario_id)
+	  REFERENCES carbon_cap_scenarios (carbon_cap_scenario_id),
+	CONSTRAINT nems_fuel_scenario_id FOREIGN KEY nems_fuel_scenario_id (nems_fuel_scenario_id) 
+	  REFERENCES nems_fuel_scenarios (nems_fuel_scenario_id)
 )
 COMMENT = 'Each record in this table is a specification of how to compile a set of inputs for a specific run. Several fields specify how to subselect timepoints from a given training_set. Other fields indicate which set of regional price data to use.';
 
