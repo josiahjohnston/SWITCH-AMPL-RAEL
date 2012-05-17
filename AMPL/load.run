@@ -11,6 +11,8 @@ reset;
 function get_num_cores pipe "while read junk; do case $(uname) in  'Darwin') sysctl hw.ncpu | awk '{print $2}' ;;  'Linux')  grep processor /proc/cpuinfo | wc -l | awk '{print $1}' ;;  *) echo 1 ;; esac; done";
 # file_exists(file_path) determines whether a file exists at the specified path (relative or absolute). Returns a 1 or a 0. Works on OS X & Linux.
 function file_exists pipe 'while read file_path; do if [ -f "$file_path" ]; then echo 1; else echo 0; fi; done;';
+# get_datestamp()
+function get_datestamp symbolic pipe 'while read junk; do date; done;';
 
 ###################################
 # Make directories for results and logs if they don't exist.
@@ -34,7 +36,7 @@ option substout 1, linelim 1;
 # Options to enable timing of compilation
 # option show_stats 1, times 1, gentimes 1;
 option solver cplexamp;
-option cplex_options (" threads=4 lpdisplay=1 bardisplay=2 barobjrange=1e30 comptol=5e-9 mipstartalg=4 mipdisplay=4 presolve=1 prestats=1 timing=1 nodefile=2" );
+option cplex_options (" threads=1 lpdisplay=1 bardisplay=2 barobjrange=1e30 comptol=5e-9 mipstartalg=4 mipdisplay=4 presolve=1 prestats=1 timing=1 nodefile=2" );
 # Use the option string below to enable iisfind when you are trying to diagnose infeasibilities
 #option cplex_options (" lpdisplay=1 iisfind=1 mipdisplay=2 presolve=1 prestats=1 timing=1 nodefile=2 treememory=15000 threads=4" );
 option cplex_options > results/cplex_options;
