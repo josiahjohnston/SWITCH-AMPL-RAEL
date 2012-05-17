@@ -29,7 +29,9 @@ working_dir="/global/home/users/siah/AMPL"
 # Initialize the environment
 cd "$working_dir"          # Go to the working directory
 [ -d logs ] || mkdir logs  # Make a "logs" directory if one doesn't exist.
-module load ampl-cplex     # Load ampl & cplex. 
+if [ $( hostname | grep "citris" | wc -l ) -gt 0 ]; then
+  module load ampl-cplex     # Load ampl & cplex. 
+fi
 
 # Ask AMPL to compile problem files. 
 ampl_commands="include load.run; include present_day_dispatch.run; exit;"
