@@ -19,7 +19,7 @@ create table proposed_projects (
 	);
 
 create index original_dataset_id_index on proposed_projects (original_dataset_id);
-SELECT AddGeometryColumn ('public','proposed_projects','the_geom',4326,'POLYGON',2);
+SELECT AddGeometryColumn ('public','proposed_projects','the_geom',4326,'MULTIPOLYGON',2);
 SELECT AddGeometryColumn ('public','proposed_projects','substation_connection_geom',4326,'MULTILINESTRING',2);
 
 
@@ -35,6 +35,18 @@ CREATE INDEX proposed_projects_subgeom_index
 
 -- WIND ----------------------
 
+-- Canadian Wind first - only have onshore data
+
+insert into proposed_projects (technology, original_dataset_id, capacity_limit, capacity_limit_conversion, the_geom)
+	select 	'Wind',
+			id,
+			capacity_limit_MW,
+			1 as capacity_limit_conversion,
+			windfarm_geom
+	from 	windfarms_canada_info, wecc_load_areas
+	where intersects(wecc_load_areas.polygon_geom, windfarms_canada_info.the_geom)
+	and	wecc_load_areas.polygon_geom && windfarms_canada_info.the_geom;
+
 -- Onshore Wind...
 -- there is one onshore farm centroid that is right on the coast in Washington
 -- and doesn't quite intersect a load area polygon,
@@ -45,7 +57,7 @@ insert into proposed_projects (technology, original_dataset_id, capacity_limit, 
 			wind_farm_id,
 			max_mw,
 			1 as capacity_limit_conversion,
-			the_geom
+			multi(the_geom)
 	from wind_farm_polygons, wecc_load_areas
 	where intersects(wecc_load_areas.polygon_geom, wind_farm_polygons.wind_farm_centroid_geom)
 	and	wecc_load_areas.polygon_geom && wind_farm_polygons.wind_farm_centroid_geom
@@ -56,7 +68,7 @@ insert into proposed_projects (technology, original_dataset_id, capacity_limit, 
 			wind_farm_polygons.wind_farm_id,
 			wind_farm_polygons.max_mw,
 			1 as capacity_limit_conversion,
-			wind_farm_polygons.the_geom
+			multi(wind_farm_polygons.the_geom)
 	from wind_farm_polygons, wind_farm_points_map, wind_points, wecc_load_areas
 	where intersects(wecc_load_areas.polygon_geom, wind_points.the_geom)
 	and	wecc_load_areas.polygon_geom && wind_points.the_geom
@@ -140,7 +152,7 @@ insert into proposed_projects (technology, original_dataset_id, capacity_limit, 
 			wind_farm_polygons.wind_farm_id,
 			max_mw,
 			1 as capacity_limit_conversion,
-			expand( shore_point_geom, 0.000000001 )
+			multi(expand( shore_point_geom, 0.000000001 ))
 	from offshore_wind_connect_to_shore, wind_farm_polygons
 	where offshore_wind_connect_to_shore.wind_farm_id = wind_farm_polygons.wind_farm_id;
 
@@ -152,7 +164,7 @@ insert into proposed_projects (technology, original_dataset_id, capacity_limit, 
 			insolation_solar_farm_polygons.solar_farm_id,
 			total_area_km2,
 			capacity_limit_conversion,
-			insolation_solar_farm_polygons.the_geom
+			multi(insolation_solar_farm_polygons.the_geom)
 	from
 			wecc_load_areas,
 			insolation_solar_farm_polygons,
@@ -203,7 +215,7 @@ insert into proposed_projects (technology, original_dataset_id, capacity_limit, 
 			suny_grid_id,
 			total_area_km2,
 			sum( area_km2 * ( mw_per_km2 * 0.61 ) ) / total_area_km2 as capacity_limit_conversion,
-			the_geom
+			multi(the_geom)
 		from 	insolation_solar_farm_map,
 				insolation_solar_farm_polygons,
 				(select technology,
@@ -246,7 +258,7 @@ insert into proposed_projects (technology, original_dataset_id, capacity_limit, 
 			insolation_solar_farm_map.solar_farm_id,
 			total_mw,
 			1 as capacity_limit_conversion,
-			the_geom
+			multi(the_geom)
 		from 	wecc_load_areas,
 				insolation_solar_farm_map,
 				insolation_distributed_pv_polygons,
@@ -411,7 +423,7 @@ insert into proposed_projects (technology, original_dataset_id, capacity_limit, 
 			geothermal_id,
 			sum(capacity_limit_mw) as capacity_limit,
 			1 as capacity_limit_conversion,
-			expand( geothermal_merge.the_geom, 0.00000001 )
+			multi(expand( geothermal_merge.the_geom, 0.00000001 ))
 		from geothermal_merge, wecc_load_areas
 		where  	intersects(wecc_load_areas.polygon_geom, geothermal_merge.the_geom)
 		and		wecc_load_areas.polygon_geom && geothermal_merge.the_geom
@@ -491,78 +503,67 @@ update proposed_projects set capacity_limit = 100000 where capacity_limit > 1000
 -- the connection distance and subsequently cost has to be corrected below
 
 -- CONNECT TO SUBSTATIONS
--- distributed pv is excluded here becasue we don't connect them to substations (they're just on local roofs)
+-- distributed pv is excluded here because we don't connect them to substations (they're just on local roofs)
 -- biomass is distributed througout load areas, so we don't have the resolution to connect it to substations - in AMPL it will get the generic connection cost.
 drop table if exists renewable_site_to_substation;
 create temporary table renewable_site_to_substation as
-select 	proposed_projects.project_id,
+select 	project_id,
 		ventyx_e_substn_point.rec_id as substation_rec_id,
 		wecc_load_areas.load_area,
 		st_distance_sphere(
 			st_line_interpolate_point(
-				st_exteriorring( proposed_projects.the_geom ),
+				st_exteriorring( pp_geom ),
 				st_line_locate_point(
-					st_exteriorring( proposed_projects.the_geom ), ventyx_e_substn_point.the_geom )
+					st_exteriorring( pp_geom ), ventyx_e_substn_point.the_geom )
 				),
 			ventyx_e_substn_point.the_geom ) / 1000 as distance_km,
-		ventyx_e_substn_point.the_geom
-from 	proposed_projects,
+		ventyx_e_substn_point.the_geom as sub_geom,
+		pp_geom
+from 	(select project_id,
+				ST_GeometryN(proposed_projects.the_geom, generate_series(1, ST_NumGeometries(proposed_projects.the_geom))) as pp_geom
+			from proposed_projects
+			where	technology <> 'Residential_PV'
+			and		technology <> 'Commercial_PV'
+			and 	technology <> 'Biomass_IGCC'
+			and		technology <> 'Bio_Gas'
+			and		technology <> 'Compressed_Air_Energy_Storage'
+			) as proposed_projects_multi_dump,
 		ventyx_e_substn_point,
 		wecc_load_areas
 where 	ventyx_e_substn_point.mx_volt_kv >= 115
 and 	ventyx_e_substn_point.proposed like 'In Service'
 and		intersects(ventyx_e_substn_point.the_geom, wecc_load_areas.polygon_geom)
-and		ventyx_e_substn_point.the_geom && wecc_load_areas.polygon_geom
-and		technology <> 'Residential_PV'
-and		technology <> 'Commercial_PV'
-and 	technology <> 'Biomass_IGCC'
-and		technology <> 'Bio_Gas'
-and		technology <> 'Compressed_Air_Energy_Storage'
-	;
+and		ventyx_e_substn_point.the_geom && wecc_load_areas.polygon_geom;
 
-
--- updates the  sites with connection distances, load areas, substation hookups
--- and labels the ones that are in wecc
--- the connection cost is specified here as $1000/MW-km... should be more specific in the future
--- also, get better references from the Wiser LBNL report
-update	proposed_projects
-set 	connect_cost_per_mw = minimum_distance_table.min_distance * 1000,
-		substation_id = renewable_site_to_substation.substation_rec_id,
-		load_area = renewable_site_to_substation.load_area
-from 	renewable_site_to_substation,
-		(select project_id,
+alter table renewable_site_to_substation add column is_connection_polygon int default 0;
+update renewable_site_to_substation set is_connection_polygon = 1
+from	(select project_id,
 				min(distance_km) as min_distance
 			from renewable_site_to_substation
 			group by project_id) as minimum_distance_table
-where 	proposed_projects.project_id = renewable_site_to_substation.project_id
-and 	proposed_projects.project_id = minimum_distance_table.project_id
-and		minimum_distance_table.min_distance = 		st_distance_sphere(
-														st_line_interpolate_point(
-															st_exteriorring( proposed_projects.the_geom ),
-															st_line_locate_point(
-																st_exteriorring( proposed_projects.the_geom ),
-																renewable_site_to_substation.the_geom ) ),
-														renewable_site_to_substation.the_geom ) / 1000
-	;		
+where 	renewable_site_to_substation.project_id = minimum_distance_table.project_id
+and		min_distance = distance_km;
 
+-- updates the  sites with connection distances, load areas, substation hookups
+-- the connection cost is specified here as $1000/MW-km... should be more specific in the future
+-- also, get better references from the Wiser LBNL report
 
-
--- not strictly necessary, but nice to have and easy to do, 
 -- we'll make a geometry linestring connecting each proposed renewable site to each substation
 -- the connection for offshore wind gets updated below
 -- the st_multi just makes what was a linestring into a multilinestring, which for single linestrings does nothing
 -- it's only important because the offshore wind procedure returns a multilinestring (the ends don't quite match up)
-update proposed_projects
-set substation_connection_geom = st_multi(
-									st_makeline( 
-										ventyx_e_substn_point.the_geom,
+update	proposed_projects
+set 	connect_cost_per_mw = renewable_site_to_substation.distance_km * 1000,
+		substation_id = renewable_site_to_substation.substation_rec_id,
+		load_area = renewable_site_to_substation.load_area,
+		substation_connection_geom = st_multi(
+									st_makeline( sub_geom,
 										st_line_interpolate_point(
-											st_exteriorring( proposed_projects.the_geom ),
-											st_line_locate_point(
-												st_exteriorring( proposed_projects.the_geom ),
-												ventyx_e_substn_point.the_geom ) ) ) )
-from ventyx_e_substn_point
-where proposed_projects.substation_id = ventyx_e_substn_point.rec_id;
+											st_exteriorring( pp_geom ),
+											st_line_locate_point( st_exteriorring( pp_geom ), sub_geom ) ) ) )
+from 	renewable_site_to_substation
+where 	proposed_projects.project_id = renewable_site_to_substation.project_id
+and		is_connection_polygon = 1;
 
 
 
@@ -572,7 +573,7 @@ where proposed_projects.substation_id = ventyx_e_substn_point.rec_id;
 -- because the offshore/onshore connection point is a really small polygon instead of a point, there will be a small discontinuity in the connection geometry
 update proposed_projects
 set 	connect_cost_per_mw = proposed_projects.connect_cost_per_mw + 5 * 1000 * offshore_wind_connect_to_shore.connection_length_km,
-		the_geom = wind_farm_polygons.the_geom,
+		the_geom = multi(wind_farm_polygons.the_geom),
 		substation_connection_geom = st_union(proposed_projects.substation_connection_geom, offshore_wind_connect_to_shore.connection_line_geom)
 from 	offshore_wind_connect_to_shore, wind_farm_polygons
 where	offshore_wind_connect_to_shore.wind_farm_id = proposed_projects.original_dataset_id
@@ -590,7 +591,7 @@ create table proposed_projects_location_ids(
 	location_id serial primary key,
 	project_id_bio int references proposed_projects (project_id);
 	
-SELECT AddGeometryColumn ('public','proposed_projects_location_ids','the_geom',4326,'POLYGON',2);
+SELECT AddGeometryColumn ('public','proposed_projects_location_ids','the_geom',4326,'MULTIPOLYGON',2);
 
 CREATE INDEX proposed_projects_location_ids_geom_index
   ON proposed_projects_location_ids
@@ -604,7 +605,6 @@ update proposed_projects
 	set location_id = proposed_projects_location_ids.location_id
 	from proposed_projects_location_ids
 	where 	proposed_projects.the_geom = proposed_projects_location_ids.the_geom
-	and		proposed_projects.the_geom && proposed_projects_location_ids.the_geom
 	and 	proposed_projects_location_ids.the_geom is not null;
 
 -- add location_ids for biomass and biogas as the non-ccs and ccs versions of biomass and biogas are resource constrained by location 
@@ -627,7 +627,8 @@ COPY
 		capacity_limit_conversion,
 		connect_cost_per_mw,
 		location_id
-from proposed_projects )
+from proposed_projects
+order by project_id)
 TO 'DatabasePrep/proposed_projects.csv'
 WITH 	CSV
 		HEADER;

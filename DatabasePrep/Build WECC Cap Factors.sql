@@ -800,7 +800,8 @@ CREATE VIEW existing_intermittent_plant_cap_factor as
   SELECT cp.project_id, load_area, technology, hour, cap_factor
     FROM _existing_intermittent_plant_cap_factor cp join existing_plants using (project_id);
 
-insert into _existing_intermittent_plant_cap_factor
+-- US Existing Wind
+insert into _existing_intermittent_plant_cap_factor (project_id, area_id, hour, cap_factor)
 SELECT      existing_plants.project_id,
             existing_plants.area_id,
             hournum as hour,
@@ -808,8 +809,36 @@ SELECT      existing_plants.project_id,
     from    existing_plants, 
             3tier.windfarms_existing_cap_factor
     where   technology = 'Wind_EP'
-    and		concat('Wind_EP', '_', 3tier.windfarms_existing_cap_factor.windfarm_existing_id) = existing_plants.plant_name;
+    and		concat('Wind_EP_', 3tier.windfarms_existing_cap_factor.windfarm_existing_id) = existing_plants.plant_name;
 
+-- Canada Existing Wind
+drop table if exists can_existing_wind_hourly_import;
+create table can_existing_wind_hourly_import (
+	windfarm_existing_id int,
+	datetime_utc datetime,
+	cap_factor float,
+	primary key (windfarm_existing_id, datetime_utc),
+	index windfarm_existing_id (windfarm_existing_id),
+	index datetime_utc (datetime_utc) );
+
+load data local infile
+	'/Volumes/switch/Models/GIS/Canada_Wind_AWST/windfarms_canada_existing_cap_factor.csv'
+	into table can_existing_wind_hourly_import
+	fields terminated by	','
+	optionally enclosed by '"'
+	ignore 1 lines;
+	
+insert into _existing_intermittent_plant_cap_factor (project_id, area_id, hour, cap_factor)
+SELECT      project_id,
+            area_id,
+            hournum as hour,
+            i.cap_factor
+    from    can_existing_wind_hourly_import i 
+    join	hours using (datetime_utc)
+	join	existing_plants e on (e.plant_name = concat('Wind_EP_Can_', i.windfarm_existing_id) )
+    where   technology = 'Wind_EP';
+
+drop table can_existing_wind_hourly_import;
 
 -- HYDRO-------------------
 -- made in 'build existing plants table.sql'
@@ -1057,7 +1086,7 @@ insert into _proposed_projects (technology_id, technology, area_id,
 	and		load_area_info.area_id = resource_limited_ccs_load_area_projects.area_id;
 
 
--- add geothermal replacements projects that will be constrained to replace existing cogen projects by ep_project_replacement_id
+-- add geothermal replacements projects that will be constrained to replace existing projects by ep_project_replacement_id
 -- the capacity limit of these projects is the same as for the plant they're replacing
 insert into _proposed_projects (original_dataset_id, technology_id, technology, area_id, capacity_limit, ep_project_replacement_id,
 								connect_cost_per_mw, price_and_dollar_year, overnight_cost, fixed_o_m, variable_o_m, heat_rate, overnight_cost_change)
@@ -1272,7 +1301,7 @@ CREATE VIEW cap_factor_intermittent_sites as
     join load_area_info using (load_area);
     
     
--- includes Wind and Offshore_Wind
+-- includes Wind and Offshore_Wind in the US
 select 'Compiling Wind' as progress;
 insert into _cap_factor_intermittent_sites
 SELECT      proposed_projects.project_id,
@@ -1282,6 +1311,37 @@ SELECT      proposed_projects.project_id,
             3tier.wind_farm_power_output
     where   technology in ('Wind', 'Offshore_Wind')
     and		proposed_projects.original_dataset_id = 3tier.wind_farm_power_output.wind_farm_id;
+
+-- Canadian wind.. it's all onshore
+drop table if exists windfarms_canada_hourly_cap_factor;
+create table windfarms_canada_hourly_cap_factor (
+	id int,
+	datetime_utc datetime,
+	cap_factor float,
+	primary key (id, datetime_utc),
+	index id (id),
+	index datetime_utc (datetime_utc) );
+	
+
+load data local infile
+	'/Volumes/switch/Models/GIS/Canada_Wind_AWST/windfarms_canada_hourly_cap_factor.csv'
+	into table windfarms_canada_hourly_cap_factor
+	fields terminated by	','
+	optionally enclosed by '"'
+	lines terminated by "\r"
+	ignore 1 lines;
+
+-- NOTE: the gen_info_project_id right now determines if the wind is Canadian or not... should be made more robust in the future...
+insert into _cap_factor_intermittent_sites (project_id, hour, cap_factor)
+SELECT      proposed_projects.project_id,
+            hournum as hour,
+            cap_factor
+    from    proposed_projects
+    join	windfarms_canada_hourly_cap_factor on (original_dataset_id = id)
+    join	hours using (datetime_utc)
+    WHERE	technology = 'Wind'
+    and		gen_info_project_id between 28512 and 28512 + 47;
+
 
 -- REMOVE when CSP_Trough_6h_Storage is finished in SAM
 -- these cap factors for some reason don't have the 31st of December, 2004... as long as this isnt sampled,
@@ -1397,7 +1457,7 @@ create table rank_table (
 	);
 
 insert into rank_table (project_id, technology_id, avg_MW)
-	select project_id, technology_id, capacity_limit * capacity_limit_conversion * avg_cap_factor_intermittent as avg_MW from _proposed_projects
+	select project_id, technology_id, capacity_limit * IF(capacity_limit_conversion is null, 1, capacity_limit_conversion) * avg_cap_factor_intermittent as avg_MW from _proposed_projects
 	where avg_cap_factor_intermittent is not null
 	order by technology_id, avg_cap_factor_intermittent;
 
@@ -1468,7 +1528,7 @@ create table cumulative_gen_load_area_table (
 
 insert into cumulative_gen_load_area_table (project_id, technology_id, area_id, avg_MW)
 	select 	project_id, technology_id, area_id,
-			capacity_limit * capacity_limit_conversion * avg_cap_factor_intermittent as avg_MW
+			capacity_limit * IF(capacity_limit_conversion is null, 1, capacity_limit_conversion) * avg_cap_factor_intermittent as avg_MW
 		from _proposed_projects
 		where avg_cap_factor_intermittent is not null
 		order by technology_id, area_id, avg_cap_factor_intermittent;

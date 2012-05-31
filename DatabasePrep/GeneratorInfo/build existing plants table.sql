@@ -846,7 +846,7 @@ CREATE TABLE existing_plants_agg(
 	UNIQUE (plant_name, eia_id, primemover, cogen, fuel, start_year)
 );
 
--- add existing windfarms
+-- add existing US windfarms
 insert into existing_plants_agg (technology, load_area, plant_name, eia_id, start_year,
 								primemover, cogen, fuel, capacity_MW, heat_rate, cogen_thermal_demand_mmbtus_per_mwh)
 select 	'Wind_EP' as technology,
@@ -861,6 +861,17 @@ select 	'Wind_EP' as technology,
 		0 as heat_rate,
 		0 as cogen_thermal_demand_mmbtus_per_mwh
 from 	3tier.windfarms_existing_info_wecc;
+
+-- add existing Canada windfarms
+-- made in script 'canadian_wind.sql' - see this script to change existing canadian wind
+load data local infile
+	'/Volumes/switch/Models/GIS/Canada_Wind_AWST/windfarms_canada_existing_info.csv'
+	into table existing_plants_agg
+	fields terminated by	','
+	optionally enclosed by '"'
+	ignore 1 lines
+	(technology, load_area, plant_name, eia_id, start_year, primemover, cogen, fuel, capacity_mw, heat_rate, cogen_thermal_demand_mmbtus_per_mwh);
+
 
 -- add hydro to existing plants
 -- we don't define an id for canadian plants (default 0) - they do have a name at least 
