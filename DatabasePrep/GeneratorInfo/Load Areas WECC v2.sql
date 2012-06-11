@@ -277,8 +277,10 @@ create table wecc_trans_lines(
 	distances_along_existing_lines_km double precision,
 	transmission_length_km double precision,
 	existing_transfer_capacity_mw double precision default 0,
+	existing_susceptance int default 0,
 	transmission_efficiency double precision,
-	new_transmission_builds_allowed smallint default 1
+	new_transmission_builds_allowed smallint default 1,
+	first_line_direction int default 0,
 	dc_line smallint default 0
 );
 
@@ -337,7 +339,7 @@ update wecc_trans_lines	set transmission_length_km =
 		ELSE distances_along_existing_lines_km END;
 
 
--- TRANSFER CAPACITY AND SUSCEPTANCE -----
+-- TRANSFER CAPACITY
 -- add approximate single circuit transfer capacites for lines that cross load area borders
 -- this data comes primarly from the WREZ excel transmission planning model which can be found at
 -- /Volumes/1TB_RAID/Models/Switch_Input_Data/Transmission/GTMWG\ Version\ 2_0\ June\ 2009.xlsm
@@ -361,30 +363,6 @@ insert into transmission_line_average_rated_capacities (voltage_kv, volt_class, 
 	(345, '345', 750),
 	(500, '500', 1500);
 	
-
--- now add in the average reactance and resistance values per km from ferc 715 data
--- 100MVA system base, so to convert reactances from per unit quantities to ohms, multiply by Zbase= voltage^2/MVAbase,
--- st is 'in service'
--- dividing by 1.609344 converts from miles (the native unit of length here) to km
-update transmission_line_average_rated_capacities 
-set resistance_ohms_per_km = f715_resist_react.resistance_ohms_per_km,
-	reactance_ohms_per_km = f715_resist_react.reactance_ohms_per_km
-from
-	( select * from 
-		(select bus1_kv as voltage_kv,
-			avg(resist*(bus1_kv*1000)^2/(length*100000000))/1.609344 as resistance_ohms_per_km,
-			avg(react*(bus1_kv*1000)^2/(length*100000000))/1.609344 as reactance_ohms_per_km,
-			count(*) as cnt
-		from wecc_f715_branch_info_pk
-		where rate1 > 0
-		and length > 10
-		and react > 0
-		and resist > 0
-		and st = 1
-		group by bus1_kv order by bus1_kv) as foo
-		where cnt > 10 ) as f715_resist_react
-where transmission_line_average_rated_capacities.voltage_kv = f715_resist_react.voltage_kv
-	;
 
 -- dc lines won't match on voltage
 -- get the Pacific DC line capacity and length
@@ -413,7 +391,7 @@ set existing_transfer_capacity_mw = existing_transfer_capacity_mw_voltage_kv
 from 
 	( select 	load_area_start,
 				load_area_end,
-				sum( num_lines * rated_capacity_mw ) as existing_transfer_capacity_mw_voltage_kv
+				sum( num_lines * rated_capacity_mw ) as existing_transfer_capacity_mw_voltage_kv,
 	from wecc_trans_lines_that_cross_load_area_borders
 	join transmission_line_average_rated_capacities using (voltage_kv)
 	where wecc_trans_lines_that_cross_load_area_borders.volt_class != 'DC Line'
@@ -432,19 +410,67 @@ from
 	join (select volt_class, avg(rated_capacity_mw) as rated_capacity_mw from transmission_line_average_rated_capacities group by volt_class) as volt_class_agg using (volt_class)
 	where wecc_trans_lines_that_cross_load_area_borders.voltage_kv not in (select voltage_kv from transmission_line_average_rated_capacities)
 	and	wecc_trans_lines_that_cross_load_area_borders.volt_class != 'DC Line'
-	group by load_area_start, load_area_end) as cap_volt_class
+	group by load_area_start, load_area_end ) as cap_volt_class
 where 	wecc_trans_lines.load_area_start = cap_volt_class.load_area_start
 and		wecc_trans_lines.load_area_end = cap_volt_class.load_area_end;
 
--- each line needs to have the same capacity in both directions, which is the sum of the lines in each direction
+
+
+-- SUSCEPTANCE
+-- now add in the average reactance and resistance values per km from ferc 715 data to the transmission_line_average_rated_capacities table
+-- 100MVA system base, so to convert reactances from per unit quantities to ohms, multiply by Zbase= voltage^2/MVAbase,
+-- st is 'in service'
+-- dividing by 1.609344 converts from miles (the native unit of length here) to km
+update transmission_line_average_rated_capacities 
+set resistance_ohms_per_km = f715_resist_react.resistance_ohms_per_km,
+	reactance_ohms_per_km = f715_resist_react.reactance_ohms_per_km
+from
+	( select * from 
+		(select bus1_kv as voltage_kv,
+			avg(resist*(bus1_kv*1000)^2/(length*100000000))/1.609344 as resistance_ohms_per_km,
+			avg(react*(bus1_kv*1000)^2/(length*100000000))/1.609344 as reactance_ohms_per_km,
+			count(*) as cnt
+		from wecc_f715_branch_info_pk
+		where rate1 > 0
+		and length > 10
+		and react > 0
+		and resist > 0
+		and st = 1
+		group by bus1_kv order by bus1_kv) as foo
+		where cnt > 10 ) as f715_resist_react
+where transmission_line_average_rated_capacities.voltage_kv = f715_resist_react.voltage_kv
+	;
+
+
+-- add susceptance of lines
+-- SWITCH uses a 1MVA base, so to get the susceptance of each line in SWITCH per unit, multiply by the square of line voltage and divide by 1MVA
+update wecc_trans_lines
+set existing_susceptance = existing_susceptance_volt_class
+from 
+	( select 	load_area_start,
+				load_area_end,
+				round( sum( ( ( wecc_trans_lines_that_cross_load_area_borders.voltage_kv * 1000 )^2 / 1000000 )
+					* num_lines / ( reactance_ohms_per_km * transmission_length_km ) ) ) as existing_susceptance_volt_class	
+	from wecc_trans_lines_that_cross_load_area_borders
+	join wecc_trans_lines using (load_area_start, load_area_end)
+	join transmission_line_average_rated_capacities using (volt_class)
+	where wecc_trans_lines_that_cross_load_area_borders.volt_class != 'DC Line'
+	and wecc_trans_lines_that_cross_load_area_borders.voltage_kv > 0
+	group by load_area_start, load_area_end ) as susceptance_table
+where 	wecc_trans_lines.load_area_start = susceptance_table.load_area_start
+and		wecc_trans_lines.load_area_end = susceptance_table.load_area_end;
+
+
+
+-- each line needs to have the same capacity and susceptance in both directions, which is the sum of the lines in each direction
 -- (the 'direction' of each line is arbitrary - power can flow either way on any line)
 update wecc_trans_lines w1
 set existing_transfer_capacity_mw = w1.existing_transfer_capacity_mw + w2.existing_transfer_capacity_mw,
+	existing_susceptance = w1.existing_susceptance + w2.existing_susceptance,
 	dc_line = case when ( w1.dc_line = 1 or w2.dc_line = 1 ) then 1 else 0 end
 from wecc_trans_lines w2
 where 	w1.load_area_start = w2.load_area_end
 and		w1.load_area_end = w2.load_area_start;
-
 
 
 -- calculate losses as 1 percent losses per 100 miles or 1 percent per 160.9344 km (reference from ReEDS Solar Vision Study documentation)
@@ -492,24 +518,48 @@ where (load_area_end, load_area_start) not in
 	( select load_area_start, load_area_end from wecc_trans_lines_for_export);
 
 
+-- add a flag for if one direction of a line's transmission_line_id is less than the other direction
+-- this will be used to define DC load flow constraints in AMPL 
+update wecc_trans_lines
+set first_line_direction = 1
+from
+	(select load_area_start,
+			load_area_end,
+			min(transmission_line_id) as transmission_line_id
+		from
+		(	select 	load_area_start,
+ 					load_area_end,
+ 					transmission_line_id
+ 				from wecc_trans_lines
+			UNION
+			select 	load_area_end as load_area_start,
+ 					load_area_start as load_area_end,
+ 					transmission_line_id
+ 				from wecc_trans_lines
+		) as id_table
+	group by load_area_start, load_area_end
+	order by 3) as min_id_table
+where wecc_trans_lines.transmission_line_id = min_id_table.transmission_line_id;
 
 
 
-
+-- export the data to mysql
 COPY 
 (select	transmission_line_id,
 		load_area_start,
 		load_area_end,
 		existing_transfer_capacity_mw,
+		existing_susceptance,
 		transmission_length_km,
 		transmission_efficiency,
-		new_transmission_builds_allowed
+		new_transmission_builds_allowed,
+		first_line_direction,
+		dc_line
 	from 	wecc_trans_lines
 	order by load_area_start, load_area_end)
 TO 		'/Volumes/1TB_RAID/Models/Switch\ Input\ Data/Transmission/wecc_trans_lines.csv'
 WITH 	CSV
 		HEADER;
-
 
 
 -- NERC SUBREGIONS---------------
