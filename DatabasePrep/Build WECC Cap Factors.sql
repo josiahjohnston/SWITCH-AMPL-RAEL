@@ -259,17 +259,13 @@ load data local infile
 -- ---------------------------------------------------------------------
 select 'Copying Generator and Fuel Info' as progress;
 
-DROP TABLE IF EXISTS generator_info;
-create table generator_info (
-	technology_id tinyint unsigned NOT NULL PRIMARY KEY,
+DROP TABLE IF EXISTS generator_info_v2;
+create table generator_info_v2 (
+	gen_info_scenario_id int unsigned NOT NULL,
+	technology_id tinyint unsigned NOT NULL,
 	technology varchar(64) UNIQUE,
-	price_and_dollar_year year,
-	min_build_year year,
+	min_online_year year,
 	fuel varchar(64),
-	overnight_cost float,
-	fixed_o_m float,
-	variable_o_m float,
-	overnight_cost_change float,
 	connect_cost_per_mw_generic float,
 	heat_rate float,
 	construction_time_years float,
@@ -301,61 +297,287 @@ create table generator_info (
 	deep_cycling_penalty float,
 	startup_mmbtu_per_mw float,
 	startup_cost_dollars_per_mw float,
-	Data_Source varchar(512),
-	index techology_id_name (technology_id, technology)
+	data_source_and_notes varchar(512),
+	index techology_id_name (technology_id, technology),
+	PRIMARY KEY (gen_info_scenario_id, technology_id)
 );
 
 load data local infile
-	'GeneratorInfo/generator_costs.csv'
-	into table generator_info
+	'./GeneratorInfo/generator_info.csv'
+	into table generator_info_v2
 	fields terminated by	','
 	optionally enclosed by '"'
 	lines terminated by '\r'
 	ignore 1 lines;
 
 
--- create a view for backwards compatibility - the tech ids are the important part
-use generator_info;
-DROP VIEW IF EXISTS generator_costs;
-CREATE VIEW generator_costs as select * from switch_inputs_wecc_v2_2.generator_info;
-use switch_inputs_wecc_v2_2;
+DROP TABLE IF EXISTS generator_costs_5yearly;
+create table generator_costs_5yearly (
+	gen_costs_scenario_id int NOT NULL,
+	technology varchar(64) NOT NULL,
+	year year,
+	overnight_cost float,
+	fixed_o_m float,
+	var_o_m float,
+	PRIMARY KEY (gen_costs_scenario_id, technology, year)
+);
+
+load data local infile
+	'./GeneratorInfo/generator_costs.csv'
+	into table generator_costs_5yearly
+	fields terminated by	','
+	optionally enclosed by '"'
+	lines terminated by '\r'
+	ignore 1 lines;
+
+-- Now calculate costs for each year from 5-yearly data
+
+-- little procedure to do the same thing that generate series does in postgresql to get us years until 2050
+drop table if exists 2010_to_2050;
+create table 2010_to_2050 (
+year year);
+
+DROP PROCEDURE IF EXISTS generate_year_series_to_2050;
+DELIMITER $$
+create procedure generate_year_series_to_2050()
+BEGIN
+
+declare max_year year default 2010;
+
+WHILE max_year <= 2050 DO
+
+insert into 2010_to_2050 (year)
+select max_year;
+
+set max_year = max_year + 1;
+
+END WHILE;
+END;
+$$
+DELIMITER ;
+
+-- actually call the procedure
+call generate_year_series_to_2050();
+drop procedure generate_year_series_to_2050;
+
+-- create final table with interpolated costs for each year
+drop table if exists generator_costs_yearly;
+create table generator_costs_yearly (
+	gen_costs_scenario_id int NOT NULL,
+	technology varchar(64) NOT NULL,
+	year year,
+	overnight_cost float,
+	fixed_o_m float,
+	var_o_m float,
+	PRIMARY KEY (gen_costs_scenario_id, technology, year)
+);
+
+-- insert technology-year combinations in yearly gen costs table
+insert into generator_costs_yearly (technology, gen_costs_scenario_id, year)
+select 	distinct(technology),
+		gen_costs_scenario_id,
+	   	2010_to_2050.year
+from	generator_costs_5yearly, 2010_to_2050;
+		
+-- add all the years with cost data available
+update generator_costs_yearly, generator_costs_5yearly
+set generator_costs_yearly.overnight_cost = generator_costs_5yearly.overnight_cost,
+	generator_costs_yearly.fixed_o_m = generator_costs_5yearly.fixed_o_m,
+	generator_costs_yearly.var_o_m = generator_costs_5yearly.var_o_m
+where 	generator_costs_yearly.year = generator_costs_5yearly.year
+and		generator_costs_yearly.technology = generator_costs_5yearly.technology
+and		generator_costs_yearly.year = generator_costs_5yearly.year
+and		generator_costs_yearly.gen_costs_scenario_id = generator_costs_5yearly.gen_costs_scenario_id;
 
 
--- add generator_price_scenarios to be able to easily change the capital costs of generators
-CREATE TABLE IF NOT EXISTS generator_price_scenarios (
-	gen_price_scenario_id mediumint unsigned PRIMARY KEY AUTO_INCREMENT,
+-- linear interpolation procedure to get us costs for all the years in between years with cost projections
+
+DROP PROCEDURE IF EXISTS calculate_yearly_generator_costs;
+DELIMITER $$
+CREATE PROCEDURE calculate_yearly_generator_costs()
+BEGIN
+
+drop table if exists gen_scenario_ids;
+create table gen_scenario_ids (gen_costs_scenario_id int);
+insert into gen_scenario_ids (gen_costs_scenario_id) select distinct(gen_costs_scenario_id) from generator_costs_yearly;
+
+-- iterate over generator costs scenarios (remove this loop if you only want to update one scenario)
+
+gen_scenario_ids_loop: LOOP
+
+set @current_gen_costs_scenario_id := (select gen_costs_scenario_id from gen_scenario_ids limit 1);
+
+drop table if exists technologies;
+create table technologies (technology varchar(64));
+insert into technologies (technology) select distinct(technology) from generator_costs_yearly;
+
+-- iterate over technologies
+
+technologies_loop: LOOP
+
+set @current_technology := (select technology from technologies limit 1);
+
+drop table if exists generator_costs_temp_calculation_table;
+create table generator_costs_temp_calculation_table(
+technology varchar(64),
+year year,
+year_id int AUTO_INCREMENT PRIMARY KEY,
+previous_year_with_cost_data year,
+overnight_cost_difference_from_previous_available_year decimal,
+overnight_cost_yearly_difference_from_previous_available_year decimal,
+fixed_o_m_cost_difference_from_previous_available_year decimal,
+fixed_o_m_cost_yearly_difference_from_previous_available_year decimal,
+var_o_m_cost_difference_from_previous_available_year decimal,
+var_o_m_cost_yearly_difference_from_previous_available_year decimal,
+UNIQUE INDEX (technology, year)
+);
+
+insert into generator_costs_temp_calculation_table (technology, year)
+select technology, year from generator_costs_5yearly
+where	technology = @current_technology
+and		gen_costs_scenario_id = @current_gen_costs_scenario_id;
+
+-- for each year with cost data, figure out which is the previous year with cost data to start calculating from
+update generator_costs_temp_calculation_table,
+       (select year, year_id from generator_costs_temp_calculation_table) as year_id_table
+set previous_year_with_cost_data = year_id_table.year
+where generator_costs_temp_calculation_table.year_id = year_id_table.year_id + 1;
+
+-- calculate the total difference in cost between consecutive years with cost data
+update generator_costs_temp_calculation_table join
+			(	select year, overnight_cost, fixed_o_m, var_o_m
+				from generator_costs_5yearly
+				where	technology=@current_technology
+				and		gen_costs_scenario_id = @current_gen_costs_scenario_id) as current_year_table
+        using (year) join
+			(	select year, overnight_cost, fixed_o_m, var_o_m
+          from generator_costs_5yearly
+				where	technology=@current_technology 
+				and		gen_costs_scenario_id = @current_gen_costs_scenario_id) as previous_year_table
+        on ( previous_year_table.year = generator_costs_temp_calculation_table.previous_year_with_cost_data )
+set overnight_cost_difference_from_previous_available_year = current_year_table.overnight_cost - previous_year_table.overnight_cost,
+	fixed_o_m_cost_difference_from_previous_available_year = current_year_table.fixed_o_m - previous_year_table.fixed_o_m,
+	var_o_m_cost_difference_from_previous_available_year = current_year_table.var_o_m - previous_year_table.var_o_m
+;
+
+-- calculate the yearly difference in cost between consecutive years with cost data
+update generator_costs_temp_calculation_table
+set 	overnight_cost_yearly_difference_from_previous_available_year =
+		overnight_cost_difference_from_previous_available_year / ( year - previous_year_with_cost_data ),
+		fixed_o_m_cost_yearly_difference_from_previous_available_year =
+		fixed_o_m_cost_difference_from_previous_available_year / ( year - previous_year_with_cost_data ),
+		var_o_m_cost_yearly_difference_from_previous_available_year =
+		var_o_m_cost_difference_from_previous_available_year / ( year - previous_year_with_cost_data );
+
+-- now we will iterate over years
+drop table if exists years;
+create table years (year year);
+insert into years (year) select distinct(year) from generator_costs_yearly;
+
+years_loop: LOOP
+
+set @current_year := ( select year from years LIMIT 1 );
+
+-- calculate costs for each year in the final table
+update 	generator_costs_yearly join
+		(select * from generator_costs_5yearly
+		join generator_costs_temp_calculation_table using (technology, year)
+		where gen_costs_scenario_id = @current_gen_costs_scenario_id and @current_year > previous_year_with_cost_data and @current_year < year ) as cost_data_table using(technology)
+set generator_costs_yearly.overnight_cost = cost_data_table.overnight_cost - (cost_data_table.year - @current_year ) * overnight_cost_yearly_difference_from_previous_available_year,
+	generator_costs_yearly.fixed_o_m = cost_data_table.fixed_o_m - (cost_data_table.year - @current_year ) * fixed_o_m_cost_yearly_difference_from_previous_available_year,
+	generator_costs_yearly.var_o_m = cost_data_table.var_o_m - (cost_data_table.year - @current_year ) * var_o_m_cost_yearly_difference_from_previous_available_year
+where 	generator_costs_yearly.year = @current_year
+and		generator_costs_yearly.technology = @current_technology
+and		generator_costs_yearly.gen_costs_scenario_id=@current_gen_costs_scenario_id;
+
+delete from years where year = @current_year;
+
+	IF ( select count(*) from years ) = 0 THEN LEAVE years_loop;
+	END IF;
+END LOOP years_loop;
+
+delete from technologies where technology = @current_technology;
+
+	IF ( select count(*) from technologies ) = 0 THEN LEAVE technologies_loop;
+	END IF;
+END LOOP technologies_loop;
+
+delete from gen_scenario_ids where gen_costs_scenario_id = @current_gen_costs_scenario_id;
+
+	IF ( select count(*) from gen_scenario_ids ) = 0 THEN LEAVE gen_scenario_ids_loop;
+	END IF;
+END LOOP gen_scenario_ids_loop;
+
+END;
+$$
+DELIMITER ;
+
+-- call procedure and clean up
+call calculate_yearly_generator_costs();
+drop procedure calculate_yearly_generator_costs;
+
+drop table if exists 2010_to_2050;
+drop table if exists gen_scenario_ids;
+drop table if exists technologies;
+drop table if exists years;
+drop table if exists generator_costs_temp_calculation_table;
+
+-- delete the EPs as their costs get input elsewhere
+delete from generator_costs_yearly where technology like '%_EP%' or technology like '%Hydro%';
+
+-- for CCS, make the cost at the beginning of construction for plants available in 2020 the same as in 2020
+update generator_costs_yearly
+join	( 	select  technology,
+        			overnight_cost as min_online_year_overnight_cost,
+        			fixed_o_m as min_online_year_fixed_o_m,
+        			var_o_m as min_online_year_var_o_m
+			from generator_costs_yearly
+			join ( 		select	technology,
+								min_online_year from generator_info_v2 ) as min_online_year_table
+			using(technology)
+        	where year = min_online_year
+       		and technology like '%_CCS%' ) as min_online_year_costs
+using(technology)
+join	(	select 	technology,
+					min_online_year,
+					construction_time_years
+			from generator_info_v2
+			where technology like '%_CCS%' ) as construction_times
+using (technology)
+set	overnight_cost = min_online_year_overnight_cost,
+	fixed_o_m = min_online_year_fixed_o_m,
+	var_o_m = min_online_year_var_o_m
+where	technology like '%_CCS%'
+and		year < min_online_year
+and		year >= min_online_year - construction_time_years;
+
+-- now delete NULL values for years before CCS is available
+delete generator_costs_yearly from generator_costs_yearly
+join ( 	select	technology,
+				min_online_year,
+				construction_time_years
+		from generator_info_v2 ) as min_online_year_table
+using (technology)
+where	technology like '%_CCS%'
+and		year < min_online_year - construction_time_years;
+
+
+-- add generator_assumption_scenarios to be able to easily change generator costs and other parameters
+CREATE TABLE IF NOT EXISTS generator_costs_scenarios (
+	gen_costs_scenario_id mediumint unsigned PRIMARY KEY AUTO_INCREMENT,
 	notes varchar(256) NOT NULL UNIQUE
 );
-CREATE TABLE IF NOT EXISTS  generator_price_adjuster (
-	gen_price_scenario_id mediumint unsigned NOT NULL,
-	technology_id tinyint unsigned NOT NULL,
-	overnight_adjuster float NOT NULL,
-	PRIMARY KEY (gen_price_scenario_id, technology_id)
+
+CREATE TABLE IF NOT EXISTS generator_info_scenarios (
+	gen_info_scenario_id mediumint unsigned PRIMARY KEY AUTO_INCREMENT,
+	notes varchar(256) NOT NULL UNIQUE
 );
-DELIMITER $$
-DROP FUNCTION IF EXISTS create_generator_price_scenario$$
-CREATE FUNCTION create_generator_price_scenario (notes_dat varchar(1024)) RETURNS mediumint 
-BEGIN
-	INSERT INTO generator_price_scenarios (notes) VALUES (notes_dat);
-	SELECT last_insert_id() into @gen_price_scenario_id;
-	INSERT INTO generator_price_adjuster 
-		SELECT @gen_price_scenario_id, technology_id, 1 from generator_info;
-	RETURN @gen_price_scenario_id;
-END$$
-DELIMITER $$
-DROP PROCEDURE IF EXISTS adjust_generator_price$$
-CREATE PROCEDURE adjust_generator_price (gen_scenario_id mediumint unsigned, technology_name varchar(64), capital_adjuster float)
-BEGIN
-   UPDATE generator_price_adjuster SET overnight_adjuster=capital_adjuster
-     WHERE gen_price_scenario_id=gen_scenario_id AND technology_id=(select technology_id from generator_info where technology=technology_name);
-END$$
-DELIMITER ;
 
 -- ---------------------------------------------------------------------
 --        FUELS
 -- ---------------------------------------------------------------------
-drop table if exists fuel_info;
-create table fuel_info(
+drop table if exists fuel_info_v2;
+create table fuel_info_v2(
 	fuel varchar(64),
 	rps_fuel_category varchar(10),
 	biofuel tinyint,
@@ -378,7 +600,7 @@ create table fuel_info(
 -- in the spreadsheet /Volumes/1TB_RAID/Models/GIS/Biomass/black_liquor_emissions_calc.xlsx
 -- Bio_Gas (landfill gas) is almost exactly 50:50 methane (NG) and CO2... we'll therefore use 2x the natural gas value
 
-insert into fuel_info (fuel, rps_fuel_category, carbon_content_without_carbon_accounting) values
+insert into fuel_info_v2 (fuel, rps_fuel_category, carbon_content_without_carbon_accounting) values
 	('Gas', 'fossilish', 0.05306),
 	('DistillateFuelOil', 'fossilish', 0.07315),
 	('ResidualFuelOil', 'fossilish', 0.07880),
@@ -386,17 +608,17 @@ insert into fuel_info (fuel, rps_fuel_category, carbon_content_without_carbon_ac
 	('Solar', 'renewable', 0),
 	('Bio_Solid', 'renewable', 0.094345),
 	('Bio_Liquid', 'renewable', 0.07695),
-	('Bio_Gas', 'renewable', 0.10612),
+	('Bio_Gas', 'renewable', 0.05306),
 	('Coal', 'fossilish', 0.09552),
 	('Uranium', 'fossilish', 0),
 	('Geothermal', 'renewable', 0),
 	('Water', 'fossilish', 0);
 
-update fuel_info set carbon_content = if(fuel like 'Bio%', 0, carbon_content_without_carbon_accounting);
+update fuel_info_v2 set carbon_content = if(fuel like 'Bio%', 0, carbon_content_without_carbon_accounting);
 
 -- currently we assume that CCS captures all but 15% of the carbon emissions of a plant
 -- this assumption also affects carbon_sequestered below
-insert into fuel_info (fuel, rps_fuel_category, carbon_content, carbon_content_without_carbon_accounting)
+insert into fuel_info_v2 (fuel, rps_fuel_category, carbon_content, carbon_content_without_carbon_accounting)
 select 	concat(fuel, '_CCS') as fuel,
 		rps_fuel_category,
 		if(fuel like 'Bio%',
@@ -404,12 +626,12 @@ select 	concat(fuel, '_CCS') as fuel,
 			( 0.15 * carbon_content_without_carbon_accounting )
 			) as carbon_content,
 		carbon_content_without_carbon_accounting
-	from fuel_info
+	from fuel_info_v2
 	where ( fuel like 'Bio%' or fuel in ('Gas', 'DistillateFuelOil', 'ResidualFuelOil', 'Coal') );
 
-update fuel_info set biofuel = if( fuel like 'Bio%', 1, 0 );
+update fuel_info_v2 set biofuel = if( fuel like 'Bio%', 1, 0 );
 
-update fuel_info set carbon_sequestered =
+update fuel_info_v2 set carbon_sequestered =
 	if(fuel like '%CCS', ( 1 - 0.15 ) * carbon_content_without_carbon_accounting, 0);
 
 drop table if exists fuel_qualifies_for_rps;
@@ -425,7 +647,7 @@ insert into fuel_qualifies_for_rps
 	        rps_compliance_entity,
 			rps_fuel_category,
 			if(rps_fuel_category like 'renewable', 1, 0)
-		from fuel_info, load_area_info;
+		from fuel_info_v2, load_area_info;
 
 
 -- FUEL PRICES-------------
@@ -551,7 +773,7 @@ insert into _fuel_prices (scenario_id, area_id, fuel, year, fuel_price)
 			year,
 			0 as fuel_price
 	from 	( select distinct scenario_id, area_id, year from _fuel_prices) as scenarios_areas_years,
-			fuel_info
+			fuel_info_v2
 	where 	fuel not in (select distinct fuel from _fuel_prices);
 
 -- add values for the fuel 'Storage'
@@ -570,7 +792,7 @@ SELECT _fuel_prices.scenario_id, load_area_info.area_id, load_area, fuel, year, 
     WHERE _fuel_prices.area_id = load_area_info.area_id;
 
 
--- NATURAL GAS SUPPLY CURVE
+-- NATURAL GAS PRICE ELASTICITY
 
 -- the prices in the supply curve include producer surplus
 -- the supply curves are created in postgresql -- see build_fuel_supply_cuves.sql
@@ -725,8 +947,8 @@ load data local infile
 -- made in 'build existing plants table.sql'
 select 'Copying existing_plants' as progress;
 
-drop table if exists existing_plants;
-CREATE TABLE existing_plants (
+drop table if exists existing_plants_v2;
+CREATE TABLE existing_plants_v2 (
     project_id int unsigned PRIMARY KEY,
 	load_area varchar(11) NOT NULL,
  	technology varchar(64) NOT NULL,
@@ -746,7 +968,6 @@ CREATE TABLE existing_plants (
 	variable_o_m double NOT NULL,
 	forced_outage_rate double NOT NULL,
 	scheduled_outage_rate double NOT NULL,
-	ep_location_id int unsigned default 0,
 	UNIQUE (technology, plant_name, eia_id, primemover, fuel, start_year),
 	INDEX area_id (area_id),
 	FOREIGN KEY (area_id) REFERENCES load_area_info(area_id), 
@@ -754,7 +975,7 @@ CREATE TABLE existing_plants (
 );
 
  -- The << operation moves the numeric form of the letter "E" (for existing plants) over by 3 bytes, effectively making its value into the most significant digits.
-insert into existing_plants (project_id, load_area, technology, ep_id, area_id, plant_name, eia_id,
+insert into existing_plants_v2 (project_id, load_area, technology, ep_id, area_id, plant_name, eia_id,
 								primemover, fuel, capacity_mw, heat_rate, cogen_thermal_demand_mmbtus_per_mwh, start_year,
 								overnight_cost, connect_cost_per_mw, fixed_o_m, variable_o_m, forced_outage_rate, scheduled_outage_rate )
 	select 	e.ep_id + (ascii( 'E' ) << 8*3),
@@ -770,14 +991,15 @@ insert into existing_plants (project_id, load_area, technology, ep_id, area_id, 
 			e.heat_rate,
 			e.cogen_thermal_demand_mmbtus_per_mwh,
 			e.start_year,
-			g.overnight_cost * economic_multiplier,
+			c.overnight_cost * economic_multiplier,
 			g.connect_cost_per_mw_generic * economic_multiplier,		
-			g.fixed_o_m * economic_multiplier,
-			g.variable_o_m * economic_multiplier,
+			c.fixed_o_m * economic_multiplier,
+			c.var_o_m * economic_multiplier,
 			g.forced_outage_rate,
 			g.scheduled_outage_rate
 			from generator_info.existing_plants_agg e
-			join generator_info g using (technology)
+			join generator_info_v2 g using (technology)
+			join generator_costs_5yearly c using (technology)
 			join load_area_info a using (load_area);
 
 			
@@ -791,25 +1013,25 @@ create table _existing_intermittent_plant_cap_factor(
 		INDEX hour (hour),
 		INDEX project_id (project_id),
 		PRIMARY KEY (project_id, hour),
-		FOREIGN KEY project_id (project_id) REFERENCES existing_plants (project_id),
+		FOREIGN KEY project_id (project_id) REFERENCES existing_plants_v2 (project_id),
 		FOREIGN KEY (area_id) REFERENCES load_area_info(area_id)
 );
 
 DROP VIEW IF EXISTS existing_intermittent_plant_cap_factor;
 CREATE VIEW existing_intermittent_plant_cap_factor as
   SELECT cp.project_id, load_area, technology, hour, cap_factor
-    FROM _existing_intermittent_plant_cap_factor cp join existing_plants using (project_id);
+    FROM _existing_intermittent_plant_cap_factor cp join existing_plants_v2 using (project_id);
 
 -- US Existing Wind
 insert into _existing_intermittent_plant_cap_factor (project_id, area_id, hour, cap_factor)
-SELECT      existing_plants.project_id,
-            existing_plants.area_id,
+SELECT      existing_plants_v2.project_id,
+            existing_plants_v2.area_id,
             hournum as hour,
             3tier.windfarms_existing_cap_factor.cap_factor
-    from    existing_plants, 
+    from    existing_plants_v2, 
             3tier.windfarms_existing_cap_factor
     where   technology = 'Wind_EP'
-    and		concat('Wind_EP_', 3tier.windfarms_existing_cap_factor.windfarm_existing_id) = existing_plants.plant_name;
+    and		concat('Wind_EP_', 3tier.windfarms_existing_cap_factor.windfarm_existing_id) = existing_plants_v2.plant_name;
 
 -- Canada Existing Wind
 drop table if exists can_existing_wind_hourly_import;
@@ -835,7 +1057,7 @@ SELECT      project_id,
             i.cap_factor
     from    can_existing_wind_hourly_import i 
     join	hours using (datetime_utc)
-	join	existing_plants e on (e.plant_name = concat('Wind_EP_Can_', i.windfarm_existing_id) )
+	join	existing_plants_v2 e on (e.plant_name = concat('Wind_EP_Can_', i.windfarm_existing_id) )
     where   technology = 'Wind_EP';
 
 drop table can_existing_wind_hourly_import;
@@ -852,13 +1074,13 @@ CREATE TABLE _hydro_monthly_limits (
   avg_output float,
   INDEX (project_id),
   PRIMARY KEY (project_id, year, month),
-  FOREIGN KEY (project_id) REFERENCES existing_plants (project_id)
+  FOREIGN KEY (project_id) REFERENCES existing_plants_v2 (project_id)
 );
 
 DROP VIEW IF EXISTS hydro_monthly_limits;
 CREATE VIEW hydro_monthly_limits as
   SELECT project_id, load_area, technology, year, month, avg_output
-    FROM _hydro_monthly_limits join existing_plants using (project_id);
+    FROM _hydro_monthly_limits join existing_plants_v2 using (project_id);
 
 -- the join is long here in an attempt to reduce the # of numeric ids flying around
 insert into hydro_monthly_limits (project_id, year, month, avg_output )
@@ -868,7 +1090,7 @@ insert into hydro_monthly_limits (project_id, year, month, avg_output )
 	  month,
 	  avg_output
 	from generator_info.hydro_monthly_limits
-	join existing_plants using (load_area, plant_name, eia_id, start_year, capacity_mw)
+	join existing_plants_v2 using (load_area, plant_name, eia_id, start_year, capacity_mw)
 	where fuel = 'Water';
 
 
@@ -900,8 +1122,8 @@ load data local infile
 	ignore 1 lines;	
 
 
-drop table if exists _proposed_projects;
-CREATE TABLE _proposed_projects (
+drop table if exists _proposed_projects_v2;
+CREATE TABLE _proposed_projects_v2 (
   project_id int unsigned default NULL,
   gen_info_project_id mediumint unsigned PRIMARY KEY AUTO_INCREMENT,
   technology_id tinyint unsigned NOT NULL,
@@ -913,13 +1135,8 @@ CREATE TABLE _proposed_projects (
   capacity_limit float DEFAULT NULL,
   capacity_limit_conversion float DEFAULT NULL,
   connect_cost_per_mw float,
-  price_and_dollar_year year(4),
-  overnight_cost float,
-  fixed_o_m float,
-  variable_o_m float,
   heat_rate float default 0,
   cogen_thermal_demand float default 0,
-  overnight_cost_change float,
   avg_cap_factor_intermittent float default NULL,
   avg_cap_factor_percentile_by_intermittent_tech float default NULL,
   cumulative_avg_MW_tech_load_area float default NULL,
@@ -936,17 +1153,16 @@ CREATE TABLE _proposed_projects (
   UNIQUE (technology_id, original_dataset_id, area_id),
   UNIQUE (technology_id, location_id, ep_project_replacement_id, area_id),
   FOREIGN KEY (area_id) REFERENCES load_area_info(area_id), 
-  FOREIGN KEY (technology_id) REFERENCES generator_info (technology_id)
+  FOREIGN KEY (technology_id) REFERENCES generator_info_v2 (technology_id)
 ) ROW_FORMAT=FIXED;
 
 -- the capacity limit is either in MW if the capacity_limit_conversion is 1, or in other units if the capacity_limit_conversion is nonzero
 -- so for CSP and central PV the limit is expressed in land area, not MW
 -- The << operation moves the numeric form of the letter "G" (for generators) over by 3 bytes, effectively making its value into the most significant digits.
 -- change to 'P' on a complete rebuild of the database to make this more clear
-insert into _proposed_projects
+insert into _proposed_projects_v2
 	(project_id, gen_info_project_id, technology_id, technology, area_id, location_id, original_dataset_id,
-	capacity_limit, capacity_limit_conversion, connect_cost_per_mw, price_and_dollar_year,
-	overnight_cost, fixed_o_m, variable_o_m, heat_rate, overnight_cost_change )
+	capacity_limit, capacity_limit_conversion, connect_cost_per_mw, heat_rate )
 	select  project_id + (ascii( 'G' ) << 8*3) as project_id,
 	        project_id as gen_info_project_id,
 	        technology_id,
@@ -957,13 +1173,8 @@ insert into _proposed_projects
 			capacity_limit,
 			capacity_limit_conversion,
 			(connect_cost_per_mw + connect_cost_per_mw_generic) * economic_multiplier  as connect_cost_per_mw,
-    		price_and_dollar_year,  
-   			overnight_cost * economic_multiplier       as overnight_cost,
-    		fixed_o_m * economic_multiplier            as fixed_o_m,
-    		variable_o_m * economic_multiplier         as variable_o_m,
-    		heat_rate,
-   			overnight_cost_change			
-	from proposed_projects_import join generator_info using (technology) join load_area_info using (load_area)
+    		heat_rate			
+	from proposed_projects_import join generator_info_v2 using (technology) join load_area_info using (load_area)
 	order by 2;
 
 
@@ -972,28 +1183,27 @@ insert into _proposed_projects
 -- due to a (minor) error in postgresql, the generator availability isn't taken into account, so the MW of capacity multiplication will result in the correct MMBtu per hour per load area
 alter table load_area_info add column bio_gas_capacity_limit_mmbtu_per_hour float default 0;
 
-update load_area_info join proposed_projects using (load_area) join generator_info using (technology)
+update load_area_info join proposed_projects_v2 using (load_area)
 	set 	bio_gas_capacity_limit_mmbtu_per_hour = capacity_limit
 	where	technology = 'Bio_Gas'
 
 -- we've changed how bio projects are done since proposed projects was done in postgresql
 -- so update _proposed_projects to be consistent here
-update _proposed_projects
+update _proposed_projects_v2
 set		location_id = null,
 		capacity_limit = null
 where	technology like 'Bio%';
 
-update _proposed_projects
+update _proposed_projects_v2
 set		capacity_limit_conversion = null
 where	capacity_limit_conversion = 1;
 
 
 -- add CAES for Canada and Mexico - we didn't have shapefiles for CAES geology in these areas but it is very likely that their is ample caes potential
 -- this should be cleaned up in Postgresql eventually
-insert into _proposed_projects
+insert into _proposed_projects_v2
 	(technology_id, technology, area_id, location_id, original_dataset_id,
-	capacity_limit, connect_cost_per_mw, price_and_dollar_year,
-	overnight_cost, fixed_o_m, variable_o_m, heat_rate, overnight_cost_change )
+	capacity_limit, connect_cost_per_mw, heat_rate )
 	select  technology_id,
 	        technology,
 			area_id,
@@ -1001,142 +1211,94 @@ insert into _proposed_projects
 			0 as original_dataset_id,
 			100000 as capacity_limit,
 			connect_cost_per_mw_generic * economic_multiplier  as connect_cost_per_mw,
-    		price_and_dollar_year,  
-   			overnight_cost * economic_multiplier       as overnight_cost,
-    		fixed_o_m * economic_multiplier            as fixed_o_m,
-    		variable_o_m * economic_multiplier         as variable_o_m,
-    		heat_rate,
-   			overnight_cost_change			
-	from generator_info, load_area_info
+    		heat_rate			
+	from generator_info_v2, load_area_info
 where technology = 'Compressed_Air_Energy_Storage'
 and load_area in ('CAN_ALB', 'CAN_BC', 'MEX_BAJA');
-
-
-
--- UPDATE CSP COSTS - they're done differently!
--- to go backwards to aperture from mw_per_km2 (capacity_limit_conversion), use this:
--- ( pow( (sqrt( ( 1000000 * 100 ) / capacity_limit_conversion ) - 15 ), 2 ) - 15625 ) / ( 1.06315118 * 3 )
--- see proposed_projects.sql in the GIS directory for more info.
-
--- the cost of a solar thermal trough plant as a function of field area, per MW is $420/m^2 * (1 + 0.247),
--- as the indirect costs are 24.7% of the direct field costs
--- the costs in the database for CSP Trough are for sample 100MW plants,
--- with areas of 600000m^2 for CSP_Trough_No_Storage and 800000m^2 for CSP_Trough_6h_Storage,
--- so first we find the difference between the above assumed area and the calculated area (the third and forth lines),
--- then divide the difference by 100 to get the per MW cost difference
--- then multiply by 420 * (1 + 0.247) to find the difference in cost from the reference,
--- then finally add the reference cost to obtain the total CSP Trough cost
-
-update _proposed_projects set overnight_cost = 
-		overnight_cost + 420 * (1 + 0.247) *
-		( ( ( pow( (sqrt( ( 1000000 * 100 ) / capacity_limit_conversion ) - 15 ), 2 ) - 15625 ) / ( 1.06315118 * 3 )
-		- if( technology = 'CSP_Trough_No_Storage', 600000, 800000 ) ) / 100 ) 
-where technology in ('CSP_Trough_No_Storage', 'CSP_Trough_6h_Storage');
 
 -- Insert "generic" projects that can be built almost anywhere.
 -- Note, project_id is automatically set here because it is an autoincrement column. The renewable proposed_projects with ids set a-priori need to be imported first to avoid unique id conflicts.
  -- The << operation moves the numeric form of the letter "G" (for generic projects) over by 3 bytes, effectively making its value into the most significant digits.
-insert into _proposed_projects
-	(technology_id, technology, area_id, connect_cost_per_mw, price_and_dollar_year,
-	overnight_cost, fixed_o_m, variable_o_m, heat_rate, overnight_cost_change )
+insert into _proposed_projects_v2
+	(technology_id, technology, area_id, connect_cost_per_mw, heat_rate )
     select 	technology_id,
     		technology,
     		area_id,
     		connect_cost_per_mw_generic * economic_multiplier as connect_cost_per_mw,
-    		price_and_dollar_year,  
-   			overnight_cost * economic_multiplier as overnight_cost,
-    		fixed_o_m * economic_multiplier as fixed_o_m,
-    		variable_o_m * economic_multiplier as variable_o_m,
-    		heat_rate,
-   			overnight_cost_change
-    from 	generator_info,
+    		heat_rate
+    from 	generator_info_v2,
 			load_area_info
-	where   generator_info.can_build_new  = 1 and 
-	        generator_info.resource_limited = 0
+	where   generator_info_v2.can_build_new  = 1 and 
+	        generator_info_v2.resource_limited = 0
 	order by 1,3;
 
 -- regional generator restrictions: Coal and Nuclear can't be built in CA.
-delete from _proposed_projects
- 	where 	(technology_id in (select technology_id from generator_info where fuel in ('Uranium', 'Coal', 'Coal_CCS')) and
+delete from _proposed_projects_v2
+ 	where 	(technology_id in (select technology_id from generator_info_v2 where fuel in ('Uranium', 'Coal', 'Coal_CCS')) and
 			area_id in (select area_id from load_area_info where primary_nerc_subregion like 'CA'));
 
 -- add new Biomass_IGCC_CCS and Bio_Gas_CCS projects that aren't cogen... we'll add cogen CCS elsewhere
 -- neither capacity_limit nor capacity_limit_conversion show up here - they'll be null in the database
 -- because these projects will be capacity constrained by bio_fuel_limit_by_load_area instead
-insert into _proposed_projects (technology_id, technology, area_id,
-								connect_cost_per_mw, price_and_dollar_year, overnight_cost, fixed_o_m, variable_o_m, heat_rate, overnight_cost_change)
+insert into _proposed_projects_v2 (technology_id, technology, area_id,
+								connect_cost_per_mw, heat_rate)
    select 	technology_id,
     		technology,
     		load_area_info.area_id,
     		connect_cost_per_mw_generic * economic_multiplier as connect_cost_per_mw,
-    		price_and_dollar_year,  
-   			overnight_cost * economic_multiplier as overnight_cost,
-    		fixed_o_m * economic_multiplier as fixed_o_m,
-    		variable_o_m * economic_multiplier as variable_o_m,
-    		heat_rate,
-   			overnight_cost_change
-    from 	generator_info,
+    		heat_rate
+    from 	generator_info_v2,
     		load_area_info,
-			( select area_id, concat(technology, '_CCS') as ccs_technology from _proposed_projects,
+			( select area_id, concat(technology, '_CCS') as ccs_technology from _proposed_projects_v2,
 				( select trim(trailing '_CCS' from technology) as non_ccs_technology
-						from generator_info
+						from generator_info_v2
 						where technology in ('Biomass_IGCC_CCS', 'Bio_Gas_CCS') ) as non_ccs_technology_table
-					where non_ccs_technology_table.non_ccs_technology = _proposed_projects.technology ) as resource_limited_ccs_load_area_projects
-	where 	generator_info.technology = resource_limited_ccs_load_area_projects.ccs_technology
+					where non_ccs_technology_table.non_ccs_technology = _proposed_projects_v2.technology ) as resource_limited_ccs_load_area_projects
+	where 	generator_info_v2.technology = resource_limited_ccs_load_area_projects.ccs_technology
 	and		load_area_info.area_id = resource_limited_ccs_load_area_projects.area_id;
 
 
 -- add geothermal replacements projects that will be constrained to replace existing projects by ep_project_replacement_id
 -- the capacity limit of these projects is the same as for the plant they're replacing
-insert into _proposed_projects (original_dataset_id, technology_id, technology, area_id, capacity_limit, ep_project_replacement_id,
-								connect_cost_per_mw, price_and_dollar_year, overnight_cost, fixed_o_m, variable_o_m, heat_rate, overnight_cost_change)
-   select 	existing_plants.ep_id as original_dataset_id,
+insert into _proposed_projects_v2 (original_dataset_id, technology_id, technology, area_id, capacity_limit, ep_project_replacement_id,
+								connect_cost_per_mw, heat_rate)
+   select 	existing_plants_v2.ep_id as original_dataset_id,
    			technology_id,
     		'Geothermal' as technology,
     		area_id,
 			capacity_mw as capacity_limit,
-    		existing_plants.project_id as ep_project_replacement_id,
+    		existing_plants_v2.project_id as ep_project_replacement_id,
     		0 as connect_cost_per_mw,
-    		price_and_dollar_year,  
-   			generator_info.overnight_cost * economic_multiplier as overnight_cost,
-    		generator_info.fixed_o_m * economic_multiplier as fixed_o_m,
-    		generator_info.variable_o_m * economic_multiplier as variable_o_m,
-    		existing_plants.heat_rate,
-   			overnight_cost_change
-    from 	generator_info,
-    		existing_plants
+    		generator_info_v2.heat_rate
+    from 	generator_info_v2,
+    		existing_plants_v2
     join    load_area_info using (area_id)
-	where 	existing_plants.technology = 'Geothermal_EP'
-	and		generator_info.technology = 'Geothermal'
+	where 	existing_plants_v2.technology = 'Geothermal_EP'
+	and		generator_info_v2.technology = 'Geothermal'
 ;	
 
 
 -- add new (non-CCS) cogen projects which will replace existing cogen projects via ep_project_replacement_id
 -- the capacity limit, heat rate and cogen thermal demand of these projects is the same as for the plant they're replacing
 -- these plants will compete with CCS cogen projects through ep_project_replacement_id for the cogen resource
-insert into _proposed_projects (original_dataset_id, technology_id, technology, area_id, capacity_limit, ep_project_replacement_id,
-								connect_cost_per_mw, price_and_dollar_year, overnight_cost, fixed_o_m, variable_o_m, heat_rate, cogen_thermal_demand, overnight_cost_change)
-   select 	existing_plants.ep_id as original_dataset_id,
+insert into _proposed_projects_v2 (original_dataset_id, technology_id, technology, area_id, capacity_limit, ep_project_replacement_id,
+								connect_cost_per_mw, heat_rate, cogen_thermal_demand)
+   select 	existing_plants_v2.ep_id as original_dataset_id,
    			technology_id,
-    		generator_info.technology,
+    		generator_info_v2.technology,
     		area_id,
 			capacity_mw as capacity_limit,
-    		existing_plants.project_id as ep_project_replacement_id,
+    		existing_plants_v2.project_id as ep_project_replacement_id,
     		0 as connect_cost_per_mw,
-    		price_and_dollar_year,  
-   			generator_info.overnight_cost * economic_multiplier as overnight_cost,
-    		generator_info.fixed_o_m * economic_multiplier as fixed_o_m,
-    		generator_info.variable_o_m * economic_multiplier as variable_o_m,
-    		existing_plants.heat_rate,
-      		existing_plants.cogen_thermal_demand_mmbtus_per_mwh as cogen_thermal_demand,
- 			overnight_cost_change
-    from 	generator_info,
-    		existing_plants
+    		existing_plants_v2.heat_rate,
+      		existing_plants_v2.cogen_thermal_demand_mmbtus_per_mwh as cogen_thermal_demand
+    from 	generator_info_v2,
+    		existing_plants_v2
     join    load_area_info using (area_id)
-	where 	replace(existing_plants.technology, 'Cogen_EP', 'Cogen') = generator_info.technology
-	and		generator_info.cogen = 1
-	and		generator_info.ccs = 0
-	and		generator_info.can_build_new = 1
+	where 	replace(existing_plants_v2.technology, 'Cogen_EP', 'Cogen') = generator_info_v2.technology
+	and		generator_info_v2.cogen = 1
+	and		generator_info_v2.ccs = 0
+	and		generator_info_v2.can_build_new = 1
 ;	
 
 -- COGEN CCS---------------------------------
@@ -1146,26 +1308,24 @@ insert into _proposed_projects (original_dataset_id, technology_id, technology, 
 -- create a temporary table to calculate the increase in heat_rate and cogen_thermal_demand from adding ccs onto cogen plants
 -- this should be made with the same assumptions that are used to calculate these params in generator_info.xlsx for other CCS technologies
 drop table if exists cogen_ccs_var_costs_and_heat_rates;
-create temporary table cogen_ccs_var_costs_and_heat_rates (
+create table cogen_ccs_var_costs_and_heat_rates (
 			technology varchar(64) primary key,		
 			non_cogen_reference_ccs_technology varchar(64),
 			non_cogen_reference_non_ccs_technology varchar(64),
-			heat_rate_increase_factor float,
-			heat_rate_increase_mmbtu_per_mwh float,
-			variable_cost_increase_factor float,
-			variable_o_m_cogen_non_ccs_base float
+			heat_rate_increase_factor float
 			);
 
 insert into 	cogen_ccs_var_costs_and_heat_rates (technology)
-	select	distinct(technology) from generator_info where technology like '%Cogen_CCS%';
+	select	distinct(technology) from generator_info_v2 where technology like '%Cogen_CCS%';
 
 update	cogen_ccs_var_costs_and_heat_rates
 set		non_cogen_reference_ccs_technology =
 		CASE
 			WHEN technology in ('Gas_Combustion_Turbine_Cogen_CCS', 'Gas_Internal_Combustion_Engine_Cogen_CCS') THEN 'Gas_Combustion_Turbine_CCS'
 			WHEN technology = 'Bio_Gas_Internal_Combustion_Engine_Cogen_CCS' THEN 'Bio_Gas_CCS'
-			WHEN technology in ('Bio_Liquid_Steam_Turbine_Cogen_CCS', 'Bio_Solid_Steam_Turbine_Cogen_CCS', 'Coal_Steam_Turbine_Cogen_CCS', 'Gas_Steam_Turbine_Cogen_CCS') THEN 'Coal_Steam_Turbine_CCS'
-			WHEN technology = 'CCGT_Cogen_CCS' THEN 'CCGT_CCS'
+			WHEN technology in ('Coal_Steam_Turbine_Cogen_CCS') THEN 'Coal_Steam_Turbine_CCS'
+			WHEN technology in ('Bio_Liquid_Steam_Turbine_Cogen_CCS', 'Bio_Solid_Steam_Turbine_Cogen_CCS') THEN 'Biomass_IGCC_CCS'
+			WHEN technology in ('CCGT_Cogen_CCS', 'Gas_Steam_Turbine_Cogen_CCS') THEN 'CCGT_CCS'
 		END;
 		
 update	cogen_ccs_var_costs_and_heat_rates
@@ -1177,73 +1337,55 @@ set 	non_cogen_reference_non_ccs_technology = replace(non_cogen_reference_ccs_te
 -- we assume that the increase in variable costs (delta variable cost) scales with the relative increase in heat rate (delta heat rate)
 update 	cogen_ccs_var_costs_and_heat_rates,
 		(select cogen_ccs_var_costs_and_heat_rates.technology, 
-				heat_rate as heat_rate_reference_ccs,
-				variable_o_m as variable_o_m_reference_ccs
-			from	generator_info,
+				heat_rate as heat_rate_reference_ccs
+			from	generator_info_v2,
 			 		cogen_ccs_var_costs_and_heat_rates
-			where generator_info.technology = non_cogen_reference_ccs_technology
+			where generator_info_v2.technology = non_cogen_reference_ccs_technology
 		) as reference_ccs_table,
 		(select cogen_ccs_var_costs_and_heat_rates.technology, 
-				heat_rate as heat_rate_reference_non_ccs,
-				variable_o_m as variable_o_m_reference_non_ccs
-			from	generator_info,
+				heat_rate as heat_rate_reference_non_ccs
+			from	generator_info_v2,
 				 	cogen_ccs_var_costs_and_heat_rates
-			where generator_info.technology = non_cogen_reference_non_ccs_technology
+			where generator_info_v2.technology = non_cogen_reference_non_ccs_technology
 		) as reference_non_ccs_table
-set		cogen_ccs_var_costs_and_heat_rates.heat_rate_increase_factor = heat_rate_reference_ccs / heat_rate_reference_non_ccs,
-		cogen_ccs_var_costs_and_heat_rates.heat_rate_increase_mmbtu_per_mwh = heat_rate_reference_ccs - heat_rate_reference_non_ccs,
-		cogen_ccs_var_costs_and_heat_rates.variable_cost_increase_factor = variable_o_m_reference_ccs - variable_o_m_reference_non_ccs
+set		cogen_ccs_var_costs_and_heat_rates.heat_rate_increase_factor = heat_rate_reference_ccs / heat_rate_reference_non_ccs
 where	cogen_ccs_var_costs_and_heat_rates.technology = reference_ccs_table.technology
 and		cogen_ccs_var_costs_and_heat_rates.technology = reference_non_ccs_table.technology
 ;
 
--- we'll look to the non-CCS cogen values for each cogen CCS technology to the the variable_o_m base cost ($/MWh)
-update 	cogen_ccs_var_costs_and_heat_rates,
-		generator_info
-set		cogen_ccs_var_costs_and_heat_rates.variable_o_m_cogen_non_ccs_base = generator_info.variable_o_m
-where	replace(cogen_ccs_var_costs_and_heat_rates.technology, 'Cogen_CCS', 'Cogen') = generator_info.technology;
 
 -- add new CCS cogen projects which will replace existing cogen projects after the existing cogen project plant lifetime
 -- these plants will compete with non-CCS cogen projects through ep_project_replacement_id for the cogen resource
 -- the capacity limit of these projects is the same as for the plant they're replacing,
 -- as we're assuming that the plants will burn extra fuel to get the same amount of useful heat and electricity out (CCS has an efficiency penalty which makes them burn more fuel)
 -- the variable costs are a bit complicated, so they're updated below
-insert into _proposed_projects (original_dataset_id, technology_id, technology, area_id, capacity_limit, ep_project_replacement_id,
-								connect_cost_per_mw, price_and_dollar_year, overnight_cost, fixed_o_m, variable_o_m, heat_rate, cogen_thermal_demand, overnight_cost_change)
-   select 	existing_plants.ep_id as original_dataset_id,
+insert into _proposed_projects_v2 (original_dataset_id, technology_id, technology, area_id, capacity_limit, ep_project_replacement_id,
+								connect_cost_per_mw, heat_rate, cogen_thermal_demand)
+   select 	existing_plants_v2.ep_id as original_dataset_id,
    			technology_id,
-    		generator_info.technology,
+    		generator_info_v2.technology,
     		area_id,
 			capacity_mw as capacity_limit,
-    		existing_plants.project_id as ep_project_replacement_id,
+    		existing_plants_v2.project_id as ep_project_replacement_id,
     		0 as connect_cost_per_mw,
-    		price_and_dollar_year,  
-   			generator_info.overnight_cost * economic_multiplier as overnight_cost,
-    		generator_info.fixed_o_m * economic_multiplier as fixed_o_m,
-    		variable_o_m_cogen_non_ccs_base  +
-    			economic_multiplier * variable_cost_increase_factor * ( existing_plants.heat_rate * heat_rate_increase_factor - existing_plants.heat_rate ) 
-    				/ heat_rate_increase_mmbtu_per_mwh
-    			as variable_o_m,
- 			existing_plants.heat_rate * heat_rate_increase_factor as heat_rate,
-      		existing_plants.cogen_thermal_demand_mmbtus_per_mwh * heat_rate_increase_factor as cogen_thermal_demand,
-   			overnight_cost_change
-	from    generator_info
+    		existing_plants_v2.heat_rate * heat_rate_increase_factor as heat_rate,
+      		existing_plants_v2.cogen_thermal_demand_mmbtus_per_mwh * heat_rate_increase_factor as cogen_thermal_demand
+	from    generator_info_v2
     join	cogen_ccs_var_costs_and_heat_rates using (technology)
-   	join 	existing_plants on (replace(existing_plants.technology, 'Cogen_EP', 'Cogen_CCS') = generator_info.technology)
-    join    load_area_info using (area_id)
-	where 	generator_info.cogen = 1
-	and		generator_info.ccs = 1
-	and		generator_info.can_build_new = 1
+   	join 	existing_plants_v2 on (replace(existing_plants_v2.technology, 'Cogen_EP', 'Cogen_CCS') = generator_info_v2.technology)
+	where 	generator_info_v2.cogen = 1
+	and		generator_info_v2.ccs = 1
+	and		generator_info_v2.can_build_new = 1
 ;
 
-
+drop table if exists cogen_ccs_var_costs_and_heat_rates;
 
 -- make a unique identifier for all proposed projects
-UPDATE _proposed_projects SET project_id = gen_info_project_id + (ascii( 'G' ) << 8*3) where project_id is null;
+UPDATE _proposed_projects_v2 SET project_id = gen_info_project_id + (ascii( 'G' ) << 8*3) where project_id is null;
 
 
-DROP VIEW IF EXISTS proposed_projects;
-CREATE VIEW proposed_projects as
+DROP VIEW IF EXISTS proposed_projects_v2;
+CREATE VIEW proposed_projects_v2 as
   SELECT 	project_id, 
             gen_info_project_id,
             technology_id, 
@@ -1256,18 +1398,13 @@ CREATE VIEW proposed_projects as
             capacity_limit, 
             capacity_limit_conversion, 
             connect_cost_per_mw,
-            price_and_dollar_year,
-            overnight_cost,
-            fixed_o_m,
-            variable_o_m,
             heat_rate,
             cogen_thermal_demand,
-            overnight_cost_change,
             avg_cap_factor_intermittent,
             avg_cap_factor_percentile_by_intermittent_tech,
             cumulative_avg_MW_tech_load_area,
             rank_by_tech_in_load_area
-    FROM _proposed_projects 
+    FROM _proposed_projects_v2
     join load_area_info using (area_id);
     
 
@@ -1282,7 +1419,7 @@ create table _cap_factor_intermittent_sites(
 	INDEX project_id (project_id),
 	INDEX hour (hour),
 	PRIMARY KEY (project_id, hour),
-	CONSTRAINT project_fk FOREIGN KEY project_id (project_id) REFERENCES proposed_projects (project_id)
+	CONSTRAINT project_fk FOREIGN KEY project_id (project_id) REFERENCES proposed_projects_v2 (project_id)
 );
 
 
@@ -1297,20 +1434,20 @@ CREATE VIEW cap_factor_intermittent_sites as
   			hour,
   			cap_factor
     FROM _cap_factor_intermittent_sites cp
-    join proposed_projects using (project_id)
+    join proposed_projects_v2 using (project_id)
     join load_area_info using (load_area);
     
     
 -- includes Wind and Offshore_Wind in the US
 select 'Compiling Wind' as progress;
 insert into _cap_factor_intermittent_sites
-SELECT      proposed_projects.project_id,
+SELECT      proposed_projects_v2.project_id,
             3tier.wind_farm_power_output.hournum as hour,
             3tier.wind_farm_power_output.cap_factor
-    from    proposed_projects, 
+    from    proposed_projects_v2, 
             3tier.wind_farm_power_output
     where   technology in ('Wind', 'Offshore_Wind')
-    and		proposed_projects.original_dataset_id = 3tier.wind_farm_power_output.wind_farm_id;
+    and		proposed_projects_v2.original_dataset_id = 3tier.wind_farm_power_output.wind_farm_id;
 
 -- Canadian wind.. it's all onshore
 drop table if exists windfarms_canada_hourly_cap_factor;
@@ -1333,10 +1470,10 @@ load data local infile
 
 -- NOTE: the gen_info_project_id right now determines if the wind is Canadian or not... should be made more robust in the future...
 insert into _cap_factor_intermittent_sites (project_id, hour, cap_factor)
-SELECT      proposed_projects.project_id,
+SELECT      proposed_projects_v2.project_id,
             hournum as hour,
             cap_factor
-    from    proposed_projects
+    from    proposed_projects_v2
     join	windfarms_canada_hourly_cap_factor on (original_dataset_id = id)
     join	hours using (datetime_utc)
     WHERE	technology = 'Wind'
@@ -1348,14 +1485,14 @@ SELECT      proposed_projects.project_id,
 -- then it's fine and it will get fixed once we're finished with SAM
 select 'Compiling CSP_Trough_6h_Storage' as progress;
 insert into _cap_factor_intermittent_sites
-SELECT      proposed_projects.project_id,
+SELECT      proposed_projects_v2.project_id,
             hournum as hour,
             3tier.csp_power_output.e_net_mw/100 as cap_factor
-    from    proposed_projects, 
+    from    proposed_projects_v2, 
             3tier.csp_power_output,
             hours
-    where   proposed_projects.technology_id = 7
-    and		proposed_projects.original_dataset_id = 3tier.csp_power_output.siteid
+    where   proposed_projects_v2.technology_id = 7
+    and		proposed_projects_v2.original_dataset_id = 3tier.csp_power_output.siteid
     and		3tier.csp_power_output.datetime_utc = hours.datetime_utc;
 
 
@@ -1364,14 +1501,14 @@ SELECT      proposed_projects.project_id,
 -- remove the <> 7 to reinsert it, and delete the extra script below
 select 'Compiling Solar' as progress;
 insert into _cap_factor_intermittent_sites
-SELECT      proposed_projects.project_id,
+SELECT      proposed_projects_v2.project_id,
             hournum as hour,
             cap_factor
-    from    proposed_projects,
+    from    proposed_projects_v2,
             suny.solar_farm_cap_factors
-    where   proposed_projects.original_dataset_id = solar_farm_cap_factors.solar_farm_id
-    and		proposed_projects.technology_id = solar_farm_cap_factors.technology_id
-    and 	proposed_projects.technology_id <> 7;
+    where   proposed_projects_v2.original_dataset_id = solar_farm_cap_factors.solar_farm_id
+    and		proposed_projects_v2.technology_id = solar_farm_cap_factors.technology_id
+    and 	proposed_projects_v2.technology_id <> 7;
 
 
 select 'Calculating Average Cap Factors' as progress;
@@ -1391,10 +1528,10 @@ insert into avg_cap_factor_table
 		group by project_id;
 
 -- put the average cap factor values in proposed projects for easier access
-update	_proposed_projects,
+update	_proposed_projects_v2,
 		avg_cap_factor_table
-set	_proposed_projects.avg_cap_factor_intermittent = avg_cap_factor_table.avg_cap_factor
-where _proposed_projects.project_id = avg_cap_factor_table.project_id;
+set	_proposed_projects_v2.avg_cap_factor_intermittent = avg_cap_factor_table.avg_cap_factor
+where _proposed_projects_v2.project_id = avg_cap_factor_table.project_id;
 
 -- ----------------------------
 select 'Checking Cap Factors' as progress;
@@ -1402,35 +1539,35 @@ select 'Checking Cap Factors' as progress;
 -- as many of the sites are missing the first few hours of output due to the change from local to utc time,
 -- we'll consider a site complete if it has cap factors for all hours from 2004-2005,
 -- so ( 366 days in 2004 + 365 days in 2005 - 1 day ) * 24 hours per day is about 17500
-select 	proposed_projects.*,
+select 	proposed_projects_v2.*,
 		number_of_cap_factor_hours
 	from 	avg_cap_factor_table,
-			proposed_projects
+			proposed_projects_v2
 	where number_of_cap_factor_hours < 17500
-	and	avg_cap_factor_table.project_id = proposed_projects.project_id
+	and	avg_cap_factor_table.project_id = proposed_projects_v2.project_id
 	order by project_id;
 		
 -- also, make sure each intermittent site has cap factors
-select 	proposed_projects.*
-	from 	proposed_projects,
-			generator_info
-	where	proposed_projects.technology_id = generator_info.technology_id
-	and		generator_info.intermittent = 1
+select 	proposed_projects_v2.*
+	from 	proposed_projects_v2,
+			generator_info_v2
+	where	proposed_projects_v2.technology_id = generator_info_v2.technology_id
+	and		generator_info_v2.intermittent = 1
 	and		project_id not in (select project_id from avg_cap_factor_table where number_of_cap_factor_hours >= 17500)
-	order by project_id, generator_info.technology;
+	order by project_id, generator_info_v2.technology;
 	
 -- delete the projects that don't have cap factors
 -- for the WECC, if nothing is messed up, this means Central_PV on the eastern border of Colorado that contains
 -- a few grid points didn't get simulated because they were too far east... only 16 total solar farms out of thousands
 drop table if exists project_ids_to_delete;
 create temporary table project_ids_to_delete as 
- 	select 	_proposed_projects.project_id
- 		from 	_proposed_projects join generator_info using (technology_id)
- 		where	generator_info.intermittent = 1
+ 	select 	_proposed_projects_v2.project_id
+ 		from 	_proposed_projects_v2 join generator_info_v2 using (technology_id)
+ 		where	generator_info_v2.intermittent = 1
  		and		project_id not in (select project_id from avg_cap_factor_table where number_of_cap_factor_hours >= 17500)
- 		order by project_id, generator_info.technology;
+ 		order by project_id, generator_info_v2.technology;
  		
- delete from _proposed_projects where project_id in (select project_id from project_ids_to_delete);
+ delete from _proposed_projects_v2 where project_id in (select project_id from project_ids_to_delete);
 
 -- --------------------
 select 'Calculating Intermittent Resource Quality Ranks' as progress;
@@ -1457,7 +1594,7 @@ create table rank_table (
 	);
 
 insert into rank_table (project_id, technology_id, avg_MW)
-	select project_id, technology_id, capacity_limit * IF(capacity_limit_conversion is null, 1, capacity_limit_conversion) * avg_cap_factor_intermittent as avg_MW from _proposed_projects
+	select project_id, technology_id, capacity_limit * IF(capacity_limit_conversion is null, 1, capacity_limit_conversion) * avg_cap_factor_intermittent as avg_MW from _proposed_projects_v2
 	where avg_cap_factor_intermittent is not null
 	order by technology_id, avg_cap_factor_intermittent;
 
@@ -1477,9 +1614,9 @@ rank_loop_total: LOOP
 			and technology_id = (select technology_id from rank_table where ordering_id = current_ordering_id)
 		);
 			
-	update _proposed_projects, rank_table
+	update _proposed_projects_v2, rank_table
 	set avg_cap_factor_percentile_by_intermittent_tech = rank_total
-	where rank_table.project_id = _proposed_projects.project_id
+	where rank_table.project_id = _proposed_projects_v2.project_id
 	and rank_table.ordering_id = current_ordering_id;
 	
 	set current_ordering_id = current_ordering_id + 1;        
@@ -1529,7 +1666,7 @@ create table cumulative_gen_load_area_table (
 insert into cumulative_gen_load_area_table (project_id, technology_id, area_id, avg_MW)
 	select 	project_id, technology_id, area_id,
 			capacity_limit * IF(capacity_limit_conversion is null, 1, capacity_limit_conversion) * avg_cap_factor_intermittent as avg_MW
-		from _proposed_projects
+		from _proposed_projects_v2
 		where avg_cap_factor_intermittent is not null
 		order by technology_id, area_id, avg_cap_factor_intermittent;
 
@@ -1554,10 +1691,10 @@ cumulative_capacity_loop: LOOP
 			and area_id = (select area_id from cumulative_gen_load_area_table where ordering_id = current_ordering_id)
 		);
 			
-	update _proposed_projects, cumulative_gen_load_area_table
+	update _proposed_projects_v2, cumulative_gen_load_area_table
 	set cumulative_avg_MW_tech_load_area = cumulative_avg_MW,
 		rank_by_tech_in_load_area = rank_load_area
-	where cumulative_gen_load_area_table.project_id = _proposed_projects.project_id
+	where cumulative_gen_load_area_table.project_id = _proposed_projects_v2.project_id
 	and cumulative_gen_load_area_table.ordering_id = current_ordering_id;
 	
 	

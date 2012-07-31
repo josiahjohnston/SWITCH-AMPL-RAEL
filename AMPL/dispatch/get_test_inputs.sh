@@ -137,7 +137,7 @@ fi
 ###########################
 # These next variables determine which input data is used
 read SCENARIO_ID < ../scenario_id.txt
-TRAINING_SET_ID=$(mysql $connection_string --column-names=false -e "select training_set_id from scenarios_v2 where scenario_id=$SCENARIO_ID;")
+TRAINING_SET_ID=$(mysql $connection_string --column-names=false -e "select training_set_id from scenarios_v3 where scenario_id=$SCENARIO_ID;")
 LOAD_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select load_scenario_id from training_sets where training_set_id=$TRAINING_SET_ID;")
 
 ##########################
@@ -277,7 +277,7 @@ for test_set_id in $(mysql $connection_string --column-names=false -e "select di
         FROM dispatch_test_sets \
           JOIN study_timepoints USING(timepoint_id)\
           JOIN _cap_factor_intermittent_sites ON(historic_hour=hour)\
-          JOIN _proposed_projects USING(project_id)\
+          JOIN _proposed_projects_v2 USING(project_id)\
           JOIN load_area_info USING(area_id)\
         WHERE training_set_id=$TRAINING_SET_ID \
           AND $INTERMITTENT_PROJECTS_SELECTION\
@@ -288,11 +288,11 @@ for test_set_id in $(mysql $connection_string --column-names=false -e "select di
         FROM dispatch_test_sets \
           JOIN study_timepoints USING(timepoint_id)\
           JOIN _cap_factor_intermittent_sites ON(historic_hour=hour)\
-          JOIN _proposed_projects USING(project_id)\
+          JOIN _proposed_projects_v2 USING(project_id)\
           JOIN load_area_info USING(area_id)\
         WHERE training_set_id=$TRAINING_SET_ID \
           AND $INTERMITTENT_PROJECTS_SELECTION \
-          AND technology_id NOT IN (select technology_id from generator_info WHERE fuel='Solar')\
+          AND technology_id NOT IN (select technology_id from generator_info_v2 WHERE fuel='Solar')\
           AND test_set_id=$test_set_id;" >> $data_dir/$f
       # Get solar cap factors from 2005
       mysql $connection_string -sN -e "\
@@ -304,12 +304,12 @@ for test_set_id in $(mysql $connection_string --column-names=false -e "select di
           JOIN study_timepoints USING(timepoint_id)\
           JOIN solar_tp_mapping USING (historic_hour) \
           JOIN _cap_factor_intermittent_sites ON(hour_2005=hour)\
-          JOIN _proposed_projects USING(project_id)\
+          JOIN _proposed_projects_v2 USING(project_id)\
           JOIN load_area_info USING(area_id)\
         WHERE training_set_id=$TRAINING_SET_ID \
           AND test_set_id=$test_set_id \
           AND $INTERMITTENT_PROJECTS_SELECTION \
-          AND technology_id IN (select technology_id from generator_info WHERE fuel='Solar');" >> $data_dir/$f
+          AND technology_id IN (select technology_id from generator_info_v2 WHERE fuel='Solar');" >> $data_dir/$f
     fi
 	fi
 	[ -L $input_dir/$f ] && rm $input_dir/$f  # Remove the link if it exists

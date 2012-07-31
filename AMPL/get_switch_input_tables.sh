@@ -140,21 +140,22 @@ INTERMITTENT_PROJECTS_SELECTION="(( avg_cap_factor_percentile_by_intermittent_te
 
 read SCENARIO_ID < scenario_id.txt
 # Make sure this scenario id is valid.
-if [ $(mysql $connection_string --column-names=false -e "select count(*) from scenarios_v2 where scenario_id=$SCENARIO_ID;") -eq 0 ]; then 
+if [ $(mysql $connection_string --column-names=false -e "select count(*) from scenarios_v3 where scenario_id=$SCENARIO_ID;") -eq 0 ]; then 
 	echo "ERROR! This scenario id ($SCENARIO_ID) is not in the database. Exiting."
 	exit;
 fi
 
-export REGIONAL_MULTIPLIER_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select regional_cost_multiplier_scenario_id from scenarios_v2 where scenario_id=$SCENARIO_ID;")
-export REGIONAL_FUEL_COST_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select regional_fuel_cost_scenario_id from scenarios_v2 where scenario_id=$SCENARIO_ID;")
-export GEN_PRICE_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select gen_price_scenario_id from scenarios_v2 where scenario_id=$SCENARIO_ID;")
-export CARBON_CAP_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select carbon_cap_scenario_id from scenarios_v2 where scenario_id=$SCENARIO_ID;")
-export SCENARIO_NAME=$(mysql $connection_string --column-names=false -e "select scenario_name from scenarios_v2 where scenario_id=$SCENARIO_ID;")
-export TRAINING_SET_ID=$(mysql $connection_string --column-names=false -e "select training_set_id from scenarios_v2 where scenario_id = $SCENARIO_ID;")
+export REGIONAL_MULTIPLIER_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select regional_cost_multiplier_scenario_id from scenarios_v3 where scenario_id=$SCENARIO_ID;")
+export REGIONAL_FUEL_COST_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select regional_fuel_cost_scenario_id from scenarios_v3 where scenario_id=$SCENARIO_ID;")
+export GEN_COSTS_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select gen_costs_scenario_id from scenarios_v3 where scenario_id=$SCENARIO_ID;")
+export GEN_INFO_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select gen_info_scenario_id from scenarios_v3 where scenario_id=$SCENARIO_ID;")
+export CARBON_CAP_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select carbon_cap_scenario_id from scenarios_v3 where scenario_id=$SCENARIO_ID;")
+export SCENARIO_NAME=$(mysql $connection_string --column-names=false -e "select scenario_name from scenarios_v3 where scenario_id=$SCENARIO_ID;")
+export TRAINING_SET_ID=$(mysql $connection_string --column-names=false -e "select training_set_id from scenarios_v3 where scenario_id = $SCENARIO_ID;")
 export LOAD_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select load_scenario_id from training_sets where training_set_id = $TRAINING_SET_ID;")
-export ENABLE_RPS=$(mysql $connection_string --column-names=false -e "select enable_rps from scenarios_v2 where scenario_id=$SCENARIO_ID;")
-export ENABLE_CARBON_CAP=$(mysql $connection_string --column-names=false -e "select if(carbon_cap_scenario_id>0,1,0) from scenarios_v2 where scenario_id=$SCENARIO_ID;")
-export NEMS_FUEL_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select nems_fuel_scenario_id from scenarios_v2 where scenario_id=$SCENARIO_ID;")
+export ENABLE_RPS=$(mysql $connection_string --column-names=false -e "select enable_rps from scenarios_v3 where scenario_id=$SCENARIO_ID;")
+export ENABLE_CARBON_CAP=$(mysql $connection_string --column-names=false -e "select if(carbon_cap_scenario_id>0,1,0) from scenarios_v3 where scenario_id=$SCENARIO_ID;")
+export NEMS_FUEL_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select nems_fuel_scenario_id from scenarios_v3 where scenario_id=$SCENARIO_ID;")
 export STUDY_START_YEAR=$(mysql $connection_string --column-names=false -e "select study_start_year from training_sets where training_set_id=$TRAINING_SET_ID;")
 export STUDY_END_YEAR=$(mysql $connection_string --column-names=false -e "select study_start_year + years_per_period*number_of_periods from training_sets where training_set_id=$TRAINING_SET_ID;")
 number_of_years_per_period=$(mysql $connection_string --column-names=false -e "select years_per_period from training_sets where training_set_id=$TRAINING_SET_ID;")
@@ -165,7 +166,7 @@ cd  $write_to_path
 
 echo 'Exporting Scenario Information'
 echo 'Scenario Information' > scenario_information.txt
-mysql $connection_string -e "select * from scenarios_v2 where scenario_id = $SCENARIO_ID;" >> scenario_information.txt
+mysql $connection_string -e "select * from scenarios_v3 where scenario_id = $SCENARIO_ID;" >> scenario_information.txt
 echo 'Training Set Information' >> scenario_information.txt
 mysql $connection_string -e "select * from training_sets where training_set_id=$TRAINING_SET_ID;" >> scenario_information.txt
 
@@ -230,8 +231,8 @@ SELECT load_area, period_start as period, max(power) as max_system_load \
   GROUP BY 1,2; " >> max_system_loads.tab
 
 echo '	existing_plants.tab...'
-echo ampl.tab 3 11 > existing_plants.tab
-mysql $connection_string -e "select project_id, load_area, technology, plant_name, eia_id, capacity_mw, heat_rate, cogen_thermal_demand_mmbtus_per_mwh, if(start_year = 0, 1900, start_year) as start_year, overnight_cost, connect_cost_per_mw, fixed_o_m, variable_o_m, ep_location_id from existing_plants order by 1, 2, 3;" >> existing_plants.tab
+echo ampl.tab 3 10 > existing_plants.tab
+mysql $connection_string -e "select project_id, load_area, technology, plant_name, eia_id, capacity_mw, heat_rate, cogen_thermal_demand_mmbtus_per_mwh, if(start_year = 0, 1900, start_year) as start_year, overnight_cost, connect_cost_per_mw, fixed_o_m, variable_o_m from existing_plants_v2 order by 1, 2, 3;" >> existing_plants.tab
 
 echo '	existing_intermittent_plant_cap_factor.tab...'
 echo ampl.tab 4 1 > existing_intermittent_plant_cap_factor.tab
@@ -261,12 +262,28 @@ SELECT project_id, load_area, technology, study_date as date, ROUND(avg_output,1
     JOIN study_dates_export USING(year, month);" >> hydro_monthly_limits.tab
 
 echo '	proposed_projects.tab...'
-echo ampl.tab 3 11 > proposed_projects.tab
-mysql $connection_string -e "select project_id, proposed_projects.load_area, technology, if(location_id is NULL, 0, location_id) as location_id, if(ep_project_replacement_id is NULL, 0, ep_project_replacement_id) as ep_project_replacement_id, if(capacity_limit is NULL, 0, capacity_limit) as capacity_limit, if(capacity_limit_conversion is NULL, 0, capacity_limit_conversion) as capacity_limit_conversion, heat_rate, cogen_thermal_demand, connect_cost_per_mw, round(overnight_cost*overnight_adjuster) as overnight_cost, fixed_o_m, variable_o_m, overnight_cost_change from proposed_projects join load_area_info using (area_id) join generator_price_adjuster using (technology_id) where generator_price_adjuster.gen_price_scenario_id=$GEN_PRICE_SCENARIO_ID and $INTERMITTENT_PROJECTS_SELECTION;" >> proposed_projects.tab
+echo ampl.tab 3 7 > proposed_projects.tab
+mysql $connection_string -e "select project_id, proposed_projects_v2.load_area, technology, if(location_id is NULL, 0, location_id) as location_id, if(ep_project_replacement_id is NULL, 0, ep_project_replacement_id) as ep_project_replacement_id, if(capacity_limit is NULL, 0, capacity_limit) as capacity_limit, if(capacity_limit_conversion is NULL, 0, capacity_limit_conversion) as capacity_limit_conversion, heat_rate, cogen_thermal_demand, connect_cost_per_mw from proposed_projects_v2 join load_area_info using (area_id) where $INTERMITTENT_PROJECTS_SELECTION;" >> proposed_projects.tab
 
 echo '	generator_info.tab...'
 echo ampl.tab 1 32 > generator_info.tab
-mysql $connection_string -e "select technology, technology_id, min_build_year, fuel,  construction_time_years, year_1_cost_fraction, year_2_cost_fraction, year_3_cost_fraction, year_4_cost_fraction, year_5_cost_fraction, year_6_cost_fraction, max_age_years, forced_outage_rate, scheduled_outage_rate, can_build_new, ccs, intermittent, resource_limited, baseload, flexible_baseload, dispatchable, cogen, min_build_capacity, competes_for_space, storage, storage_efficiency, max_store_rate, max_spinning_reserve_fraction_of_capacity, heat_rate_penalty_spinning_reserve, minimum_loading, deep_cycling_penalty, startup_mmbtu_per_mw, startup_cost_dollars_per_mw from generator_info;" >> generator_info.tab
+mysql $connection_string -e "select technology, technology_id, min_online_year, fuel, construction_time_years, year_1_cost_fraction, year_2_cost_fraction, year_3_cost_fraction, year_4_cost_fraction, year_5_cost_fraction, year_6_cost_fraction, max_age_years, forced_outage_rate, scheduled_outage_rate, can_build_new, ccs, intermittent, resource_limited, baseload, flexible_baseload, dispatchable, cogen, min_build_capacity, competes_for_space, storage, storage_efficiency, max_store_rate, max_spinning_reserve_fraction_of_capacity, heat_rate_penalty_spinning_reserve, minimum_loading, deep_cycling_penalty, startup_mmbtu_per_mw, startup_cost_dollars_per_mw from generator_info_v2 where gen_info_scenario_id=$GEN_INFO_SCENARIO_ID;" >> generator_info.tab
+
+echo '	generator_costs.tab...'
+echo ampl.tab 2 3 > generator_costs.tab
+mysql $connection_string -e "select technology, period_start as period, overnight_cost, fixed_o_m, var_o_m as variable_o_m_by_year from generator_costs_yearly \
+join generator_info_v2 g using (technology), \
+training_set_periods \
+where year = period_start - g.construction_time_years \
+and period_start >= g.construction_time_years + $present_year \
+and	period_start >= g.min_online_year \
+and training_set_id=$TRAINING_SET_ID \
+UNION \
+select technology, $present_year as period, overnight_cost, fixed_o_m, var_o_m as variable_o_m_by_year from generator_costs_yearly, \
+training_set_periods \
+where year = $present_year \
+and gen_costs_scenario_id=$GEN_COSTS_SCENARIO_ID \
+and training_set_id=$TRAINING_SET_ID;" >> generator_costs.tab
 
 echo '	fuel_costs.tab...'
 echo ampl.tab 3 1 > fuel_costs.tab
@@ -354,7 +371,7 @@ order by load_area, period, breakpoint_id ;"  >> biomass_supply_curve_breakpoint
 
 echo '	fuel_info.tab...'
 echo ampl.tab 1 4 > fuel_info.tab
-mysql $connection_string -e "select fuel, rps_fuel_category, biofuel, carbon_content, carbon_sequestered from fuel_info;" >> fuel_info.tab
+mysql $connection_string -e "select fuel, rps_fuel_category, biofuel, carbon_content, carbon_sequestered from fuel_info_v2;" >> fuel_info.tab
 
 echo '	misc_params.dat...'
 echo "param scenario_id           := $SCENARIO_ID;" >  misc_params.dat
@@ -371,7 +388,7 @@ select project_id, load_area, technology, DATE_FORMAT(datetime_utc,'%Y%m%d%H') a
     JOIN study_timepoints USING(timepoint_id)\
     JOIN load_scenario_historic_timepoints USING(timepoint_id)\
     JOIN _cap_factor_intermittent_sites ON(historic_hour=hour)\
-    JOIN _proposed_projects USING(project_id)\
+    JOIN _proposed_projects_v2 USING(project_id)\
     JOIN load_area_info USING(area_id)\
   WHERE training_set_id=$TRAINING_SET_ID \
     AND load_scenario_id=$LOAD_SCENARIO_ID \

@@ -72,13 +72,14 @@ CREATE TABLE IF NOT EXISTS dispatch_test_sets (
     REFERENCES training_sets (training_set_id)
 );
 
-CREATE TABLE IF NOT EXISTS scenarios_v2 (
+CREATE TABLE IF NOT EXISTS scenarios_v3 (
   scenario_id INT NOT NULL AUTO_INCREMENT,
   scenario_name VARCHAR(128),
   training_set_id INT NOT NULL,
   regional_cost_multiplier_scenario_id INT NOT NULL DEFAULT 1, 
   regional_fuel_cost_scenario_id INT NOT NULL DEFAULT 1, 
-  gen_price_scenario_id MEDIUMINT NOT NULL DEFAULT 1, 
+  gen_costs_scenario_id MEDIUMINT NOT NULL DEFAULT 2 COMMENT 'The default scenario is 2 and has the baseline cost assumptions.', 
+  gen_info_scenario_id MEDIUMINT NOT NULL DEFAULT 2 COMMENT 'The default scenario is 2 and has the baseline generator assumptions.',
   enable_rps BOOLEAN NOT NULL DEFAULT 0 COMMENT 'This controls whether Renewable Portfolio Standards are considered in the optimization.', 
   carbon_cap_scenario_id int unsigned DEFAULT 0 COMMENT 'The default scenario is no cap. Browse existing scenarios or define new ones in the table carbon_cap_scenarios.',
   nems_fuel_scenario_id int unsigned DEFAULT 1 COMMENT 'The default scenario is the reference case. Check out the nems_fuel_scenarios table for other scenarios.',
@@ -86,15 +87,17 @@ CREATE TABLE IF NOT EXISTS scenarios_v2 (
   model_version varchar(16) NOT NULL,
   inputs_adjusted varchar(16) NOT NULL DEFAULT 'no',
   PRIMARY KEY (scenario_id), 
-  UNIQUE KEY unique_params (training_set_id, regional_cost_multiplier_scenario_id, regional_fuel_cost_scenario_id, gen_price_scenario_id, enable_rps, carbon_cap_scenario_id, model_version, inputs_adjusted), 
+  UNIQUE KEY unique_params (training_set_id, regional_cost_multiplier_scenario_id, regional_fuel_cost_scenario_id, gen_costs_scenario_id, gen_info_scenario_id, enable_rps, carbon_cap_scenario_id, model_version, inputs_adjusted), 
   CONSTRAINT training_set_id FOREIGN KEY training_set_id (training_set_id)
     REFERENCES training_sets (training_set_id), 
   CONSTRAINT regional_cost_multiplier_scenario_id FOREIGN KEY regional_cost_multiplier_scenario_id (regional_cost_multiplier_scenario_id)
     REFERENCES regional_economic_multiplier (scenario_id), 
   CONSTRAINT regional_fuel_cost_scenario_id FOREIGN KEY regional_fuel_cost_scenario_id (regional_fuel_cost_scenario_id)
-    REFERENCES regional_fuel_prices (scenario_id), 
-  CONSTRAINT gen_price_scenario_id FOREIGN KEY gen_price_scenario_id (gen_price_scenario_id)
-    REFERENCES generator_price_scenarios (gen_price_scenario_id)
+    REFERENCES regional_fuel_prices (scenario_id),  
+  CONSTRAINT gen_costs_scenario_id FOREIGN KEY gen_costs_scenario_id (gen_costs_scenario_id)
+    REFERENCES generator_costs_scenarios (gen_costs_scenario_id),
+  CONSTRAINT gen_info_scenario_id FOREIGN KEY gen_info_scenario_id (gen_info_scenario_id)
+    REFERENCES generator_info_scenarios (gen_info_scenario_id),
 	CONSTRAINT carbon_cap_scenario_id FOREIGN KEY carbon_cap_scenario_id (carbon_cap_scenario_id) 
 	  REFERENCES carbon_cap_scenarios (carbon_cap_scenario_id),
 	CONSTRAINT nems_fuel_scenario_id FOREIGN KEY nems_fuel_scenario_id (nems_fuel_scenario_id) 
@@ -403,15 +406,15 @@ delimiter ;
 
 
 DELIMITER $$
-DROP FUNCTION IF EXISTS clone_scenario_v2$$
-CREATE FUNCTION clone_scenario_v2 (name varchar(128), model_v varchar(16), inputs_diff varchar(16), source_scenario_id int ) RETURNS int
+DROP FUNCTION IF EXISTS clone_scenario_v3$$
+CREATE FUNCTION clone_scenario_v3 (name varchar(128), model_v varchar(16), inputs_diff varchar(16), source_scenario_id int ) RETURNS int
 BEGIN
 
 	DECLARE new_id INT DEFAULT 0;
-	INSERT INTO scenarios_v2 (scenario_name, training_set_id, regional_cost_multiplier_scenario_id, regional_fuel_cost_scenario_id, regional_gen_price_scenario_id, enable_rps, carbon_cap_scenario_id, notes, model_version, inputs_adjusted)
+	INSERT INTO scenarios_v3 (scenario_name, training_set_id, regional_cost_multiplier_scenario_id, regional_fuel_cost_scenario_id, gen_costs_scenario_id, gen_info_scenario_id, enable_rps, carbon_cap_scenario_id, notes, model_version, inputs_adjusted)
 
-  SELECT name, training_set_id, regional_cost_multiplier_scenario_id, regional_fuel_cost_scenario_id, regional_gen_price_scenario_id, enable_rps, carbon_cap_scenario_id, notes, model_v, inputs_diff
-		FROM scenarios_v2 where scenario_id=source_scenario_id;
+  SELECT name, training_set_id, regional_cost_multiplier_scenario_id, regional_fuel_cost_scenario_id, gen_costs_scenario_id, gen_info_scenario_id, enable_rps, carbon_cap_scenario_id, notes, model_v, inputs_diff
+		FROM scenarios_v3 where scenario_id=source_scenario_id;
 
   SELECT LAST_INSERT_ID() into new_id;
 

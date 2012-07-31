@@ -1,0 +1,13 @@
+Generator costs and info were updated to published Black & Veatch source.
+
+The data structure was changed, with overnight, fixed, and variable costs now defined by year rather than with a cost declination rate.
+
+Several new tables were introduced, including generator_info_v2, generator_costs_5yearly, generator_costs_yearly, _proposed_projects_v2, existing_plants_v2, and fuel_info_v2. The old tables (generator_info, _proposed_projects, fuel_info) are retained to ensure older versions of the code can still be run.
+
+Generator assumption scenarios will be handled differently via the generator_costs_scenarios and generator_info_scenarios tables. The old cost calculation approach with present day overnight cost and cost declination rate over time will have generator_assumption_scenario_id = 1 and generator_info_scenario_id = 1. Refer to generator_price_scenarios and generator_price_adjuster tables. These two are now obsolete, but for backwards compatibility will remain in place.
+
+Baseline assumptions for the new cost calculation approach with overnight, fixed, and variable costs by year (also baseline heat rates and other generator input parameters) will have generator_costs_scenario_id = 2 in the generator_costs_yearly and generator_costs_5yearly tables. Baseline assumptions for parameters other than costs will have generator_info_scenario_id = 2 in the generator_info_v2 table.
+
+A scenarios_v3 table was created, with the generator_price_scenario_id column removed. Two new columns were added: generator_costs_scenario_id and generator_info_scenario_id. Scenarios IDs in this table start at 3001 to avoid overlap with older scenarios.
+
+We recreated the _proposed_projects_v2 table from _proposed_projects to ensure that the project ids remain matched. CPV projects were deleted.

@@ -53,16 +53,18 @@ INSERT IGNORE INTO training_sets ( load_scenario_id, study_start_year, years_per
 CALL define_new_training_sets();
 
 
-insert ignore into scenarios_v2 (
+insert ignore into scenarios_v3 (
 	training_set_id, regional_cost_multiplier_scenario_id, regional_fuel_cost_scenario_id, 
-	gen_price_scenario_id, enable_rps, enable_carbon_cap )
+	gen_costs_scenario_id, gen_info_scenario_id, enable_rps, carbon_cap_scenario_id, nems_fuel_scenario_id )
 	SELECT 
 		training_set_id, 
 	  1 as regional_cost_multiplier_scenario_id,
 		1 as regional_fuel_cost_scenario_id,
-		1 as gen_price_scenario_id,
+		2 as gen_costs_scenario_id,
+		2 as gen_info_scenario_id,
 		enable_rps,
-		enable_carbon_cap
+		enable_carbon_cap,
+		1 as nems_fuel_scenario_id
 	FROM training_sets, 
 	(
 		SELECT 0 AS enable_rps UNION

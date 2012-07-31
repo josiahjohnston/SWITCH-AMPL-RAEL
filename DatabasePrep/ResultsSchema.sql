@@ -4,7 +4,7 @@ USE switch_results_wecc_v2_2;
 
 -- create views that get data from the inputs database
 CREATE OR REPLACE VIEW technologies as 
-	select technology_id, technology, fuel, storage, can_build_new from switch_inputs_wecc_v2_2.generator_info;
+	select technology_id, technology, fuel, storage, can_build_new from switch_inputs_wecc_v2_2.generator_info_v2;
 CREATE OR REPLACE VIEW load_areas as 
 	select area_id, load_area from switch_inputs_wecc_v2_2.load_area_info;
 CREATE OR REPLACE VIEW load_areas as 

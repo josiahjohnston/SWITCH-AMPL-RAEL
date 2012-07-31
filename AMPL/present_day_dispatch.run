@@ -39,13 +39,13 @@ param total_number_of_hours_in_investment_optimization = sum {h in TIMEPOINTS} h
 let {h in TIMEPOINTS} hours_in_sample[h] := hours_in_sample[h] * ( 8766 / total_number_of_hours_in_investment_optimization );
 let {h in TIMEPOINTS} period[h] := present_year;
 # This ensures more gas peakers can be retroactively built. 
-let min_build_year['Gas_Combustion_Turbine'] := present_year - construction_time_years['Gas_Combustion_Turbine'];
+let {t in TECHNOLOGIES: t = 'Gas_Combustion_Turbine' } construction_time_years[t] := 0;
 let num_years_per_period := 1;
 # update system load to present day system loads
 let {a in LOAD_AREAS, h in TIMEPOINTS} system_load[a, h] := present_day_system_load[a, h];
 # propagate the data changes downstream - this will update capital costs, discounting, constraints, etc.
 update data;
-# Set default values for all OperateEP and InstallGen variables. A subset of these will be decision variables according to the problem definition in windsun.mod
+# Set default values for all OperateEP and InstallGen variables. A subset of these will be decision variables according to the problem definition in switch.mod
 let {(pid, a, t, p) in EP_PERIODS: not intermittent[t] and not hydro[t]} OperateEPDuringPeriod[pid, a, t, p] := 1;
 let {(pid, a, t, p) in PROJECT_VINTAGES} InstallGen[pid, a, t, p] := 0;
 
@@ -85,5 +85,7 @@ if ( file_exists(solution_path) ==  0) then {
 
 } else {
   printf "Found solution to present-day cost. This job is already done.\n";
+  solution(solution_path);
+  include basicstats.run;
 }
 

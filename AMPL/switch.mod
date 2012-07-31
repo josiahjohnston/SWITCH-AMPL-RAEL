@@ -158,7 +158,7 @@ set TECHNOLOGIES;
 param technology_id {TECHNOLOGIES} >= 0;
 
 # earliest time when each technology can be built
-param min_build_year {TECHNOLOGIES} >= 0;
+param min_online_year {TECHNOLOGIES} >= 0;
 
 # all possible years in the study 
 set YEARS ordered = 2000 .. 2100 by 1;
@@ -345,17 +345,24 @@ param cogen_thermal_demand {PROJECTS} >= 0 ;
 # the load center (or make it deliverable to other zones)
 param connect_cost_per_mw {PROJECTS} >= 0;
 
+# define a set of all periods in which each technology can be installed
+# present is included here for the present day dispatch installation of peaker plants
+set NEW_TECHNOLOGY_PERIODS := { t in TECHNOLOGIES, p in PERIODS: can_build_new[t] and p >= min_online_year[t] and ( p >= present_year + construction_time_years[t] ) };
+set NEW_TECHNOLOGY_PERIODS_AND_PRESENT := { t in TECHNOLOGIES, p in PERIODS_AND_PRESENT: can_build_new[t] and p >= min_online_year[t] and ( p >= present_year + construction_time_years[t] or p = present_year ) };
+
 # overnight cost for the plant ($/MW)
-param overnight_cost {PROJECTS} >= 0;
+# overnight cost here is the real capital cost in the year that construction starts rather than in the first year of the operation
+# economic multiplier has not yet been applied for new plants
+param overnight_cost { (t, p) in NEW_TECHNOLOGY_PERIODS_AND_PRESENT } >= 0;
 
 # fixed O&M ($/MW-year)
-param fixed_o_m {PROJECTS} >= 0;
+param fixed_o_m { (t, p) in NEW_TECHNOLOGY_PERIODS_AND_PRESENT } >= 0;
 
 # variable O&M ($/MWh)
-param variable_o_m {PROJECTS} >= 0;
+param variable_o_m_by_year { (t, p) in NEW_TECHNOLOGY_PERIODS_AND_PRESENT } >= 0;
+# var o&m costs don't vary by year despite data structure, so just take any value for one of the periods
+param variable_o_m { t in TECHNOLOGIES: can_build_new[t] } :=  max { (t, p) in NEW_TECHNOLOGY_PERIODS_AND_PRESENT } variable_o_m_by_year[t, p];
 
-# annual rate of change of overnight cost, beginning at the base_year
-param overnight_cost_change {PROJECTS};
 
 # maximum capacity factors (%) for each project, each hour. 
 # generally based on renewable resources available
@@ -404,6 +411,7 @@ param ep_cogen_thermal_demand {EXISTING_PLANTS} >= 0;
 # year when the plant was built (used to calculate annual capital cost and retirement date)
 param ep_vintage {EXISTING_PLANTS} >= 0;
 
+# the ep costs already have the economic multiplier
 # overnight cost of the plant ($/MW)
 param ep_overnight_cost {EXISTING_PLANTS} >= 0;
 
@@ -415,10 +423,6 @@ param ep_fixed_o_m {EXISTING_PLANTS} >= 0;
 
 # variable O&M ($/MWh)
 param ep_variable_o_m {EXISTING_PLANTS} >= 0;
-
-# location_id, which links existing bio projects with new bio projects through competing locations
-# a location_id of zero is null.
-param ep_location_id {EXISTING_PLANTS} >= 0;
 
 ###############################################
 # Existing intermittent generators (existing wind, csp and pv)
@@ -466,9 +470,9 @@ param original_ep_end_year { (pid, a, t) in PROJECT_EP_REPLACMENTS } =
 
 # project-vintage combinations that can be installed
 # the second part of the union keeps existing plants from being prematurly replaced by making p >= original_ep_end_year
-set PROJECT_VINTAGES = { (pid, a, t) in PROJECTS, p in PERIODS: (pid, a, t) not in PROJECT_EP_REPLACMENTS and p >= min_build_year[t] + construction_time_years[t] }
+set PROJECT_VINTAGES = { (pid, a, t) in PROJECTS, p in PERIODS: (pid, a, t) not in PROJECT_EP_REPLACMENTS and (t, p) in NEW_TECHNOLOGY_PERIODS }
 	union
-	{ (pid, a, t) in PROJECT_EP_REPLACMENTS, p in PERIODS: p >= original_ep_end_year[pid, a, t] and p >= min_build_year[t] + construction_time_years[t] };
+	{ (pid, a, t) in PROJECT_EP_REPLACMENTS, p in PERIODS: p >= original_ep_end_year[pid, a, t] and (t, p) in NEW_TECHNOLOGY_PERIODS };
 	
 # date when a plant of each type and vintage will stop being included in the simulation
 # note: if it would be expected to retire between study periods,
@@ -637,10 +641,6 @@ param avg_hydro_output_load_area_agg { (a, t, p, d) in HYDRO_DATES }
 ###############################################
 # calculate discounted costs for plants
 
-# apply projected annual real cost changes to each technology,
-# to get the capital, fixed and variable costs if it is installed 
-# at each possible vintage date
-
 # first, the capital cost of the plant and any 
 # interconnecting lines and grid upgrades
 # (all costs are in $/MW)
@@ -655,9 +655,9 @@ set YEAR_OF_CONSTRUCTION ordered = 0 .. 5 by 1;
 
 param cost_fraction {t in TECHNOLOGIES, yr in YEAR_OF_CONSTRUCTION};
 
+# Overnight cost for each project, adjusted for regional cost differences. This is the overnight cost at the beginning of construction, not in the online year. Multiply by economic multiplier here as it hasn't been applied yet for new plants.
 param project_vintage_overnight_costs {(pid, a, t, p) in PROJECT_VINTAGES} = 
-	# Overnight cost, adjusted for projected cost changes.
-	overnight_cost[pid, a, t] * ( 1 + overnight_cost_change[pid, a, t] )^( p - construction_time_years[t] - base_year );
+	overnight_cost[t, p] * economic_multiplier[a];
 
 
 # CCS projects incur extra pipeline costs if their load area doesn't have a viable sink
@@ -713,10 +713,14 @@ param ep_capital_cost { (pid, a, t, p) in EP_PERIODS } =
   if ep_could_be_operating_past_expected_lifetime[pid, a, t, p] then 0
     else capital_cost_annual_payment[pid, a, t, p] * discount_to_base_year[p];
 
+# fixed cost by project vintage
+# also apply economic multiplier here as it hasn't been applied yet for new plants
+param project_vintage_fixed_o_m {(pid, a, t, p) in PROJECT_VINTAGES} =
+	fixed_o_m[t, p] * economic_multiplier[a];
+	
 # discount fixed operations and maintenence costs to a lump-sum value at the start of the study.
 param fixed_o_m_discounted { (pid, a, t, online_yr) in PROJECT_VINTAGES } = 
-  sum {p in PERIODS: online_yr <= p < project_end_year[pid, a, t, online_yr]} fixed_o_m[pid, a, t]
-  * discount_to_base_year[p];
+  sum {p in PERIODS: online_yr <= p < project_end_year[pid, a, t, online_yr]} project_vintage_fixed_o_m[pid, a, t, online_yr] * discount_to_base_year[p];
 
 # same for existing plants
 # these are for each period rather than the whole plant lifetime because OperateEPDuringPeriod determines the plant's end_year.
@@ -731,8 +735,10 @@ param fuel_price_in_period { (pid, a, t, p) in AVAILABLE_VINTAGES } :=
 
 # variable operations and maintence cost per MWh in each period for each generator for hourly dispatch 
 # In variable costs, hours_in_sample is a weight intended to reflect how many hours are represented by a timepoint.
+# Also apply economic multiplier for variable costs here.
+# NOTE: change economic multiplier to be the same for new and existing
 param variable_o_m_cost_hourly { (pid, a, t, p, h) in AVAILABLE_HOURS } =
-	( if can_build_new[t] then variable_o_m[pid, a, t] else ep_variable_o_m[pid, a, t] )
+	( if can_build_new[t] then variable_o_m[t] * economic_multiplier[a] else ep_variable_o_m[pid, a, t] )
 	* ( hours_in_sample[h] / num_years_per_period ) * discount_to_base_year[p];
 
 # same for the fuel cost per MWh
@@ -1920,11 +1926,12 @@ problem Present_Day_Cost_Minimization:
     Satisfy_Load,
 	Conservation_Of_Energy_NonDistributed, ConsumeNonDistributedPower, 
   # Installation Decisions - only gas combustion turbines for the present day optimization
-	{(pid, a, t, p) in PROJECT_VINTAGES: t='Gas_Combustion_Turbine'} InstallGen[pid, a, t, p], 
+	{(pid, a, t, p) in PROJECT_VINTAGES: t='Gas_Combustion_Turbine' } InstallGen[pid, a, t, p], 
   # Dispatch Decisions
-	DispatchGen, DispatchFlexibleBaseload, Deep_Cycle_Amount, Commit_Intermediate_Gen, Startup_MW_from_Last_Hour, ProducePowerEP, ConsumeBioSolid, ConsumeNaturalGas, ConsumeNaturalGasRegional,
-	DispatchTrans, 
-	{(pid, a, t, p) in EP_PERIODS: not intermittent[t] and not hydro[t] and ep_could_be_operating_past_expected_lifetime[pid, a, t, p]} OperateEPDuringPeriod[pid, a, t, p],
+	DispatchGen, DispatchFlexibleBaseload, Deep_Cycle_Amount, Commit_Intermediate_Gen, Startup_MW_from_Last_Hour, ProducePowerEP, ConsumeBioSolid,
+	ConsumeNaturalGas, ConsumeNaturalGasRegional,
+	DispatchTrans,
+	{(pid, a, t, p) in EP_PERIODS: ( not intermittent[t] and not hydro[t] and ep_could_be_operating_past_expected_lifetime[pid, a, t, p] ) or fuel[t] in BIO_SOLID_FUELS } OperateEPDuringPeriod[pid, a, t, p],
 	DispatchHydro, Dispatch_Pumped_Hydro_Storage, Store_Pumped_Hydro,
 	Provide_Spinning_Reserve, Provide_Quickstart_Capacity, Hydro_Operating_Reserve, Pumped_Hydro_Storage_Operating_Reserve, 
   # Dispatch Constraints

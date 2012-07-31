@@ -17,5 +17,5 @@ DistillateFuelOil_CCS	fossilish	0	0.0109725	0.0621775
 ResidualFuelOil_CCS	fossilish	0	0.01182	0.06698
 Bio_Solid_CCS	renewable	1	-0.0801933	0.0801933
 Bio_Liquid_CCS	renewable	1	-0.0654075	0.0654075
-Bio_Gas_CCS	renewable	1	-0.090202	0.090202
+Bio_Gas_CCS	renewable	1	-0.045101	0.045101
 Coal_CCS	fossilish	0	0.014328	0.081192
