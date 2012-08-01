@@ -30,6 +30,7 @@ cd "$working_dir"          # Go to the working directory
 # Load ampl & cplex if we're on the citris cluster. Test for the citris cluster by looking for "citris" in the hostname
 if [ $( hostname | grep "citris" | wc -l ) -gt 0 ]; then
   module load ampl-cplex
+  module load openmpi
 fi
 
 # Make a list of problems composed from .nl files that don't have accompanying .sol files. 
