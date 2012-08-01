@@ -407,15 +407,15 @@ gen_scenario_ids_loop: LOOP
 
 set @current_gen_costs_scenario_id := (select gen_costs_scenario_id from gen_scenario_ids limit 1);
 
-drop table if exists technologies;
-create table technologies (technology varchar(64));
-insert into technologies (technology) select distinct(technology) from generator_costs_yearly;
+drop table if exists technologies_for_loop;
+create table technologies_for_loop (technology varchar(64));
+insert into technologies_for_loop (technology) select distinct(technology) from generator_costs_yearly;
 
 -- iterate over technologies
 
 technologies_loop: LOOP
 
-set @current_technology := (select technology from technologies limit 1);
+set @current_technology := (select technology from technologies_for_loop limit 1);
 
 drop table if exists generator_costs_temp_calculation_table;
 create table generator_costs_temp_calculation_table(
@@ -470,13 +470,13 @@ set 	overnight_cost_yearly_difference_from_previous_available_year =
 		var_o_m_cost_difference_from_previous_available_year / ( year - previous_year_with_cost_data );
 
 -- now we will iterate over years
-drop table if exists years;
-create table years (year year);
-insert into years (year) select distinct(year) from generator_costs_yearly;
+drop table if exists years_for_loop;
+create table years_for_loop (year year);
+insert into years_for_loop (year) select distinct(year) from generator_costs_yearly;
 
 years_loop: LOOP
 
-set @current_year := ( select year from years LIMIT 1 );
+set @current_year := ( select year from years_for_loop LIMIT 1 );
 
 -- calculate costs for each year in the final table
 update 	generator_costs_yearly join
@@ -490,15 +490,15 @@ where 	generator_costs_yearly.year = @current_year
 and		generator_costs_yearly.technology = @current_technology
 and		generator_costs_yearly.gen_costs_scenario_id=@current_gen_costs_scenario_id;
 
-delete from years where year = @current_year;
+delete from years_for_loop where year = @current_year;
 
-	IF ( select count(*) from years ) = 0 THEN LEAVE years_loop;
+	IF ( select count(*) from years_for_loop ) = 0 THEN LEAVE years_loop;
 	END IF;
 END LOOP years_loop;
 
-delete from technologies where technology = @current_technology;
+delete from technologies_for_loop where technology = @current_technology;
 
-	IF ( select count(*) from technologies ) = 0 THEN LEAVE technologies_loop;
+	IF ( select count(*) from technologies_for_loop ) = 0 THEN LEAVE technologies_loop;
 	END IF;
 END LOOP technologies_loop;
 
@@ -518,8 +518,8 @@ drop procedure calculate_yearly_generator_costs;
 
 drop table if exists 2010_to_2050;
 drop table if exists gen_scenario_ids;
-drop table if exists technologies;
-drop table if exists years;
+drop table if exists technologies_for_loop;
+drop table if exists years_for_loop;
 drop table if exists generator_costs_temp_calculation_table;
 
 -- delete the EPs as their costs get input elsewhere

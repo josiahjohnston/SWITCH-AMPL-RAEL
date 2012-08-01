@@ -277,6 +277,7 @@ training_set_periods \
 where year = period_start - g.construction_time_years \
 and period_start >= g.construction_time_years + $present_year \
 and	period_start >= g.min_online_year \
+and gen_costs_scenario_id=$GEN_COSTS_SCENARIO_ID \
 and training_set_id=$TRAINING_SET_ID \
 UNION \
 select technology, $present_year as period, overnight_cost, fixed_o_m, var_o_m as variable_o_m_by_year from generator_costs_yearly, \
