@@ -384,8 +384,7 @@ update generator_costs_yearly, generator_costs_5yearly
 set generator_costs_yearly.overnight_cost = generator_costs_5yearly.overnight_cost,
 	generator_costs_yearly.fixed_o_m = generator_costs_5yearly.fixed_o_m,
 	generator_costs_yearly.var_o_m = generator_costs_5yearly.var_o_m
-where 	generator_costs_yearly.year = generator_costs_5yearly.year
-and		generator_costs_yearly.technology = generator_costs_5yearly.technology
+where 	generator_costs_yearly.technology = generator_costs_5yearly.technology
 and		generator_costs_yearly.year = generator_costs_5yearly.year
 and		generator_costs_yearly.gen_costs_scenario_id = generator_costs_5yearly.gen_costs_scenario_id;
 
@@ -409,7 +408,7 @@ set @current_gen_costs_scenario_id := (select gen_costs_scenario_id from gen_sce
 
 drop table if exists technologies_for_loop;
 create table technologies_for_loop (technology varchar(64));
-insert into technologies_for_loop (technology) select distinct(technology) from generator_costs_yearly;
+insert into technologies_for_loop (technology) select distinct(technology) from generator_costs_yearly where gen_costs_scenario_id = @current_gen_costs_scenario_id;
 
 -- iterate over technologies
 
@@ -472,7 +471,7 @@ set 	overnight_cost_yearly_difference_from_previous_available_year =
 -- now we will iterate over years
 drop table if exists years_for_loop;
 create table years_for_loop (year year);
-insert into years_for_loop (year) select distinct(year) from generator_costs_yearly;
+insert into years_for_loop (year) select distinct(year) from generator_costs_yearly where technology = @current_technology and gen_costs_scenario_id = @current_gen_costs_scenario_id;
 
 years_loop: LOOP
 
