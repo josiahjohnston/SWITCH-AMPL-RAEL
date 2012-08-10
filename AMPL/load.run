@@ -40,7 +40,7 @@ option cplex_options (" threads=4 lpdisplay=1 bardisplay=2 barobjrange=1e30 comp
 # Use the option string below to enable iisfind when you are trying to diagnose infeasibilities
 #option cplex_options (" lpdisplay=1 iisfind=1 mipdisplay=2 presolve=1 prestats=1 timing=1 nodefile=2 treememory=15000 threads=4" );
 option cplex_options > results/cplex_options;
-shell('sed -i -e "s/^.*' & "'\(.*\)'" & ';/\1/" results/cplex_options');
+shell('sed -i".orig" -e "s/^.*' & "'\(.*\)'" & ';/\1/" results/cplex_options');
 
 
 # Include other AMPL code files. 
