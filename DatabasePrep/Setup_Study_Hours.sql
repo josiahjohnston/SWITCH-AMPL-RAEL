@@ -364,7 +364,7 @@ define_new_training_sets_loop: LOOP
       load_scenario_historic_timepoints.load_scenario_id = @load_scenario_id;
   -- Make a list of test sets with incomplete data
   CREATE TABLE incomplete_test_sets
-    SELECT test_set_id, COUNT(*) as cnt FROM dispatch_test_sets WHERE periodnum=0 AND training_set_id=@training_set_id GROUP BY 1 HAVING cnt != @hours_per_test_set;
+    SELECT test_set_id, COUNT(*) as cnt FROM dispatch_test_sets WHERE training_set_id=@training_set_id GROUP BY 1 HAVING cnt != @hours_per_test_set * @number_of_periods;
   ALTER TABLE incomplete_test_sets ADD UNIQUE (test_set_id);
   -- Delete test sets that have incomplete data. 
   DELETE dispatch_test_sets FROM dispatch_test_sets, incomplete_test_sets 
