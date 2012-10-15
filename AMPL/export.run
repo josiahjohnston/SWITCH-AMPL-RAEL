@@ -148,7 +148,7 @@ for {c in CARBON_COSTS} {
         > (outfile); }
       
       # New Plants, inclusive of new storage projects
-      printf {(pid, a, t, p) in PROJECT_VINTAGES: Installed_To_Date[pid, a, t, p]  > 0.001}
+      printf {(pid, a, t, p) in PROJECT_VINTAGES}
         "%s	%d	%d	%d	%d	%s	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%.2f\n",
         scenario_id, carbon_cost, p, pid, load_area_id[a], a, technology_id[t], t, location_id[pid, a, t], 1, baseload[t], cogen[t], fuel[t],
         Installed_To_Date[pid, a, t, p],
