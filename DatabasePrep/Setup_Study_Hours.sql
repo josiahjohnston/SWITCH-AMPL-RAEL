@@ -4,7 +4,7 @@ create database if not exists switch_inputs_wecc_v2_2;
 use switch_inputs_wecc_v2_2;
 	
 CREATE TABLE IF NOT EXISTS training_sets (
-  training_set_id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
+  training_set_id INT UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT,
   load_scenario_id  TINYINT UNSIGNED,
   num_timepoints INT NOT NULL,
   study_start_year YEAR NOT NULL,
@@ -25,7 +25,7 @@ COMMENT = 'This stores descriptions of a set of timepoints that the SWITCH model
 
 
 CREATE TABLE IF NOT EXISTS training_set_periods (
-  training_set_id INT NOT NULL,
+  training_set_id INT UNSIGNED NOT NULL,
   periodnum TINYINT UNSIGNED,
   period_start year,
   period_end year,
@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS training_set_periods (
 
 -- Make a table of study hours
 CREATE TABLE IF NOT EXISTS _training_set_timepoints (
-  training_set_id INT NOT NULL,
+  training_set_id INT UNSIGNED NOT NULL,
   period year,
   timepoint_id INT UNSIGNED,
   hours_in_sample DECIMAL (6,1),
@@ -70,6 +70,13 @@ CREATE TABLE IF NOT EXISTS dispatch_test_sets (
   INDEX (training_set_id, periodnum),
   CONSTRAINT training_set_id_fk FOREIGN KEY training_set_id_fk (training_set_id)
     REFERENCES training_sets (training_set_id)
+);
+
+CREATE TABLE _dispatch_load_summary (
+  training_set_id int unsigned NOT NULL,
+  period year NOT NULL,
+  load_in_period_mwh decimal(20,0),
+  PRIMARY KEY (training_set_id, period)
 );
 
 CREATE TABLE IF NOT EXISTS scenarios_v3 (
@@ -345,7 +352,7 @@ define_new_training_sets_loop: LOOP
  	DROP TABLE historic_timepoints_used;
 
   -- Make test sets to go along with this training set.
-  set @hours_per_test_set := 7*24;
+  set @hours_per_test_set := 24;
   set @first_historic_hour := (select min(historic_hour) from load_scenario_historic_timepoints where load_scenario_id=@load_scenario_id);
 
   -- Skip entries for the present year for now.
@@ -364,7 +371,7 @@ define_new_training_sets_loop: LOOP
       load_scenario_historic_timepoints.load_scenario_id = @load_scenario_id;
   -- Make a list of test sets with incomplete data
   CREATE TABLE incomplete_test_sets
-    SELECT test_set_id, COUNT(*) as cnt FROM dispatch_test_sets WHERE training_set_id=@training_set_id GROUP BY 1 HAVING cnt != @hours_per_test_set * @number_of_periods;
+    SELECT test_set_id, COUNT(*) as cnt FROM dispatch_test_sets WHERE periodnum=0 AND training_set_id=@training_set_id GROUP BY 1 HAVING cnt != @hours_per_test_set;
   ALTER TABLE incomplete_test_sets ADD UNIQUE (test_set_id);
   -- Delete test sets that have incomplete data. 
   DELETE dispatch_test_sets FROM dispatch_test_sets, incomplete_test_sets 
@@ -383,6 +390,16 @@ define_new_training_sets_loop: LOOP
     WHERE dispatch_test_sets.training_set_id = @training_set_id AND
       dispatch_test_sets.periodnum IS NULL AND 
       test_timepoints_per_period.periodnum IS NULL;
+  -- Calculate the total load served in each period by these test sets
+  INSERT INTO _dispatch_load_summary (training_set_id, period, load_in_period_mwh)
+    SELECT training_set_id, period_start as period, sum(power*hours_in_sample) as load_in_period_mwh
+    FROM dispatch_test_sets 
+      JOIN training_sets USING (training_set_id)
+      JOIN _load_projections USING(timepoint_id,load_scenario_id)
+      JOIN training_set_periods USING(periodnum,training_set_id)
+    WHERE training_set_id = @training_set_id
+    GROUP BY 1,2;
+  
 
 	-- We're finished processing this training set, so delete it from the work list.
 	delete from training_sets_tmp where training_set_id = @training_set_id;
