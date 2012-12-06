@@ -154,24 +154,6 @@ fi
 
 # If we've made it here, we aren't in a cluster environment. Execute SWITCH appropriately. 
 
-# Compile the problems sequentially with one copy of AMPL
-log_base="logs/ampl_compilation_"$(date +'%m_%d_%H_%M_%S')
-printf "Compiling optimization problems. Logging results to $log_base...\n"
-echo 'include load.run; include compile.run;' | ampl 1>$log_base".log"  2>$log_base".error_log" 
-
-# Optimize the problems with N copies of cplex
-printf "Spawning %d workers for cplex optimization...\n" $num_workers
-problems=$(ls results/*nl | sed -e 's/.nl$//' | while read b; do if [ ! -f "$b.sol" ]; then echo $b; fi; done | tr '\n' ' ')
-log_base="logs/worker_"$(date +'%m_%d_%H_%M_%S')
-pids=''
-printf "Worker pids are: "
-for ((i=0; i<$num_workers; i++)); do
-	./cplex_worker.sh --num_workers $num_workers --worker $i --problems "$problems" 1>$log_base"-$i.log" 2>$log_base"-$i.log" &
-	pids[$i]=$!
-	printf "%d " ${pids[$i]}
-done
-printf "\n";
-
 function cpu_usage() {
 	pid=$1
 	tmp_path='logs/tmp.txt'
@@ -186,24 +168,56 @@ function cpu_usage() {
 	rm $tmp_path
 }
 
-echo "Workers' cpu usage..."
-still_running=$num_workers
-while [ $still_running -gt 0 ]; do
-	still_running=0
-	status_line=""
-	for ((i=0; i<$num_workers; i++)); do
-		if [ $(ps -p ${pids[$i]} | wc -l | awk '{print $1}') -gt 1 ]; then
-			status[$i]=$(cpu_usage ${pids[$i]})
-			still_running=$(($still_running + 1))
-		else
-			status[$i]=done
-		fi
-		status_line="$status_line $i: "${status[$i]}
-	done
-	echo -ne "\r$status_line"
-	sleep 2
-done
-printf "\nOptimization done.\n"
+
+# Compile the problems sequentially with one copy of AMPL
+log_base="logs/ampl_compilation_"$(date +'%m_%d_%H_%M_%S')
+printf "Compiling optimization problems. Logging results to $log_base...\n"
+echo 'include load.run; include compile.run;' | ampl 1>$log_base".log"  2>$log_base".error_log" 
+
+# Optimize the problems with N copies of cplex
+problems=$(                  # Find problems that lack solutions
+  find results -name '*nl' | # Search for files in the results directory with an 'nl' suffix. Pipe the results (if any) to the next step. 
+  sed -e 's/.nl$//' |        # Strip the '.nl' suffix off the end of the paths. 
+  while read b; do           # Filter the list of base file names. 
+    if [ ! -f "$b.sol" ];    # Pass the base file name to the next step if it doesn't have a .sol file. 
+    then 
+      echo $b; 
+    fi; 
+  done |                     # Pass whatever made it through the filter to the next step
+  tr '\n' ' '                # Replace the line returns with spaces so the list of problems is easier to pass around
+) 
+if [ -n "$problems" ]; then  # Only start the optimization step if there are problems to solve
+  printf "Spawning %d workers for cplex optimization...\n" $num_workers
+  log_base="logs/worker_"$(date +'%m_%d_%H_%M_%S')
+  pids=''
+  printf "Worker pids are: "
+  for ((i=0; i<$num_workers; i++)); do
+    ./cplex_worker.sh --num_workers $num_workers --worker $i --problems "$problems" 1>$log_base"-$i.log" 2>$log_base"-$i.log" &
+    pids[$i]=$!
+    printf "%d " ${pids[$i]}
+  done
+  printf "\n";
+  echo "Workers' cpu usage..."
+  still_running=$num_workers
+  while [ $still_running -gt 0 ]; do
+    still_running=0
+    status_line=""
+    for ((i=0; i<$num_workers; i++)); do
+      if [ $(ps -p ${pids[$i]} | wc -l | awk '{print $1}') -gt 1 ]; then
+        status[$i]=$(cpu_usage ${pids[$i]})
+        still_running=$(($still_running + 1))
+      else
+        status[$i]=done
+      fi
+      status_line="$status_line $i: "${status[$i]}
+    done
+    echo -ne "\r$status_line"
+    sleep 2
+  done
+  printf "\nOptimization done.\n"
+else 
+  printf "No unsolved problem files found."
+fi
 
 
 # Export results with one copy of AMPL
