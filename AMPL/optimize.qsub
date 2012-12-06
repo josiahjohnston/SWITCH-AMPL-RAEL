@@ -5,7 +5,7 @@
 # Job label
 #PBS -N test-optimize
 # Please keep nodes below 8. Each node has 8 processors & 24GB RAM
-#PBS -l nodes=4:ppn=1
+#PBS -l nodes=1:ppn=1
 # Name of queue to use for this job. `qstat -q` lists the available queues (4 for now). `qstat` without options shows the jobs each queue.
 #PBS -q long
 # How long you expect the job to run. The PBS scheduler will kill the job after this long. 72h is the maximum. Format is HH:MM:SS
@@ -23,7 +23,7 @@
 #
 
 # Update this directory every time before you start the execution. run_switch should set this for you.
-working_dir="/global/home/users/siah/AMPL"
+working_dir="/global/home/users/siah/tmp/AMPL_dispatch_check"
 
 # Initialize the environment
 cd "$working_dir"          # Go to the working directory

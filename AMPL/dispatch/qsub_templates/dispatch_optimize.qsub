@@ -6,13 +6,14 @@ if [ -z "$ILOG_LICENSE_FILE" ]; then
   esac  
 fi
 
-cplex_options=$(cat ../results/cplex_options);
 job_path=$(mktemp -p tmp cplexamp-XXX);
 for p in $(ls -1 test_set_*/results/sol*dispatch.nl); do
   base=$(echo $p | sed -e 's/\.nl$//');
   prob_name=$(echo $base | sed -e 's|^test_set_\([0-9]*\)/.*/|\1-|');
+  results_dir=$(echo $p | sed -e 's|results/.*$|results|');
+  cplex_options=$(cat $results_dir/cplex_options);
   if [ -n "$threads_per_cplex" ]; then
-    cplex_options=$(echo $cplex_options | sed -e 's/threads=[0-9]*/threads='$threads_per_cplex'/');
+    cplex_options=$(echo "$cplex_options" | sed -e 's/threads=[0-9]*/threads='$threads_per_cplex'/');
   fi
   if [ ! -f ${base}.sol ]; then
     echo "\
@@ -22,9 +23,9 @@ echo \"\$(date)\" >>logs/${prob_name}.err; \
 start_time=\$(date +'%s'); \
 cplexamp $base -AMPL '$cplex_options' 1>>logs/${prob_name}.log 2>>logs/${prob_name}.err & \
 "'cplex_pid=$! ; '"\
-ps -o vsz,rss,pmem,time,comm -p \$cplex_pid >logs/${prob_name}.profile; \
+ps -o pcpu,vsz,rss,pmem,time,comm -p \$cplex_pid >logs/${prob_name}.profile; \
 while [ -e /proc/\$cplex_pid ]; do \
-  ps -o vsz,rss,pmem,time,comm -p \$cplex_pid | tail -1 >>logs/${prob_name}.profile; \
+  ps -o pcpu,vsz,rss,pmem,time,comm -p \$cplex_pid | tail -1 >>logs/${prob_name}.profile; \
   sleep 30; \
 done; \
 end_time=\$(date +'%s'); \
