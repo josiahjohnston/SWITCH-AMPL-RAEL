@@ -163,7 +163,7 @@ if [ $SkipImport == 0 ]; then
         into table _dispatch_decisions ignore 1 lines \
         (scenario_id, carbon_cost, period, area_id, @load_area, @balancing_area, @date, @hour, test_set_id, technology_id, @tech, new, baseload, cogen, storage, fuel, fuel_category, hours_in_sample, power, co2_tons, heat_rate, fuel_cost, carbon_cost_incurred, variable_o_m_cost, spinning_reserve, quickstart_capacity, total_operating_reserve, spinning_co2_tons, spinning_fuel_cost, spinning_carbon_cost_incurred, deep_cycling_amount, deep_cycling_fuel_cost, deep_cycling_carbon_cost, deep_cycling_co2_tons, mw_started_up, startup_fuel_cost, startup_nonfuel_cost, startup_carbon_cost, startup_co2_tons )\
         set study_timepoint_utc = str_to_date( @hour, '%Y%m%d%H'), \
-        set study_timepoint_id = timestampdiff(HOUR,'$starting_timestamp',study_timepoint_utc);"
+            study_timepoint_id = timestampdiff(HOUR,'$starting_timestamp',study_timepoint_utc);"
     end_time=$(date +%s)
     db_row_count=$(mysql $connection_string --column-names=false -e "\
       select count(*) from _dispatch_decisions \
