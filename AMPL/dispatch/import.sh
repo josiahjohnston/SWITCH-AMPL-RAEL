@@ -145,7 +145,7 @@ if [ $SkipImport == 0 ]; then
   # Setting the timepoint ids via a join can take over 15 hours. 
   # Look up the parameters of the id numbering convention & validate that it works
   starting_timestamp=$(mysql $connection_string --column-names=false -e "select datetime_utc from switch_inputs_wecc_v2_2.study_timepoints where timepoint_id=0";)
-  time_id_shortcut_works=$(mysql $connection_string --column-names=false -e "select (timepoint_id=timestampdiff(HOUR,'$starting_timestamp',datetime_utc) from switch_inputs_wecc_v2_2.study_timepoints order by datetime_utc desc limit 1";)
+  time_id_shortcut_works=$(mysql $connection_string --column-names=false -e "select (timepoint_id=timestampdiff(HOUR,'$starting_timestamp',datetime_utc)) from switch_inputs_wecc_v2_2.study_timepoints order by datetime_utc desc limit 1";)
   if [ $time_id_shortcut_works -eq 0 ]; then
     echo "The timepoint id lookup trick didn't work! You know, the one where the id of EVERY study timepoint is just the number of hours from the first timepoint? Bailing out!\n"
     exit 1
