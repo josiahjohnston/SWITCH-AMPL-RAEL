@@ -625,4 +625,4 @@ INSERT INTO _gen_hourly_summary_fc_la
     GROUP BY scenario_id, carbon_cost, period, area_id, study_date, study_hour, hours_in_sample, fuel_category_id, storage;
 
 -- Calculate the carbon intensity of electricity
-CALL calc_carbon_intensity(@scenario_id);
+-- CALL calc_carbon_intensity(@scenario_id);
