@@ -28,23 +28,31 @@ insert into _dispatch_gen_cap_summary_tech (scenario_id, carbon_cost, period, te
   order by 1, 2, 3, 4;
 
 -- Calculate the total variable costs by period & technology
-drop temporary table if exists tfuel_carbon_sum_table;
-create temporary table tfuel_carbon_sum_table
+drop temporary table if exists temp_sum_table;
+create temporary table temp_sum_table
 	select carbon_cost, period, technology_id,
 				sum(variable_o_m_cost * hours_in_sample) as variable_o_m_cost,		
 				sum(fuel_cost * hours_in_sample) as fuel_cost,
-				sum(carbon_cost_incurred * hours_in_sample) as carbon_cost_total
+				sum(carbon_cost_incurred * hours_in_sample) as carbon_cost_total,
+				sum(co2_tons * hours_in_sample) as co2_tons,		
+				sum(spinning_co2_tons * hours_in_sample) as spinning_co2_tons,		
+				sum(deep_cycling_co2_tons * hours_in_sample) as deep_cycling_co2_tons,
+				sum(startup_co2_tons * hours_in_sample) as startup_co2_tons
 			from _dispatch_decisions
 		    where scenario_id = @scenario_id
 		    group by 1, 2, 3;
-alter table tfuel_carbon_sum_table add index fcst_idx (carbon_cost, period, technology_id);
+alter table temp_sum_table add index fcst_idx (carbon_cost, period, technology_id);
 
 -- Copy the variable costs into the summary table
-update _dispatch_gen_cap_summary_tech s, tfuel_carbon_sum_table t
+update _dispatch_gen_cap_summary_tech s, temp_sum_table t
 	set
-		s.o_m_cost_total    = s.o_m_cost_total + t.variable_o_m_cost,
-		s.fuel_cost         = t.fuel_cost,
-		s.carbon_cost_total = t.carbon_cost_total
+		s.o_m_cost_total        = s.o_m_cost_total + t.variable_o_m_cost,
+		s.fuel_cost             = t.fuel_cost,
+		s.carbon_cost_total     = t.carbon_cost_total,
+		s.co2_tons              = t.co2_tons,
+		s.spinning_co2_tons     = t.spinning_co2_tons,
+		s.deep_cycling_co2_tons = t.deep_cycling_co2_tons,
+		s.startup_co2_tons      = t.startup_co2_tons
   where s.scenario_id   = @scenario_id
 		and s.carbon_cost   = t.carbon_cost
 		and s.period        = t.period
@@ -182,8 +190,8 @@ update _dispatch_power_cost set new_solar_cost =
 
 update _dispatch_power_cost set new_storage_nonfuel_cost =
 	(select sum(capital_cost) + sum(o_m_cost_total) from _dispatch_gen_cap_summary_tech g
-		where g.scenario_id = power_cost.scenario_id
-		and g.carbon_cost = power_cost.carbon_cost and g.period = power_cost.period and 
+		where g.scenario_id = _dispatch_power_cost.scenario_id
+		and g.carbon_cost = _dispatch_power_cost.carbon_cost and g.period = _dispatch_power_cost.period and 
 		technology_id	in (select technology_id from technologies where storage = 1 and can_build_new = 1 ) )
 where scenario_id = @scenario_id;
 
@@ -202,3 +210,23 @@ update _dispatch_power_cost set total_cost =
 
 update _dispatch_power_cost set cost_per_mwh = total_cost / load_in_period_mwh
 	where scenario_id = @scenario_id;
+
+-- see WECC_Plants_For_Emissions in the Switch_Input_Data folder for a calculation of the yearly 1990 emissions from WECC
+set @co2_tons_1990 := 284800000;
+set @years_per_period := (
+SELECT years_per_period 
+  FROM switch_inputs_wecc_v2_2.scenarios_v3 
+    JOIN switch_inputs_wecc_v2_2.training_sets USING (training_set_id)
+	WHERE scenario_id = @scenario_id);
+
+insert into dispatch_co2_cc 
+	select 	scenario_id,
+			carbon_cost,
+			period,
+			sum( ( co2_tons + spinning_co2_tons + deep_cycling_co2_tons + startup_co2_tons ) ) / @years_per_period as co2_tons, 
+     		@co2_tons_1990 - sum( ( co2_tons + spinning_co2_tons + deep_cycling_co2_tons + startup_co2_tons ) ) / @years_per_period as co2_tons_reduced_1990,
+    		1 - ( sum( ( co2_tons + spinning_co2_tons + deep_cycling_co2_tons + startup_co2_tons ) ) / @years_per_period ) / @co2_tons_1990 as co2_share_reduced_1990
+  	from 	_dispatch_gen_cap_summary_tech 
+  	where 	scenario_id = @scenario_id
+  	group by 1, 2, 3
+  	order by 1, 2, 3;
