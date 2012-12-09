@@ -33,7 +33,7 @@ write_to_path='inputs'
 db_server="switch-db1.erg.berkeley.edu"
 DB_name="switch_inputs_wecc_v2_2"
 port=3306
-ssh_tunnel=0
+ssh_tunnel=1
 
 ###################################################
 # Detect optional command-line arguments
