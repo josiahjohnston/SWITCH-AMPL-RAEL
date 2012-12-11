@@ -263,7 +263,7 @@ DROP TABLE IF EXISTS generator_info_v2;
 create table generator_info_v2 (
 	gen_info_scenario_id int unsigned NOT NULL,
 	technology_id tinyint unsigned NOT NULL,
-	technology varchar(64) UNIQUE,
+	technology varchar(64),
 	min_online_year year,
 	fuel varchar(64),
 	connect_cost_per_mw_generic float,
