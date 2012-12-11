@@ -299,7 +299,8 @@ create table generator_info_v2 (
 	startup_cost_dollars_per_mw float,
 	data_source_and_notes varchar(512),
 	index techology_id_name (technology_id, technology),
-	PRIMARY KEY (gen_info_scenario_id, technology_id)
+	PRIMARY KEY (gen_info_scenario_id, technology_id),
+	INDEX tech (technology)
 );
 
 load data local infile
