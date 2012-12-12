@@ -66,6 +66,23 @@ for base_name in $problems; do
   carbon_cost=$(echo "$base_name" | sed -e 's_^.*[^0-9]\([0-9][0-9]*\)[^/]*$_\1_')
   log_base="logs/cplex_optimization_"$carbon_cost"_"$(date +'%m_%d_%H_%M_%S')
   printf "About to run cplex. \n\tLogs are ${log_base}_cplex...\n\tcommand is: cplexamp $base_name -AMPL \"$cplex_options\"\n"
-  runtime=$((time -p cplexamp $base_name -AMPL "$cplex_options" 1>>$log_base"_cplex.log" 2>>$log_base"_cplex.error_log" )2>&1 | grep real | awk '{print $2}')
+  # Record node this is being run on
+  hostname >$log_base".log"
+  hostname >$log_base".error_log"
+  start_time=$(date +%s);
+  cplexamp $base_name -AMPL "$cplex_options" 1>> $log_base"_cplex.log" 2>> $log_base"_cplex.error_log" &
+  cplex_pid=$! ;
+  ps_headers="$(ps -o vsize,rssize,%mem,%cpu,time,comm -p $cplex_pid | head -1)"
+  echo "realtime  $ps_headers" > $log_base"_cplex.profile";
+  while [ -e /proc/$cplex_pid ]; do
+	ps_output="$(ps -o vsize,rssize,%mem,%cpu,time,comm -p $cplex_pid | tail -1)"
+    realtime=$(date +%s);
+	printf "%8d  %s\n" $realtime "$ps_output" >> $log_base"_cplex.profile";
+    sleep 30;
+  done;
+  end_time=$(date +%s);
+  runtime=$(($end_time - $start_time))
+
+
   printf "$scenario_id\t$carbon_cost\tcplex_optimize\t"$(date +'%s')"\t$runtime\n" >> "$runtime_path"
 done
