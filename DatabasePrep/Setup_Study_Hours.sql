@@ -198,7 +198,7 @@ create table training_sets_tmp as
 -- also report the number of days in each month, for sample-weighting later
 create table if not exists tmonths (month_of_year tinyint PRIMARY KEY, days_in_month double);
 insert IGNORE into tmonths values 
-	(1, 31), (2, 29.25), (3, 31), (4, 30), (5, 31), (6, 30),
+	(1, 31), (2, 28.25), (3, 31), (4, 30), (5, 31), (6, 30),
 	(7, 31), (8, 31), (9, 30), (10, 31), (11, 30), (12, 31);
 
 set @num_load_areas := (select count(distinct(area_id)) as num_load_areas from load_area_info);
@@ -252,6 +252,7 @@ define_new_training_sets_loop: LOOP
 			FROM _load_projection_daily_summaries JOIN t_period_years ON(YEAR(date_utc) = sampled_year)
 			WHERE num_data_points = @num_load_areas * 24 -- Exclude dates that have incomplete data.
 				AND load_scenario_id=@load_scenario_id ; 
+  
 
 
 	-- Pick samples for each period. Loop through periods sequentially to avoid picking more than one sample based on the same historic date.
@@ -291,7 +292,8 @@ define_new_training_sets_loop: LOOP
 					SELECT peak_hour_historic_id FROM _load_projection_daily_summaries WHERE load_scenario_id=@load_scenario_id AND date_utc=@peak_day;
 			END IF;
 
-			-- REPRESENTATIVE days
+
+    	-- REPRESENTATIVE days
 			SET @hours_in_sample := (SELECT 
 				IF(@exclude_peaks=1, days_in_month, days_in_month-1) * @years_per_period * @hours_between_samples * @months_between_samples FROM tmonths WHERE month_of_year = @month);
 			CASE @selection_method
@@ -312,6 +314,37 @@ define_new_training_sets_loop: LOOP
 						'	OFFSET ',(select FLOOR(@n_dates/2)));
 					PREPARE date_selection_stmt FROM @date_sql_select;
 					EXECUTE date_selection_stmt;
+					INSERT INTO _training_set_timepoints (training_set_id, period, timepoint_id, hours_in_sample)
+						SELECT @training_set_id, @period, timepoint_id, @hours_in_sample
+							FROM study_timepoints
+							WHERE DATE(datetime_utc) = @date_utc AND (HOUR(datetime_utc) MOD @hours_between_samples) = @start_hour;
+				WHEN 'MEAN' THEN
+				  set @monthly_avg := (
+				    SELECT avg(total_load)
+				    FROM _load_projection_daily_summaries
+				      JOIN t_period_populations USING(date_utc)
+            WHERE MONTH(date_utc) = @month 
+              AND periodnum        = @periodnum
+              AND load_scenario_id = @load_scenario_id
+          );
+          IF(@exclude_peaks = 0) THEN
+            SET @days_in_month := (SELECT days_in_month FROM tmonths WHERE month_of_year = @month);
+            set @daily_target := (
+              SELECT ( @monthly_avg * @days_in_month - total_load) / (@days_in_month - 1)
+              FROM _load_projection_daily_summaries
+              WHERE date_utc = @peak_day
+                AND load_scenario_id=@load_scenario_id 
+            );
+          ELSE
+            SET @daily_target := @monthly_avg;
+          END IF;
+					SET @date_utc := (
+  					SELECT date_utc
+              FROM _load_projection_daily_summaries JOIN t_period_populations USING (date_utc) 
+              WHERE periodnum = @periodnum AND MONTH(date_utc) = @month AND load_scenario_id=@load_scenario_id AND peak_hour_historic_id NOT IN (SELECT * FROM historic_timepoints_used) 
+              ORDER BY abs(total_load - @daily_target)
+              LIMIT 1
+          );
 					INSERT INTO _training_set_timepoints (training_set_id, period, timepoint_id, hours_in_sample)
 						SELECT @training_set_id, @period, timepoint_id, @hours_in_sample
 							FROM study_timepoints
@@ -351,55 +384,7 @@ define_new_training_sets_loop: LOOP
  	DROP TABLE period_cursor;
  	DROP TABLE historic_timepoints_used;
 
-  -- Make test sets to go along with this training set.
-  set @hours_per_test_set := 24;
-  set @first_historic_hour := (select min(historic_hour) from load_scenario_historic_timepoints where load_scenario_id=@load_scenario_id);
-
-  -- Skip entries for the present year for now.
---  INSERT INTO t_period_years
---    SELECT NULL, year(now()) + historic_year_factor as sampled_year
---      FROM (SELECT DISTINCT year(datetime_utc)-@min_historic_year as historic_year_factor from hours JOIN load_scenario_historic_timepoints ON(historic_hour=hournum) WHERE load_scenario_id=@load_scenario_id) as foo;
-  -- Add hourly entries for each distinct historical hour crossed with future periods (and the present)
-  INSERT INTO dispatch_test_sets (training_set_id, test_set_id, periodnum, historic_hour, timepoint_id)
-    SELECT @training_set_id, floor((historic_hour - @first_historic_hour)/@hours_per_test_set), periodnum, historic_hour, timepoint_id
-    FROM load_scenario_historic_timepoints 
-      JOIN study_timepoints USING(timepoint_id) 
-      JOIN t_period_years ON(timepoint_year=sampled_year)
-      JOIN _load_projection_daily_summaries ON(DATE(datetime_utc)=date_utc)
-    WHERE num_data_points = @num_load_areas * 24 AND
-      _load_projection_daily_summaries.load_scenario_id = @load_scenario_id AND
-      load_scenario_historic_timepoints.load_scenario_id = @load_scenario_id;
-  -- Make a list of test sets with incomplete data
-  CREATE TABLE incomplete_test_sets
-    SELECT test_set_id, COUNT(*) as cnt FROM dispatch_test_sets WHERE periodnum=0 AND training_set_id=@training_set_id GROUP BY 1 HAVING cnt != @hours_per_test_set;
-  ALTER TABLE incomplete_test_sets ADD UNIQUE (test_set_id);
-  -- Delete test sets that have incomplete data. 
-  DELETE dispatch_test_sets FROM dispatch_test_sets, incomplete_test_sets 
-    WHERE dispatch_test_sets.training_set_id = @training_set_id AND
-      dispatch_test_sets.test_set_id = incomplete_test_sets.test_set_id;
-  -- Determine how much to weight each test timepoint. 
-  CREATE TABLE test_timepoints_per_period -- Counts how many test timepoints are in each period
-    SELECT periodnum, COUNT(*) as cnt FROM dispatch_test_sets WHERE training_set_id=@training_set_id GROUP BY 1;
-  UPDATE dispatch_test_sets, test_timepoints_per_period
-    SET hours_in_sample = @years_per_period*8764/cnt
-    WHERE dispatch_test_sets.training_set_id = @training_set_id AND
-      dispatch_test_sets.periodnum = test_timepoints_per_period.periodnum;
-  set @present_day_period_length := (select @study_start_year - YEAR(NOW()));
-  UPDATE dispatch_test_sets, test_timepoints_per_period
-    SET hours_in_sample = @present_day_period_length*8764/cnt
-    WHERE dispatch_test_sets.training_set_id = @training_set_id AND
-      dispatch_test_sets.periodnum IS NULL AND 
-      test_timepoints_per_period.periodnum IS NULL;
-  -- Calculate the total load served in each period by these test sets
-  INSERT INTO _dispatch_load_summary (training_set_id, period, load_in_period_mwh)
-    SELECT training_set_id, period_start as period, sum(power*hours_in_sample) as load_in_period_mwh
-    FROM dispatch_test_sets 
-      JOIN training_sets USING (training_set_id)
-      JOIN _load_projections USING(timepoint_id,load_scenario_id)
-      JOIN training_set_periods USING(periodnum,training_set_id)
-    WHERE training_set_id = @training_set_id
-    GROUP BY 1,2;
-  
+	CALL define_test_set(@training_set_id);
 
 	-- We're finished processing this training set, so delete it from the work list.
 	delete from training_sets_tmp where training_set_id = @training_set_id;
@@ -416,6 +401,86 @@ define_new_training_sets_loop: LOOP
 END LOOP define_new_training_sets_loop;
 drop table if exists training_sets_tmp;
 drop table if exists tmonths;
+
+END;
+$$
+delimiter ;
+
+DROP PROCEDURE IF EXISTS define_test_set;
+DELIMITER $$
+CREATE PROCEDURE define_test_set(this_training_set_id int)
+BEGIN
+  set @hours_per_test_set := 1*24;
+
+  set @load_scenario_id=0, @study_start_year=0, @years_per_period=0, @number_of_periods=0;
+  select load_scenario_id, study_start_year, years_per_period, number_of_periods
+    INTO @load_scenario_id, @study_start_year, @years_per_period, @number_of_periods
+  from training_sets WHERE training_set_id=this_training_set_id;
+
+  set @first_historic_hour := (select min(historic_hour) from load_scenario_historic_timepoints where load_scenario_id=@load_scenario_id);
+  set @num_load_areas := (select count(distinct(area_id)) as num_load_areas from load_area_info);
+
+  set @min_historical_year := (select min(year(datetime_utc)) from hours JOIN load_scenario_historic_timepoints ON(historic_hour=hournum) WHERE load_scenario_id=@load_scenario_id);
+  set @num_historical_years := (select count(distinct year(datetime_utc)) from hours JOIN load_scenario_historic_timepoints ON(historic_hour=hournum) WHERE load_scenario_id=@load_scenario_id);
+
+	-- Make a list of years for each period that we will draw samples from.
+	-- This picks years that are in the middle of the period. The number of years picked is equal to the number of historic years data was drawn from.
+	set @period_offset    := (select FLOOR((@years_per_period - @num_historical_years) / 2));
+	CREATE TEMPORARY TABLE t_period_years
+		SELECT periodnum, period_start + @period_offset + historic_year_factor as sampled_year
+			FROM training_set_periods, (SELECT DISTINCT year(datetime_utc)-@min_historical_year as historic_year_factor from hours JOIN load_scenario_historic_timepoints ON(historic_hour=hournum) WHERE load_scenario_id=@load_scenario_id) as foo
+			WHERE training_set_id = this_training_set_id;
+	ALTER TABLE t_period_years ADD INDEX (periodnum), ADD INDEX (sampled_year), CHANGE COLUMN periodnum periodnum TINYINT(3) UNSIGNED NULL DEFAULT NULL;
+	
+  -- Skip entries for the present year for now.
+--  INSERT INTO t_period_years
+--    SELECT NULL, year(now()) + historic_year_factor as sampled_year
+--      FROM (SELECT DISTINCT year(datetime_utc)-@min_historical_year as historic_year_factor from hours JOIN load_scenario_historic_timepoints ON(historic_hour=hournum) WHERE load_scenario_id=@load_scenario_id) as foo;
+  -- Add hourly entries for each distinct historical hour crossed with future periods (and the present)
+  INSERT INTO dispatch_test_sets (training_set_id, test_set_id, periodnum, historic_hour, timepoint_id)
+    SELECT this_training_set_id, floor((historic_hour - @first_historic_hour)/@hours_per_test_set), periodnum, historic_hour, timepoint_id
+    FROM load_scenario_historic_timepoints 
+      JOIN study_timepoints USING(timepoint_id) 
+      JOIN t_period_years ON(timepoint_year=sampled_year)
+      JOIN _load_projection_daily_summaries ON(DATE(datetime_utc)=date_utc)
+    WHERE num_data_points = @num_load_areas * 24 AND
+      _load_projection_daily_summaries.load_scenario_id = @load_scenario_id AND
+      load_scenario_historic_timepoints.load_scenario_id = @load_scenario_id;
+  -- Make a list of test sets with incomplete data
+  CREATE TEMPORARY TABLE incomplete_test_sets
+    SELECT test_set_id, COUNT(*) as cnt FROM dispatch_test_sets WHERE training_set_id=this_training_set_id GROUP BY 1 HAVING cnt != @hours_per_test_set * @number_of_periods;
+  ALTER TABLE incomplete_test_sets ADD UNIQUE (test_set_id);
+  -- Delete test sets that have incomplete data. 
+  DELETE dispatch_test_sets FROM dispatch_test_sets, incomplete_test_sets 
+    WHERE dispatch_test_sets.training_set_id = this_training_set_id AND
+      dispatch_test_sets.test_set_id = incomplete_test_sets.test_set_id;
+  -- Determine how much to weight each test timepoint. 
+  CREATE TEMPORARY TABLE test_timepoints_per_period -- Counts how many test timepoints are in each period
+    SELECT periodnum, COUNT(*) as cnt FROM dispatch_test_sets WHERE training_set_id=this_training_set_id GROUP BY 1;
+  UPDATE dispatch_test_sets, test_timepoints_per_period
+    SET hours_in_sample = @years_per_period*8766/cnt
+    WHERE dispatch_test_sets.training_set_id = this_training_set_id AND
+      dispatch_test_sets.periodnum = test_timepoints_per_period.periodnum;
+  set @present_day_period_length := (select @study_start_year - YEAR(NOW()));
+  UPDATE dispatch_test_sets, test_timepoints_per_period
+    SET hours_in_sample = @present_day_period_length*8766/cnt
+    WHERE dispatch_test_sets.training_set_id = this_training_set_id AND
+      dispatch_test_sets.periodnum IS NULL AND 
+      test_timepoints_per_period.periodnum IS NULL;
+
+  -- Calculate the total load served in each period by these test sets
+  INSERT INTO _dispatch_load_summary (training_set_id, period, load_in_period_mwh)
+    SELECT training_set_id, period_start as period, sum(power*hours_in_sample) as load_in_period_mwh
+    FROM dispatch_test_sets 
+      JOIN training_sets USING (training_set_id)
+      JOIN _load_projections USING(timepoint_id,load_scenario_id)
+      JOIN training_set_periods USING(periodnum,training_set_id)
+    WHERE training_set_id = @training_set_id
+    GROUP BY 1,2;
+
+ 	DROP TABLE IF EXISTS incomplete_test_sets;
+ 	DROP TABLE IF EXISTS test_timepoints_per_period;
+	DROP TABLE IF EXISTS t_period_years;
 
 END;
 $$
