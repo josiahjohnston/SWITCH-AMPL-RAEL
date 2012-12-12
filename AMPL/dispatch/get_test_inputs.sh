@@ -119,7 +119,7 @@ if [ $ssh_tunnel -eq 1 ]; then
     local_port=$((local_port+1))
     is_port_free $local_port
   done
-  ssh -N -p 22 -c 3des $user@$db_server -L $local_port/127.0.0.1/$port &
+  ssh -N -p 22 -c 3des "$user"@"$db_server" -L $local_port/127.0.0.1/$port &
   ssh_pid=$!
   sleep 1
   connection_string="-h 127.0.0.1 --port $local_port -u $user -p$password $DB_name"
@@ -127,6 +127,7 @@ if [ $ssh_tunnel -eq 1 ]; then
 else
   connection_string="-h $db_server --port $port -u $user -p$password $DB_name"
 fi
+
 
 # Test the database connection
 test_connection=$(mysql $connection_string --column-names=false -e "show databases;")
@@ -136,6 +137,8 @@ then
 	echo "Could not connect to database with settings: $connection_string"
 	clean_up
 	exit -1
+else 
+	echo "Database connection is working. "
 fi
 
 ###########################
@@ -156,7 +159,7 @@ for f in balancing_areas.tab biomass_supply_curve_breakpoint.tab biomass_supply_
   fi;
 done
 cd $input_dir;
-for b in InstallGen OperateEPDuringPeriod InstallTrans; do
+for b in InstallGen OperateEPDuringPeriod InstallTrans carbon_cost_by_period; do
   for p in $(ls ../../results/$b*); do 
     ln -sf $p .
   done

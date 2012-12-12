@@ -19,7 +19,8 @@ param present_day_optimization binary default 0;
 param InstallGen_tab_path            symbolic := results_path & "InstallGen" & carbon_cost & ".tab";
 param OperateEPDuringPeriod_tab_path symbolic := results_path & "OperateEPDuringPeriod" & carbon_cost & ".tab";
 param InstallTrans_tab_path          symbolic := results_path & "InstallTrans" & carbon_cost & ".tab";
-param install_local_td_tab_path        symbolic := results_path & "install_local_td" & carbon_cost & ".tab";
+param install_local_td_tab_path      symbolic := results_path & "install_local_td" & carbon_cost & ".tab";
+param carbon_cost_by_period_path     symbolic := results_path & "carbon_cost_by_period.tab";
 
 # these params need to be defined for export.run, but have little meaning in the investment cost optimization
 param present_day_timepoint {TIMEPOINTS};

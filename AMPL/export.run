@@ -15,6 +15,7 @@ for {c in CARBON_COSTS} {
   # Only work on this carbon cost if it matches this worker id. 
 	if (ord(c) mod num_workers = worker_id ) then {
 		let carbon_cost := c;
+		let {p in PERIODS} carbon_cost_by_period[p] := c;
     
     # Export results if the solution file exists. 
 		if ( file_exists(solution_path) ) then {
@@ -148,7 +149,7 @@ for {c in CARBON_COSTS} {
         > (outfile); }
       
       # New Plants, inclusive of new storage projects
-      printf {(pid, a, t, p) in PROJECT_VINTAGES}
+      printf {(pid, a, t, p) in PROJECT_VINTAGES: Installed_To_Date[pid, a, t, p]  > 0.001}
         "%s	%d	%d	%d	%d	%s	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%.2f\n",
         scenario_id, carbon_cost, p, pid, load_area_id[a], a, technology_id[t], t, location_id[pid, a, t], 1, baseload[t], cogen[t], fuel[t],
         Installed_To_Date[pid, a, t, p],
@@ -192,7 +193,7 @@ for {c in CARBON_COSTS} {
       printf { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS }:
         "%s	%d	%d	%d	%d	%d	%s	%s	%d	%.2f	%d\n",
         scenario_id, carbon_cost, p, transmission_line_id[a1, a2], load_area_id[a1], load_area_id[a2], a1, a2, 1, 
-        Transmission_Installed_To_Date[a1, a2, p],
+        Transmission_Installed_To_Date[a1, a2, p] ,
         Transmission_New_Capital_Cost_Per_Period[a1, a2, p] + Transmission_Fixed_OM_Per_Period[a1, a2, p]
         >> (outfile);
       
@@ -390,6 +391,18 @@ for {c in CARBON_COSTS} {
         >> (install_local_td_tab_path);
       close (install_local_td_tab_path);
       
+      # Reduced cost of meeting a carbon cap
+      if (enable_carbon_cap = 1) then { 
+        printf "ampl.tab 1 1\np\tcarbon_cost_by_period\n" > (carbon_cost_by_period_path);
+        # The dual value of the Carbon_Cap constraint is in units of $(NPV) / 1 ton reduction over a period. 
+        # The numerator's units are the same as the objective function. The denominator units are set by the right hand value of the constraint, which are tons of CO2 over a whole period. 
+        # We divide by the discount to base year parameter to bring NPV to a uniform series of payments in the period, which for a 10 year period, would mean you reduce CO2 emissions by 1/10 per year. We multiply by the number of years in a period to bring the denominator back to 1 ton of CO2 from 1/num_years_per_period tons of CO2. 
+        printf {p in PERIODS} "%d\t%.3f\n", p, -1*Carbon_Cap[p].dual / discount_to_base_year[p] * num_years_per_period
+          >> (carbon_cost_by_period_path);
+        close (carbon_cost_by_period_path);
+      }      
+
+
       printf "%d seconds to store results for carbon cost %d.\n", time()-curtime, carbon_cost;
     }
   }

@@ -14,6 +14,7 @@ for {c in CARBON_COSTS} {
 	if (ord(c) mod num_workers = worker_id )
 	then {
 		let carbon_cost := c;
+		let {p in PERIODS} carbon_cost_by_period[p] := c;
     
     # Only compile this problem if neither the solution nor problem file exists. 
 		if ( (file_exists(solution_path) ==  0) and (file_exists(problem_path) == 0)) then {
