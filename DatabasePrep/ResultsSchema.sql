@@ -1323,6 +1323,7 @@ CREATE TABLE _dispatch_decisions (
   startup_carbon_cost double,
   startup_co2_tons double,
   PRIMARY KEY (scenario_id,carbon_cost,period,area_id,study_timepoint_utc,technology_id,storage),
+  KEY (scenario_id,carbon_cost,study_timepoint_id),
   KEY check_import_count (scenario_id,carbon_cost,test_set_id),
   KEY aggregation (scenario_id,carbon_cost,period,technology_id)
 );
@@ -1386,6 +1387,10 @@ CREATE TABLE _dispatch_gen_cap_summary_tech (
   o_m_cost_total double NOT NULL,
   fuel_cost double NOT NULL,
   carbon_cost_total double NOT NULL,
+  co2_tons double,
+  spinning_co2_tons double,
+  deep_cycling_co2_tons double,
+  startup_co2_tons double,
   PRIMARY KEY (scenario_id,carbon_cost,period,technology_id),
   KEY scenario_id (scenario_id),
   KEY carbon_cost (carbon_cost),
@@ -1423,3 +1428,17 @@ CREATE TABLE _dispatch_power_cost (
   KEY carbon_cost (carbon_cost),
   KEY period (period)
 ); 
+
+CREATE TABLE IF NOT EXISTS dispatch_co2_cc (
+  scenario_id int,
+  carbon_cost smallint,
+  period year,
+  co2_tons double,
+  co2_tons_reduced_1990 double,
+  co2_share_reduced_1990 double,
+  INDEX scenario_id (scenario_id),
+  INDEX carbon_cost (carbon_cost),
+  INDEX period (period),
+  PRIMARY KEY (scenario_id, carbon_cost, period)
+);
+
