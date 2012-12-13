@@ -219,6 +219,7 @@ SELECT years_per_period
     JOIN switch_inputs_wecc_v2_2.training_sets USING (training_set_id)
 	WHERE scenario_id = @scenario_id);
 
+delete from dispatch_co2_cc where scenario_id = @scenario_id;
 insert into dispatch_co2_cc 
 	select 	scenario_id,
 			carbon_cost,
