@@ -1413,7 +1413,7 @@ CREATE TABLE _dispatch_power_cost (
   coal_fuel_cost double default 0 NOT NULL,
   new_gas_nonfuel_cost double default 0 NOT NULL,
   gas_fuel_cost double default 0 NOT NULL,
-  new_nuclear_nonfuel_cost double,
+  new_nuclear_nonfuel_cost double default 0 NOT NULL,
   nuclear_fuel_cost double default 0 NOT NULL,
   new_geothermal_cost double default 0 NOT NULL,
   new_bio_cost double default 0 NOT NULL,
