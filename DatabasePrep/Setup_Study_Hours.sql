@@ -185,8 +185,6 @@ DROP TABLE IF EXISTS period_cursor;
 DROP TABLE IF EXISTS historic_timepoints_used;
 DROP TABLE IF EXISTS month_cursor;
 DROP TABLE IF EXISTS t_period_years;
-DROP TABLE IF EXISTS incomplete_test_sets;
-DROP TABLE IF EXISTS test_timepoints_per_period;
 
 -- create a tmp table off of which to go through the training sets loop
 create table training_sets_tmp as 
@@ -234,11 +232,11 @@ define_new_training_sets_loop: LOOP
 	-- Make a list of years for each period that we will draw samples from.
 	-- This picks years that are in the middle of the period. The number of years picked is equal to the number of historic years data was drawn from.
 	set @period_offset    := (select FLOOR((@years_per_period - @num_historic_years) / 2));
-	CREATE TABLE t_period_years
-		SELECT periodnum, period_start + @period_offset + historic_year_factor as sampled_year
-			FROM training_set_periods, (SELECT DISTINCT year(datetime_utc)-@min_historic_year as historic_year_factor from hours JOIN load_scenario_historic_timepoints ON(historic_hour=hournum) WHERE load_scenario_id=@load_scenario_id) as foo
-			WHERE training_set_id = @training_set_id;
-	ALTER TABLE t_period_years ADD INDEX (periodnum), ADD INDEX (sampled_year), CHANGE COLUMN periodnum periodnum TINYINT(3) UNSIGNED NULL DEFAULT NULL;
+  CREATE TEMPORARY TABLE t_period_years
+    SELECT periodnum, period_start + @period_offset + historic_year_factor as sampled_year
+      FROM training_set_periods, (SELECT DISTINCT year(datetime_utc)-@min_historic_year as historic_year_factor from hours JOIN load_scenario_historic_timepoints ON(historic_hour=hournum) WHERE load_scenario_id=@load_scenario_id) as foo
+      WHERE training_set_id = @training_set_id;
+  ALTER TABLE t_period_years ADD INDEX (periodnum), ADD INDEX (sampled_year), CHANGE COLUMN periodnum periodnum TINYINT(3) UNSIGNED NULL DEFAULT NULL;
 	
 	-- make a list of dates for each period that we will select from
 	CREATE TABLE t_period_populations (
@@ -391,8 +389,6 @@ define_new_training_sets_loop: LOOP
 			
 	-- Drop the tables that are supposed to be temporary
  	DROP TABLE IF EXISTS t_period_populations;
- 	DROP TABLE IF EXISTS incomplete_test_sets;
- 	DROP TABLE IF EXISTS test_timepoints_per_period;
 	DROP TABLE IF EXISTS t_period_years;
 
 	IF ( (select count(*) from training_sets_tmp) = 0 )
@@ -423,17 +419,22 @@ BEGIN
   set @min_historical_year := (select min(year(datetime_utc)) from hours JOIN load_scenario_historic_timepoints ON(historic_hour=hournum) WHERE load_scenario_id=@load_scenario_id);
   set @num_historical_years := (select count(distinct year(datetime_utc)) from hours JOIN load_scenario_historic_timepoints ON(historic_hour=hournum) WHERE load_scenario_id=@load_scenario_id);
 
+
+ 	DROP TABLE IF EXISTS incomplete_test_sets;
+ 	DROP TABLE IF EXISTS test_timepoints_per_period;
+	DROP TABLE IF EXISTS years_to_sample_from;
+
 	-- Make a list of years for each period that we will draw samples from.
 	-- This picks years that are in the middle of the period. The number of years picked is equal to the number of historic years data was drawn from.
 	set @period_offset    := (select FLOOR((@years_per_period - @num_historical_years) / 2));
-	CREATE TEMPORARY TABLE t_period_years
+	CREATE TABLE years_to_sample_from
 		SELECT periodnum, period_start + @period_offset + historic_year_factor as sampled_year
 			FROM training_set_periods, (SELECT DISTINCT year(datetime_utc)-@min_historical_year as historic_year_factor from hours JOIN load_scenario_historic_timepoints ON(historic_hour=hournum) WHERE load_scenario_id=@load_scenario_id) as foo
 			WHERE training_set_id = this_training_set_id;
-	ALTER TABLE t_period_years ADD INDEX (periodnum), ADD INDEX (sampled_year), CHANGE COLUMN periodnum periodnum TINYINT(3) UNSIGNED NULL DEFAULT NULL;
+	ALTER TABLE years_to_sample_from ADD INDEX (periodnum), ADD INDEX (sampled_year), CHANGE COLUMN periodnum periodnum TINYINT(3) UNSIGNED NULL DEFAULT NULL;
 	
   -- Skip entries for the present year for now.
---  INSERT INTO t_period_years
+--  INSERT INTO years_to_sample_from
 --    SELECT NULL, year(now()) + historic_year_factor as sampled_year
 --      FROM (SELECT DISTINCT year(datetime_utc)-@min_historical_year as historic_year_factor from hours JOIN load_scenario_historic_timepoints ON(historic_hour=hournum) WHERE load_scenario_id=@load_scenario_id) as foo;
   -- Add hourly entries for each distinct historical hour crossed with future periods (and the present)
@@ -441,12 +442,13 @@ BEGIN
     SELECT this_training_set_id, floor((historic_hour - @first_historic_hour)/@hours_per_test_set), periodnum, historic_hour, timepoint_id
     FROM load_scenario_historic_timepoints 
       JOIN study_timepoints USING(timepoint_id) 
-      JOIN t_period_years ON(timepoint_year=sampled_year)
+      JOIN years_to_sample_from ON(timepoint_year=sampled_year)
       JOIN _load_projection_daily_summaries ON(DATE(datetime_utc)=date_utc)
     WHERE num_data_points = @num_load_areas * 24 AND
       _load_projection_daily_summaries.load_scenario_id = @load_scenario_id AND
       load_scenario_historic_timepoints.load_scenario_id = @load_scenario_id;
   -- Make a list of test sets with incomplete data
+ 	DROP TABLE IF EXISTS incomplete_test_sets;
   CREATE TEMPORARY TABLE incomplete_test_sets
     SELECT test_set_id, COUNT(*) as cnt FROM dispatch_test_sets WHERE training_set_id=this_training_set_id GROUP BY 1 HAVING cnt != @hours_per_test_set * @number_of_periods;
   ALTER TABLE incomplete_test_sets ADD UNIQUE (test_set_id);
@@ -480,7 +482,7 @@ BEGIN
 
  	DROP TABLE IF EXISTS incomplete_test_sets;
  	DROP TABLE IF EXISTS test_timepoints_per_period;
-	DROP TABLE IF EXISTS t_period_years;
+	DROP TABLE IF EXISTS years_to_sample_from;
 
 END;
 $$
