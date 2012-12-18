@@ -271,24 +271,25 @@ mysql $connection_string -e "select technology, technology_id, min_online_year, 
 
 echo '	generator_costs.tab...'
 echo ampl.tab 2 3 > generator_costs.tab
-mysql $connection_string -e "select technology, period_start as period, overnight_cost, fixed_o_m, var_o_m as variable_o_m_by_year from generator_costs_yearly \
+mysql $connection_string -e "select technology, period_start as period, overnight_cost, fixed_o_m, var_o_m as variable_o_m_by_year \
+from generator_costs_yearly \
 join generator_info_v2 g using (technology), \
 training_set_periods \
-where year = period_start - g.construction_time_years \
+where year = ( period_start + (period_end-period_start+1)/2 ) - g.construction_time_years \
 and period_start >= g.construction_time_years + $present_year \
 and	period_start >= g.min_online_year \
 and gen_costs_scenario_id=$GEN_COSTS_SCENARIO_ID \
+and gen_info_scenario_id=$GEN_INFO_SCENARIO_ID \
 and training_set_id=$TRAINING_SET_ID \
 UNION \
-select technology, $present_year as period, overnight_cost, fixed_o_m, var_o_m as variable_o_m_by_year from generator_costs_yearly, \
-training_set_periods \
+select technology, $present_year as period, overnight_cost, fixed_o_m, var_o_m as variable_o_m_by_year from generator_costs_yearly \
 where year = $present_year \
 and gen_costs_scenario_id=$GEN_COSTS_SCENARIO_ID \
-and training_set_id=$TRAINING_SET_ID;" >> generator_costs.tab
+order by technology, period;" >> generator_costs.tab
 
 echo '	fuel_costs.tab...'
 echo ampl.tab 3 1 > fuel_costs.tab
-mysql $connection_string -e "select load_area, fuel, year, fuel_price from fuel_prices where scenario_id = $REGIONAL_FUEL_COST_SCENARIO_ID and year <= $STUDY_END_YEAR order by load_area, fuel, year" >> fuel_costs.tab
+mysql $connection_string -e "select load_area, fuel, year, fuel_price from fuel_prices where scenario_id = $REGIONAL_FUEL_COST_SCENARIO_ID and year <= $STUDY_END_YEAR order by load_area, fuel, year;" >> fuel_costs.tab
 
 echo '	ng_supply_curve_slope.tab...'
 echo ampl.tab 2 1 > ng_supply_curve_slope.tab
@@ -304,7 +305,7 @@ from natural_gas_supply_curve, training_set_periods \
 where simulation_year=$present_year \
 and nems_scenario = (select nems_fuel_scenario from nems_fuel_scenarios where nems_fuel_scenario_id = $NEMS_FUEL_SCENARIO_ID) \
 and training_set_id=$TRAINING_SET_ID \
-order by period, breakpoint_id" >> ng_supply_curve_slope.tab
+order by period, breakpoint_id;" >> ng_supply_curve_slope.tab
 
 echo '	ng_supply_curve_breakpoint_consumption.tab...'
 echo ampl.tab 2 1 > ng_supply_curve_breakpoint_consumption.tab
@@ -322,7 +323,7 @@ where simulation_year=$present_year \
 and consumption_breakpoint > 0 \
 and nems_scenario = (select nems_fuel_scenario from nems_fuel_scenarios where nems_fuel_scenario_id = $NEMS_FUEL_SCENARIO_ID) \
 and training_set_id=$TRAINING_SET_ID \
-order by period, breakpoint_id" >> ng_supply_curve_breakpoint_consumption.tab
+order by period, breakpoint_id;" >> ng_supply_curve_breakpoint_consumption.tab
 
 echo '	ng_regional_price_adders.tab...'
 echo ampl.tab 2 1 > ng_regional_price_adders.tab
@@ -338,8 +339,7 @@ from 	natural_gas_regional_price_adders, training_set_periods \
 where	simulation_year = $present_year \
 and		nems_scenario = (select nems_fuel_scenario from nems_fuel_scenarios where nems_fuel_scenario_id = $NEMS_FUEL_SCENARIO_ID) \
 and training_set_id=$TRAINING_SET_ID \
-order by nems_region, period \
-" >> ng_regional_price_adders.tab
+order by nems_region, period ;" >> ng_regional_price_adders.tab
 
 
 echo '	biomass_supply_curve_slope.tab...'
