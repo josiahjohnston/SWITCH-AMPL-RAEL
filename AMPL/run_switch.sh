@@ -73,11 +73,16 @@ esac
 done
 
 # Make directories for logs & results if they don't already exist
-[ -d logs ] || mkdir logs
-[ -d results ] || mkdir results
+mkdir -p logs
+mkdir -p results
 
 # Update the number of threads cplex is allowed to use
 [ -n "$threads_per_cplex" ] && sed -i".orig" -e 's/^\(option cplex_options.*\)\(threads=[0-9]*\)\([^0-9].*\)$/\1threads='$threads_per_cplex'\3/' "load.run"
+
+# If a jobname wasn't given, use the directory name this process is running in
+if [ -z "$jobname" ]; then 
+	jobname=$(pwd | sed -e 's|^.*/||'); 
+fi
 
 # Set up the .qsub files and submit job requests to the queue if this is operating on a cluster
 if [ $cluster == 1 ]; then
@@ -85,12 +90,13 @@ if [ $cluster == 1 ]; then
 	qsub_files="compile.qsub   optimize.qsub   export.qsub	present_day_dispatch.qsub"
 	# Process parameter values
 	working_directory=$(pwd)
-	# Try to guess who gets the email notifications
+	# If the email wasn't specified, try to guess who gets the email notifications
 	if [ -z "$email" ]; then
 		case `whoami` in
 			jnelson) email="jameshenrynelson@gmail.com" ;;
 			siah) email="siah@berkeley.edu" ;;
 			amileva) email="amileva@berkeley.edu" ;;
+			sabebe) email="abebe.solomon@gmail.com" ;; 
 		esac
 	fi
 	# Translate the number of processes and processes per node into number of nodes
