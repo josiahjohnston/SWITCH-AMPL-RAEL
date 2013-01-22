@@ -21,6 +21,13 @@ for d in $(ls -1d test_set_*); do
   prob_num=$(($prob_num+1))
 done > $job_path
 
+# Make all of the workers quit the ampl license process. The mpirun/execute_jobs.pl processes won't exiting as long as ampl_lic is still running. Repeating the 
+# exit command NUM_WORKERS times at the end of the job file will force it to be run on every worker node. This worked because workers select jobs based on 
+# num_jobs % num_workers == worker_id (ex if there are two workers, one will take the odd numbers jobs and the other will take the evens). 
+for ((worker=0; worker<$NUM_WORKERS; worker++)); do
+  echo "echo 'this worker on '\$(hostname)' finished its last job at '\$(date); ampl_lic return ampl; ampl_lic stop;" >> $job_path
+done
+
 echo "export job_path is $job_path"
 
 # This will need to be tweaked to work with different clusters; hopper uses aprun or something like that.
