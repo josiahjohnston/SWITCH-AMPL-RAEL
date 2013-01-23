@@ -2,6 +2,9 @@ if ( file_exists(cost_solution_file) == 1 ) then {
   printf "Loading prior solution from %s.\n", cost_solution_file;
   problem Dispatch_Only;
   solution( cost_solution_file );
+  # Delete the problem .nl file to save disk space if we have made it this far and the problem file still exists
+  shell( "[ -f '" & cost_problem_file_path & "' ] && rm '" & cost_problem_file_path & "'" );
+
   if( solve_result = 'infeasible' ) then {
     printf "Dispatch-only problem is Infeasible. \n\n";
     if( card( { h in TIMEPOINTS, a in LOAD_AREAS: Satisfy_Load[a,h].iis <> "non" } ) > 0 ) then {
@@ -54,6 +57,8 @@ if ( file_exists(cost_solution_file) == 1 ) then {
     if( file_exists( peaker_solution_file ) == 1 ) then {
       problem Dispatch_peakers_and_storage;
       solution(peaker_solution_file);
+      # Delete the problem .nl file to save disk space if we have made it this far and the problem file still exists
+      shell( "[ -f '" & peaker_problem_file_path & "' ] && rm '" & peaker_problem_file_path & "'" );
       # Describe extra capacity needed.
       for {p in PERIODS } {
         printf "%d: %.3f additional capacity installed (%.3f peakers, %.3f storage).\n", p, 

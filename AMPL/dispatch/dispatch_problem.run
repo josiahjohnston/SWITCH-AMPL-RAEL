@@ -106,8 +106,10 @@ table TableInstallTrans IN "inputs/InstallTrans.tab":
   TRANSMISSION_LINE_VINTAGES_ALL <- [a1, a2, p], InstallTrans_Init ~ InstallTrans;
 
 param cost_problem_file symbolic := results_path & "sol" & carbon_cost & "dispatch";
+param cost_problem_file_path symbolic := cost_problem_file & ".nl";
 param cost_solution_file symbolic := cost_problem_file & ".sol";
 param peaker_problem_file symbolic := results_path & "sol" & carbon_cost & "dispatch_and_peakers";
+param peaker_problem_file_path symbolic := peaker_problem_file & ".nl";
 param peaker_solution_file symbolic := peaker_problem_file & ".sol";
 param infeasible_path symbolic;
 param week_num;
