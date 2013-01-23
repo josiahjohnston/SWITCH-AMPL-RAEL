@@ -66,14 +66,15 @@ for base_name in $problems; do
   carbon_cost=$(echo "$base_name" | sed -e 's_^.*[^0-9]\([0-9][0-9]*\)[^/]*$_\1_')
   log_base="logs/cplex_optimization_"$carbon_cost"_"$(date +'%m_%d_%H_%M_%S')
   printf "About to run cplex. \n\tLogs are ${log_base}_cplex...\n\tcommand is: cplexamp $base_name -AMPL \"$cplex_options\"\n"
-  # Record node this is being run on
+  # Record the date & hostname of the computer this is being run on
   hostname >$log_base".log"
-  hostname >$log_base".error_log"
+  date >$log_base".log"
+  cat $log_base".log" >$log_base".error_log"
   start_time=$(date +%s);
-  cplexamp $base_name -AMPL "$cplex_options" 1>> $log_base"_cplex.log" 2>> $log_base"_cplex.error_log" &
+  cplexamp $base_name -AMPL "$cplex_options" 1>> $log_base".log" 2>> $log_base".error_log" &
   cplex_pid=$! ;
   ps_headers="$(ps -o vsize,rssize,%mem,%cpu,time,comm -p $cplex_pid | head -1)"
-  echo "realtime  $ps_headers" > $log_base"_cplex.profile";
+  echo "realtime  $ps_headers" > $log_base".profile";
   while [ -e /proc/$cplex_pid ]; do
 	ps_output="$(ps -o vsize,rssize,%mem,%cpu,time,comm -p $cplex_pid | tail -1)"
     realtime=$(date +%s);
