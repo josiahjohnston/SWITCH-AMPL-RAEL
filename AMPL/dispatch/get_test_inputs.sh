@@ -146,6 +146,7 @@ fi
 read SCENARIO_ID < ../scenario_id.txt
 TRAINING_SET_ID=$(mysql $connection_string --column-names=false -e "select training_set_id from scenarios_v3 where scenario_id=$SCENARIO_ID;")
 LOAD_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select load_scenario_id from training_sets where training_set_id=$TRAINING_SET_ID;")
+GEN_INFO_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select gen_info_scenario_id from scenarios_v3 where scenario_id=$SCENARIO_ID;")
 
 ##########################
 # Make links to the common input files in the parent directory instead of exporting from the DB again
@@ -181,13 +182,14 @@ awk '{ if( $3 ~ /'$techs_needed'/) print $1; }' ../inputs/proposed_projects.tab 
 
 ##########################
 # Make directories and gather inputs for each dispatch week in the study.
-for test_set_id in $(mysql $connection_string --column-names=false -e "select distinct test_set_id from dispatch_test_sets WHERE training_set_id=$TRAINING_SET_ID;"); do
+for test_set_id in $(mysql $connection_string --column-names=false -e "select distinct test_set_id from dispatch_test_sets WHERE training_set_id=$TRAINING_SET_ID and test_set_id <= 1;"); do
 	echo "test_set_id $test_set_id:"
 	test_path=$(printf "test_set_%.3d" $test_set_id)
 	input_dir=$test_path"/inputs"
 	data_dir=$base_data_dir/tr_set_$TRAINING_SET_ID/$test_path
+	data_dir_historical_cap_factor=$base_data_dir/historical_cap_factors/$test_path
 	# Make all the directories and the parent directories if they don't exists. Don't complain if they already exist.
-	mkdir -p $test_path $input_dir $data_dir
+	mkdir -p $test_path $input_dir $data_dir $data_dir_historical_cap_factor
 
 	##########################
 	# Make links to the common input files 
@@ -289,64 +291,65 @@ for test_set_id in $(mysql $connection_string --column-names=false -e "select di
 	fi
 	[ -L $input_dir/$f ] && rm $input_dir/$f  # Remove the link if it exists
 	ln -s $data_dir/$f $input_dir/$f          # Make a new link
-	
-	f="cap_factor.tab"
+
+  ###############################
+  # New way of gathering cap factors based on historical hour of every project and a mapping from historical hour to future hour
+	f="cap_factor_historical.tab"
+	echo "	$f..."
+	if [ ! -f $data_dir_historical_cap_factor/$f ]; then
+    echo ampl.tab 4 1 > $data_dir_historical_cap_factor/$f
+    mysql $connection_string -e "\
+      select project_id, load_area, technology, DATE_FORMAT(datetime_utc,'%Y%m%d%H') as historical_hour, cap_factor as cap_factor_historical \
+        FROM dispatch_test_sets \
+          JOIN hours ON(historic_hour=hournum) \
+          JOIN _cap_factor_intermittent_sites ON(historic_hour=hour) \
+          JOIN _proposed_projects_v2 USING(project_id) \
+          JOIN load_area_info USING(area_id) \
+        WHERE training_set_id=$TRAINING_SET_ID \
+          AND test_set_id=$test_set_id \
+          AND periodnum=0;" >> $data_dir_historical_cap_factor/$f
+  fi
+	[ -L $input_dir/$f ] && rm $input_dir/$f  # Remove the link if it exists
+	ln -s $data_dir_historical_cap_factor/$f $input_dir/$f          # Make a new link
+
+	f="historical_to_future_timepoint_mapping.tab"
 	echo "	$f..."
 	if [ ! -f $data_dir/$f ]; then
-		echo ampl.tab 4 1 > $data_dir/$f
-		echo "project_id  load_area technology  hour  cap_factor" >> $data_dir/$f
-		if [ $LOAD_SCENARIO_ID -lt 10 ]; then 
-		  while read project_id; do
-		    echo "\
-          select project_id, load_area, technology, DATE_FORMAT(datetime_utc,'%Y%m%d%H') as hour, cap_factor  \
-            FROM dispatch_test_sets \
-              JOIN study_timepoints USING(timepoint_id)\
-              JOIN _cap_factor_intermittent_sites ON(historic_hour=hour)\
-              JOIN _proposed_projects_v2 USING(project_id)\
-              JOIN load_area_info USING(area_id)\
-            WHERE training_set_id=$TRAINING_SET_ID \
-              AND project_id = $project_id\
-              AND test_set_id=$test_set_id;"
-		  done < $projects_that_need_cap_factors > tmp/select_cap_factors.sql 
-      mysql $connection_string -sN < tmp/select_cap_factors.sql >> $data_dir/$f
-    else
-      # Get cap factors from 2006 for all non-solar projects
-		  while read project_id; do
-		    echo "\
-          select project_id, load_area, technology, DATE_FORMAT(datetime_utc,'%Y%m%d%H') as hour, cap_factor  \
-            FROM dispatch_test_sets \
-              JOIN study_timepoints USING(timepoint_id)\
-              JOIN _cap_factor_intermittent_sites ON(historic_hour=hour)\
-              JOIN _proposed_projects USING(project_id)\
-              JOIN load_area_info USING(area_id)\
-            WHERE training_set_id=$TRAINING_SET_ID \
-              AND project_id = $project_id \
-              AND technology_id NOT IN (select technology_id from generator_info WHERE fuel='Solar')\
-              AND test_set_id=$test_set_id;"
-      done < $projects_that_need_cap_factors > tmp/select_non_solar_cap_factors.sql 
-      mysql $connection_string -sN < tmp/select_non_solar_cap_factors.sql >> $data_dir/$f
-      # Get cap factors from 2005 for solar projects
-      echo "\
-      CREATE TEMPORARY TABLE solar_tp_mapping \
-        SELECT distinct historic_hour, historic_hour-8760 as hour_2005 from load_scenario_historic_timepoints WHERE load_scenario_id=$LOAD_SCENARIO_ID; \
-      ALTER TABLE solar_tp_mapping ADD INDEX ( historic_hour, hour_2005 ), ADD INDEX ( hour_2005, historic_hour );" > tmp/select_solar_cap_factors.sql 
-		  while read project_id; do
-		    echo "\
-          select project_id, load_area, technology, DATE_FORMAT(datetime_utc,'%Y%m%d%H') as hour, cap_factor  \
+    echo ampl.tab 3 0 > $data_dir/$f
+    if [ $LOAD_SCENARIO_ID -lt 10 ]; then 
+      mysql $connection_string -e "\
+        select DATE_FORMAT(hours.datetime_utc,'%Y%m%d%H') as historical_hour, DATE_FORMAT(study_timepoints.datetime_utc,'%Y%m%d%H') as future_hour, technology \
+          FROM dispatch_test_sets \
+            JOIN hours ON(historic_hour=hournum)\
+            JOIN study_timepoints USING(timepoint_id)\
+            JOIN (SELECT DISTINCT technology FROM generator_info_v2 WHERE intermittent=1) AS gen_info \
+          WHERE training_set_id=$TRAINING_SET_ID \
+            AND test_set_id=$test_set_id;" >> $data_dir/$f
+    else 
+      # Non-solar projects get cap factors from 2006
+      mysql $connection_string -e "\
+        select DATE_FORMAT(hours.datetime_utc,'%Y%m%d%H') as historical_hour, DATE_FORMAT(study_timepoints.datetime_utc,'%Y%m%d%H') as future_hour, technology \
+          FROM dispatch_test_sets \
+            JOIN hours ON(historic_hour=hournum) \
+            JOIN study_timepoints USING(timepoint_id) \
+            JOIN (SELECT DISTINCT technology FROM generator_info_v2 WHERE intermittent=1 AND fuel <> 'Solar') AS gen_info \
+          WHERE training_set_id=$TRAINING_SET_ID \
+            AND test_set_id=$test_set_id;" >> $data_dir/$f
+      # Solar projects get cap factors from 2005
+      mysql $connection_string -e "\
+        CREATE TEMPORARY TABLE solar_tp_mapping \
+          SELECT distinct historic_hour, historic_hour-8760 as hour_2005 from load_scenario_historic_timepoints WHERE load_scenario_id=$LOAD_SCENARIO_ID; \
+        ALTER TABLE solar_tp_mapping ADD INDEX ( historic_hour, hour_2005 ), ADD INDEX ( hour_2005, historic_hour ); \
+        SELECT DATE_FORMAT(hours.datetime_utc,'%Y%m%d%H') as historical_hour, DATE_FORMAT(study_timepoints.datetime_utc,'%Y%m%d%H') as future_hour, technology \
             FROM dispatch_test_sets \
               JOIN study_timepoints USING(timepoint_id)\
               JOIN solar_tp_mapping USING (historic_hour) \
-              JOIN _cap_factor_intermittent_sites ON(hour_2005=hour)\
-              JOIN _proposed_projects USING(project_id)\
-              JOIN load_area_info USING(area_id)\
-            WHERE training_set_id=$TRAINING_SET_ID \
-              AND test_set_id=$test_set_id \
-              AND project_id = $project_id \
-              AND technology_id IN (select technology_id from generator_info WHERE fuel='Solar');"
-      done < $projects_that_need_cap_factors >> tmp/select_solar_cap_factors.sql 
-      mysql $connection_string -sN < tmp/select_solar_cap_factors.sql >> $data_dir/$f
+              JOIN hours ON(hour_2005=hournum) \
+              JOIN (SELECT DISTINCT technology FROM generator_info_v2 WHERE intermittent=1 AND fuel='Solar') AS gen_info \
+          WHERE training_set_id=$TRAINING_SET_ID \
+            AND test_set_id=$test_set_id;" >> $data_dir/$f
     fi
-	fi
+  fi
 	[ -L $input_dir/$f ] && rm $input_dir/$f  # Remove the link if it exists
 	ln -s $data_dir/$f $input_dir/$f          # Make a new link
 

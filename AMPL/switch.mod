@@ -369,9 +369,15 @@ param variable_o_m { t in TECHNOLOGIES: can_build_new[t] } :=  max { (t, p) in N
 set PROJ_INTERMITTENT_HOURS dimen 4;  # PROJECT_ID, LOAD_AREAS, TECHNOLOGIES, TIMEPOINTS
 set PROJ_INTERMITTENT = setof {(pid, a, t, h) in PROJ_INTERMITTENT_HOURS} (pid, a, t);
 
+
 # Make sure that every intermittent renewable project in the set PROJECTS has associated capacity factors (PROJ_INTERMITTENT is derived from the indexes of the capacity factors file). 
-check: card({(pid, a, t) in PROJECTS: intermittent[t] and resource_limited[t] and not ccs[t]} diff PROJ_INTERMITTENT) = 0;
+check: card({(pid, a, t) in PROJECTS: intermittent[t]} diff PROJ_INTERMITTENT) = 0;
 param cap_factor {PROJ_INTERMITTENT_HOURS};
+
+# Alternate data to translate from historical cap factors to future hours
+set PROJ_INTERMITTENT_HISTORICAL_HOURS dimen 4;  # PROJECT_ID, LOAD_AREAS, TECHNOLOGIES, HISTORICAL_TIMEPOINTS
+param cap_factor_historical {PROJ_INTERMITTENT_HISTORICAL_HOURS};
+set HISTORICAL_TO_FUTURE_TIMEPOINT_MAPPING dimen 3;  # HISTORICAL_TIMEPOINT, FUTURE_TIMEPOINT, TECHNOLOGY
 
 # make sure all hours are represented, and that cap factors make sense.
 # Solar thermal can be parasitic, which means negative cap factors are allowed (just not TOO negative)
