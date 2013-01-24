@@ -182,7 +182,7 @@ awk '{ if( $3 ~ /'$techs_needed'/) print $1; }' ../inputs/proposed_projects.tab 
 
 ##########################
 # Make directories and gather inputs for each dispatch week in the study.
-for test_set_id in $(mysql $connection_string --column-names=false -e "select distinct test_set_id from dispatch_test_sets WHERE training_set_id=$TRAINING_SET_ID and test_set_id <= 1;"); do
+for test_set_id in $(mysql $connection_string --column-names=false -e "select distinct test_set_id from dispatch_test_sets WHERE training_set_id=$TRAINING_SET_ID;"); do
 	echo "test_set_id $test_set_id:"
 	test_path=$(printf "test_set_%.3d" $test_set_id)
 	input_dir=$test_path"/inputs"
