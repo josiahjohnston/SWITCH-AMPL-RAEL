@@ -1,0 +1,33 @@
+trap "ampl_lic stop;" EXIT INT TERM
+
+job_path=$(mktemp -p tmp dispatch_all-XXX);
+prob_num=0
+for d in $(ls -1d test_set_*); do
+  test_set_id=$(echo $d | sed -e 's|test_set_||');
+  worker=$(( $prob_num % $NUM_WORKERS ));
+  echo "\
+    echo \"\$(date)\" >logs/${test_set_id}_dispatch.log; \
+    echo \"\$(date)\" >logs/${test_set_id}_dispatch.err; \
+    echo \"\
+      cd $d; \
+      include dispatch_one_test_set.run; \
+    \" | ampl 1>>logs/${test_set_id}_dispatch.log 2>>logs/${test_set_id}_dispatch.err & \
+    "'ampl_pid=$! ; '"\
+    ps -o pcpu,vsz,rss,pmem,time,comm -p \$ampl_pid >logs/${test_set_id}_dispatch.profile; \
+    while [ -e /proc/\$ampl_pid ]; do \
+      ps -o pcpu,vsz,rss,pmem,time,comm -p \$ampl_pid | tail -1 >>logs/${test_set_id}_dispatch.profile; \
+      sleep 30; \
+    done;"
+  prob_num=$(($prob_num+1))
+done > $job_path
+
+for ((worker=0; worker<$NUM_WORKERS; worker++)); do
+  echo "echo 'this worker finished last job at '\$(date); ampl_lic return ampl; ampl_lic stop;" >> $job_path
+done
+
+echo "compile job_path is $job_path"
+
+# This will need to be tweaked to work with different clusters; hopper uses aprun or something like that.
+mpirun -v -np $NUM_WORKERS ./execute_jobs.pl $job_path;
+
+# rm $job_path

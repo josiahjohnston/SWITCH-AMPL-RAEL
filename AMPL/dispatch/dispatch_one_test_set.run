@@ -1,0 +1,48 @@
+include dispatch_problem.run;
+suffix iis symbolic OUT;
+for {c in CARBON_COSTS} { 
+  let carbon_cost := c; 
+  include dispatch_load_grid.run; 
+  include dispatch_compile.run; 
+  if ( file_exists(cost_solution_file) == 0 ) then {
+    let curtime := time();
+    solve;
+    printf "%d seconds to optimize the dispatch problem.\n", time() - curtime;
+    printf "%d  %d  %s  %d\n", scenario_id, carbon_cost, "Optimize", time() - curtime  >> (solution_times_path);
+    close (solution_times_path);
+  } else {
+    printf "Loading dispatch-only solution from disk.\n";
+    solution( cost_solution_file );
+  }
+  # Delete the problem .nl file to save disk space if it still exists
+  shell( "[ -f '" & cost_problem_file_path & "' ] && rm '" & cost_problem_file_path & "'" );
+  if( solve_result = 'infeasible' ) then {
+    printf "Dispatch-only problem is Infeasible.\n";
+    include dispatch_export_infeasibilities.run;
+    # Swap problems to allow extra peakers
+    problem Dispatch_peakers_and_storage;
+    if( file_exists( peaker_solution_file ) == 0 and 
+        file_exists( peaker_problem_file_path ) == 0 ) then {
+      printf "Writing problem file to %s\n", ( peaker_problem_file & ".nl" );
+      let curtime := time();
+      write ("b" & peaker_problem_file);
+      printf "%d seconds to recompile and write the problem file.\n", time() - curtime;
+      printf "%d  %d  %s  %d\n", scenario_id, carbon_cost, "Recompilation", time() - curtime  >> (solution_times_path);
+      close (solution_times_path);
+    }
+    if( file_exists( peaker_solution_file ) == 0 ) then {
+      let curtime := time();
+      solve;
+      printf "%d seconds to optimize the Dispatch_peakers_and_storage problem.\n", time() - curtime;
+      printf "%d  %d  %s  %d\n", scenario_id, carbon_cost, "Reoptimize", time() - curtime  >> (solution_times_path);
+      close (solution_times_path);
+    } else {
+      printf "Loading Dispatch_peakers_and_storage solution from disk.\n";
+      solution( peaker_solution_file );
+    }      
+    # Delete the problem .nl file to save disk space if it still exists
+    shell( "[ -f '" & peaker_problem_file_path & "' ] && rm '" & peaker_problem_file_path & "'" );
+    include dispatch_export_capacity_shortfall.run;
+  }
+  include dispatch_export.run;
+}

@@ -187,7 +187,9 @@ for test_set_id in $(mysql $connection_string --column-names=false -e "select di
 	test_path=$(printf "test_set_%.3d" $test_set_id)
 	input_dir=$test_path"/inputs"
 	data_dir=$base_data_dir/tr_set_$TRAINING_SET_ID/$test_path
-	data_dir_historical_cap_factor=$base_data_dir/historical_cap_factors/$test_path
+	start_hour=$(mysql $connection_string --column-names=false -e "select historic_hour from dispatch_test_sets WHERE training_set_id=$TRAINING_SET_ID AND test_set_id=$test_set_id ORDER BY historic_hour ASC LIMIT 1;")
+	end_hour=$(mysql $connection_string --column-names=false -e "select historic_hour from dispatch_test_sets WHERE training_set_id=$TRAINING_SET_ID AND test_set_id=$test_set_id ORDER BY historic_hour DESC LIMIT 1;")
+	data_dir_historical_cap_factor=$base_data_dir/historical_cap_factors/${start_hour}_to_${end_hour}
 	# Make all the directories and the parent directories if they don't exists. Don't complain if they already exist.
 	mkdir -p $test_path $input_dir $data_dir $data_dir_historical_cap_factor
 

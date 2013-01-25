@@ -1,0 +1,49 @@
+if( solve_result = 'infeasible' ) then {
+  printf "Dispatch-only problem is Infeasible. \n\n";
+  if( card( { h in TIMEPOINTS, a in LOAD_AREAS: Satisfy_Load[a,h].iis <> "non" } ) > 0 ) then {
+    # Print for log file or screen
+    printf "The system was unable to satisfy load in these hours in these load areas:\n";
+    for { h in TIMEPOINTS, a in LOAD_AREAS: Satisfy_Load[a,h].iis <> "non" } {
+      printf "%d\t%s\n", h, a;
+    }
+    # Print to a tsv file
+    let outfile := results_path & sprintf( "load_infeasibilities_%d.txt", carbon_cost );
+    printf "scenario_id\tcarbon_cost\tperiod\tload_area_id\tload_area\thour\n" > (outfile);    
+    printf { h in TIMEPOINTS, a in LOAD_AREAS: Satisfy_Load[a,h].iis <> "non" } 
+      "%d\t%d\t%d\t%d\t%s\t%d\n", 
+      scenario_id, carbon_cost, period[h], load_area_id[a], a, h
+      >> (outfile);    
+    close(outfile);
+  }
+  # Print a tsv file header
+  if( card( { h in TIMEPOINTS, b in BALANCING_AREAS: Satisfy_Spinning_Reserve_Requirement[b,h].iis <> "non" } ) > 0 ||
+      card( { h in TIMEPOINTS, b in BALANCING_AREAS: Satisfy_Spinning_Reserve_Requirement[b,h].iis <> "non" } ) > 0
+    ) then {
+    # Print to a tsv file
+    let outfile := results_path & sprintf( "balancing_infeasibilities_%d.txt", carbon_cost );
+    printf "scenario_id\tcarbon_cost\tperiod\tbalancing_area\thour\tinfeasibility_type\n" > (outfile);    
+  }
+  if( card( { h in TIMEPOINTS, b in BALANCING_AREAS: Satisfy_Spinning_Reserve_Requirement[b,h].iis <> "non" } ) > 0 ) then {
+    printf "The system was unable to satisfy spinning reserve requirements in these hours in these balancing areas:\n";
+    for { h in TIMEPOINTS, b in BALANCING_AREAS: Satisfy_Spinning_Reserve_Requirement[b,h].iis <> "non" } {
+      printf "%d\t%s\n", h, b;
+    }
+    printf { h in TIMEPOINTS, b in BALANCING_AREAS: Satisfy_Spinning_Reserve_Requirement[b,h].iis <> "non" } 
+      "%d\t%d\t%d\t%s\t%d\t%s\n", 
+      scenario_id, carbon_cost, period[h], b, h, "Satisfy_Spinning_Reserve_Requirement"
+      >> (outfile);    
+   close(outfile);
+  }
+  if( card( { h in TIMEPOINTS, b in BALANCING_AREAS: Satisfy_Quickstart_Reserve_Requirement[b,h].iis <> "non" } ) > 0 ) then {
+    printf "The system was unable to satisfy quickstart reserve requirements in these hours in these balancing areas:\n";
+    for { h in TIMEPOINTS, b in BALANCING_AREAS: Satisfy_Quickstart_Reserve_Requirement[b,h].iis <> "non" } {
+      printf "%d\t%s\n", h, b;
+    }
+    printf { h in TIMEPOINTS, b in BALANCING_AREAS: Satisfy_Quickstart_Reserve_Requirement[b,h].iis <> "non" } 
+      "%d\t%d\t%d\t%s\t%d\t%s\n", 
+      scenario_id, carbon_cost, period[h], b, h, "Satisfy_Quickstart_Reserve_Requirement"
+      >> (outfile);    
+    close(outfile);
+  }
+
+}

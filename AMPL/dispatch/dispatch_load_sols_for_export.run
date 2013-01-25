@@ -1,0 +1,22 @@
+if ( file_exists(cost_solution_file) == 1 ) then {
+  printf "Loading prior solution from %s.\n", cost_solution_file;
+  problem Dispatch_Only;
+  solution( cost_solution_file );
+  # Delete the problem .nl file to save disk space if it exists
+  shell( "[ -f '" & cost_problem_file_path & "' ] && rm '" & cost_problem_file_path & "'" );
+
+  if( solve_result = 'infeasible' ) then {
+    include dispatch_export_infeasibilities.run;
+    # Load the second dispatch+new peakers problem if available.
+    if( file_exists( peaker_solution_file ) == 1 ) then {
+      problem Dispatch_peakers_and_storage;
+      solution(peaker_solution_file);
+      # Delete the problem .nl file to save disk space if it exists
+      shell( "[ -f '" & peaker_problem_file_path & "' ] && rm '" & peaker_problem_file_path & "'" );
+      include dispatch_export_capacity_shortfall.run; 
+    }
+    printf "\n\n\n";
+  } else {
+    printf "Dispatch-only problem is Feasible.\n";
+  }
+}

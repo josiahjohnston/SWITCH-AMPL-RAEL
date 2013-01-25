@@ -5,7 +5,10 @@
 # DESCRIPTION
 # 	Prepares a dispatch run for a cluster 
 # OPTIONAL INPUTS
-# 	--help                   Print this usage information
+# 	--help                     Print this usage information
+#   --single_task_mode | -s    Execute the steps of dispatch as a single task and delete
+#                              problem files as execution progresses. 
+#   --multiple_task_mode | -m  Execute the steps of dispatch as a separate tasks
 
 # This function assumes that the lines at the top of the file that start with a # and a space or tab 
 # comprise the help message. It prints the matching lines with the prefix removed and stops at the first blank line.
@@ -16,10 +19,15 @@ function print_help {
 }
 
 # Parse command-line parameters
+single_task_mode=1
 while [ -n "$1" ]; do
 case $1 in
 	-h | --help)
 		print_help; exit ;;
+	-s | --single_task_mode)
+		single_task_mode=1; shift 1 ;;
+	-m | --multiple_task_mode)
+		single_task_mode=0; shift 1 ;;
 	*)
     echo "Unknown option $1"; print_help; exit ;;
 esac
@@ -76,8 +84,10 @@ find . -name '*sol' -size 0 -exec rm {} \;
 
 # Make a qsub file for each task using custom headers and generic templates
 echo "Making qsub files for each task. "
-for f in dispatch_compile.qsub dispatch_optimize.qsub dispatch_recompile.qsub dispatch_reoptimize.qsub dispatch_export.qsub; do
-  printf "$f"
+for f in dispatch_compile.qsub dispatch_optimize.qsub dispatch_recompile.qsub dispatch_reoptimize.qsub dispatch_export.qsub dispatch_all.qsub; do
+  if [ $single_task_mode -eq 0 ]; then 
+    printf "$f\t"
+  fi
   echo '#!/bin/sh' > $f;
   action=$(echo $f | sed -e 's/\.qsub//')
   echo "#PBS -N ${action}_${scenario_id}" >> $f
@@ -112,14 +122,21 @@ for f in dispatch_compile.qsub dispatch_optimize.qsub dispatch_recompile.qsub di
       echo "#PBS -l walltime=24:00:00" >> $f
       num_workers=16; num_nodes=2; num_workers_per_node=8;
       printf "$num_workers_and_node_template" $num_workers $num_nodes $num_workers_per_node >> $f
-      echo "threads_per_cplex=2" >> $f
+      echo "threads_per_cplex=1" >> $f
     ;;
     dispatch_reoptimize.qsub)
       echo "#PBS -q $queue_24hr" >> $f
       echo "#PBS -l walltime=24:00:00" >> $f
       num_workers=16; num_nodes=2; num_workers_per_node=8;
       printf "$num_workers_and_node_template" $num_workers $num_nodes $num_workers_per_node >> $f
-      echo "threads_per_cplex=2" >> $f
+      echo "threads_per_cplex=1" >> $f
+    ;;
+    dispatch_all.qsub)
+      echo "#PBS -q $queue_24hr" >> $f
+      echo "#PBS -l walltime=24:00:00" >> $f
+      num_workers=16; num_nodes=2; num_workers_per_node=8;
+      printf "$num_workers_and_node_template" $num_workers $num_nodes $num_workers_per_node >> $f
+      echo "threads_per_cplex=1" >> $f
     ;;
   esac
   echo "NUM_WORKERS=$num_workers" >> $f
@@ -137,10 +154,17 @@ for f in dispatch_compile.qsub dispatch_optimize.qsub dispatch_recompile.qsub di
     sed -e 's/sol\*dispatch.nl/sol*dispatch_and_peakers.nl/' qsub_templates/dispatch_optimize.qsub >> $f
   fi
 
-  if [ -z "$prior_jobid" ]; then
-    prior_jobid=$(qsub $f)
-  else
-    prior_jobid=$(qsub $f -W depend=afterok:$prior_jobid$dependency_suffix)
+  if [ $single_task_mode -eq 0 ] && [ $f != "dispatch_all.qsub" ]; then 
+    if [ -z "$prior_jobid" ]; then
+      prior_jobid=$(qsub $f)
+    else
+      prior_jobid=$(qsub $f -W depend=afterok:$prior_jobid$dependency_suffix)
+    fi
+    printf "$prior_jobid\n"
   fi
-  printf "\t$prior_jobid\n"
 done
+
+if [ $single_task_mode -eq 1 ]; then 
+  printf "dispatch_all.qsub\n"
+  qsub dispatch_all.qsub
+fi
