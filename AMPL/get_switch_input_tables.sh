@@ -176,7 +176,7 @@ mysql $connection_string -e "select * from training_sets where training_set_id=$
 # [rows of data]
 
 echo 'Copying data from the database to input files...'
-
+if [ 0 -eq 1 ]; then 
 echo '	study_hours.tab...'
 echo ampl.tab 1 5 > study_hours.tab
 mysql $connection_string -e "\
@@ -291,39 +291,22 @@ echo '	fuel_costs.tab...'
 echo ampl.tab 3 1 > fuel_costs.tab
 mysql $connection_string -e "select load_area, fuel, year, fuel_price from fuel_prices where scenario_id = $REGIONAL_FUEL_COST_SCENARIO_ID and year <= $STUDY_END_YEAR order by load_area, fuel, year;" >> fuel_costs.tab
 
-echo '	ng_supply_curve_slope.tab...'
-echo ampl.tab 2 1 > ng_supply_curve_slope.tab
-mysql $connection_string -e "\
-select period_start as period, breakpoint_id, price_surplus_adjusted as ng_price_surplus_adjusted \
-from natural_gas_supply_curve, training_set_periods \
-where simulation_year=period_start+(period_end-period_start+1)/2 \
-and nems_scenario = (select nems_fuel_scenario from nems_fuel_scenarios where nems_fuel_scenario_id = $NEMS_FUEL_SCENARIO_ID) \
-and training_set_id=$TRAINING_SET_ID \
-UNION \
-select $present_year, breakpoint_id, price_surplus_adjusted as ng_price_surplus_adjusted \
-from natural_gas_supply_curve, training_set_periods \
-where simulation_year=$present_year \
-and nems_scenario = (select nems_fuel_scenario from nems_fuel_scenarios where nems_fuel_scenario_id = $NEMS_FUEL_SCENARIO_ID) \
-and training_set_id=$TRAINING_SET_ID \
-order by period, breakpoint_id;" >> ng_supply_curve_slope.tab
 
-echo '	ng_supply_curve_breakpoint_consumption.tab...'
-echo ampl.tab 2 1 > ng_supply_curve_breakpoint_consumption.tab
+echo '	ng_supply_curve.tab...'
+echo ampl.tab 2 2 > ng_supply_curve.tab
 mysql $connection_string -e "\
-select period_start as period, breakpoint_id, consumption_breakpoint as ng_consumption_breakpoint \
+select period_start as period, breakpoint_id, consumption_breakpoint as ng_consumption_breakpoint, price_surplus_adjusted as ng_price_surplus_adjusted \
 from natural_gas_supply_curve, training_set_periods \
 where simulation_year=period_start+(period_end-period_start+1)/2 \
-and consumption_breakpoint > 0 \
 and nems_scenario = (select nems_fuel_scenario from nems_fuel_scenarios where nems_fuel_scenario_id = $NEMS_FUEL_SCENARIO_ID) \
 and training_set_id=$TRAINING_SET_ID \
 UNION \
-select $present_year, breakpoint_id, consumption_breakpoint as ng_consumption_breakpoint \
+select $present_year, breakpoint_id, consumption_breakpoint as ng_consumption_breakpoint_raw, price_surplus_adjusted as ng_price_surplus_adjusted \
 from natural_gas_supply_curve, training_set_periods \
 where simulation_year=$present_year \
-and consumption_breakpoint > 0 \
 and nems_scenario = (select nems_fuel_scenario from nems_fuel_scenarios where nems_fuel_scenario_id = $NEMS_FUEL_SCENARIO_ID) \
 and training_set_id=$TRAINING_SET_ID \
-order by period, breakpoint_id;" >> ng_supply_curve_breakpoint_consumption.tab
+order by period, breakpoint_id;" >> ng_supply_curve.tab
 
 echo '	ng_regional_price_adders.tab...'
 echo ampl.tab 2 1 > ng_regional_price_adders.tab
@@ -342,33 +325,19 @@ and training_set_id=$TRAINING_SET_ID \
 order by nems_region, period ;" >> ng_regional_price_adders.tab
 
 
-echo '	biomass_supply_curve_slope.tab...'
-echo ampl.tab 3 1 > biomass_supply_curve_slope.tab
+echo '	biomass_supply_curve.tab...'
+echo ampl.tab 3 2 > biomass_supply_curve.tab
 mysql $connection_string -e "\
-SELECT load_area, period_start as period, breakpoint_id, price_dollars_per_mmbtu_surplus_adjusted \
+SELECT load_area, period_start as period, breakpoint_id, COALESCE(breakpoint_mmbtu_per_year, 0) as breakpoint_mmbtu_per_year, price_dollars_per_mmbtu_surplus_adjusted \
 FROM biomass_solid_supply_curve, training_set_periods \
 WHERE year=period_start+(period_end-period_start+1)/2 \
   AND training_set_id=$TRAINING_SET_ID \
 UNION \
-SELECT load_area, $present_year, breakpoint_id, price_dollars_per_mmbtu_surplus_adjusted \
+SELECT load_area, $present_year, breakpoint_id, COALESCE(breakpoint_mmbtu_per_year, 0) as breakpoint_mmbtu_per_year, price_dollars_per_mmbtu_surplus_adjusted \
 FROM biomass_solid_supply_curve, training_set_periods \
 WHERE year=$present_year AND training_set_id=$TRAINING_SET_ID \
-order by load_area, period, breakpoint_id ;" >> biomass_supply_curve_slope.tab
+order by load_area, period, breakpoint_id ;" >> biomass_supply_curve.tab
 
-echo '	biomass_supply_curve_breakpoint.tab...'
-echo ampl.tab 3 1 > biomass_supply_curve_breakpoint.tab
-mysql $connection_string -e "\
-SELECT load_area, period_start as period, breakpoint_id, breakpoint_mmbtu_per_year \
-FROM biomass_solid_supply_curve, training_set_periods \
-WHERE year=period_start+(period_end-period_start+1)/2 \
-  AND breakpoint_mmbtu_per_year is not null \
-  AND training_set_id=$TRAINING_SET_ID \
-UNION \
-SELECT load_area, $present_year, breakpoint_id, breakpoint_mmbtu_per_year \
-FROM biomass_solid_supply_curve, training_set_periods \
-WHERE year=$present_year AND training_set_id=$TRAINING_SET_ID \
-  AND breakpoint_mmbtu_per_year is not null \
-order by load_area, period, breakpoint_id ;"  >> biomass_supply_curve_breakpoint.tab
 
 echo '	fuel_info.tab...'
 echo ampl.tab 1 4 > fuel_info.tab

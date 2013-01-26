@@ -1,7 +1,6 @@
 # This is the fundamental code of Switch which compiles a mixed integer linear program to be solved by CPLEX.
-# Most constants are found in switch.dat, while run-time variables are in .tab files in the inputs directory.
-# To run this model, you would use the following commands: 
-#     include load.run; include compile.run; solve; include export.run; 
+# Most constants are found in windsun.dat, while run-time variables are in the various .tab files.
+# A combination of windsun.run and switch.run wrap around windsun.mod.
 
 ###############################################
 # Time-tracking parameters
@@ -190,14 +189,14 @@ param carbon_sequestered {FUELS} default 0;
 set LOAD_AREAS_AND_BIO_BREAKPOINTS dimen 3;
 
 param num_bio_breakpoints {a in LOAD_AREAS, p in PERIODS_AND_PRESENT} = max( { (la, p, bp) in LOAD_AREAS_AND_BIO_BREAKPOINTS: la = a } bp , 0 );
-param price_dollars_per_mmbtu_surplus_adjusted {a in LOAD_AREAS, p in PERIODS_AND_PRESENT, bp in 1..num_bio_breakpoints[a, p]}
-	>= if bp = 1 then 0 else price_dollars_per_mmbtu_surplus_adjusted[a, p, bp-1];
-param breakpoint_mmbtu_per_year {a in LOAD_AREAS, p in PERIODS_AND_PRESENT, bp in 1..num_bio_breakpoints[a, p]-1}
-	> if bp = 1 then 0 else breakpoint_mmbtu_per_year[a, p, bp-1];
-param breakpoint_mmbtu_per_period {a in LOAD_AREAS, p in PERIODS, bp in 1..num_bio_breakpoints[a, p]-1}
-	= breakpoint_mmbtu_per_year[a, p, bp] * num_years_per_period;
-param maximum_mmbtu_per_hour {a in LOAD_AREAS, p in PERIODS}
-	= max{ bp in 1..num_bio_breakpoints[a, p]-1 } breakpoint_mmbtu_per_period[a, p, bp] / hours_in_period[p];
+param biomass_price_dollars_per_mmbtu_surplus_adjusted {a in LOAD_AREAS, p in PERIODS_AND_PRESENT, bp in 1..num_bio_breakpoints[a, p]}
+	>= if bp = 1 then 0 else biomass_price_dollars_per_mmbtu_surplus_adjusted[a, p, bp-1];
+param biomass_breakpoint_mmbtu_per_year {a in LOAD_AREAS, p in PERIODS_AND_PRESENT, bp in 1..num_bio_breakpoints[a, p]-1}
+	> if bp = 1 then 0 else biomass_breakpoint_mmbtu_per_year[a, p, bp-1];
+param biomass_breakpoint_mmbtu_per_period {a in LOAD_AREAS, p in PERIODS, bp in 1..num_bio_breakpoints[a, p]-1}
+	= biomass_breakpoint_mmbtu_per_year[a, p, bp] * num_years_per_period;
+param biomass_maximum_mmbtu_per_hour {a in LOAD_AREAS, p in PERIODS}
+	= max{ bp in 1..num_bio_breakpoints[a, p]-1 } biomass_breakpoint_mmbtu_per_period[a, p, bp] / hours_in_period[p];
 
 # the set of load areas that have Bio_Solid and/or Bio_Gas resources available
 set BIO_FUELS_LOAD_AREAS := { f in FUELS, a in LOAD_AREAS, p in PERIODS: ( f = 'Bio_Solid' or f = 'Bio_Gas' ) };
@@ -207,7 +206,7 @@ set BIO_FUELS_LOAD_AREAS := { f in FUELS, a in LOAD_AREAS, p in PERIODS: ( f = '
 # and varies by period for bio solid, which is taken from the top of the bio solid supply curve
 param bio_fuel_limit_by_load_area { (f, a, p) in BIO_FUELS_LOAD_AREAS }
 	= 	( if f = 'Bio_Gas' then bio_gas_capacity_limit_mmbtu_per_hour[a]
-		else if f = 'Bio_Solid' then maximum_mmbtu_per_hour[a, p] )
+		else if f = 'Bio_Solid' then biomass_maximum_mmbtu_per_hour[a, p] )
 		* hours_in_period[p];
 		  
 # construction lead time (years)
@@ -1180,8 +1179,8 @@ minimize Power_Cost:
 	# BioSolid fuel costs - ConsumeBioSolid is the MMbtu of biomass consumed per period per load area
 	# this is annualized because costs in the objective function are annualized for proper discounting
 	+ ( sum { a in LOAD_AREAS, p in PERIODS: num_bio_breakpoints[a, p] > 0 } 
-		<< { bp in 1..num_bio_breakpoints[a, p] - 1 } breakpoint_mmbtu_per_period[a, p, bp]; 
-		   { bp in 1..num_bio_breakpoints[a, p] } price_dollars_per_mmbtu_surplus_adjusted[a, p, bp] >>
+		<< { bp in 1..num_bio_breakpoints[a, p] - 1 } biomass_breakpoint_mmbtu_per_period[a, p, bp]; 
+		   { bp in 1..num_bio_breakpoints[a, p] } biomass_price_dollars_per_mmbtu_surplus_adjusted[a, p, bp] >>
 	   		ConsumeBioSolid[a, p] * ( 1 / num_years_per_period ) * discount_to_base_year[p]  )
 	# Natural gas fuel costs
    		# WECC-wide supply curves
