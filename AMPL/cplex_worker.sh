@@ -65,7 +65,7 @@ for base_name in $problems; do
   # Otherwise, solve this problem
   carbon_cost=$(echo "$base_name" | sed -e 's_^.*[^0-9]\([0-9][0-9]*\)[^/]*$_\1_')
   log_base="logs/cplex_optimization_"$carbon_cost"_"$(date +'%m_%d_%H_%M_%S')
-  printf "About to run cplex. \n\tLogs are ${log_base}_cplex...\n\tcommand is: cplexamp $base_name -AMPL \"$cplex_options\"\n"
+  printf "About to run cplex. \n\tLogs are ${log_base}...\n\tcommand is: cplexamp $base_name -AMPL \"$cplex_options\"\n"
   # Record the date & hostname of the computer this is being run on
   hostname >$log_base".log"
   date >$log_base".log"
@@ -78,7 +78,7 @@ for base_name in $problems; do
   while [ -e /proc/$cplex_pid ]; do
 	ps_output="$(ps -o vsize,rssize,%mem,%cpu,time,comm -p $cplex_pid | tail -1)"
     realtime=$(date +%s);
-	printf "%8d  %s\n" $realtime "$ps_output" >> $log_base"_cplex.profile";
+	printf "%8d  %s\n" $realtime "$ps_output" >> $log_base".profile";
     sleep 30;
   done;
   end_time=$(date +%s);
