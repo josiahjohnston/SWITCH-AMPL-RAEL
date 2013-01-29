@@ -17,7 +17,7 @@ if( solve_result = 'infeasible' ) then {
   }
   # Print a tsv file header
   if( card( { h in TIMEPOINTS, b in BALANCING_AREAS: Satisfy_Spinning_Reserve_Requirement[b,h].iis <> "non" } ) > 0 ||
-      card( { h in TIMEPOINTS, b in BALANCING_AREAS: Satisfy_Spinning_Reserve_Requirement[b,h].iis <> "non" } ) > 0
+      card( { h in TIMEPOINTS, b in BALANCING_AREAS: Satisfy_Quickstart_Reserve_Requirement[b,h].iis <> "non" } ) > 0
     ) then {
     # Print to a tsv file
     let outfile := results_path & sprintf( "balancing_infeasibilities_%d.txt", carbon_cost );

@@ -6,7 +6,7 @@ if( file_exists( peaker_solution_file ) == 1 ) then {
   printf "scenario_id	carbon_cost	period	pid	load_area_id	load_area	test_set_id	technology_id	technology	new	baseload	cogen	storage	fuel	additional_capacity updated_capacity	capital_cost	fixed_o_m_cost\n"
     > (outfile);
   printf {(pid, a, t, p) in PROJECT_VINTAGES_ALL: (t='Gas_Combustion_Turbine' or storage[t]) and (InstallGen[pid, a, t, p] - InstallGen_Init[pid, a, t, p])  > 0.001}
-    "%s	%d	%d	%d	%d	%s	%d	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%.2f\n",
+    "%s	%d	%d	%d	%d	%s	%d	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%.2f	%.2f\n",
     scenario_id, carbon_cost, p, pid, load_area_id[a], a, test_set_id, technology_id[t], t, location_id[pid, a, t], 1, baseload[t], cogen[t], fuel[t],
     (InstallGen[pid, a, t, p] - InstallGen_Init[pid, a, t, p]),
     InstallGen[pid, a, t, p],
