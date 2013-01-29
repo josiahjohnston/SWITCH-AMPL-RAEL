@@ -176,7 +176,7 @@ mysql $connection_string -e "select * from training_sets where training_set_id=$
 # [rows of data]
 
 echo 'Copying data from the database to input files...'
-if [ 0 -eq 1 ]; then 
+
 echo '	study_hours.tab...'
 echo ampl.tab 1 5 > study_hours.tab
 mysql $connection_string -e "\
