@@ -49,6 +49,12 @@ for test_dir in glob.glob('test_set_*'):
           cap_shortfall_by_period[period] += float(cap_shortfall)
       f.close()
 
+    # Update the capacity shortfalls to include capacity was built in earlier periods
+    for period1 in cap_shortfall_by_period.keys():
+      for period2 in cap_shortfall_by_period.keys():
+        if period2 < period1:
+          cap_shortfall_by_period[period1] += cap_shortfall_by_period[period2]
+
     # Cross the infeasible timepoints with the capacity shortfalls to produce the summary records
     for period in cap_shortfall_by_period.keys():
       for tp in filter(lambda x: infeasible_timepoints[x] == period, infeasible_timepoints.keys()): 
