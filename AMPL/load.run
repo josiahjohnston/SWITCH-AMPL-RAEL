@@ -146,9 +146,11 @@ read table fuel_costs;
 
 param ng_consumption_breakpoint_raw { (p, bp) in NG_SUPPLY_CURVE_PERIOD_BREAKPOINTS } >= 0;
 table ng_supply_curve "inputs/ng_supply_curve.tab" IN:
-	NG_SUPPLY_CURVE_PERIOD_BREAKPOINTS <- [period, breakpoint_id], ng_consumption_breakpoint_raw ~ ng_consumption_breakpoint, ng_price_surplus_adjusted;
+	NG_SUPPLY_CURVE_PERIOD_BREAKPOINTS <- [period, breakpoint_id], 
+	ng_consumption_breakpoint_raw ~ ng_consumption_breakpoint, ng_price_surplus_adjusted;
 read table ng_supply_curve;
-let { p in PERIODS_AND_PRESENT, bp in 1..(num_ng_breakpoints[p]-1) } ng_consumption_breakpoint[p,bp] := ng_consumption_breakpoint_raw[p, bp];
+let { p in PERIODS_AND_PRESENT, bp in 1..(num_ng_breakpoints[p]-1) } 
+  ng_consumption_breakpoint[p,bp] := ng_consumption_breakpoint_raw[p, bp];
 
 table ng_regional_price_adders "inputs/ng_regional_price_adders.tab" IN:
 	NG_REGIONAL_PRICE_ADDERS_PERIODS <- [nems_region, period], ng_regional_price_adder;
@@ -156,9 +158,12 @@ read table ng_regional_price_adders;
 
 param biomass_breakpoint_mmbtu_per_year_raw { (a, p, bp) in LOAD_AREAS_AND_BIO_BREAKPOINTS } >= 0;
 table biomass_supply_curve "inputs/biomass_supply_curve.tab" IN:
-	LOAD_AREAS_AND_BIO_BREAKPOINTS <- [load_area, period, breakpoint_id], biomass_breakpoint_mmbtu_per_year_raw ~ breakpoint_mmbtu_per_year, biomass_price_dollars_per_mmbtu_surplus_adjusted ~ price_dollars_per_mmbtu_surplus_adjusted;
+	LOAD_AREAS_AND_BIO_BREAKPOINTS <- [load_area, period, breakpoint_id], 
+	biomass_breakpoint_mmbtu_per_year_raw ~ breakpoint_mmbtu_per_year, 
+	biomass_price_dollars_per_mmbtu_surplus_adjusted ~ price_dollars_per_mmbtu_surplus_adjusted;
 read table biomass_supply_curve;
-let {a in LOAD_AREAS, p in PERIODS_AND_PRESENT, bp in 1..num_bio_breakpoints[a, p]-1} biomass_breakpoint_mmbtu_per_year[a,p,bp] := biomass_breakpoint_mmbtu_per_year_raw[a,p,bp];
+let {a in LOAD_AREAS, p in PERIODS_AND_PRESENT, bp in 1..num_bio_breakpoints[a, p]-1} 
+  biomass_breakpoint_mmbtu_per_year[a,p,bp] := biomass_breakpoint_mmbtu_per_year_raw[a,p,bp];
 
 table fuel_info "inputs/fuel_info.tab" IN:
 	FUELS <- [fuel], rps_fuel_category, biofuel, carbon_content, carbon_sequestered;
