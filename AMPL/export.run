@@ -402,6 +402,53 @@ for {c in CARBON_COSTS} {
         close (carbon_cost_by_period_path);
       }      
 
+      # Natural gas consumption levels & resultant costs for use in dispatch
+      # Construct an artificial supply curve that will be read in and used by dispatch. 
+      # The supply curve will have one breakpoint which is the amount of NG used in the entire period.
+      # The price up to that breakpoint is the price level determined by the investment optimization. 
+      # A single dispatch problem should never hit the breakpoint level of consumption because 
+      # each dispatch problem only considers a small fraction of a period. 
+      printf (
+          "ampl.tab 2 2\n" & 
+          "period\tbreakpoint_id\tng_consumption_breakpoint\tng_price_surplus_adjusted\n" 
+        ) > (ng_consumption_and_prices_by_period_path);
+      printf {p in PERIODS} 
+        "%d\t%d\t%.4f\t%.4f\n", 
+        p, 1, 
+        # switch.mod mandates that the first breakpoint is greater than 0. The use of max below
+        # will ensure this occurs. This is a hypothetical issue for natural gas because it is 
+        # essentially always consumed to some degree, but a practical issue for biomass. 
+        max( ConsumeNaturalGas[p], 1), 
+        NG_Wellhead_Price_in_Period[p]
+        >> (ng_consumption_and_prices_by_period_path);
+      printf {p in PERIODS} 
+        "%d\t%d\t%d\t%.4f\n",
+        p, 2, 
+        0, NG_Wellhead_Price_in_Period[p]+1
+        >> (ng_consumption_and_prices_by_period_path);
+      # A fake record to satisfy a check in switch.mod
+      printf "%d\t1\t1\t1\n", present_year >> (ng_consumption_and_prices_by_period_path);
+      close (ng_consumption_and_prices_by_period_path);
+
+      # Biomass consumption levels & resultant costs for use in dispatch. 
+      # Same idea as NG supply curve described above.
+      printf (
+          "ampl.tab 3 2\n" & 
+          "load_area\tperiod\tbreakpoint_id\tbreakpoint_mmbtu_per_year\tprice_dollars_per_mmbtu_surplus_adjusted\n" 
+        ) > (biomass_consumption_and_prices_by_period_path);
+      printf {a in LOAD_AREAS, p in PERIODS} 
+        "%s\t%d\t%d\t%.4f\t%.4f\n", 
+        a, p, 1, 
+        max(ConsumeBioSolid[a, p], 1), Biomass_Solid_Fuel_Cost[a, p]
+        >> (biomass_consumption_and_prices_by_period_path);
+      printf {a in LOAD_AREAS, p in PERIODS} 
+        "%s\t%d\t%d\t%d\t%.4f\n",
+        a, p, 2, 
+        0, Biomass_Solid_Fuel_Cost[a, p]+1
+        >> (biomass_consumption_and_prices_by_period_path);
+      # Fake records to satisfy a check in switch.mod
+      printf {a in LOAD_AREAS} "%s\t%d\t1\t1\t1\n", a, present_year >> (biomass_consumption_and_prices_by_period_path);
+      close (biomass_consumption_and_prices_by_period_path);
 
       printf "%d seconds to store results for carbon cost %d.\n", time()-curtime, carbon_cost;
     }

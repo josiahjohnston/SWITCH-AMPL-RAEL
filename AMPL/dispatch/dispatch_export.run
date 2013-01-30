@@ -17,6 +17,26 @@ if( file_exists( peaker_solution_file ) == 1 ) then {
 }
 
 #########################
+# Store a summary of natural gas and biomass fuel consumption
+let outfile := results_path & sprintf( "biomass_consumed_%d.txt", carbon_cost );
+printf "scenario_id	carbon_cost	period	load_area_id	load_area	test_set_id	biosolid_consumed_mmbtu\n"
+  > (outfile);
+printf {a in LOAD_AREAS, p in PERIODS} 
+  "%s	%d	%d	%d	%s	%d	%.2f\n",
+  scenario_id, carbon_cost, p, load_area_id[a], a, test_set_id, ConsumeBioSolid[a, p]
+  >> (outfile);
+close (outfile);
+let outfile := results_path & sprintf( "ng_consumed_%d.txt", carbon_cost );
+printf "scenario_id	carbon_cost	period	test_set_id	ng_consumed_mmbtu\n"
+  > (outfile);
+printf {p in PERIODS} 
+  "%s	%d	%d	%d	%.2f\n",
+  scenario_id, carbon_cost, p, test_set_id, ConsumeNaturalGas[p]
+  >> (outfile);
+close (outfile);
+
+
+#########################
 # Store hourly dispatch summary for each load area and technology
 let outfile := results_path & sprintf( "dispatch_sums_%d.txt", carbon_cost );
 printf "scenario_id	carbon_cost	period	load_area_id	load_area	balancing_area	date	hour	test_set_id	technology_id	technology	new	baseload	cogen	storage	fuel	fuel_category	hours_in_sample	power	co2_tons	heat_rate	fuel_cost	carbon_cost_sum	variable_o_m	spinning_reserve	quickstart_capacity	total_operating_reserve	spinning_co2_tons	spinning_fuel_cost	spinning_carbon_cost_incurred	deep_cycling_amount	deep_cycling_fuel_cost	deep_cycling_carbon_cost	deep_cycling_co2_tons	mw_started_up	startup_fuel_cost	startup_nonfuel_cost	startup_carbon_cost	startup_co2_tons\n"
