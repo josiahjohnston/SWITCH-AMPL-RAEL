@@ -30,7 +30,7 @@ read SCENARIO_ID < scenario_id.txt
 DB_name='switch_results_wecc_v2_2'
 db_server='switch-db1.erg.berkeley.edu'
 port=3306
-ssh_tunnel=0
+ssh_tunnel=1
 
 ###################################################
 # Detect optional command-line arguments
