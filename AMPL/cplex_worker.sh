@@ -68,7 +68,7 @@ for base_name in $problems; do
   printf "About to run cplex. \n\tLogs are ${log_base}...\n\tcommand is: cplexamp $base_name -AMPL \"$cplex_options\"\n"
   # Record the date & hostname of the computer this is being run on
   hostname >$log_base".log"
-  date >$log_base".log"
+  date >>$log_base".log"
   cat $log_base".log" >$log_base".error_log"
   start_time=$(date +%s);
   cplexamp $base_name -AMPL "$cplex_options" 1>> $log_base".log" 2>> $log_base".error_log" &
