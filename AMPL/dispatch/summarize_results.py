@@ -14,6 +14,9 @@ ng_consumption_indexes = []
 
 scenario_id = str(int(open("scenario_id.txt").read()))
 
+# Set the umask to give group read & write permissions to all files & directories made by this script.
+os.umask(0002)
+
 for test_dir in glob.glob('test_set_*'):
   test_set_id = test_dir.replace('test_set_','')
   for extra_peaker_path in glob.glob(test_dir + '/results/dispatch_extra_peakers_*'):

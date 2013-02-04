@@ -25,6 +25,9 @@ function print_help {
 	head -n $last_line $0 | sed -e '/^#[ 	]/ !d' -e 's/^#[ 	]//'
 }
 
+# Set the umask to give group read & write permissions to all files & directories made by this script.
+umask=0002
+
 # Determine if this is being run in a cluster environment
 if [ -z $(which getid) ]; then cluster=0; else cluster=1; fi;
 # Determine the number of cores available. Different platform require different strategies.

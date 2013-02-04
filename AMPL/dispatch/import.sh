@@ -5,7 +5,7 @@
 #		./import.sh --tunnel             # Initiates an ssh tunnel and uses it to connect.
 # INPUTS
 #   --help                   Print this message
-#   -t | --tunnel            Initiate an ssh tunnel to connect to the database. This won't work if ssh prompts you for your password.
+#  -n | --no-tunnel         Do not try to initiate an ssh tunnel to connect to the database. Overrides default behavior. 
 #   -u [DB Username]
 #   -p [DB Password]
 #   -D [DB name]
@@ -32,6 +32,9 @@ db_server='switch-db1.erg.berkeley.edu'
 port=3306
 ssh_tunnel=1
 
+# Set the umask to give group read & write permissions to all files & directories made by this script.
+umask=0002
+
 ###################################################
 # Detect optional command-line arguments
 FlushPriorResults=0
@@ -40,8 +43,8 @@ SkipCrunch=0
 help=0
 while [ -n "$1" ]; do
 case $1 in
-  -t | --tunnel)
-    ssh_tunnel=1; shift 1 ;;
+  -n | --no-tunnel)
+    ssh_tunnel=0; shift 1 ;;
   -u)
     user=$2; shift 2 ;;
   -p)

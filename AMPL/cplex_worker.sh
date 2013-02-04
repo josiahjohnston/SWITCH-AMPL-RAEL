@@ -16,6 +16,8 @@ function print_help {
 	head -n $last_line $0 | sed -e '/^#[ 	]/ !d' -e 's/^#[ 	]//'
 }
 
+# Set the umask to give group read & write permissions to all files & directories made by this script.
+umask=0002
 
 # Default values
 runtime_path='results/run_times.txt'

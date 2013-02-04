@@ -18,6 +18,9 @@ function print_help {
 	head -n $last_line $0 | sed -e '/^#[ 	]/ !d' -e 's/^#[ 	]//'
 }
 
+# Set the umask to give group read & write permissions to all files & directories made by this script.
+umask=0002
+
 # Parse command-line parameters
 single_task_mode=1
 while [ -n "$1" ]; do

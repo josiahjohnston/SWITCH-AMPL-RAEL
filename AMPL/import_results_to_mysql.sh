@@ -5,7 +5,7 @@
 #		./import_results_to_mysql.sh                      # For connecting to the DB directly
 # INPUTS
 #  --help                   Print this message
-#  -t | --tunnel            Initiate an ssh tunnel to connect to the database. This won't work if ssh prompts you for your password.
+#  -n | --no-tunnel         Do not try to initiate an ssh tunnel to connect to the database. Overrides default behavior. 
 #   -u [DB Username]
 #   -p [DB Password]
 #   -D [DB name]
@@ -32,13 +32,16 @@ ssh_tunnel=1
 results_dir="results"
 results_graphing_dir="results_for_graphing"
 
+# Set the umask to give group read & write permissions to all files & directories made by this script.
+umask=0002
+
 ###################################################
 # Detect optional command-line arguments
 ExportOnly=0
 while [ -n "$1" ]; do
 case $1 in
-  -t | --tunnel)
-    ssh_tunnel=1; shift 1 ;;
+  -n | --no-tunnel)
+    ssh_tunnel=0; shift 1 ;;
   -u)
     user=$2; shift 2 ;;
   -p)
