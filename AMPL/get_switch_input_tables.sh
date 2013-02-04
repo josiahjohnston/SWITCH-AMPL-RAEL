@@ -156,6 +156,7 @@ export LOAD_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "sele
 export ENABLE_RPS=$(mysql $connection_string --column-names=false -e "select enable_rps from scenarios_v3 where scenario_id=$SCENARIO_ID;")
 export ENABLE_CARBON_CAP=$(mysql $connection_string --column-names=false -e "select if(carbon_cap_scenario_id>0,1,0) from scenarios_v3 where scenario_id=$SCENARIO_ID;")
 export NEMS_FUEL_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select nems_fuel_scenario_id from scenarios_v3 where scenario_id=$SCENARIO_ID;")
+export DR_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select dr_scenario_id from scenarios_v3 where scenario_id=$SCENARIO_ID;")
 export STUDY_START_YEAR=$(mysql $connection_string --column-names=false -e "select study_start_year from training_sets where training_set_id=$TRAINING_SET_ID;")
 export STUDY_END_YEAR=$(mysql $connection_string --column-names=false -e "select study_start_year + years_per_period*number_of_periods from training_sets where training_set_id=$TRAINING_SET_ID;")
 number_of_years_per_period=$(mysql $connection_string --column-names=false -e "select years_per_period from training_sets where training_set_id=$TRAINING_SET_ID;")
@@ -210,6 +211,14 @@ mysql $connection_string -e "select load_area_start, load_area_end, existing_tra
 echo '	system_load.tab...'
 echo ampl.tab 2 2 > system_load.tab
 mysql $connection_string -e "call prepare_load_exports($TRAINING_SET_ID); select load_area, DATE_FORMAT(datetime_utc,'%Y%m%d%H') as hour, system_load, present_day_system_load from scenario_loads_export WHERE training_set_id=$TRAINING_SET_ID; call clean_load_exports($TRAINING_SET_ID); "  >> system_load.tab
+
+if [ $DR_SCENARIO_ID == 'NULL' ]; then
+	echo "No DR scenario specified. Skipping shiftable_load.tab."
+else 
+	echo '	shiftable_load.tab...'
+	echo ampl.tab 2 1 > shiftable_load.tab
+	mysql $connection_string -e "select * from shiftable_load where load_scenario_id = $LOAD_SCENARIO_ID and dr_scenario_id = $DR_SCENARIO_ID; " >> shiftable_load.tab;
+fi;
 
 echo '	max_system_loads.tab...'
 echo ampl.tab 2 1 > max_system_loads.tab

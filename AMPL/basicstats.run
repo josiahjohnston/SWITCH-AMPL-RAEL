@@ -111,6 +111,10 @@ let { (pid, a, t, p, h) in AVAILABLE_HOURS: storage[t] and not can_build_new[t] 
   Storage_Variable_Cost_Incurred_Hourly[pid, a, t, p, h] := 
     Pumped_Hydro_Storage_Released[pid, a, t, p, h] * ep_variable_o_m[pid, a, t];
 
+# DEMAND RESPONSE
+
+let { a in LOAD_AREAS, h in TIMEPOINTS } DR_Net_Power[a, h] :=
+DispatchLoad[a, h] - Meet_Shifted_Load[a, h];
 
 # OPERATING RESERVES
 
@@ -491,6 +495,8 @@ let {p in PERIODS} Storage_Losses_by_Period[p] :=
 	+ sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t]}
 		( StoreEnergy[pid, a, t, p, h] * ( 1 - storage_efficiency[t] ) * hours_in_sample[h] );
 
+let {p in PERIODS} Total_Load_Shifted[p] :=
+	sum { a in LOAD_AREAS, h in TIMEPOINTS: period[h] = p } DispatchLoad[a, h];
 
 ######
 # "discounted" system load, for use in calculating levelized cost of power.
@@ -540,6 +546,7 @@ for {p in PERIODS} {
 	printf "Total Distribution Losses = %.0f MWh\n", Distribution_Losses_by_Period[p];
 	printf "Total New Storage Installed to Date = %.0f MW\n", Total_New_Storage_Installed_To_Date[p];
 	printf "Total Storage Losses = %.0f MWh\n", Storage_Losses_by_Period[p];
+	printf "Total Load Shifted = %.0f MWh\n", Total_Load_Shifted[p];
 	printf "Total Spilled = %.0f MWh\n", Gross_Power_by_Period[p] - total_loads_by_period_weighted[p] - Transmission_Losses_by_Period[p] - Storage_Losses_by_Period[p] - Distribution_Losses_by_Period[p];
 	printf "Total Power = %.0f MWh\n", Gross_Power_by_Period[p];
 	printf "Total Carbon Emissions = %.0f MtCO2/yr\n", Yearly_Carbon_Emissions[p]/1000000;

@@ -90,11 +90,12 @@ CREATE TABLE IF NOT EXISTS scenarios_v3 (
   enable_rps BOOLEAN NOT NULL DEFAULT 0 COMMENT 'This controls whether Renewable Portfolio Standards are considered in the optimization.', 
   carbon_cap_scenario_id int unsigned DEFAULT 0 COMMENT 'The default scenario is no cap. Browse existing scenarios or define new ones in the table carbon_cap_scenarios.',
   nems_fuel_scenario_id int unsigned DEFAULT 1 COMMENT 'The default scenario is the reference case. Check out the nems_fuel_scenarios table for other scenarios.',
+  dr_scenario_id int unsigned default NULL COMMENT 'The default scenario is NULL: no demand response scenario specified. The DR scenario is linked to the load_scenario_id. Browse existing DR scenarios or define new ones in the demand_response_scenarios table.',
   notes TEXT,
   model_version varchar(16) NOT NULL,
   inputs_adjusted varchar(16) NOT NULL DEFAULT 'no',
   PRIMARY KEY (scenario_id), 
-  UNIQUE KEY unique_params (scenario_name, training_set_id, regional_cost_multiplier_scenario_id, regional_fuel_cost_scenario_id, gen_costs_scenario_id, gen_info_scenario_id, enable_rps, carbon_cap_scenario_id, nems_fuel_scenario_id, model_version, inputs_adjusted), 
+  UNIQUE KEY unique_params (scenario_name, training_set_id, regional_cost_multiplier_scenario_id, regional_fuel_cost_scenario_id, gen_costs_scenario_id, gen_info_scenario_id, enable_rps, carbon_cap_scenario_id, nems_fuel_scenario_id, dr_scenario_id, model_version, inputs_adjusted), 
   CONSTRAINT training_set_id FOREIGN KEY training_set_id (training_set_id)
     REFERENCES training_sets (training_set_id), 
   CONSTRAINT regional_cost_multiplier_scenario_id FOREIGN KEY regional_cost_multiplier_scenario_id (regional_cost_multiplier_scenario_id)
@@ -105,10 +106,10 @@ CREATE TABLE IF NOT EXISTS scenarios_v3 (
     REFERENCES generator_costs_scenarios (gen_costs_scenario_id),
   CONSTRAINT gen_info_scenario_id FOREIGN KEY gen_info_scenario_id (gen_info_scenario_id)
     REFERENCES generator_info_scenarios (gen_info_scenario_id),
-	CONSTRAINT carbon_cap_scenario_id FOREIGN KEY carbon_cap_scenario_id (carbon_cap_scenario_id) 
-	  REFERENCES carbon_cap_scenarios (carbon_cap_scenario_id),
-	CONSTRAINT nems_fuel_scenario_id FOREIGN KEY nems_fuel_scenario_id (nems_fuel_scenario_id) 
-	  REFERENCES nems_fuel_scenarios (nems_fuel_scenario_id)
+  CONSTRAINT carbon_cap_scenario_id FOREIGN KEY carbon_cap_scenario_id (carbon_cap_scenario_id) 
+	REFERENCES carbon_cap_scenarios (carbon_cap_scenario_id),
+  CONSTRAINT nems_fuel_scenario_id FOREIGN KEY nems_fuel_scenario_id (nems_fuel_scenario_id) 
+	REFERENCES nems_fuel_scenarios (nems_fuel_scenario_id)
 )
 COMMENT = 'Each record in this table is a specification of how to compile a set of inputs for a specific run. Several fields specify how to subselect timepoints from a given training_set. Other fields indicate which set of regional price data to use.';
 
