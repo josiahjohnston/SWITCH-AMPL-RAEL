@@ -115,7 +115,7 @@ if [ $ssh_tunnel -eq 1 ]; then
     local_port=$((local_port+1))
     is_port_free $local_port
   done
-  ssh -N -p 22 -c 3des $db_server -L $local_port/127.0.0.1/$port &
+  ssh -N -p 22 -c 3des "$user"@"$db_server" -L $local_port/127.0.0.1/$port &
   ssh_pid=$!
   sleep 1
   connection_string="-h 127.0.0.1 --port $local_port -u $user -p$password $DB_name"
