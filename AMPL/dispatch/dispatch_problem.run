@@ -95,7 +95,7 @@ problem Dispatch_peakers_and_storage:
   Spinning_Reserve_Requirement, Quickstart_Reserve_Requirement, 
 # Operating Reserve Constraints
   Spinning_Reserve_Requirement_in_Balancing_Area_in_Hour, Quickstart_Reserve_Requirement_in_Balancing_Area_in_Hour, Satisfy_Spinning_Reserve_Requirement,
-  Satisfy_Quickstart_Reserve_Requirement
+  Satisfy_Quickstart_Reserve_Requirement,
 # Demand response
   DispatchLoad, Meet_Shifted_Load, Maximum_Load_That_Can_Be_Shifted_from_Hour, Demand_Response_Energy_Balance
 ;
