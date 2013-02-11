@@ -76,12 +76,25 @@ for base_name in $problems; do
   cplexamp $base_name -AMPL "$cplex_options" 1>> $log_base".log" 2>> $log_base".error_log" &
   cplex_pid=$! ;
   ps_headers="$(ps -o vsize,rssize,%mem,%cpu,time,comm -p $cplex_pid | head -1)"
-  echo "realtime  $ps_headers" > $log_base".profile";
+  echo "realtime elapsed_wall_time elapsed_cpu_time recent_cpu_usage $ps_headers" > $log_base".profile";
+  ps_output="$(ps -o vsize,rssize,%mem,%cpu,time,comm -p $cplex_pid | tail -1)"
+  realtime=$(date +%s);
+  starttime=$realtime
+  elapsedtime=$(($realtime-$starttime))
+  last_elapsedtime=$elapsedtime
+  cputime=$(echo $ps_output | awk '{print $5}' | sed -e 's/-/*24*3600 + /' -e 's/:/*3600 + /' -e 's/:/*60 + /' | bc )
+  last_cputime=$cputime
+  cpuusage=0
   while [ -e /proc/$cplex_pid ]; do
-	ps_output="$(ps -o vsize,rssize,%mem,%cpu,time,comm -p $cplex_pid | tail -1)"
-    realtime=$(date +%s);
-	printf "%8d  %s\n" $realtime "$ps_output" >> $log_base".profile";
+    printf "%8d %d %d %.2f %s\n" $realtime $elapsedtime $cputime $cpuusage "$ps_output" >> $log_base".profile";
     sleep 30;
+    ps_output="$(ps -o vsize,rssize,%mem,%cpu,time,comm -p $cplex_pid | tail -1)"
+    last_elapsedtime=$elapsedtime
+    last_cputime=$cputime
+    realtime=$(date +%s);
+    elapsedtime=$(($realtime-$starttime))
+    cputime=$(echo $ps_output | awk '{print $5}' | sed -e 's/-/*24*3600 + /' -e 's/:/*3600 + /' -e 's/:/*60 + /' | bc )
+    cpuusage=$(echo "scale=2; ($cputime - $last_cputime)/($elapsedtime - $last_elapsedtime); " | bc)
   done;
   end_time=$(date +%s);
   runtime=$(($end_time - $start_time))
