@@ -144,38 +144,118 @@ if [ $ExportOnly = 0 ]; then
   # To do: add time for database export, storing results, compiling, etc.
   echo 'Importing run times...'
   printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$results_dir/run_times.txt\" REPLACE into table run_times ignore 1 lines (scenario_id, carbon_cost, process_type, time_seconds);") 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$results_dir/run_times.txt" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
+
+  # Get the present year from the results files
+  f=$(ls $results_dir/present* | head -1)
+  present_year=$(awk '{if (NR==2) print $3}' "$f")
   
   # now import all of the non-runtime results
-  for file_base_name in gen_cap trans_cap local_td_cap transmission_dispatch system_load existing_trans_cost rps_reduced_cost generator_and_storage_dispatch load_wind_solar_operating_reserve_levels consume_variables
-  do
-   for file_name in $(ls $results_dir/*${file_base_name}_*txt | grep "[[:digit:]]")
-   do
-  file_path="$(pwd)/$file_name"
-  echo "    ${file_name}  ->  ${DB_name}._${file_base_name}"
-  # Import the file in question into the DB
-  case $file_base_name in
-    gen_cap) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" into table _gen_cap ignore 1 lines (scenario_id, carbon_cost, period, project_id, area_id, @junk, technology_id, @junk, @junk, new, baseload, cogen, fuel, capacity, capital_cost, fixed_o_m_cost);") 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
-    ;;
-    trans_cap) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" into table _trans_cap ignore 1 lines (scenario_id,carbon_cost,period,transmission_line_id, start_id,end_id,@junk,@junk,new,trans_mw,fixed_cost);") 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
-    ;;
-    local_td_cap) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" into table _local_td_cap ignore 1 lines (scenario_id, carbon_cost, period, area_id, @junk, new, local_td_mw, fixed_cost);" ) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
-    ;;
-    transmission_dispatch) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" into table _transmission_dispatch ignore 1 lines (scenario_id, carbon_cost, period, transmission_line_id, receive_id, send_id, @junk, @junk, study_date, study_hour, rps_fuel_category, power_sent, power_received, hours_in_sample);" ) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
-    ;;
-    system_load) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" into table _system_load ignore 1 lines (scenario_id, carbon_cost, period, area_id, @junk, study_date, study_hour, hours_in_sample, power, satisfy_load_reduced_cost, satisfy_load_reserve_reduced_cost);" ) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
-    ;;
-    existing_trans_cost) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" into table _existing_trans_cost ignore 1 lines (scenario_id, carbon_cost, period, area_id, @junk, existing_trans_cost);" ) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
-    ;;
-    rps_reduced_cost) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" into table _rps_reduced_cost ignore 1 lines (scenario_id, carbon_cost, period, rps_compliance_entity, rps_compliance_type, rps_reduced_cost);" ) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
-    ;;
-    generator_and_storage_dispatch) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" into table _generator_and_storage_dispatch ignore 1 lines (scenario_id, carbon_cost, period, project_id, area_id, @junk, @junk, study_date, study_hour, technology_id, @junk, new, baseload, cogen, storage, fuel, fuel_category, hours_in_sample, power, co2_tons, heat_rate, fuel_cost, carbon_cost_incurred, variable_o_m_cost, spinning_reserve, quickstart_capacity, total_operating_reserve, spinning_co2_tons, spinning_fuel_cost, spinning_carbon_cost_incurred, deep_cycling_amount, deep_cycling_fuel_cost, deep_cycling_carbon_cost, deep_cycling_co2_tons, mw_started_up, startup_fuel_cost, startup_nonfuel_cost, startup_carbon_cost, startup_co2_tons);" ) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
-    ;;
-    load_wind_solar_operating_reserve_levels) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" into table _load_wind_solar_operating_reserve_levels ignore 1 lines (scenario_id, carbon_cost, period, balancing_area, study_date, study_hour, hours_in_sample, load_level, wind_generation, noncsp_solar_generation, csp_generation, spinning_reserve_requirement, quickstart_capacity_requirement, total_spinning_reserve_provided, total_quickstart_capacity_provided, spinning_thermal_reserve_provided, spinning_nonthermal_reserve_provided, quickstart_thermal_capacity_provided, quickstart_nonthermal_capacity_provided);" ) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
-    ;;
-    consume_variables) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" into table _consume_and_redirect_variables ignore 1 lines (scenario_id, carbon_cost, period, area_id, @junk, study_date, study_hour, hours_in_sample, consume_nondistributed_power);" ) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
-    ;;
-   esac
-   done
+  for file_base_name in gen_cap trans_cap local_td_cap transmission_dispatch system_load existing_trans_cost rps_reduced_cost generator_and_storage_dispatch load_wind_solar_operating_reserve_levels consume_variables; do
+    for file_name in $(ls $results_dir/*${file_base_name}_*txt | grep "[[:digit:]]"); do
+      file_path="$(pwd)/$file_name"
+      echo "    ${file_name}  ->  ${DB_name}._${file_base_name}"
+      start_time=$(date +%s)
+      file_row_count=$(wc -l "$file_path" | awk '{print ($1-1)}')
+      # Customize the row count where clause to distinguish between present day results and normal results
+      if [ -n "$(echo "$file_name" | grep ${results_dir}/present)" ]; then
+        row_count_clause="period = $present_year"
+      else
+        row_count_clause="period != $present_year"
+      fi
+      # Import the file in question into the DB
+      case $file_base_name in
+        gen_cap) 
+          db_row_count=$(
+            mysql $connection_string --column-names=false -e "load data local infile \"$file_path\" \
+              into table _gen_cap ignore 1 lines \
+              (scenario_id, carbon_cost, period, project_id, area_id, @junk, technology_id, @junk, @junk, new, baseload, cogen, fuel, capacity, capital_cost, fixed_o_m_cost);\
+              select count(*) from _gen_cap where scenario_id=$SCENARIO_ID and $row_count_clause;"
+          ) ;;
+        trans_cap)
+          db_row_count=$(
+            mysql $connection_string --column-names=false -e "load data local infile \"$file_path\" \
+              into table _trans_cap ignore 1 lines \
+              (scenario_id,carbon_cost,period,transmission_line_id, start_id,end_id,@junk,@junk,new,trans_mw,fixed_cost);\
+              select count(*) from _trans_cap where scenario_id=$SCENARIO_ID and $row_count_clause;"
+          ) ;;
+        local_td_cap)
+          db_row_count=$(
+            mysql $connection_string --column-names=false -e "load data local infile \"$file_path\" \
+              into table _local_td_cap ignore 1 lines \
+              (scenario_id, carbon_cost, period, area_id, @junk, new, local_td_mw, fixed_cost);\
+              select count(*) from _local_td_cap where scenario_id=$SCENARIO_ID and $row_count_clause;"
+          ) ;;
+        transmission_dispatch)
+          db_row_count=$(
+            mysql $connection_string --column-names=false -e "load data local infile \"$file_path\" \
+              into table _transmission_dispatch ignore 1 lines \
+              (scenario_id, carbon_cost, period, transmission_line_id, receive_id, send_id, @junk, @junk, study_date, study_hour, rps_fuel_category, power_sent, power_received, hours_in_sample);\
+              select count(*) from _transmission_dispatch where scenario_id=$SCENARIO_ID and $row_count_clause;"
+          ) ;;
+        system_load)
+          db_row_count=$(
+            mysql $connection_string --column-names=false -e "load data local infile \"$file_path\" \
+              into table _system_load ignore 1 lines \
+              (scenario_id, carbon_cost, period, area_id, @junk, study_date, study_hour, hours_in_sample, power, satisfy_load_reduced_cost, satisfy_load_reserve_reduced_cost);\
+              select count(*) from _system_load where scenario_id=$SCENARIO_ID and $row_count_clause;"
+          ) ;;
+        existing_trans_cost)
+          db_row_count=$(
+            mysql $connection_string --column-names=false -e "load data local infile \"$file_path\" \
+              into table _existing_trans_cost ignore 1 lines \
+              (scenario_id, carbon_cost, period, area_id, @junk, existing_trans_cost);\
+              select count(*) from _existing_trans_cost where scenario_id=$SCENARIO_ID and $row_count_clause;"
+          ) ;;
+        rps_reduced_cost)
+          db_row_count=$(
+            mysql $connection_string --column-names=false -e "load data local infile \"$file_path\" \
+              into table _rps_reduced_cost ignore 1 lines \
+              (scenario_id, carbon_cost, period, rps_compliance_entity, rps_compliance_type, rps_reduced_cost);\
+              select count(*) from _rps_reduced_cost where scenario_id=$SCENARIO_ID and $row_count_clause;"
+          ) ;;
+        generator_and_storage_dispatch)
+          db_row_count=$(
+            mysql $connection_string --column-names=false -e "load data local infile \"$file_path\" \
+              into table _generator_and_storage_dispatch ignore 1 lines \
+              (scenario_id, carbon_cost, period, project_id, area_id, @junk, @junk, study_date, \
+               study_hour, technology_id, @junk, new, baseload, cogen, storage, fuel, \
+               fuel_category, hours_in_sample, power, co2_tons, heat_rate, fuel_cost, \
+               carbon_cost_incurred, variable_o_m_cost, spinning_reserve, quickstart_capacity, \
+               total_operating_reserve, spinning_co2_tons, spinning_fuel_cost, \
+               spinning_carbon_cost_incurred, deep_cycling_amount, deep_cycling_fuel_cost, \
+               deep_cycling_carbon_cost, deep_cycling_co2_tons, mw_started_up, startup_fuel_cost, \
+               startup_nonfuel_cost, startup_carbon_cost, startup_co2_tons); \
+              select count(*) from _generator_and_storage_dispatch where scenario_id=$SCENARIO_ID and $row_count_clause;"
+          ) ;;
+        load_wind_solar_operating_reserve_levels)
+          db_row_count=$(
+            mysql $connection_string --column-names=false -e "load data local infile \"$file_path\" \
+              into table _load_wind_solar_operating_reserve_levels ignore 1 lines \
+              (scenario_id, carbon_cost, period, balancing_area, study_date, study_hour, \
+               hours_in_sample, load_level, wind_generation, noncsp_solar_generation, \
+               csp_generation, spinning_reserve_requirement, quickstart_capacity_requirement, \
+               total_spinning_reserve_provided, total_quickstart_capacity_provided, \
+               spinning_thermal_reserve_provided, spinning_nonthermal_reserve_provided, \
+               quickstart_thermal_capacity_provided, quickstart_nonthermal_capacity_provided); \
+              select count(*) from _load_wind_solar_operating_reserve_levels where scenario_id=$SCENARIO_ID and $row_count_clause;"
+          ) ;;
+        consume_variables)
+          db_row_count=$(
+            mysql $connection_string --column-names=false -e "load data local infile \"$file_path\" \
+              into table _consume_and_redirect_variables ignore 1 lines \
+              (scenario_id, carbon_cost, period, area_id, @junk, study_date, study_hour, \
+               hours_in_sample, consume_nondistributed_power); \
+              select count(*) from _consume_and_redirect_variables where scenario_id=$SCENARIO_ID and $row_count_clause;"
+          ) ;;
+      esac
+      end_time=$(date +%s)
+      if [ $db_row_count -eq $file_row_count ]; then
+        printf "%20s seconds to import %s rows\n" $(($end_time - $start_time)) $file_row_count
+      else
+        printf " -------------\n -- ERROR! Imported %d rows, but expected %d. (%d seconds.) --\n -------------\n" $db_row_count $file_row_count $(($end_time - $start_time))
+        exit
+      fi
+    done
   done
 
 ####################################################
