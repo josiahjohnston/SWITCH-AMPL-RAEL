@@ -115,10 +115,10 @@ if [ $ssh_tunnel -eq 1 ]; then
   ssh -N -p 22 -c 3des "$user"@"$db_server" -L $local_port/127.0.0.1/$port &
   ssh_pid=$!
   sleep 1
-  connection_string="-h 127.0.0.1 --port $local_port -u $user -p$password $DB_name"
+  connection_string="-h 127.0.0.1 --port $local_port --local-infile=1 -u $user -p$password $DB_name"
   trap "clean_up;" EXIT INT TERM 
 else
-  connection_string="-h $db_server --port $port -u $user -p$password $DB_name"
+  connection_string="-h $db_server --port $port --local-infile=1 -u $user -p$password $DB_name"
 fi
 
 test_connection=`mysql $connection_string --column-names=false -e "show tables;"`
