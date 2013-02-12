@@ -18,13 +18,7 @@ for d in $(ls -1d test_set_*); do
         include dispatch_load_grid.run; \
         include dispatch_recompile.run; \
       } \
-    \" | ampl 1>>logs/recompile-${worker}.log 2>>logs/recompile-${worker}.err & \
-    "'ampl_pid=$! ; '"\
-    ps -o pcpu,vsz,rss,pmem,time,comm -p \$ampl_pid >logs/${prob_num}_ampl_recompile.profile; \
-    while [ -e /proc/\$ampl_pid ]; do \
-      ps -o pcpu,vsz,rss,pmem,time,comm -p \$ampl_pid | tail -1 >>logs/${prob_num}_ampl_recompile.profile; \
-      sleep 30; \
-    done;"
+    \" | ampl 1>>logs/recompile-${worker}.log 2>>logs/recompile-${worker}.err;"
   prob_num=$(($prob_num+1))
 done > $job_path
 

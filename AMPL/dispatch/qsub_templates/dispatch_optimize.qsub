@@ -21,13 +21,7 @@ ILOG_LICENSE_FILE=$ILOG_LICENSE_FILE; \
 echo \"\$(date)\" >>logs/${prob_name}.log; \
 echo \"\$(date)\" >>logs/${prob_name}.err; \
 start_time=\$(date +'%s'); \
-cplexamp $base -AMPL '$cplex_options' 1>>logs/${prob_name}.log 2>>logs/${prob_name}.err & \
-"'cplex_pid=$! ; '"\
-ps -o pcpu,vsz,rss,pmem,time,comm -p \$cplex_pid >logs/${prob_name}.profile; \
-while [ -e /proc/\$cplex_pid ]; do \
-  ps -o pcpu,vsz,rss,pmem,time,comm -p \$cplex_pid | tail -1 >>logs/${prob_name}.profile; \
-  sleep 30; \
-done; \
+cplexamp $base -AMPL '$cplex_options' 1>>logs/${prob_name}.log 2>>logs/${prob_name}.err \
 end_time=\$(date +'%s'); \
 printf '$base %d  %d\n' \$start_time \$((\$end_time - \$start_time)) >> logs/cplex_runtimes.txt;";
   fi
