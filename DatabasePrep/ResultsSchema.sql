@@ -506,7 +506,7 @@ CREATE OR REPLACE VIEW local_td_cap as
     FROM _local_td_cap join load_areas using(area_id);
 
 
-CREATE TABLE IF NOT EXISTS load_wind_solar_operating_reserve_levels (
+CREATE TABLE IF NOT EXISTS _load_wind_solar_operating_reserve_levels (
 	scenario_id int,
 	carbon_cost smallint,
 	period year,
@@ -529,7 +529,7 @@ CREATE TABLE IF NOT EXISTS load_wind_solar_operating_reserve_levels (
 	INDEX scenario_id (scenario_id),
 	INDEX carbon_cost (carbon_cost),
 	INDEX period (period),
-	PRIMARY KEY (scenario_id, carbon_cost, period, balancing_area)
+	PRIMARY KEY (scenario_id, carbon_cost, period, balancing_area, study_hour)
 );
 
 CREATE TABLE IF NOT EXISTS power_cost (
