@@ -36,7 +36,7 @@ option substout 1, linelim 1;
 # Options to enable timing of compilation
 # option show_stats 1, times 1, gentimes 1;
 option solver cplexamp;
-option cplex_options (" threads=4 presolve=1 prestats=1 nodefile=2 startalgorithm=4 baralg=3 barstart=4 lpdisplay=1 bardisplay=2 mipdisplay=4 timing=1 " );
+option cplex_options (" threads=1 presolve=1 prestats=1 nodefile=2 startalgorithm=4 baralg=3 barstart=4 lpdisplay=1 bardisplay=2 mipdisplay=4 timing=1 " );
 # Use the option string below to enable iisfind when you are trying to diagnose infeasibilities
 #option cplex_options (" lpdisplay=1 iisfind=1 mipdisplay=2 presolve=1 prestats=1 timing=1 nodefile=2 treememory=15000 threads=4" );
 option cplex_options > results/cplex_options;
@@ -176,6 +176,12 @@ table fuel_info "inputs/fuel_info.tab" IN:
 	FUELS <- [fuel], rps_fuel_category, biofuel, carbon_content, carbon_sequestered;
 read table fuel_info;
 let FUELS := FUELS union {"Storage"};
+
+table carbon_cost_by_period_table "inputs/carbon_cost_by_period.tab" IN:
+  [p], carbon_cost_by_period;
+if (file_exists("inputs/carbon_cost_by_period.tab")) then {
+  read table carbon_cost_by_period_table;
+}
 
 ###################################
 # update some params that can't be easily dealt with elsewhere
