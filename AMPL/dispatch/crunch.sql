@@ -1,3 +1,15 @@
+SET @first_period := (
+  SELECT study_start_year 
+  FROM switch_inputs_wecc_v2_2.scenarios_v3 
+    JOIN switch_inputs_wecc_v2_2.training_sets USING (training_set_id) 
+  WHERE scenario_id=@scenario_id);
+SET @hours_per_period = (
+  SELECT SUM(hours_in_sample) 
+    FROM switch_inputs_wecc_v2_2.scenarios_v3 JOIN
+         switch_inputs_wecc_v2_2.training_sets USING (training_set_id) JOIN
+         switch_inputs_wecc_v2_2.dispatch_test_sets USING (training_set_id) 
+    WHERE scenario_id=@scenario_id AND periodnum = 0);
+
 -- Make an updated list of capacity in each period. 
 -- Start by clearing out any old entries. 
 DELETE FROM _gen_cap_dispatch_update where scenario_id = @scenario_id;
@@ -6,14 +18,15 @@ INSERT INTO _gen_cap_dispatch_update
   SELECT scenario_id, carbon_cost, period, area_id, technology_id, project_id, 
     max(updated_capacity) as capacity, max(capital_cost) as capital_cost, max(fixed_o_m_cost) as fixed_o_m_cost 
   from _dispatch_extra_cap
-  where scenario_id = @scenario_id
+  where scenario_id = @scenario_id and period >= @first_period
   group by 1, 2, 3, 4, 5, 6
   order by 1, 2, 3, 4, 5, 6;
 -- Next, insert all of the remaining projects. The IGNORE clause will prevent any of these from overwriting the ones we just inserted. 
 INSERT IGNORE INTO _gen_cap_dispatch_update
   select scenario_id, carbon_cost, period, area_id, technology_id, project_id, capacity, capital_cost, fixed_o_m_cost 
   from _gen_cap
-  where scenario_id = @scenario_id;
+  where scenario_id = @scenario_id and period >= @first_period;
+
 
 -- Summarize each period / technology combo. Set O&M total cost to the fixed component for now. Will add variable costs a few lines down.
 delete from _dispatch_gen_cap_summary_tech where scenario_id = @scenario_id;
@@ -23,14 +36,39 @@ insert into _dispatch_gen_cap_summary_tech (scenario_id, carbon_cost, period, te
   			sum(_gen_cap_dispatch_update.capital_cost), 
   			sum(_gen_cap_dispatch_update.fixed_o_m_cost)
 	from _gen_cap_dispatch_update 
-  where _gen_cap_dispatch_update.scenario_id = @scenario_id
+  where _gen_cap_dispatch_update.scenario_id = @scenario_id 
   group by 1, 2, 3, 4
   order by 1, 2, 3, 4;
 
--- Calculate the total variable costs by period & technology
+-- Update summary table entries for projects that got retired early and will consequently have no dispatch decisions
+update _dispatch_gen_cap_summary_tech s
+	set
+		s.power                     = 0,
+		s.spinning_reserve          = 0,
+		s.quickstart_capacity       = 0,
+		s.total_operating_reserve   = 0,
+		s.deep_cycling_amount       = 0,
+		s.mw_started_up             = 0,
+		s.fuel_cost                 = 0,
+		s.carbon_cost_total         = 0,
+		s.co2_tons                  = 0,
+		s.spinning_co2_tons         = 0,
+		s.deep_cycling_co2_tons     = 0,
+		s.startup_co2_tons          = 0,
+    s.total_co2_tons            = 0
+  where s.scenario_id = @scenario_id
+    and capacity=0;
+
+-- Calculate the totals of dispatch and variable costs by period & technology
 drop temporary table if exists temp_sum_table;
 create temporary table temp_sum_table
 	select carbon_cost, period, technology_id,
+				sum(power * hours_in_sample) as power,
+				sum(spinning_reserve * hours_in_sample) as spinning_reserve,
+				sum(quickstart_capacity * hours_in_sample) as quickstart_capacity,
+				sum(total_operating_reserve * hours_in_sample) as total_operating_reserve,
+				sum(deep_cycling_amount * hours_in_sample) as deep_cycling_amount,
+				sum(mw_started_up * hours_in_sample) as mw_started_up,
 				sum(variable_o_m_cost * hours_in_sample) as variable_o_m_cost,		
 				sum(fuel_cost * hours_in_sample) as fuel_cost,
 				sum(carbon_cost_incurred * hours_in_sample) as carbon_cost_total,
@@ -46,17 +84,40 @@ alter table temp_sum_table add index fcst_idx (carbon_cost, period, technology_i
 -- Copy the variable costs into the summary table
 update _dispatch_gen_cap_summary_tech s, temp_sum_table t
 	set
-		s.o_m_cost_total        = s.o_m_cost_total + t.variable_o_m_cost,
-		s.fuel_cost             = t.fuel_cost,
-		s.carbon_cost_total     = t.carbon_cost_total,
-		s.co2_tons              = t.co2_tons,
-		s.spinning_co2_tons     = t.spinning_co2_tons,
-		s.deep_cycling_co2_tons = t.deep_cycling_co2_tons,
-		s.startup_co2_tons      = t.startup_co2_tons
+		s.power                     = t.power,
+		s.spinning_reserve          = t.spinning_reserve,
+		s.quickstart_capacity       = t.quickstart_capacity,
+		s.total_operating_reserve   = t.total_operating_reserve,
+		s.deep_cycling_amount       = t.deep_cycling_amount,
+		s.mw_started_up             = t.mw_started_up,
+		s.o_m_cost_total            = s.o_m_cost_total + t.variable_o_m_cost,
+		s.fuel_cost                 = t.fuel_cost,
+		s.carbon_cost_total         = t.carbon_cost_total,
+		s.co2_tons                  = t.co2_tons,
+		s.spinning_co2_tons         = t.spinning_co2_tons,
+		s.deep_cycling_co2_tons     = t.deep_cycling_co2_tons,
+		s.startup_co2_tons          = t.startup_co2_tons,
+    s.total_co2_tons            = t.co2_tons + t.spinning_co2_tons + t.deep_cycling_co2_tons + t.startup_co2_tons
   where s.scenario_id   = @scenario_id
 		and s.carbon_cost   = t.carbon_cost
 		and s.period        = t.period
 		and s.technology_id = t.technology_id;
+
+-- Calculate the average values from the sums
+update _dispatch_gen_cap_summary_tech 
+  set
+    avg_power = power / @hours_per_period,
+    avg_spinning_reserve = spinning_reserve / @hours_per_period,
+    avg_quickstart_capacity = quickstart_capacity / @hours_per_period,
+    avg_total_operating_reserve = total_operating_reserve / @hours_per_period,
+    avg_deep_cycling_amount = deep_cycling_amount / @hours_per_period,
+    avg_mw_started_up = mw_started_up / @hours_per_period,
+    avg_co2_tons = co2_tons / @hours_per_period,
+    avg_spinning_co2_tons = spinning_co2_tons / @hours_per_period,
+    avg_deep_cycling_co2_tons = deep_cycling_co2_tons / @hours_per_period,
+    avg_startup_co2_tons = startup_co2_tons / @hours_per_period,
+    avg_total_co2_tons = total_co2_tons / @hours_per_period
+  where scenario_id = @scenario_id;
 
 -- Make a new record for the system-wide power cost in each period. Populate the cost fields down below.
 delete from _dispatch_power_cost where scenario_id = @scenario_id;
