@@ -69,7 +69,7 @@ let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: t <> 'Compressed_Air_Energy
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: t = 'Compressed_Air_Energy_Storage' }
   Carbon_Emissions[pid, a, t, p, h] :=  Power_Produced[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) * heat_rate[pid, a, t] * carbon_content[fuel[t]];
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS }
-  Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] := Carbon_Emissions[pid, a, t, p, h] * carbon_cost;
+  Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] := Carbon_Emissions[pid, a, t, p, h] * carbon_cost_by_period[p];
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: t <> 'Compressed_Air_Energy_Storage' }
   Variable_Cost_Incurred_Hourly[pid, a, t, p, h] := Power_Produced[pid, a, t, p, h] * variable_o_m[t];
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: t = 'Compressed_Air_Energy_Storage' }
@@ -78,7 +78,7 @@ let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: t = 'Compressed_Air_Energy_
 let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }
   EP_Carbon_Emissions[pid, a, t, p, h] := ProducePowerEP[pid, a, t, p, h] * ep_heat_rate[pid, a, t] * carbon_content[fuel[t]];
 let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }
-  EP_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] := EP_Carbon_Emissions[pid, a, t, p, h] * carbon_cost;
+  EP_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] := EP_Carbon_Emissions[pid, a, t, p, h] * carbon_cost_by_period[p];
 let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: fuel[t] in BIO_SOLID_FUELS }
   EP_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := ProducePowerEP[pid, a, t, p, h] * ep_heat_rate[pid, a, t] * Biomass_Solid_Fuel_Cost[a, p];
 let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: fuel[t] not in BIO_SOLID_FUELS and fuel[t] <> 'Gas' and fuel[t] <> 'Gas_CCS' }
@@ -272,7 +272,7 @@ let { (pid, a, t, p, h) in AVAILABLE_HOURS: t = 'Compressed_Air_Energy_Storage' 
 	Provide_Spinning_Reserve[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) * heat_rate_spinning_reserve[pid, a, t] * carbon_content[fuel[t]];	
 
 let { (pid, a, t, p, h) in AVAILABLE_HOURS: dispatchable[t] } Thermal_Spinning_Reserve_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] := 
-	Thermal_Spinning_Reserve_Carbon_Emissions[pid, a, t, p, h] * carbon_cost;
+	Thermal_Spinning_Reserve_Carbon_Emissions[pid, a, t, p, h] * carbon_cost_by_period[p];
 
 
 # DEEP CYCLING AND STARTUP COSTS
@@ -302,7 +302,7 @@ let { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] or t in INTERME
   Amount_Deep_Cycled[pid, a, t, p, h] * deep_cycling_penalty[t] * ( if can_build_new[t] then heat_rate[pid, a, t] else ep_heat_rate[pid, a, t] ) * carbon_content[fuel[t]];
 
 let { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] or t in INTERMEDIATE_TECHNOLOGIES } Deep_Cycling_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h]  :=
-  Deep_Cycling_Carbon_Emissions[pid, a, t, p, h] * carbon_cost;
+  Deep_Cycling_Carbon_Emissions[pid, a, t, p, h] * carbon_cost_by_period[p];
 
 # calculate the costs incurred when starting up intermediate and peaker plants
 let { (pid, a, t, p, h) in AVAILABLE_HOURS} Startup_MW[pid, a, t, p, h]  := 0;
@@ -319,7 +319,7 @@ let { (pid, a, t, p, h) in AVAILABLE_HOURS: t in PEAKER_TECHNOLOGIES or t in INT
 let { (pid, a, t, p, h) in AVAILABLE_HOURS: t in PEAKER_TECHNOLOGIES or t in INTERMEDIATE_TECHNOLOGIES } Startup_Carbon_Emissions[pid, a, t, p, h] :=  
 	Startup_MW[pid, a, t, p, h] * startup_mmbtu_per_mw[t] * carbon_content[fuel[t]];
 let { (pid, a, t, p, h) in AVAILABLE_HOURS: t in PEAKER_TECHNOLOGIES or t in INTERMEDIATE_TECHNOLOGIES } Startup_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h]  :=
-  Startup_Carbon_Emissions[pid, a, t, p, h] * carbon_cost;
+  Startup_Carbon_Emissions[pid, a, t, p, h] * carbon_cost_by_period[p];
   
 # T&D
 
@@ -511,11 +511,10 @@ printf "\nEnable RPS=%0d  Enable Carbon Cap=%0d",
 		enable_rps, 
 		enable_carbon_cap;
 
-printf "\nTax=$%d/tCO2: Levelized Cost=$%3.2f/MWh \n", 
-  # Carbon Cost
-  carbon_cost,
-  # Power Cost
-  Power_Cost / system_load_discounted;
+printf "\nLevelized Cost=$%3.2f/MWh \n", Power_Cost / system_load_discounted;
+printf "Carbon Cost by period: ";
+printf {p in PERIODS} "%d $%d/tCO2.  ", p, carbon_cost_by_period[p];
+printf "\n";
 
 printf "\nPercentage of power produced by each fuel in the given investment periods, expressed as a fraction of total power produced.\n";
 
