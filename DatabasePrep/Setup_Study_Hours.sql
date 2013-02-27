@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS dispatch_test_sets (
   periodnum        TINYINT UNSIGNED,
   historic_hour    SMALLINT UNSIGNED,
   timepoint_id     INT UNSIGNED,
-  hours_in_sample  decimal(6,1),
+  hours_in_sample  decimal(10,4),
   UNIQUE (training_set_id, test_set_id, timepoint_id),
   INDEX (training_set_id, test_set_id, timepoint_id, historic_hour),
   INDEX (training_set_id, periodnum),

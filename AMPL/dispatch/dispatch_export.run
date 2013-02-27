@@ -45,7 +45,7 @@ printf "scenario_id	carbon_cost	period	load_area_id	load_area	balancing_area	dat
 
 # New Plants
 printf { t in TECHNOLOGIES, a in LOAD_AREAS, h in TIMEPOINTS: can_build_new[t] and t <> 'Battery_Storage' and sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS} (Power_Produced[pid, a, t, p, h] + Total_Operating_Reserve_Provided[pid, a, t, p, h]) > 0.0001 } 
-  "%s	%d	%d	%d	%s	%s	%d	%d	%s	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
+  "%s	%d	%d	%d	%s	%s	%d	%d	%s	%d	%s	%d	%d	%d	%d	%s	%s	%.4f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
   scenario_id, carbon_cost, period[h], load_area_id[a], a, balancing_area[a], 
   date[h], h, test_set_id,
   technology_id[t], t, 1, baseload[t], 0, 0, fuel[t], rps_fuel_category[fuel[t]], 
