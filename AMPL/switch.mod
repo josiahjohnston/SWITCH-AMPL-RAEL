@@ -1111,10 +1111,15 @@ var Pumped_Hydro_Storage_Operating_Reserve { (a, t, p, h) in PUMPED_HYDRO_AVAILA
 
 ######### Demand response ##############
 
-param shiftable_load { a in LOAD_AREAS, h in TIMEPOINTS } >= 0 default 0;
+param shiftable_res_comm_load { a in LOAD_AREAS, h in TIMEPOINTS } >= 0 default 0;
+param shifted_res_comm_load_hourly_max { a in LOAD_AREAS, h in TIMEPOINTS } >= 0 default 0;
+param shiftable_ev_load { a in LOAD_AREAS, h in TIMEPOINTS } >= 0 default 0;
+param shifted_ev_load_hourly_max { a in LOAD_AREAS, h in TIMEPOINTS } >= 0 default 0;
 
-var DispatchLoad {a in LOAD_AREAS, h in TIMEPOINTS} >= 0 default 0;
+var Shift_Res_Comm_Load {a in LOAD_AREAS, h in TIMEPOINTS} >= 0 default 0;
 var Meet_Shifted_Load {a in LOAD_AREAS, h in TIMEPOINTS} >= 0 default 0;
+var Shift_EV_Load {a in LOAD_AREAS, h in TIMEPOINTS} >= 0 default 0;
+var Charge_EVs {a in LOAD_AREAS, h in TIMEPOINTS} >= 0 default 0;
 
 ############ Fuel consumption ###############
 
@@ -1372,7 +1377,7 @@ subject to Satisfy_Load {a in LOAD_AREAS, h in TIMEPOINTS}:
    	      ep_capacity_mw[pid, a, t] * gen_availability[t] * eip_cap_factor[pid, a, t, h] ) 
 	>= system_load[a, h]
 	# power from load_response
-	+ Meet_Shifted_Load[a, h] - DispatchLoad[a, h];
+	+ Meet_Shifted_Load[a, h] - Shift_Res_Comm_Load[a, h] + Charge_EVs[a, h] - Shift_EV_Load[a, h];
 
 # non-distributed power production experiences distribution losses when consumed
 # but it can also be stored, transmitted, or spilled (hence the <=).
@@ -1434,7 +1439,7 @@ subject to Satisfy_Load_Reserve {a in LOAD_AREAS, h in TIMEPOINTS}:
 	+ ( sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES}
    	      eip_cap_factor[pid, a, t, h] * ep_capacity_mw[pid, a, t] ) 
 	>=
-	( 1 + planning_reserve_margin ) * ( system_load[a, h] + Meet_Shifted_Load[a, h] - DispatchLoad[a, h] )
+	( 1 + planning_reserve_margin ) * ( system_load[a, h] + Meet_Shifted_Load[a, h] - Shift_Res_Comm_Load[a, h] + Charge_EVs[a, h] - Shift_EV_Load[a, h] )
 	;
 
 
@@ -1490,7 +1495,7 @@ subject to Conservation_Of_Energy_NonDistributed_Reserve {a in LOAD_AREAS, h in 
 subject to Spinning_Reserve_Requirement_in_Balancing_Area_in_Hour {b in BALANCING_AREAS, h in TIMEPOINTS}: 
 	Spinning_Reserve_Requirement[b, h]
 	>= load_only_spinning_reserve_requirement[b]
-	* (	sum {a in LOAD_AREAS: balancing_area[a] = b} ( system_load[a, h] + + Meet_Shifted_Load[a, h] - DispatchLoad[a, h] ) )
+	* (	sum {a in LOAD_AREAS: balancing_area[a] = b} ( system_load[a, h] + Meet_Shifted_Load[a, h] - Shift_Res_Comm_Load[a, h] + Charge_EVs[a, h] - Shift_EV_Load[a, h] ) )
 	+ wind_spinning_reserve_requirement[b]
 	* (
 	# existing wind
@@ -1830,11 +1835,23 @@ subject to Storage_Projects_Energy_Balance { (pid, a, t, p) in PROJECT_VINTAGES,
 		
 ###### Demand response constraints ###########		
 
-subject to Maximum_Load_That_Can_Be_Shifted_from_Hour { a in LOAD_AREAS, h in TIMEPOINTS }:
-DispatchLoad[a, h] <= shiftable_load[a, h];
+subject to Maximum_Res_Comm_Load_That_Can_Be_Shifted_from_Hour { a in LOAD_AREAS, h in TIMEPOINTS }:
+Shift_Res_Comm_Load[a, h] <= shiftable_res_comm_load[a, h];
 
-subject to Demand_Response_Energy_Balance { a in LOAD_AREAS, d in DATES }:
-sum { h in TIMEPOINTS: date[h] = d } DispatchLoad[a, h] <= sum { h in TIMEPOINTS: date[h] = d } Meet_Shifted_Load[a, h];
+subject to Maximum_Res_Comm_Load_That_Can_Be_Shifted_to_Hour { a in LOAD_AREAS, h in TIMEPOINTS }:
+Meet_Shifted_Load[a, h] <= shifted_res_comm_load_hourly_max[a, h];
+
+subject to Res_Comm_Demand_Response_Energy_Balance { a in LOAD_AREAS, d in DATES }:
+sum { h in TIMEPOINTS: date[h] = d } Shift_Res_Comm_Load[a, h] <= sum { h in TIMEPOINTS: date[h] = d } Meet_Shifted_Load[a, h];
+
+subject to Maximum_EV_Load_That_Can_Be_Shifted_from_Hour { a in LOAD_AREAS, h in TIMEPOINTS }:
+Shift_EV_Load[a, h] <= shiftable_ev_load[a, h];
+
+subject to Maximum_EV_Load_That_Can_Be_Shifted_to_Hour { a in LOAD_AREAS, h in TIMEPOINTS }:
+Charge_EVs[a, h] <= shifted_ev_load_hourly_max[a, h];
+
+subject to EV_Charging_Energy_Balance { a in LOAD_AREAS, d in DATES }:
+sum { h in TIMEPOINTS: date[h] = d } Shift_EV_Load[a, h] <= sum { h in TIMEPOINTS: date[h] = d } Charge_EVs[a, h];
 
 
 ################################################################################
@@ -1941,7 +1958,7 @@ problem Investment_Cost_Minimization:
     Spinning_Reserve_Requirement_in_Balancing_Area_in_Hour, Quickstart_Reserve_Requirement_in_Balancing_Area_in_Hour, Satisfy_Spinning_Reserve_Requirement,
     Satisfy_Quickstart_Reserve_Requirement,
   # Demand response
-  	DispatchLoad, Meet_Shifted_Load, Maximum_Load_That_Can_Be_Shifted_from_Hour, Demand_Response_Energy_Balance
+  	Shift_Res_Comm_Load, Meet_Shifted_Load, Shift_EV_Load, Charge_EVs, Maximum_Res_Comm_Load_That_Can_Be_Shifted_from_Hour, Maximum_Res_Comm_Load_That_Can_Be_Shifted_to_Hour, Res_Comm_Demand_Response_Energy_Balance, Maximum_EV_Load_That_Can_Be_Shifted_from_Hour, Maximum_EV_Load_That_Can_Be_Shifted_to_Hour, EV_Charging_Energy_Balance
 ;
 
 

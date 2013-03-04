@@ -135,14 +135,42 @@ for {c in CARBON_COSTS} {
         0
         >> (outfile);
         
-        # Store all DEMAND RESPONSE decisions
-      printf {  a in LOAD_AREAS, h in TIMEPOINTS: not ( -0.01 < DR_Net_Power[a, h] < 0.01 ) } 
+        # Store all RESIDENTIAL AND COMMERCIAL DEMAND RESPONSE decisions
+      printf {  a in LOAD_AREAS, h in TIMEPOINTS: not ( -0.01 < Res_Comm_DR_Net_Power[a, h] < 0.01 ) } 
         "%s	%d	%d	%d	%d	%s	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	 %.2f	 %.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
         scenario_id, carbon_cost, period[h], 'na', load_area_id[a], a, balancing_area[a],
         (if present_day_optimization then present_day_date[h] else date[h]),
         (if present_day_optimization then present_day_timepoint[h] else h),
-        'na', 'DR', 'na', 0, 0, 0, 'DR', 'na', hours_in_sample[h],
-        DR_Net_Power[a, h],
+        'na', 'Res Comm DR', 'na', 0, 0, 0, 'DR', 'na', hours_in_sample[h],
+        Res_Comm_DR_Net_Power[a, h],
+        0, 0, 0, 0, 0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+        >> (outfile);
+      
+      close (outfile);
+      
+      # Store all EV DEMAND RESPONSE decisions
+      printf {  a in LOAD_AREAS, h in TIMEPOINTS: not ( -0.01 < EV_DR_Net_Power[a, h] < 0.01 ) } 
+        "%s	%d	%d	%d	%d	%s	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	 %.2f	 %.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
+        scenario_id, carbon_cost, period[h], 'na', load_area_id[a], a, balancing_area[a],
+        (if present_day_optimization then present_day_date[h] else date[h]),
+        (if present_day_optimization then present_day_timepoint[h] else h),
+        'na', 'EV DR', 'na', 0, 0, 0, 'DR', 'na', hours_in_sample[h],
+        EV_DR_Net_Power[a, h],
         0, 0, 0, 0, 0,
         0,
         0,

@@ -91,11 +91,12 @@ CREATE TABLE IF NOT EXISTS scenarios_v3 (
   carbon_cap_scenario_id int unsigned DEFAULT 0 COMMENT 'The default scenario is no cap. Browse existing scenarios or define new ones in the table carbon_cap_scenarios.',
   nems_fuel_scenario_id int unsigned DEFAULT 1 COMMENT 'The default scenario is the reference case. Check out the nems_fuel_scenarios table for other scenarios.',
   dr_scenario_id int unsigned default NULL COMMENT 'The default scenario is NULL: no demand response scenario specified. The DR scenario is linked to the load_scenario_id. Browse existing DR scenarios or define new ones in the demand_response_scenarios table.',
+  ev_scenario_id int unsigned default NULL COMMENT 'The default scenario is NULL: no ev demand response scenario specified. The EV scenario is linked to the load_scenario_id. Browse existing EV scenarios or define new ones in the ev_scenarios table.',
   notes TEXT,
   model_version varchar(16) NOT NULL,
   inputs_adjusted varchar(16) NOT NULL DEFAULT 'no',
   PRIMARY KEY (scenario_id), 
-  UNIQUE KEY unique_params (scenario_name, training_set_id, regional_cost_multiplier_scenario_id, regional_fuel_cost_scenario_id, gen_costs_scenario_id, gen_info_scenario_id, enable_rps, carbon_cap_scenario_id, nems_fuel_scenario_id, dr_scenario_id, model_version, inputs_adjusted), 
+  UNIQUE KEY unique_params (scenario_name, training_set_id, regional_cost_multiplier_scenario_id, regional_fuel_cost_scenario_id, gen_costs_scenario_id, gen_info_scenario_id, enable_rps, carbon_cap_scenario_id, nems_fuel_scenario_id, dr_scenario_id, ev_scenario_id, model_version, inputs_adjusted), 
   CONSTRAINT training_set_id FOREIGN KEY training_set_id (training_set_id)
     REFERENCES training_sets (training_set_id), 
   CONSTRAINT regional_cost_multiplier_scenario_id FOREIGN KEY regional_cost_multiplier_scenario_id (regional_cost_multiplier_scenario_id)

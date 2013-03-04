@@ -114,7 +114,13 @@ let { (pid, a, t, p, h) in AVAILABLE_HOURS: storage[t] and not can_build_new[t] 
 # DEMAND RESPONSE
 
 let { a in LOAD_AREAS, h in TIMEPOINTS } DR_Net_Power[a, h] :=
-DispatchLoad[a, h] - Meet_Shifted_Load[a, h];
+Shift_Res_Comm_Load[a, h] - Meet_Shifted_Load[a, h] + Shift_EV_Load[a, h] - Charge_EVs[a, h];
+
+let { a in LOAD_AREAS, h in TIMEPOINTS } Res_Comm_DR_Net_Power[a, h] :=
+Shift_Res_Comm_Load[a, h] - Meet_Shifted_Load[a, h];
+
+let { a in LOAD_AREAS, h in TIMEPOINTS } EV_DR_Net_Power[a, h] :=
+Shift_EV_Load[a, h] - Charge_EVs[a, h];
 
 # OPERATING RESERVES
 
@@ -496,7 +502,7 @@ let {p in PERIODS} Storage_Losses_by_Period[p] :=
 		( StoreEnergy[pid, a, t, p, h] * ( 1 - storage_efficiency[t] ) * hours_in_sample[h] );
 
 let {p in PERIODS} Total_Load_Shifted[p] :=
-	sum { a in LOAD_AREAS, h in TIMEPOINTS: period[h] = p } DispatchLoad[a, h];
+	sum { a in LOAD_AREAS, h in TIMEPOINTS: period[h] = p } ( Shift_Res_Comm_Load[a, h] + Shift_EV_Load[a, h] );
 
 ######
 # "discounted" system load, for use in calculating levelized cost of power.

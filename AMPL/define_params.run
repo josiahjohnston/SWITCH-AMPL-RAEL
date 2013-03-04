@@ -57,6 +57,8 @@ param Pumped_Hydro_Storage_Stored { PUMPED_HYDRO_AVAILABLE_HOURS_BY_PID };
 param Pumped_Hydro_Storage_Released { PUMPED_HYDRO_AVAILABLE_HOURS_BY_PID };
 param Storage_Net_Power { (pid, a, t, p, h) in AVAILABLE_HOURS: storage[t] };
 param DR_Net_Power { a in LOAD_AREAS, h in TIMEPOINTS };
+param Res_Comm_DR_Net_Power { a in LOAD_AREAS, h in TIMEPOINTS };
+param EV_DR_Net_Power { a in LOAD_AREAS, h in TIMEPOINTS };
 param Total_Load_Shifted { p in PERIODS };
 param Storage_Variable_Cost_Incurred_Hourly { (pid, a, t, p, h) in AVAILABLE_HOURS: storage[t] and t <> 'Compressed_Air_Energy_Storage' };
 param Total_New_Storage_Installed_To_Date { p in PERIODS };

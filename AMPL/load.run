@@ -36,7 +36,7 @@ option substout 1, linelim 1;
 # Options to enable timing of compilation
 # option show_stats 1, times 1, gentimes 1;
 option solver cplexamp;
-option cplex_options (" threads=1 presolve=1 prestats=1 nodefile=2 startalgorithm=4 baralg=3 barstart=4 lpdisplay=1 bardisplay=2 mipdisplay=4 timing=1 " );
+option cplex_options (" threads=4 presolve=1 prestats=1 nodefile=2 startalgorithm=4 baralg=3 barstart=4 lpdisplay=1 bardisplay=2 mipdisplay=4 timing=1 " );
 # Use the option string below to enable iisfind when you are trying to diagnose infeasibilities
 #option cplex_options (" lpdisplay=1 iisfind=1 mipdisplay=2 presolve=1 prestats=1 timing=1 nodefile=2 treememory=15000 threads=4" );
 option cplex_options > results/cplex_options;
@@ -85,11 +85,18 @@ table system_load "inputs/system_load.tab" IN:
   [load_area, hour], system_load, present_day_system_load;
 read table system_load;
 
-table shiftable_load "inputs/shiftable_load.tab" IN: 
-  [load_area, hour], shiftable_load;
-if ( file_exists("inputs/shiftable_load.tab") ) then {
-  read table shiftable_load;
-} else { problem Investment_Cost_Minimization; fix {a in LOAD_AREAS, t in TIMEPOINTS} DispatchLoad[a, t] := 0; fix {a in LOAD_AREAS, t in TIMEPOINTS} Meet_Shifted_Load[a, t] := 0; drop Maximum_Load_That_Can_Be_Shifted_from_Hour; drop Demand_Response_Energy_Balance
+table shiftable_res_comm_load "inputs/shiftable_res_comm_load.tab" IN: 
+  [load_area, hour], shiftable_res_comm_load, shifted_res_comm_load_hourly_max;
+if ( file_exists("inputs/shiftable_res_comm_load.tab") ) then {
+  read table shiftable_res_comm_load;
+} else { problem Investment_Cost_Minimization; fix {a in LOAD_AREAS, t in TIMEPOINTS} Shift_Res_Comm_Load[a, t] := 0; fix {a in LOAD_AREAS, t in TIMEPOINTS} Meet_Shifted_Load[a, t] := 0; drop Maximum_Res_Comm_Load_That_Can_Be_Shifted_from_Hour; drop Maximum_Res_Comm_Load_That_Can_Be_Shifted_to_Hour; drop Res_Comm_Demand_Response_Energy_Balance
+}
+
+table shiftable_ev_load "inputs/shiftable_ev_load.tab" IN: 
+  [load_area, hour], shiftable_ev_load, shifted_ev_load_hourly_max;
+if ( file_exists("inputs/shiftable_ev_load.tab") ) then {
+  read table shiftable_ev_load;
+} else { problem Investment_Cost_Minimization; fix {a in LOAD_AREAS, t in TIMEPOINTS} Shift_EV_Load[a, t] := 0; fix {a in LOAD_AREAS, t in TIMEPOINTS} Charge_EVs[a, t] := 0; drop Maximum_EV_Load_That_Can_Be_Shifted_from_Hour; drop Maximum_EV_Load_That_Can_Be_Shifted_to_Hour; drop EV_Charging_Energy_Balance
 }
 
 table max_system_loads "inputs/max_system_loads.tab" IN: 
