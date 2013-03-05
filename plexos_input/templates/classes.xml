@@ -1,4 +1,4 @@
-<FakeRootNode>
+<MasterDataSet xmlns="http://tempuri.org/MasterDataSet.xsd">
   <t_category>
     <category_id>1</category_id>
     <class_id>1</class_id>
@@ -4256,4 +4256,4 @@
     <left_collection_id>25</left_collection_id>
     <right_collection_id>21</right_collection_id>
   </t_collection_report>
-</FakeRootNode>
+</MasterDataSet>
