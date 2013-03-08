@@ -2,6 +2,7 @@
 -- However, this script is written so that it can also create supply curves for multiple types of fuels at a time (with some modifications)
 -- Data for every scenario and region are from NEMS forecasts
 -- NEMS forcasts natural gas, coal, and oil consumption and price for 2010-2035 for the whole US as well as regionally
+-- Average US price is the "Average Lower 48 Wellhead Price" from AEO2012-Natural_Gas_Supply-Disposition-and_Prices
 -- The WECC is subdivided into four regions: California, Northwest, Rockies, and Southwest
 -- Data for Baja, BC, and Alberta are added manually
 -- Country-level data (US, Mexico/Chile, Mexico, and Canada) includes consumption in ALL SECTORS
@@ -14,10 +15,10 @@
 -- Consumption forecasts do not exist for all AEO2011 scenarios for Canada and Mexico, so consumption for scenarios other the Reference case is scaled based on the percentage change in US consumption in each scenario relative to the Reference scenario
 
 -- Units from NEMS are: natural gas consumption: quadrillion Btu
--- natural gas price: 2009 Dollars per million Btu
+-- natural gas price: 2010 Dollars per million Btu
 
 
-SET search_path TO fuels;
+SET search_path TO fuels, public;
 
 -----------------------------------------------
 -------------- Import the data ----------------
@@ -26,11 +27,6 @@ drop table if exists nems_supply_curve_data_import;
 create table nems_supply_curve_data_import(
 	fuel varchar(40),
 	nems_region char(40),
-	a2010 char(40),
-	b2010 char(40),
-	c2010 char(40),
-	d2010 char(40),
-	e2010 char(40),
 	a2011 char(40),
 	b2011 char(40),
 	c2011 char(40),
@@ -164,17 +160,18 @@ create table nems_fuel_region_scenario_consumption_price_raw_data_import(
 	fuel varchar(40),
 	nems_scenario varchar(40),
 	nems_region varchar(40),
-	simulation_year int,
+	simulation_year smallint,
 	price double precision,
 	consumption double precision,
 	primary key (fuel, nems_scenario, nems_region, simulation_year)
 	);
  
-CREATE OR REPLACE RULE "replace_nems_fuel_region_scenario_consumption_price_raw_data_import" AS ON INSERT TO "nems_fuel_region_scenario_consumption_price_raw_data_import"
-  WHERE
-  EXISTS(SELECT 1 FROM nems_fuel_region_scenario_consumption_price_raw_data_import WHERE fuel=NEW.fuel and nems_region=NEW.nems_region and nems_scenario=NEW.nems_scenario and simulation_year=NEW.simulation_year)
-    DO INSTEAD
-       (UPDATE nems_fuel_region_scenario_consumption_price_raw_data_import SET consumption=NEW.consumption WHERE fuel=NEW.fuel and nems_region=NEW.nems_region and nems_scenario=NEW.nems_scenario and simulation_year=NEW.simulation_year);
+-- possibly unnecessary upsert rule 
+-- CREATE OR REPLACE RULE "replace_nems_fuel_region_scenario_consumption_price_raw_data_import" AS ON INSERT TO "nems_fuel_region_scenario_consumption_price_raw_data_import"
+--  WHERE
+--  EXISTS(SELECT 1 FROM nems_fuel_region_scenario_consumption_price_raw_data_import WHERE fuel=NEW.fuel and nems_region=NEW.nems_region and nems_scenario=NEW.nems_scenario and simulation_year=NEW.simulation_year)
+--    DO INSTEAD
+--       (UPDATE nems_fuel_region_scenario_consumption_price_raw_data_import SET consumption=NEW.consumption WHERE fuel=NEW.fuel and nems_region=NEW.nems_region and nems_scenario=NEW.nems_scenario and simulation_year=NEW.simulation_year);
       
 -- now do some fancyish pivoting of the import table to insert all of the supply curve data
 -- make sure that fuel-region combination exists in consumption spreadsheet or price data for that fuel-region combination will not get imported
@@ -209,15 +206,15 @@ CREATE OR REPLACE FUNCTION pivot_natural_gas() RETURNS void AS $$
 	update 	all_columns_to_import
 	set		nems_scenario = letter_to_scenario_table.nems_scenario
 	from 	(
-		select 'a' as scenario_identifier, a2010 as nems_scenario from nems_supply_curve_data_import where length(nems_region) is null
+		select 'a' as scenario_identifier, a2011 as nems_scenario from nems_supply_curve_data_import where length(nems_region) is null
 			UNION
-		select 'b' as scenario_identifier, b2010 as nems_scenario from nems_supply_curve_data_import where length(nems_region) is null
+		select 'b' as scenario_identifier, b2011 as nems_scenario from nems_supply_curve_data_import where length(nems_region) is null
 			UNION
-		select 'c' as scenario_identifier, c2010 as nems_scenario from nems_supply_curve_data_import where length(nems_region) is null
+		select 'c' as scenario_identifier, c2011 as nems_scenario from nems_supply_curve_data_import where length(nems_region) is null
 			UNION
-		select 'd' as scenario_identifier, d2010 as nems_scenario from nems_supply_curve_data_import where length(nems_region) is null
+		select 'd' as scenario_identifier, d2011 as nems_scenario from nems_supply_curve_data_import where length(nems_region) is null
 			UNION
-		select 'e' as scenario_identifier, e2010 as nems_scenario from nems_supply_curve_data_import where length(nems_region) is null
+		select 'e' as scenario_identifier, e2011 as nems_scenario from nems_supply_curve_data_import where length(nems_region) is null
 		) as letter_to_scenario_table
 	where	substring(column_name from 1 for 1) = scenario_identifier
 	;
@@ -254,7 +251,7 @@ $$ LANGUAGE plpgsql;
 
 -- actually copy all of the data by reading in one CSV and importing via the function pivot_natural_gas()
 copy nems_supply_curve_data_import
-from '/DatabasePrep/NG_supply_curve/nems_ng_consumption_raw_data_quadrillion_btu.csv'
+from '/Volumes/switch/ana_jimmy_ng_sandbox/nems_ng_consumption_raw_data_quadrillion_btu.csv'
 with CSV HEADER;
 
 -- excute the insert statements
@@ -275,11 +272,11 @@ drop table if exists all_columns_to_import;
 
 -- Update table nems_fuel_region_scenario_consumption_price_raw_data_import by inserting the values for price
  
- CREATE OR REPLACE RULE "replace_nems_fuel_region_scenario_consumption_price_raw_data_import" AS ON INSERT TO "nems_fuel_region_scenario_consumption_price_raw_data_import"
-    WHERE
-      EXISTS(SELECT 1 FROM nems_fuel_region_scenario_consumption_price_raw_data_import WHERE fuel= NEW.fuel and nems_region=NEW.nems_region and nems_scenario=NEW.nems_scenario and simulation_year=NEW.simulation_year)
-    DO INSTEAD
-       (UPDATE nems_fuel_region_scenario_consumption_price_raw_data_import SET price=NEW.price WHERE fuel= NEW.fuel and nems_region=NEW.nems_region and nems_scenario=NEW.nems_scenario and simulation_year=NEW.simulation_year);
+-- CREATE OR REPLACE RULE "replace_nems_fuel_region_scenario_consumption_price_raw_data_import" AS ON INSERT TO "nems_fuel_region_scenario_consumption_price_raw_data_import"
+--    WHERE
+--      EXISTS(SELECT 1 FROM nems_fuel_region_scenario_consumption_price_raw_data_import WHERE fuel= NEW.fuel and nems_region=NEW.nems_region and nems_scenario=NEW.nems_scenario and simulation_year=NEW.simulation_year)
+--    DO INSTEAD
+--       (UPDATE nems_fuel_region_scenario_consumption_price_raw_data_import SET price=NEW.price WHERE fuel= NEW.fuel and nems_region=NEW.nems_region and nems_scenario=NEW.nems_scenario and simulation_year=NEW.simulation_year);
 
 -- now do some fancyish pivoting of the import table to update all of the price supply data
 
@@ -310,15 +307,15 @@ CREATE OR REPLACE FUNCTION pivot_natural_gas() RETURNS void AS $$
 	update 	all_columns_to_import
 	set		nems_scenario = letter_to_scenario_table.nems_scenario
 	from 	(
-		select 'a' as scenario_identifier, a2010 as nems_scenario from nems_supply_curve_data_import where length(nems_region) is null
+		select 'a' as scenario_identifier, a2011 as nems_scenario from nems_supply_curve_data_import where length(nems_region) is null
 			UNION
-		select 'b' as scenario_identifier, b2010 as nems_scenario from nems_supply_curve_data_import where length(nems_region) is null
+		select 'b' as scenario_identifier, b2011 as nems_scenario from nems_supply_curve_data_import where length(nems_region) is null
 			UNION
-		select 'c' as scenario_identifier, c2010 as nems_scenario from nems_supply_curve_data_import where length(nems_region) is null
+		select 'c' as scenario_identifier, c2011 as nems_scenario from nems_supply_curve_data_import where length(nems_region) is null
 			UNION
-		select 'd' as scenario_identifier, d2010 as nems_scenario from nems_supply_curve_data_import where length(nems_region) is null
+		select 'd' as scenario_identifier, d2011 as nems_scenario from nems_supply_curve_data_import where length(nems_region) is null
 			UNION
-		select 'e' as scenario_identifier, e2010 as nems_scenario from nems_supply_curve_data_import where length(nems_region) is null
+		select 'e' as scenario_identifier, e2011 as nems_scenario from nems_supply_curve_data_import where length(nems_region) is null
 		) as letter_to_scenario_table
 	where	substring(column_name from 1 for 1) = scenario_identifier
 	;
@@ -360,7 +357,7 @@ $$ LANGUAGE plpgsql;
 -- actually copy all of the data by reading in one CSV and importing via the function pivot_natural_gas()
 
 copy nems_supply_curve_data_import
-from '/DatabasePrep/NG_supply_curve/nems_ng_price_raw_data_2009_dollars_per_mmbtu.csv'
+from '/Volumes/switch/ana_jimmy_ng_sandbox/nems_ng_price_raw_data_2010_dollars_per_mmbtu.csv'
 with CSV HEADER;
 
 -- excute the insert statements
@@ -380,17 +377,17 @@ drop table if exists all_columns_to_import;
 drop table if exists nems_supply_curve_data_import;
 
 -- create the table with correct units
--- NEMS consmption data imported is in quadrillion Btu (10^15) and the natural gas price is 2009 Dollars per million Btu
--- so we multiply the consumption by 10^9 to convert to MMBtu (10^6) and the price by 0.96 to convert to 2007 dollars
+-- NEMS consmption data imported is in quadrillion Btu (10^15) and the natural gas price is 2010 Dollars per million Btu
+-- so we multiply the consumption by 10^9 to convert to MMBtu (10^6) and the price by dollar_ratio_to_2007 to convert to 2007 dollars
 
 drop table if exists nems_supply_curve_data_import_final_unit_adjusted;
 create table nems_supply_curve_data_import_final_unit_adjusted(
 	fuel varchar(40),
 	nems_scenario varchar(40),
 	nems_region varchar(40),
-	simulation_year int,
-	price double precision,
-	consumption double precision,
+	simulation_year smallint,
+	price double precision default null,
+	consumption double precision default null,
 	primary key (fuel, nems_scenario, nems_region, simulation_year)
 	);
 	
@@ -399,92 +396,75 @@ select 	fuel,
 		nems_scenario,
       	nems_region,
        	simulation_year,
-       	( price * 0.96 ) as price, 
+       	( price * dollar_ratio_to_2007 ) as price, 
       	consumption * 10^9 as consumption 
-     	from nems_fuel_region_scenario_consumption_price_raw_data_import
+     	from  nems_fuel_region_scenario_consumption_price_raw_data_import,
+     		  usa_can.cpi_conversion_table c
+     	WHERE c.year = 2010
       	order by fuel, nems_region, simulation_year;
 
 -- MEXICO --
--- calculate total natural gas and coal consumption in Mexico (in all sectors) for the Reference case based on population
+-- calculate total natural gas consumption in Mexico (in all sectors) for the Reference case based on population
 -- the population of Mexico in 2010 was 113,423,050 (Source: World Bank, World Development Indicators via Google)
 -- the population of Chile in 2010 was 17,113,688 (Source: World Bank, World Development Indicators via Google)
 -- the population of Baja in 2010 was 3,155,070 (Source: http://www.conapo.gob.mx/00cifras/proyecta50/02.xls)
 
--- insert fuel-scenario-year combinations for Mexico for fuels other than gas (if any) (gas is already imported) (not all combinations will be populated)
-insert into nems_supply_curve_data_import_final_unit_adjusted
-	select	distinct(fuel) as fuel,
-			nems_scenario,
-			'Mexico' as nems_region,
-			simulation_year,
-			cast(NULL as double precision) as price,
-			cast(NULL as double precision) as consumption
-	from	nems_supply_curve_data_import_final_unit_adjusted
-	where	fuel not like 'Gas';
-
 -- calculate fuel consumption for Mexico from Mexico/Chile data based on population
-update nems_supply_curve_data_import_final_unit_adjusted
-	set 	consumption = 113423050 * mexico_chile_consumption / (113423050 + 17113688)
-	from	(	select fuel, simulation_year, consumption as mexico_chile_consumption
+update nems_supply_curve_data_import_final_unit_adjusted n
+	set 	consumption = 113423050.0 * mexico_chile_consumption / (113423050.0 + 17113688.0)
+	from	(	select fuel, nems_scenario, simulation_year, consumption as mexico_chile_consumption
 				from	nems_supply_curve_data_import_final_unit_adjusted
-				where	nems_region = 'Mexico/Chile'
-				and		nems_scenario = 'Reference' ) as mexico_chile_table
-	where	nems_supply_curve_data_import_final_unit_adjusted.nems_region = 'Mexico'
-	and		nems_supply_curve_data_import_final_unit_adjusted.nems_scenario = 'Reference'
-	and 	nems_supply_curve_data_import_final_unit_adjusted.fuel = mexico_chile_table.fuel
-	and		nems_supply_curve_data_import_final_unit_adjusted.simulation_year = mexico_chile_table.simulation_year;
+				where	nems_region = 'Mexico/Chile') as mc
+	where	n.nems_region = 'Mexico'
+	and 	n.fuel = mc.fuel
+	and		n.nems_scenario = mc.nems_scenario
+	and		n.simulation_year = mc.simulation_year;
 
 -- insert fuel-scenario-year combinations for Mexico's electric sector (not all combinations will be populated)
-insert into nems_supply_curve_data_import_final_unit_adjusted
+insert into nems_supply_curve_data_import_final_unit_adjusted (fuel, nems_scenario, nems_region, simulation_year)
 	select	distinct(fuel) as fuel,
 			nems_scenario,
 			'Mexico_Electric' as nems_region,
-			simulation_year,
-			cast(NULL as double precision) as price,
-			cast(NULL as double precision) as consumption
+			simulation_year
 	from	nems_supply_curve_data_import_final_unit_adjusted;
 
 -- calculate the amount of fuel consumed in the Mexico electric sector
 -- we assume that the same fraction of total fuel is consumed in the electric sector as in the US
 update	nems_supply_curve_data_import_final_unit_adjusted
 set		consumption = electric_consumption_fraction * mexico_consumption
-from	( 	select	us_total_consumption_table.fuel,
-					us_total_consumption_table.nems_scenario,
-					us_total_consumption_table.simulation_year,
-					us_electric_sector_consumption / us_total_consumption as electric_consumption_fraction
+from	( 	select	fuel,
+					nems_scenario,
+					simulation_year,
+					us_electric_sector_consumption / us_total_consumption as electric_consumption_fraction,
+					mexico_consumption
 				from	(	select	fuel, nems_scenario, simulation_year, consumption as us_electric_sector_consumption
 							from	nems_supply_curve_data_import_final_unit_adjusted
-							where	nems_region = 'US_Electric' ) as us_electric_sector_consumption_table,
-						(	select	fuel, nems_scenario, simulation_year, consumption as us_total_consumption
+							where	nems_region = 'US_Electric' ) as us_electric_sector_consumption_table
+				JOIN	(	select	fuel, nems_scenario, simulation_year, consumption as us_total_consumption
 							from	nems_supply_curve_data_import_final_unit_adjusted
 							where	nems_region = 'US' ) as us_total_consumption_table
-				where	us_electric_sector_consumption_table.fuel = us_total_consumption_table.fuel
-				and		us_electric_sector_consumption_table.nems_scenario = us_total_consumption_table.nems_scenario
-				and		us_electric_sector_consumption_table.simulation_year = us_total_consumption_table.simulation_year
-							) as electric_consumption_fraction_table,
-		(	select fuel, nems_scenario, simulation_year, consumption as mexico_consumption
-				from 	nems_supply_curve_data_import_final_unit_adjusted
-				where	nems_region = 'Mexico' ) as mexico_table
+				USING   (fuel, nems_scenario, simulation_year)
+				JOIN	(	select fuel, nems_scenario, simulation_year, consumption as mexico_consumption
+							from 	nems_supply_curve_data_import_final_unit_adjusted
+							where	nems_region = 'Mexico' ) as mexico_table
+				USING   (fuel, nems_scenario, simulation_year)
+		) as electric_consumption_fraction_table
 	where	nems_supply_curve_data_import_final_unit_adjusted.nems_region = 'Mexico_Electric'
 	and		nems_supply_curve_data_import_final_unit_adjusted.fuel = electric_consumption_fraction_table.fuel
 	and		nems_supply_curve_data_import_final_unit_adjusted.nems_scenario = electric_consumption_fraction_table.nems_scenario
-	and		nems_supply_curve_data_import_final_unit_adjusted.simulation_year = electric_consumption_fraction_table.simulation_year
-	and		nems_supply_curve_data_import_final_unit_adjusted.fuel = mexico_table.fuel
-	and		nems_supply_curve_data_import_final_unit_adjusted.nems_scenario = mexico_table.nems_scenario
-	and		nems_supply_curve_data_import_final_unit_adjusted.simulation_year = mexico_table.simulation_year;
+	and		nems_supply_curve_data_import_final_unit_adjusted.simulation_year = electric_consumption_fraction_table.simulation_year;
 
 -- now insert fuel-scenario-year combinations for Baja (not all combinations will be populated)
-insert into nems_supply_curve_data_import_final_unit_adjusted
+insert into nems_supply_curve_data_import_final_unit_adjusted (fuel, nems_scenario, nems_region, simulation_year)
 	select	distinct(fuel) as fuel,
 			nems_scenario,
 			'Baja_Mexico' as nems_region,
-			simulation_year,
-			cast(NULL as double precision) as price,
-			cast(NULL as double precision) as consumption
+			simulation_year
 	from	nems_supply_curve_data_import_final_unit_adjusted;
 
 -- calculate electric sector fuel consumption in Baja based on Baja and Mexico's populations
 update	nems_supply_curve_data_import_final_unit_adjusted
-set		consumption = 3155070 * mexico_electric_consumption / 113423050
+set		consumption = 3155070.0 * mexico_electric_consumption / 113423050.0
 from	(	select	fuel,
 					nems_scenario,
       				simulation_year,
@@ -505,56 +485,53 @@ from	(select fuel, nems_scenario, simulation_year, price as southwest_price
 		where	nems_region = 'Southwest' 
 		and		fuel = 'Gas' ) as southwest_table
 where	nems_supply_curve_data_import_final_unit_adjusted.nems_region = 'Baja_Mexico'
+and		nems_supply_curve_data_import_final_unit_adjusted.nems_scenario = southwest_table.nems_scenario
 and		nems_supply_curve_data_import_final_unit_adjusted.fuel = 'Gas'
-and		nems_supply_curve_data_import_final_unit_adjusted.simulation_year = southwest_table.simulation_year
-and		nems_supply_curve_data_import_final_unit_adjusted.nems_scenario = southwest_table.nems_scenario;
+and		nems_supply_curve_data_import_final_unit_adjusted.simulation_year = southwest_table.simulation_year;
 
 -- finally, set consumption in non-reference scenarios for Baja and Mexico to have the same percent increase/decrease relative to the rest of the scenarios as the US electric sector and the US respectively
 -- this will be used in determining the supply curve breakpoints and prices later
 update	nems_supply_curve_data_import_final_unit_adjusted
 set		consumption = change_in_us_consumption * reference_regional_consumption
 from	(	select	fuel, nems_scenario, simulation_year, consumption / us_reference_consumption as change_in_us_consumption
-			from	nems_supply_curve_data_import_final_unit_adjusted,
-					(	select fuel as us_reference_fuel, nems_region as us_reference_region, nems_scenario as us_reference_scenario, simulation_year as us_reference_simulation_year, consumption as us_reference_consumption from nems_supply_curve_data_import_final_unit_adjusted
+			from	nems_supply_curve_data_import_final_unit_adjusted
+			JOIN	(	select fuel, simulation_year, consumption as us_reference_consumption from nems_supply_curve_data_import_final_unit_adjusted
 						where	nems_region = 'US'
-						and		nems_scenario = 'Reference' ) as us_reference_table 
-			where	nems_region = 'US'
-			and		nems_supply_curve_data_import_final_unit_adjusted.fuel = us_reference_fuel
-			and		nems_supply_curve_data_import_final_unit_adjusted.simulation_year = us_reference_simulation_year ) as change_in_consumption_table,
+						and		nems_scenario = 'Reference' ) as us_reference_table
+			USING 	(fuel, simulation_year)
+			where	nems_region = 'US' ) as change_in_consumption_table
+		JOIN
 		(	select	fuel, nems_region, simulation_year, consumption as reference_regional_consumption
 			from 	nems_supply_curve_data_import_final_unit_adjusted
 			where	nems_region = 'Mexico'
 			and		nems_scenario = 'Reference' ) as reference_regional_consumption_table
+		USING (fuel, simulation_year)
 where	nems_supply_curve_data_import_final_unit_adjusted.nems_region = 'Mexico'
 and		nems_supply_curve_data_import_final_unit_adjusted.nems_scenario not like 'Reference'
 and 	nems_supply_curve_data_import_final_unit_adjusted.nems_region = reference_regional_consumption_table.nems_region
-and		nems_supply_curve_data_import_final_unit_adjusted.fuel = change_in_consumption_table.fuel
 and		nems_supply_curve_data_import_final_unit_adjusted.fuel = reference_regional_consumption_table.fuel
 and		nems_supply_curve_data_import_final_unit_adjusted.nems_scenario = change_in_consumption_table.nems_scenario
-and		nems_supply_curve_data_import_final_unit_adjusted.simulation_year = change_in_consumption_table.simulation_year
 and		nems_supply_curve_data_import_final_unit_adjusted.simulation_year = reference_regional_consumption_table.simulation_year;
 
 update	nems_supply_curve_data_import_final_unit_adjusted
 set		consumption = change_in_us_consumption * reference_regional_consumption
 from	(	select	fuel, nems_scenario, simulation_year, consumption / us_reference_consumption as change_in_us_consumption
-			from	nems_supply_curve_data_import_final_unit_adjusted,
-					(	select fuel as us_reference_fuel, nems_region as us_reference_region, nems_scenario as us_reference_scenario, simulation_year as us_reference_simulation_year, consumption as us_reference_consumption from nems_supply_curve_data_import_final_unit_adjusted
+			from	nems_supply_curve_data_import_final_unit_adjusted
+			JOIN	(	select fuel, nems_region, simulation_year, consumption as us_reference_consumption from nems_supply_curve_data_import_final_unit_adjusted
 						where	nems_region = 'US_Electric'
-						and		nems_scenario = 'Reference' ) as us_reference_table 
-			where	nems_region = 'US_Electric'
-			and		nems_supply_curve_data_import_final_unit_adjusted.fuel = us_reference_fuel
-			and		nems_supply_curve_data_import_final_unit_adjusted.simulation_year = us_reference_simulation_year ) as change_in_consumption_table,
+						and		nems_scenario = 'Reference' ) as us_reference_table
+			USING   (fuel, nems_region, simulation_year) ) as change_in_consumption_table
+		JOIN
 		(	select	fuel, nems_region, simulation_year, consumption as reference_regional_consumption
 			from 	nems_supply_curve_data_import_final_unit_adjusted
 			where	nems_region = 'Baja_Mexico'
 			and		nems_scenario = 'Reference' ) as reference_regional_consumption_table
+		USING (fuel, simulation_year)
 where	nems_supply_curve_data_import_final_unit_adjusted.nems_region = 'Baja_Mexico'
 and		nems_supply_curve_data_import_final_unit_adjusted.nems_scenario not like 'Reference'
 and 	nems_supply_curve_data_import_final_unit_adjusted.nems_region = reference_regional_consumption_table.nems_region
-and		nems_supply_curve_data_import_final_unit_adjusted.fuel = change_in_consumption_table.fuel
 and		nems_supply_curve_data_import_final_unit_adjusted.fuel = reference_regional_consumption_table.fuel
 and		nems_supply_curve_data_import_final_unit_adjusted.nems_scenario = change_in_consumption_table.nems_scenario
-and		nems_supply_curve_data_import_final_unit_adjusted.simulation_year = change_in_consumption_table.simulation_year
 and		nems_supply_curve_data_import_final_unit_adjusted.simulation_year = reference_regional_consumption_table.simulation_year;
 			
 
@@ -565,13 +542,11 @@ and		nems_supply_curve_data_import_final_unit_adjusted.simulation_year = referen
 -- natural gas consumption for Alberta was 3,507,690 thousands cubic meters
 
 -- first insert fuel-scenario-year combinations for Canada's electric sector consumption
-insert into nems_supply_curve_data_import_final_unit_adjusted
+insert into nems_supply_curve_data_import_final_unit_adjusted (fuel, nems_scenario, nems_region, simulation_year)
 	select	distinct(fuel) as fuel,
 			nems_scenario,
 			'Canada_Electric' as nems_region,
-			simulation_year,
-			cast(NULL as double precision) as price,
-			cast(NULL as double precision) as consumption
+			simulation_year
 	from	nems_supply_curve_data_import_final_unit_adjusted;
 
 -- calculate the amount of fuel consumed in Canada's electric sector
@@ -579,45 +554,41 @@ insert into nems_supply_curve_data_import_final_unit_adjusted
 
 update	nems_supply_curve_data_import_final_unit_adjusted
 set		consumption = electric_consumption_fraction * canada_consumption
-from	( 	select	us_total_consumption_table.fuel,
-					us_total_consumption_table.nems_scenario,
-					us_total_consumption_table.simulation_year,
-					us_electric_sector_consumption / us_total_consumption as electric_consumption_fraction
+from	( 	select	fuel,
+					nems_scenario,
+					simulation_year,
+					us_electric_sector_consumption / us_total_consumption as electric_consumption_fraction,
+					canada_consumption
 				from	(	select	fuel, nems_scenario, simulation_year, consumption as us_electric_sector_consumption
 							from	nems_supply_curve_data_import_final_unit_adjusted
-							where	nems_region = 'US_Electric' ) as us_electric_sector_consumption_table,
-						(	select	fuel, nems_scenario, simulation_year, consumption as us_total_consumption
+							where	nems_region = 'US_Electric' ) as us_electric_sector_consumption_table
+				JOIN	(	select	fuel, nems_scenario, simulation_year, consumption as us_total_consumption
 							from	nems_supply_curve_data_import_final_unit_adjusted
 							where	nems_region = 'US' ) as us_total_consumption_table
-				where	us_electric_sector_consumption_table.fuel = us_total_consumption_table.fuel
-				and		us_electric_sector_consumption_table.nems_scenario = us_total_consumption_table.nems_scenario
-				and		us_electric_sector_consumption_table.simulation_year = us_total_consumption_table.simulation_year
-							) as electric_consumption_fraction_table,
-		(	select fuel, nems_scenario, simulation_year, consumption as canada_consumption
-				from 	nems_supply_curve_data_import_final_unit_adjusted
-				where	nems_region = 'Canada' ) as canada_table
+				USING   (fuel, nems_scenario, simulation_year)
+				JOIN	(	select fuel, nems_scenario, simulation_year, consumption as canada_consumption
+							from 	nems_supply_curve_data_import_final_unit_adjusted
+							where	nems_region = 'Canada' ) as canada_table
+				USING   (fuel, nems_scenario, simulation_year)
+		) as electric_consumption_fraction_table
 	where	nems_supply_curve_data_import_final_unit_adjusted.nems_region = 'Canada_Electric'
 	and		nems_supply_curve_data_import_final_unit_adjusted.fuel = electric_consumption_fraction_table.fuel
 	and		nems_supply_curve_data_import_final_unit_adjusted.nems_scenario = electric_consumption_fraction_table.nems_scenario
-	and		nems_supply_curve_data_import_final_unit_adjusted.simulation_year = electric_consumption_fraction_table.simulation_year
-	and		nems_supply_curve_data_import_final_unit_adjusted.fuel = canada_table.fuel
-	and		nems_supply_curve_data_import_final_unit_adjusted.nems_scenario = canada_table.nems_scenario
-	and		nems_supply_curve_data_import_final_unit_adjusted.simulation_year = canada_table.simulation_year;
+	and		nems_supply_curve_data_import_final_unit_adjusted.simulation_year = electric_consumption_fraction_table.simulation_year;
+
 
 -- now insert fuel-scenario-year combinations for Canada_WECC (not all combinations will be populated)
-insert into nems_supply_curve_data_import_final_unit_adjusted
+insert into nems_supply_curve_data_import_final_unit_adjusted (fuel, nems_scenario, nems_region, simulation_year)
 	select	distinct(fuel) as fuel,
 			nems_scenario,
 			'Canada_WECC' as nems_region,
-			simulation_year,
-			cast(NULL as double precision) as price,
-			cast(NULL as double precision) as consumption
+			simulation_year
 	from	nems_supply_curve_data_import_final_unit_adjusted;	
 
 
--- calculate electric sector fuel consumption in Canada_WECC based on BC/Alberta and Mexico's population
+-- calculate electric sector fuel consumption in Canada_WECC based on BC/Alberta's gas consumption
 update	nems_supply_curve_data_import_final_unit_adjusted
-set		consumption = (535439 + 3507690) * canada_electric_consumption / 9872471
+set		consumption = (535439.0 + 3507690.0) * canada_electric_consumption / 9872471.0
 from	(	select	fuel,
 					nems_scenario,
       				simulation_year,
@@ -644,54 +615,51 @@ and		nems_supply_curve_data_import_final_unit_adjusted.fuel = 'Gas'
 and		nems_supply_curve_data_import_final_unit_adjusted.simulation_year = canada_table.simulation_year
 and		nems_supply_curve_data_import_final_unit_adjusted.nems_scenario = canada_table.nems_scenario;
 
--- finally, set consumption in non-reference scenarios for Baja and Mexico to have the same percent increase/decrease relative to the rest of the scenarios as the US electric sector and the US respectively
+-- finally, set consumption in non-reference scenarios for Canada and Canada_WECC to have the same percent increase/decrease relative to the rest of the scenarios as the US electric sector and the US respectively
 -- this will be used in determining the supply curve breakpoints and prices later
 update	nems_supply_curve_data_import_final_unit_adjusted
 set		consumption = change_in_us_consumption * reference_regional_consumption
 from	(	select	fuel, nems_scenario, simulation_year, consumption / us_reference_consumption as change_in_us_consumption
-			from	nems_supply_curve_data_import_final_unit_adjusted,
-					(	select fuel as us_reference_fuel, nems_region as us_reference_region, nems_scenario as us_reference_scenario, simulation_year as us_reference_simulation_year, consumption as us_reference_consumption from nems_supply_curve_data_import_final_unit_adjusted
+			from	nems_supply_curve_data_import_final_unit_adjusted
+			JOIN	(	select fuel, simulation_year, consumption as us_reference_consumption from nems_supply_curve_data_import_final_unit_adjusted
 						where	nems_region = 'US'
-						and		nems_scenario = 'Reference' ) as us_reference_table 
-			where	nems_region = 'US'
-			and		nems_supply_curve_data_import_final_unit_adjusted.fuel = us_reference_fuel
-			and		nems_supply_curve_data_import_final_unit_adjusted.simulation_year = us_reference_simulation_year ) as change_in_consumption_table,
+						and		nems_scenario = 'Reference' ) as us_reference_table
+			USING 	(fuel, simulation_year)
+			where	nems_region = 'US' ) as change_in_consumption_table
+		JOIN
 		(	select	fuel, nems_region, simulation_year, consumption as reference_regional_consumption
 			from 	nems_supply_curve_data_import_final_unit_adjusted
 			where	nems_region = 'Canada'
 			and		nems_scenario = 'Reference' ) as reference_regional_consumption_table
+		USING (fuel, simulation_year)
 where	nems_supply_curve_data_import_final_unit_adjusted.nems_region = 'Canada'
 and		nems_supply_curve_data_import_final_unit_adjusted.nems_scenario not like 'Reference'
 and 	nems_supply_curve_data_import_final_unit_adjusted.nems_region = reference_regional_consumption_table.nems_region
-and		nems_supply_curve_data_import_final_unit_adjusted.fuel = change_in_consumption_table.fuel
 and		nems_supply_curve_data_import_final_unit_adjusted.fuel = reference_regional_consumption_table.fuel
 and		nems_supply_curve_data_import_final_unit_adjusted.nems_scenario = change_in_consumption_table.nems_scenario
-and		nems_supply_curve_data_import_final_unit_adjusted.simulation_year = change_in_consumption_table.simulation_year
 and		nems_supply_curve_data_import_final_unit_adjusted.simulation_year = reference_regional_consumption_table.simulation_year;
 
 update	nems_supply_curve_data_import_final_unit_adjusted
 set		consumption = change_in_us_consumption * reference_regional_consumption
 from	(	select	fuel, nems_scenario, simulation_year, consumption / us_reference_consumption as change_in_us_consumption
-			from	nems_supply_curve_data_import_final_unit_adjusted,
-					(	select fuel as us_reference_fuel, nems_region as us_reference_region, nems_scenario as us_reference_scenario, simulation_year as us_reference_simulation_year, consumption as us_reference_consumption from nems_supply_curve_data_import_final_unit_adjusted
+			from	nems_supply_curve_data_import_final_unit_adjusted
+			JOIN	(	select fuel, nems_region, simulation_year, consumption as us_reference_consumption from nems_supply_curve_data_import_final_unit_adjusted
 						where	nems_region = 'US_Electric'
-						and		nems_scenario = 'Reference' ) as us_reference_table 
-			where	nems_region = 'US_Electric'
-			and		nems_supply_curve_data_import_final_unit_adjusted.fuel = us_reference_fuel
-			and		nems_supply_curve_data_import_final_unit_adjusted.simulation_year = us_reference_simulation_year ) as change_in_consumption_table,
+						and		nems_scenario = 'Reference' ) as us_reference_table
+			USING   (fuel, nems_region, simulation_year) ) as change_in_consumption_table
+		JOIN
 		(	select	fuel, nems_region, simulation_year, consumption as reference_regional_consumption
 			from 	nems_supply_curve_data_import_final_unit_adjusted
 			where	nems_region = 'Canada_WECC'
 			and		nems_scenario = 'Reference' ) as reference_regional_consumption_table
+		USING (fuel, simulation_year)
 where	nems_supply_curve_data_import_final_unit_adjusted.nems_region = 'Canada_WECC'
 and		nems_supply_curve_data_import_final_unit_adjusted.nems_scenario not like 'Reference'
 and 	nems_supply_curve_data_import_final_unit_adjusted.nems_region = reference_regional_consumption_table.nems_region
-and		nems_supply_curve_data_import_final_unit_adjusted.fuel = change_in_consumption_table.fuel
 and		nems_supply_curve_data_import_final_unit_adjusted.fuel = reference_regional_consumption_table.fuel
 and		nems_supply_curve_data_import_final_unit_adjusted.nems_scenario = change_in_consumption_table.nems_scenario
-and		nems_supply_curve_data_import_final_unit_adjusted.simulation_year = change_in_consumption_table.simulation_year
 and		nems_supply_curve_data_import_final_unit_adjusted.simulation_year = reference_regional_consumption_table.simulation_year;
-			
+
 
 -------------------------------------
 ------- Project beyond 2035 ---------
@@ -743,11 +711,20 @@ from 	fuel_2060_extrapolation_slope_intercept
 		and nems_supply_curve_data_import_final_unit_adjusted.nems_region = fuel_2060_extrapolation_slope_intercept.nems_region
 		and nems_supply_curve_data_import_final_unit_adjusted.nems_scenario = fuel_2060_extrapolation_slope_intercept.nems_scenario;
 
+-- UPDATE SCENARIO NAMES
+-- to distinguish this set of fuel prices from others that we might want to import,
+-- update the name of the fuel scenario to have the source and year (EIA Annual Energy Outlook 2012 = AEO_2012)
+UPDATE nems_supply_curve_data_import_final_unit_adjusted
+SET nems_scenario = replace(nems_scenario, ' ', '_') || '_AEO_2012';
+
+
+
+
 
 --------------------------------------------------------
 --------- Create supply curves by fuel -----------------
 
--- calculate the consumption by fuel and scenario for the WECC and the rest of the United States
+-- calculate the consumption by fuel and scenario for the WECC and the rest of the North America
 drop table if exists wecc_and_rest_of_north_america_fuel_price_consumption;
 create table wecc_and_rest_of_north_america_fuel_price_consumption(
 	fuel varchar(40),
@@ -763,9 +740,8 @@ create table wecc_and_rest_of_north_america_fuel_price_consumption(
 -- create table with fraction changes in wecc consumption that we will use as breakpoints
 drop table if exists wecc_consumption_fraction_change_table;
 create table wecc_consumption_fraction_change_table(
-	id serial,
-	wecc_consumption_fraction_change double precision,
-	unique (id, wecc_consumption_fraction_change)
+	id serial PRIMARY KEY,
+	wecc_consumption_fraction_change double precision UNIQUE
 );
 
 -- assume breakpoints between 0 and 200 percent of projection in steps of 10 percent
@@ -808,8 +784,8 @@ where	wecc_and_rest_of_north_america_fuel_price_consumption.fuel = us_table.fuel
 update	wecc_and_rest_of_north_america_fuel_price_consumption
 set		wecc_nems_projected_consumption = calculated_wecc_consumption
 from	( select fuel, nems_scenario, simulation_year, sum(consumption) as calculated_wecc_consumption
-								from nems_supply_curve_data_import_final_unit_adjusted
-									where ( nems_region = 'NWPP' or nems_region = 'Rockies' or nems_region = 'Southwest' or nems_region = 'Baja_Mexico' or nems_region = 'Canada_WECC' or nems_region = 'CA' )
+						from nems_supply_curve_data_import_final_unit_adjusted
+									where nems_region in ('NWPP', 'Rockies', 'Southwest', 'Baja_Mexico', 'Canada_WECC', 'CA' )
 									group by fuel, nems_scenario, simulation_year 
 									order by fuel, nems_scenario, simulation_year) as wecc_consumption_table
 where	wecc_consumption_table.fuel = wecc_and_rest_of_north_america_fuel_price_consumption.fuel
@@ -830,14 +806,16 @@ where	nems_region = 'US'
 
 
 -- create the final supply curve table
+-- only works for gas right now
+-- primary key added below
 drop table if exists fuel_supply_curves;
 create table fuel_supply_curves(
-	fuel varchar(40),
-	nems_scenario varchar(40),
-	simulation_year int,
+	fuel varchar(40) CHECK (fuel in ('Gas')) NOT NULL,
+	nems_scenario varchar(40) NOT NULL,
+	simulation_year int NOT NULL CHECK (simulation_year BETWEEN 2010 AND 2060),
 	wecc_consumption_breakpoint double precision,
-	price_actual double precision,
-	price_surplus_adjusted double precision
+	price_actual double precision CHECK (price_actual >= 0),
+	price_surplus_adjusted double precision CHECK (price_surplus_adjusted >= 0)
 	);
 
 -- now insert ordered records into fuel_supply_curves table
@@ -924,7 +902,7 @@ insert into fuel_supply_curves (fuel, nems_scenario, simulation_year, breakpoint
 			nems_scenario,
 			simulation_year,
 			max(breakpoint_id) + 1 as break_point_id,
-			99999 as price_surplus_adjusted
+			9999 as price_surplus_adjusted
 	from	fuel_supply_curves
 	group by fuel, nems_scenario, simulation_year
 	order by fuel, nems_scenario, simulation_year; 
@@ -940,7 +918,7 @@ COPY
 from fuel_supply_curves
 where breakpoint_id > 0
 order by fuel, nems_scenario, simulation_year, breakpoint_id)
-TO '/DatabasePrep/NG_supply_curve/natural_gas_supply_curve.csv'
+TO '/Volumes/switch/ana_jimmy_ng_sandbox/natural_gas_supply_curve.csv'
 WITH CSV HEADER;
 
 --------------------------------------------------
@@ -964,14 +942,14 @@ insert into fuel_regional_price_adders (fuel, nems_region, nems_scenario, simula
 				nems_scenario,
 				simulation_year
 	from 		nems_supply_curve_data_import_final_unit_adjusted
-	where		( nems_region = 'NWPP' or nems_region = 'Rockies' or nems_region = 'Southwest' or nems_region = 'Baja_Mexico' or nems_region = 'Canada_WECC' or nems_region = 'CA' )
-		order by 	fuel, nems_region, nems_scenario, simulation_year;
+	where 		nems_region in ('NWPP', 'Rockies', 'Southwest', 'Baja_Mexico', 'Canada_WECC', 'CA' )
+	order by 	fuel, nems_region, nems_scenario, simulation_year;
 
 update			fuel_regional_price_adders
 	set			regional_price_adder = regional_table.price - us_table.price
 	from		(select fuel, nems_region, nems_scenario, simulation_year, price
 					from nems_supply_curve_data_import_final_unit_adjusted) as regional_table,
-				(select fuel, nems_region, nems_scenario, simulation_year, price
+				(select fuel, nems_scenario, simulation_year, price
 					from nems_supply_curve_data_import_final_unit_adjusted
 					where nems_region = 'US' ) as us_table
 	where		regional_table.fuel = us_table.fuel 
@@ -993,5 +971,5 @@ COPY
 		round(cast(regional_price_adder as numeric), 4) as regional_price_adder
 from fuel_regional_price_adders
 order by fuel, nems_region, nems_scenario, simulation_year)
-TO '/DatabasePrep/NG_supply_curve/natural_gas_regional_price_adders.csv'
+TO '/Volumes/switch/ana_jimmy_ng_sandbox/natural_gas_regional_price_adders.csv'
 WITH CSV HEADER;

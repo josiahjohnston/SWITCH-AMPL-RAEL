@@ -799,8 +799,7 @@ SELECT _fuel_prices.scenario_id, load_area_info.area_id, load_area, fuel, year, 
 -- regional adders are also included in addition to the supply curve to account for variations in wellhead and transportation costs across regions
 
 -- supply curve
-drop table if exists natural_gas_supply_curve;
-create table natural_gas_supply_curve(
+create table if not exists natural_gas_supply_curve(
 	fuel varchar(40),
 	nems_scenario varchar(40),
 	simulation_year int,
@@ -821,8 +820,7 @@ load data local infile
 
 
 -- regional price adders
-drop table if exists natural_gas_regional_price_adders;
-create table natural_gas_regional_price_adders(
+create table if not exists natural_gas_regional_price_adders(
 	fuel varchar(40),
 	nems_region varchar(40),
 	nems_scenario varchar(40),
@@ -842,21 +840,15 @@ load data local infile
 	ignore 1 lines;
 
 -- add nems scenarios to be able to vary the NG supply curve starting point depending on consumption in the rest of the economy
-drop table if exists nems_fuel_scenarios;
-create table nems_fuel_scenarios(
-nems_fuel_scenario_id int unsigned,
-nems_fuel_scenario varchar(40),
-PRIMARY KEY (nems_fuel_scenario_id)
+create table if not exists nems_fuel_scenarios(
+nems_fuel_scenario_id int auto_increment primary key,
+nems_fuel_scenario varchar(40) unique
 );
 
--- manually enter the scenario ids for now
-insert into nems_fuel_scenarios (nems_fuel_scenario_id, nems_fuel_scenario)
-SELECT 1, 'Reference' UNION
-SELECT 2, 'High growth' UNION
-SELECT 3, 'Low growth' UNION
-SELECT 4, 'Low renewable cost' UNION
-SELECT 5, 'High renewable cost';
-
+-- the order by here is just a way to trick the 2011 reference scenario to be #1
+insert into nems_fuel_scenarios (nems_fuel_scenario)
+select distinct nems_scenario from natural_gas_supply_curve
+order by right(nems_scenario, 1), nems_scenario desc;
 
 -- BIOMASS SUPPLY CURVE
 
