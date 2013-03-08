@@ -44,8 +44,11 @@ runtime_path='results/run_times.txt'
 num_workers=1
 workers_per_node=1
 is_worker=0
-# default number of cores is 3/4 of the total to cap memory usage on the cluster: (|cut -f1 -d".") is a shell script floor function
-threads_per_cplex=$(echo - | awk "{ print $num_cores*0.5}" | cut -f1 -d".")
+# default number of cores: all of the cores on a node
+# the commented out code allows for reduction below this value
+# (|cut -f1 -d".") is a shell script floor function
+# threads_per_cplex=$(echo - | awk "{ print $num_cores*0.5}" | cut -f1 -d".")
+threads_per_cplex=$num_cores
 
 # Parse the options
 while [ -n "$1" ]; do
