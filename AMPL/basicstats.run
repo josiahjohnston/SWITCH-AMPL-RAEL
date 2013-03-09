@@ -502,7 +502,7 @@ let {p in PERIODS} Storage_Losses_by_Period[p] :=
 		( StoreEnergy[pid, a, t, p, h] * ( 1 - storage_efficiency[t] ) * hours_in_sample[h] );
 
 let {p in PERIODS} Total_Load_Shifted[p] :=
-	sum { a in LOAD_AREAS, h in TIMEPOINTS: period[h] = p } ( Shift_Res_Comm_Load[a, h] + Shift_EV_Load[a, h] );
+	sum { a in LOAD_AREAS, h in TIMEPOINTS: period[h] = p } ( ( Shift_Res_Comm_Load[a, h] + Shift_EV_Load[a, h] ) * hours_in_sample[h] ) ;
 
 ######
 # "discounted" system load, for use in calculating levelized cost of power.
