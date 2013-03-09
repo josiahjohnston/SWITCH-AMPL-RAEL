@@ -513,9 +513,10 @@ let system_load_discounted :=
 
 # now print out results to the screen
 printf "\nPolicy Options Are:";
-printf "\nEnable RPS=%0d  Enable Carbon Cap=%0d", 
+printf "\nEnable RPS=%0d  Enable Carbon Cap=%0d  Enforce CA DG Mandate=%0d", 
 		enable_rps, 
-		enable_carbon_cap;
+		enable_carbon_cap,
+		enforce_ca_dg_mandate;
 
 printf "\nLevelized Cost=$%3.2f/MWh \n", Power_Cost / system_load_discounted;
 printf "Carbon Cost by period: ";
