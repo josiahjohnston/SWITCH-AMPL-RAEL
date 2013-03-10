@@ -55,7 +55,8 @@ CALL define_new_training_sets();
 
 insert ignore into scenarios_v3 (
 	training_set_id, regional_cost_multiplier_scenario_id, regional_fuel_cost_scenario_id, 
-	gen_costs_scenario_id, gen_info_scenario_id, enable_rps, carbon_cap_scenario_id, nems_fuel_scenario_id, dr_scenario_id, ev_scenario_id )
+	gen_costs_scenario_id, gen_info_scenario_id, enable_rps, carbon_cap_scenario_id, nems_fuel_scenario_id,
+	dr_scenario_id, ev_scenario_id, enforce_ca_dg_mandate, linearize_optimization )
 	SELECT 
 		training_set_id, 
 	  1 as regional_cost_multiplier_scenario_id,
@@ -66,7 +67,9 @@ insert ignore into scenarios_v3 (
 		enable_carbon_cap,
 		1 as nems_fuel_scenario_id,
 		NULL as dr_scenario_id,
-		NULL as ev_scenario_id
+		NULL as ev_scenario_id,
+		0 as enforce_ca_dg_mandate,
+		0 as linearize_optimization
 	FROM training_sets, 
 	(
 		SELECT 0 AS enable_rps UNION
