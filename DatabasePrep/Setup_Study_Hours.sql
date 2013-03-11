@@ -460,19 +460,35 @@ BEGIN
   DELETE dispatch_test_sets FROM dispatch_test_sets, incomplete_test_sets 
     WHERE dispatch_test_sets.training_set_id = this_training_set_id AND
       dispatch_test_sets.test_set_id = incomplete_test_sets.test_set_id;
+  -- make a list of the length of every month
+  create TEMPORARY table if not exists tmonths (month_of_year tinyint PRIMARY KEY, days_in_month double);
+  insert IGNORE into tmonths values 
+    (1, 31), (2, 28.25), (3, 31), (4, 30), (5, 31), (6, 30),
+    (7, 31), (8, 31), (9, 30), (10, 31), (11, 30), (12, 31);
   -- Determine how much to weight each test timepoint. 
-  CREATE TEMPORARY TABLE test_timepoints_per_period -- Counts how many test timepoints are in each period
-    SELECT periodnum, COUNT(*) as cnt FROM dispatch_test_sets WHERE training_set_id=this_training_set_id GROUP BY 1;
-  UPDATE dispatch_test_sets, test_timepoints_per_period
-    SET hours_in_sample = @years_per_period*8766/cnt
+  CREATE TEMPORARY TABLE test_timepoints_per_period_month -- Counts how many test timepoints are in each period
+    SELECT periodnum, month_of_year, COUNT(*) as cnt 
+    FROM dispatch_test_sets 
+      JOIN study_timepoints USING (timepoint_id)
+    WHERE training_set_id=this_training_set_id 
+    GROUP BY 1,2;
+  UPDATE dispatch_test_sets, test_timepoints_per_period_month, tmonths, study_timepoints
+    SET hours_in_sample = (@years_per_period * days_in_month * 24)/cnt
     WHERE dispatch_test_sets.training_set_id = this_training_set_id AND
-      dispatch_test_sets.periodnum = test_timepoints_per_period.periodnum;
+      dispatch_test_sets.timepoint_id = study_timepoints.study_timepoint_id AND
+      study_timepoints.month_of_year = tmonths.month_of_year AND
+      study_timepoints.month_of_year = test_timepoints_per_period.month_of_year AND
+      dispatch_test_sets.periodnum = test_timepoints_per_period.periodnum
+      ;
   set @present_day_period_length := (select @study_start_year - YEAR(NOW()));
-  UPDATE dispatch_test_sets, test_timepoints_per_period
-    SET hours_in_sample = @present_day_period_length*8766/cnt
+  UPDATE dispatch_test_sets, test_timepoints_per_period, tmonths, study_timepoints
+    SET hours_in_sample = (@present_day_period_length * days_in_month * 24)/cnt
     WHERE dispatch_test_sets.training_set_id = this_training_set_id AND
+      dispatch_test_sets.timepoint_id = study_timepoints.timepoint_id AND
+      study_timepoints.month_of_year = tmonths.month_of_year AND
+      study_timepoints.month_of_year = test_timepoints_per_period.month_of_year AND
       dispatch_test_sets.periodnum IS NULL AND 
-      test_timepoints_per_period.periodnum IS NULL;
+      test_timepoints_per_period_month.periodnum IS NULL;
 
   -- Calculate the total load served in each period by these test sets
   INSERT INTO _dispatch_load_summary (training_set_id, period, load_in_period_mwh)
@@ -487,6 +503,7 @@ BEGIN
  	DROP TABLE IF EXISTS incomplete_test_sets;
  	DROP TABLE IF EXISTS test_timepoints_per_period;
 	DROP TABLE IF EXISTS years_to_sample_from;
+	DROP TABLE IF EXISTS tmonths;
 
 END;
 $$
