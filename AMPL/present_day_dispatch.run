@@ -14,6 +14,7 @@ let carbon_cost := 0;
 let CARBON_COSTS := { carbon_cost };
 let enable_carbon_cap := 0;
 let enable_rps := 0;
+let enforce_ca_dg_mandate := 0;
 redeclare param problem_basename symbolic := results_path & "sol_present_day_dispatch";
 
 # Change file names of exported results. 

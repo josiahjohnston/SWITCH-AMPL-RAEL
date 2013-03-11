@@ -1,5 +1,6 @@
 param scenario_id           := 3684;
 param enable_rps            := 1;
 param enable_carbon_cap     := 1;
+param enforce_ca_dg_mandate := 0;
 param num_years_per_period  := 10;
 param present_year  := 2013;

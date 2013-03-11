@@ -161,6 +161,8 @@ export ENABLE_CARBON_CAP=$(mysql $connection_string --column-names=false -e "sel
 export NEMS_FUEL_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select nems_fuel_scenario_id from scenarios_v3 where scenario_id=$SCENARIO_ID;")
 export DR_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select dr_scenario_id from scenarios_v3 where scenario_id=$SCENARIO_ID;")
 export EV_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select ev_scenario_id from scenarios_v3 where scenario_id=$SCENARIO_ID;")
+export ENFORCE_CA_DG_MANDATE=$(mysql $connection_string --column-names=false -e "select enforce_ca_dg_mandate from scenarios_v3 where scenario_id=$SCENARIO_ID;")
+export LINEARIZE_OPTIMIZATION=$(mysql $connection_string --column-names=false -e "select linearize_optimization from scenarios_v3 where scenario_id=$SCENARIO_ID;")
 export STUDY_START_YEAR=$(mysql $connection_string --column-names=false -e "select study_start_year from training_sets where training_set_id=$TRAINING_SET_ID;")
 export STUDY_END_YEAR=$(mysql $connection_string --column-names=false -e "select study_start_year + years_per_period*number_of_periods from training_sets where training_set_id=$TRAINING_SET_ID;")
 number_of_years_per_period=$(mysql $connection_string --column-names=false -e "select years_per_period from training_sets where training_set_id=$TRAINING_SET_ID;")
@@ -368,8 +370,12 @@ echo '	misc_params.dat...'
 echo "param scenario_id           := $SCENARIO_ID;" >  misc_params.dat
 echo "param enable_rps            := $ENABLE_RPS;"  >> misc_params.dat
 echo "param enable_carbon_cap     := $ENABLE_CARBON_CAP;"  >> misc_params.dat
+echo "param enforce_ca_dg_mandate := $ENFORCE_CA_DG_MANDATE;"  >> misc_params.dat
 echo "param num_years_per_period  := $number_of_years_per_period;"  >> misc_params.dat
 echo "param present_year  := $present_year;"  >> misc_params.dat
+
+echo '	misc_options.run...'
+echo "option relax_integrality  $LINEARIZE_OPTIMIZATION;"  > misc_options.run
 
 echo '	cap_factor.tab...'
 echo ampl.tab 4 1 > cap_factor.tab

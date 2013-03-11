@@ -519,6 +519,9 @@ set EP_AVAILABLE_DATES := { (pid, a, t, p, d) in AVAILABLE_DATES: not can_build_
 
 param enable_rps binary default 1;
 
+# also include California Distributed Generation here because there isn't a better place
+param enforce_ca_dg_mandate binary default 0;
+
 # RPS compliance entity for each load area
 param rps_compliance_entity {LOAD_AREAS} symbolic;
 set RPS_AREAS = setof { a in LOAD_AREAS } (rps_compliance_entity[a]);
@@ -1314,10 +1317,21 @@ subject to Satisfy_Distributed_RPS { (r, c, p) in RPS_TARGETS: c = 'Distributed'
 
 # the California Solar Initiative has the goal (and funding to back the goal)
 # of bringing on 3000 MW of distributed solar by 2016 in California (http://www.cpuc.ca.gov/PUC/energy/Solar/aboutsolar.htm)
-subject to Meet_California_Solar_Initiative { p in PERIODS: p >= 2016 }:
+# we want the target to be enforced if half or more of the length of the period is past the mandate year
+subject to Meet_California_Solar_Initiative { p in PERIODS: p + num_years_per_period/2 >= 2016 }:
   sum { (pid, a, t, p) in PROJECT_VINTAGES: t in SOLAR_DIST_PV_TECHNOLOGIES and primary_state[a] = 'CA' }
      Installed_To_Date[pid, a, t, p]
      >= 3000;
+
+# Distributed Generation Mandate - constraint will be dropped by load.run if enforce_ca_dg_mandate = 0
+# and is NOT enabled by default (it's a target, so not quite as strong a piece of law)
+# include Jerry Brown's distributed generation mandate of 12GW by 2020.
+# This will be met by all distributed PV in SWITCH for the moment
+# we want the target to be enforced if half or more of the length of the period is past the mandate year
+subject to Meet_California_Distributed_Generation_Mandate { p in PERIODS: p + num_years_per_period/2 >= 2020 }:
+  sum { (pid, a, t, p) in PROJECT_VINTAGES: t in SOLAR_DIST_PV_TECHNOLOGIES and primary_state[a] = 'CA' }
+     Installed_To_Date[pid, a, t, p]
+     >= 12000;
 
 # Carbon Cap constraint
 # load.run will drop this constraint if enable_carbon_cap is 0
@@ -1926,7 +1940,8 @@ problem Investment_Cost_Minimization:
     Satisfy_Load,
 	Conservation_Of_Energy_NonDistributed, ConsumeNonDistributedPower, 
   # Policy Constraints
-	Satisfy_Primary_RPS, Satisfy_Distributed_RPS, Meet_California_Solar_Initiative, Carbon_Cap,
+	Satisfy_Primary_RPS, Satisfy_Distributed_RPS, Meet_California_Solar_Initiative, Meet_California_Distributed_Generation_Mandate, 
+	Carbon_Cap,
 	ConsumeREC, Conservation_of_REC,
   # Investment Decisions
 	InstallGen, BuildGenOrNot, InstallTrans, 

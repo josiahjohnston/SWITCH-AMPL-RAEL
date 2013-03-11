@@ -36,20 +36,20 @@ option substout 1, linelim 1;
 # Options to enable timing of compilation
 # option show_stats 1, times 1, gentimes 1;
 option solver cplexamp;
-option cplex_options (" threads=4 presolve=1 prestats=1 nodefile=2 startalgorithm=4 baralg=3 barstart=4 lpdisplay=1 bardisplay=2 mipdisplay=4 timing=1 " );
+option cplex_options (" threads=4 presolve=1 prestats=1 nodefile=2 startalgorithm=4 baralg=3 barstart=4 lpdisplay=1 bardisplay=2 mipdisplay=4 timing=1 baropt barobjrange=1e+30 " );
 # Use the option string below to enable iisfind when you are trying to diagnose infeasibilities
 #option cplex_options (" lpdisplay=1 iisfind=1 mipdisplay=2 presolve=1 prestats=1 timing=1 nodefile=2 treememory=15000 threads=4" );
 option cplex_options > results/cplex_options;
 shell('sed -i".orig" -e "s/^.*' & "'\(.*\)'" & ';/\1/" results/cplex_options');
 
+# should we linearize the objective?  value comes from the scenarios table from the database through misc_params.dat
+include inputs/misc_options.run;
 
 # Include other AMPL code files. 
 model switch.mod;
 include define_params.run;
 data switch.dat;
 data inputs/misc_params.dat;
-
-
 
 #########################
 # Read in data from tab files exported from mysql by get_switch_input_tables.sh
@@ -210,6 +210,7 @@ for { t in TECHNOLOGIES } {
 problem Investment_Cost_Minimization;
 if (enable_rps = 0) then { drop Satisfy_Primary_RPS; drop Satisfy_Distributed_RPS; drop Conservation_of_REC; let {f in FUELS} rps_fuel_category[f] := 'na'; } 
 if (enable_carbon_cap = 0) then { drop Carbon_Cap; } 
+if (enforce_ca_dg_mandate = 0) then { drop Meet_California_Distributed_Generation_Mandate; } 
 
 ############################################################
 
