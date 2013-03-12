@@ -1322,10 +1322,10 @@ CREATE TABLE _dispatch_decisions (
   startup_nonfuel_cost double,
   startup_carbon_cost double,
   startup_co2_tons double,
-  PRIMARY KEY (scenario_id,carbon_cost,period,area_id,study_timepoint_utc,technology_id,storage),
-  KEY (scenario_id,carbon_cost,study_timepoint_id),
-  KEY check_import_count (scenario_id,carbon_cost,test_set_id),
-  KEY aggregation (scenario_id,carbon_cost,period,technology_id)
+  PRIMARY KEY (scenario_id, carbon_cost, period, area_id, study_timepoint_utc, technology_id, storage),
+  KEY (scenario_id, carbon_cost, study_timepoint_id),
+  KEY check_import_count (scenario_id, carbon_cost, test_set_id),
+  KEY aggregation (scenario_id, carbon_cost, period, technology_id)
 );
 
 CREATE TABLE _dispatch_extra_cap (
