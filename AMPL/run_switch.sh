@@ -103,6 +103,7 @@ if [ $cluster == 1 ]; then
 			siah) email="siah@berkeley.edu" ;;
 			amileva) email="amileva@berkeley.edu" ;;
 			sabebe) email="abebe.solomon@gmail.com" ;; 
+			dsanchez) email="dansanch01@gmail.com" ;; 
 		esac
 	fi
 	# Translate the number of processes and processes per node into number of nodes
