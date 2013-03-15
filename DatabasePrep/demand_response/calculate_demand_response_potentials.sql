@@ -59,8 +59,8 @@ create table shiftable_res_comm_load (
 	dr_scenario_id tinyint(4) default 0,
 	area_id smallint(5),
 	timepoint_id int(10),
-	shiftable_res_comm_load decimal(6,0) default 0,
-	shifted_res_comm_load_hourly_max decimal(6,0) default 0,
+	shiftable_res_comm_load double default 0,
+	shifted_res_comm_load_hourly_max double default 0,
 	PRIMARY KEY (load_scenario_id, dr_scenario_id, area_id, timepoint_id),
 	FOREIGN KEY load_dr_combination (load_scenario_id, dr_scenario_id) REFERENCES demand_response_scenarios (load_scenario_id, dr_scenario_id)
 	);
@@ -117,6 +117,8 @@ DROP PROCEDURE add_pre_ev_load_shifting_scenarios;
 -- manually add full technical potential scenario for 
 insert into ev_scenarios (load_scenario_id, ev_scenario_id, ev_scenario_name, notes)
 	VALUES (21, 1, 'TP EV', 'Technical potential EV load shifting');
+insert into ev_scenarios (load_scenario_id, ev_scenario_id, ev_scenario_name, notes)
+	VALUES (21, 2, 'Aggressive realistic EV', '"Aggressive realistic" EV load shifting');
 
 
 -- actually create the shiftable residential and commercial load table in the Switch WECC inputs database
@@ -126,8 +128,8 @@ create table shiftable_ev_load (
 	ev_scenario_id tinyint(4) default 0,
 	area_id smallint(5),
 	timepoint_id int(10),
-	shiftable_ev_load decimal(6,0) default 0,
-	shifted_ev_load_hourly_max decimal(6,0) default 0,
+	shiftable_ev_load double default 0,
+	shifted_ev_load_hourly_max double default 0,
 	PRIMARY KEY load_ev_area_timepoint (load_scenario_id, ev_scenario_id, area_id, timepoint_id),
 	FOREIGN KEY load_ev_combination (load_scenario_id, ev_scenario_id) REFERENCES ev_scenarios (load_scenario_id, ev_scenario_id)
 	);

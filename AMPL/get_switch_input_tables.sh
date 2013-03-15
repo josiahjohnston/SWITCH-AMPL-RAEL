@@ -223,7 +223,7 @@ if [ $DR_SCENARIO_ID == 'NULL' ]; then
 else 
 	echo '	shiftable_res_comm_load.tab...'
 	echo ampl.tab 2 2 > shiftable_res_comm_load.tab
-	mysql $connection_string -e "select * from shiftable_res_comm_load where load_scenario_id = $LOAD_SCENARIO_ID and dr_scenario_id = $DR_SCENARIO_ID; " >> shiftable_res_comm_load.tab;
+	mysql $connection_string -e "call prepare_res_comm_shiftable_load_exports($TRAINING_SET_ID, $SCENARIO_ID); select load_area, DATE_FORMAT(datetime_utc,'%Y%m%d%H') as hour, shiftable_res_comm_load, shifted_res_comm_load_hourly_max from scenario_res_comm_shiftable_loads_export WHERE training_set_id=$TRAINING_SET_ID and scenario_id=$SCENARIO_ID;" >> shiftable_res_comm_load.tab;
 fi;
 
 if [ $EV_SCENARIO_ID == 'NULL' ]; then
@@ -231,7 +231,7 @@ if [ $EV_SCENARIO_ID == 'NULL' ]; then
 else 
 	echo '	shiftable_ev_load.tab...'
 	echo ampl.tab 2 2 > shiftable_ev_load.tab
-	mysql $connection_string -e "select * from shiftable_ev_load where load_scenario_id = $LOAD_SCENARIO_ID and ev_scenario_id = $EV_SCENARIO_ID; " >> shiftable_ev_load.tab;
+	mysql $connection_string -e "call prepare_ev_shiftable_load_exports($TRAINING_SET_ID, $SCENARIO_ID); select load_area, DATE_FORMAT(datetime_utc,'%Y%m%d%H') as hour, shiftable_ev_load, shifted_ev_load_hourly_max from scenario_ev_shiftable_loads_export WHERE training_set_id=$TRAINING_SET_ID and scenario_id=$SCENARIO_ID; " >> shiftable_ev_load.tab;
 fi;
 
 echo '	max_system_loads.tab...'

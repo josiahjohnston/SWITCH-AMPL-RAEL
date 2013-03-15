@@ -175,6 +175,118 @@ END$$
 
 DELIMITER ;
 
+-- Res/comm and EV demand response
+DROP PROCEDURE IF EXISTS prepare_res_comm_shiftable_load_exports;
+
+DELIMITER $$
+
+CREATE PROCEDURE prepare_res_comm_shiftable_load_exports( IN target_training_set_id INT UNSIGNED, IN target_scenario_id INT UNSIGNED)
+BEGIN
+	SET @load_scenario_id := (select load_scenario_id FROM training_sets WHERE training_set_id=target_training_set_id);
+	SET @dr_scenario_id := (select dr_scenario_id FROM scenarios_v3 WHERE scenario_id = target_scenario_id );
+	set @num_historic_years := (select count(distinct year(datetime_utc)) from hours JOIN load_scenario_historic_timepoints ON(historic_hour=hournum) WHERE load_scenario_id=@load_scenario_id);
+	DROP TABLE IF EXISTS present_day_timepoint_map;
+	CREATE TEMPORARY TABLE present_day_timepoint_map 
+		SELECT timepoint_id as future_timepoint_id, DATE_SUB(s.datetime_utc, INTERVAL period-YEAR(NOW()) + FLOOR((years_per_period-@num_historic_years)/2) YEAR) as present_day_timepoint
+			FROM _training_set_timepoints t
+				JOIN training_sets USING(training_set_id)
+				JOIN study_timepoints  s USING (timepoint_id)
+			WHERE training_set_id=target_training_set_id 
+			ORDER BY 1;
+	ALTER TABLE present_day_timepoint_map ADD INDEX (future_timepoint_id), ADD INDEX (present_day_timepoint), ADD COLUMN present_day_timepoint_id INT UNSIGNED, ADD INDEX (present_day_timepoint_id);
+	UPDATE present_day_timepoint_map, study_timepoints
+		SET present_day_timepoint_id=timepoint_id
+		WHERE present_day_timepoint=datetime_utc;
+	CREATE TABLE IF NOT EXISTS scenario_res_comm_shiftable_loads_export (
+		training_set_id INT UNSIGNED,
+		scenario_id int unsigned,
+		area_id SMALLINT UNSIGNED,
+		load_area varchar(20),
+		timepoint_id INT UNSIGNED,
+		datetime_utc datetime,
+		shiftable_res_comm_load double,
+		shifted_res_comm_load_hourly_max double,
+		PRIMARY KEY(training_set_id, scenario_id, area_id, timepoint_id), 
+		INDEX(timepoint_id,area_id)
+	);
+	REPLACE INTO scenario_res_comm_shiftable_loads_export ( training_set_id, scenario_id, area_id, timepoint_id, shiftable_res_comm_load, shifted_res_comm_load_hourly_max )
+		SELECT training_set_id, target_scenario_id as scenario_id, f.area_id, f.timepoint_id, f.shiftable_res_comm_load, f.shifted_res_comm_load_hourly_max
+		FROM _training_set_timepoints
+			JOIN shiftable_res_comm_load f USING (timepoint_id)
+		WHERE training_set_id=target_training_set_id AND load_scenario_id=@load_scenario_id AND dr_scenario_id=@dr_scenario_id;
+	
+	UPDATE scenario_res_comm_shiftable_loads_export e, load_area_info, study_timepoints
+		SET e.load_area = load_area_info.load_area,
+				e.datetime_utc = study_timepoints.datetime_utc
+		WHERE e.area_id = load_area_info.area_id AND e.timepoint_id = study_timepoints.timepoint_id;
+END$$
+
+DROP PROCEDURE IF EXISTS clean_res_comm_shiftable_load_exports$$
+CREATE PROCEDURE clean_res_comm_shiftable_load_exports( IN target_training_set_id INT UNSIGNED, IN target_scenario_id int unsigned)
+BEGIN
+	DELETE FROM scenario_res_comm_shiftable_loads_export WHERE training_set_id = target_training_set_id and scenario_id = target_scenario_id;
+	IF( (SELECT COUNT(*) FROM scenario_res_comm_shiftable_loads_export) = 0 ) THEN
+		DROP TABLE scenario_res_comm_shiftable_loads_export;
+	END IF;
+END$$
+
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS prepare_ev_shiftable_load_exports;
+
+DELIMITER $$
+
+CREATE PROCEDURE prepare_ev_shiftable_load_exports( IN target_training_set_id INT UNSIGNED, IN target_scenario_id INT UNSIGNED)
+BEGIN
+	SET @load_scenario_id := (select load_scenario_id FROM training_sets WHERE training_set_id=target_training_set_id);
+	SET @ev_scenario_id := (select ev_scenario_id FROM scenarios_v3 WHERE scenario_id = target_scenario_id );
+	set @num_historic_years := (select count(distinct year(datetime_utc)) from hours JOIN load_scenario_historic_timepoints ON(historic_hour=hournum) WHERE load_scenario_id=@load_scenario_id);
+	DROP TABLE IF EXISTS present_day_timepoint_map;
+	CREATE TEMPORARY TABLE present_day_timepoint_map 
+		SELECT timepoint_id as future_timepoint_id, DATE_SUB(s.datetime_utc, INTERVAL period-YEAR(NOW()) + FLOOR((years_per_period-@num_historic_years)/2) YEAR) as present_day_timepoint
+			FROM _training_set_timepoints t
+				JOIN training_sets USING(training_set_id)
+				JOIN study_timepoints  s USING (timepoint_id)
+			WHERE training_set_id=target_training_set_id 
+			ORDER BY 1;
+	ALTER TABLE present_day_timepoint_map ADD INDEX (future_timepoint_id), ADD INDEX (present_day_timepoint), ADD COLUMN present_day_timepoint_id INT UNSIGNED, ADD INDEX (present_day_timepoint_id);
+	UPDATE present_day_timepoint_map, study_timepoints
+		SET present_day_timepoint_id=timepoint_id
+		WHERE present_day_timepoint=datetime_utc;
+	CREATE TABLE IF NOT EXISTS scenario_ev_shiftable_loads_export (
+		training_set_id INT UNSIGNED,
+		scenario_id int unsigned,
+		area_id SMALLINT UNSIGNED,
+		load_area varchar(20),
+		timepoint_id INT UNSIGNED,
+		datetime_utc datetime,
+		shiftable_ev_load double,
+		shifted_ev_load_hourly_max double,
+		PRIMARY KEY(training_set_id, scenario_id, area_id, timepoint_id), 
+		INDEX(timepoint_id,area_id)
+	);
+	REPLACE INTO scenario_ev_shiftable_loads_export ( training_set_id, scenario_id, area_id, timepoint_id, shiftable_ev_load, shifted_ev_load_hourly_max )
+		SELECT training_set_id, target_scenario_id as scenario_id, f.area_id, f.timepoint_id, f.shiftable_ev_load, f.shifted_ev_load_hourly_max
+		FROM _training_set_timepoints
+			JOIN shiftable_ev_load f USING (timepoint_id)
+		WHERE training_set_id=target_training_set_id AND load_scenario_id=@load_scenario_id AND ev_scenario_id=@ev_scenario_id;
+	
+	UPDATE scenario_ev_shiftable_loads_export e, load_area_info, study_timepoints
+		SET e.load_area = load_area_info.load_area,
+				e.datetime_utc = study_timepoints.datetime_utc
+		WHERE e.area_id = load_area_info.area_id AND e.timepoint_id = study_timepoints.timepoint_id;
+END$$
+
+DROP PROCEDURE IF EXISTS clean_ev_shiftable_load_exports$$
+CREATE PROCEDURE clean_ev_shiftable_load_exports( IN target_training_set_id INT UNSIGNED, IN target_scenario_id int unsigned)
+BEGIN
+	DELETE FROM scenario_ev_shiftable_loads_export WHERE training_set_id = target_training_set_id and scenario_id = target_scenario_id;
+	IF( (SELECT COUNT(*) FROM scenario_ev_shiftable_loads_export) = 0 ) THEN
+		DROP TABLE scenario_ev_shiftable_loads_export;
+	END IF;
+END$$
+
+DELIMITER ;
 
 DROP PROCEDURE IF EXISTS define_new_training_sets;
 DELIMITER $$
