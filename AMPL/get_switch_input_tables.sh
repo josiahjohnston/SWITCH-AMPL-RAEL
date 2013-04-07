@@ -125,8 +125,13 @@ else
 fi
 
 test_connection=`mysql $connection_string --column-names=false -e "select count(*) from existing_plants;"`
-if [ ! -n "$test_connection" ]
-then
+if [ ! -n "$test_connection" ] && [ $ssh_tunnel -eq 1 ]; then
+        echo "First DB connection attempt failed. This sometimes happens if the ssh tunnel initiation is slow. Waiting 5 seconds, then will try again."
+        sleep 5;
+        test_connection=`mysql $connection_string --column-names=false -e "select count(*) from existing_plants;"`
+fi
+  
+if [ ! -n "$test_connection" ]; then
 	connection_string=`echo "$connection_string" | sed -e "s/ -p[^ ]* / -pXXX /"`
 	echo "Could not connect to database with settings: $connection_string"
 	exit 0
