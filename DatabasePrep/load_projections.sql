@@ -118,8 +118,10 @@ CREATE TABLE IF NOT EXISTS _load_projection_daily_summaries (
   peak_load DECIMAL(6,0),
   peak_hour_id INT UNSIGNED NOT NULL,
   peak_hour_historic_id SMALLINT UNSIGNED NOT NULL, 
+  historic_date_utc date, 
   PRIMARY KEY (load_scenario_id, date_utc), 
   INDEX (load_scenario_id, date_utc, peak_hour_historic_id), 
+  INDEX (load_scenario_id, date_utc, historic_date_utc), 
   CONSTRAINT load_scenario_id FOREIGN KEY load_scenario_id (load_scenario_id)
     REFERENCES load_scenarios (load_scenario_id),
   CONSTRAINT peak_hour_fk FOREIGN KEY peak_hour_id (peak_hour_id)
@@ -143,10 +145,15 @@ INSERT INTO _load_projection_daily_summaries (load_scenario_id, date_utc, num_da
     FROM _hourly_summaries
     GROUP BY 1, 2; 
     
-UPDATE _load_projection_daily_summaries, _hourly_summaries 
-	SET peak_hour_id = timepoint_id, peak_hour_historic_id = historic_hour
+UPDATE _load_projection_daily_summaries, _hourly_summaries
+	SET peak_hour_id = timepoint_id, 
+	  peak_hour_historic_id = historic_hour
 	WHERE _hourly_summaries.date_utc = _load_projection_daily_summaries.date_utc
 		AND _hourly_summaries.system_load = _load_projection_daily_summaries.peak_load;
+
+UPDATE _load_projection_daily_summaries, hours
+	SET historic_date_utc = date(hours.datetime_utc)
+	WHERE peak_hour_historic_id = hournum;
 
 DROP TABLE _hourly_summaries;
 

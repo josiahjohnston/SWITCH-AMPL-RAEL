@@ -298,7 +298,7 @@ DROP TABLE IF EXISTS training_sets_tmp;
 DROP TABLE IF EXISTS tmonths;
 DROP TABLE IF EXISTS t_period_populations;
 DROP TABLE IF EXISTS period_cursor;
-DROP TABLE IF EXISTS historic_timepoints_used;
+DROP TABLE IF EXISTS historic_dates_used;
 DROP TABLE IF EXISTS month_cursor;
 DROP TABLE IF EXISTS t_period_years;
 
@@ -372,7 +372,7 @@ define_new_training_sets_loop: LOOP
 	-- Pick samples for each period. Loop through periods sequentially to avoid picking more than one sample based on the same historic date.
 	CREATE TABLE period_cursor
 		SELECT periodnum, period_start as period from training_set_periods WHERE training_set_id=@training_set_id order by 1;
-	CREATE TABLE historic_timepoints_used (historic_hour INT UNSIGNED PRIMARY KEY);
+	CREATE TABLE historic_dates_used (date_utc date PRIMARY KEY);
 	iterate_through_periods: LOOP
 		SET @periodnum = 0, @period = 0;
 		SELECT MIN(periodnum), MIN(period) INTO @periodnum, @period FROM period_cursor;
@@ -389,7 +389,7 @@ define_new_training_sets_loop: LOOP
 					WHERE periodnum = @periodnum 
 						AND MONTH(date_utc) = @month 
 						AND load_scenario_id=@load_scenario_id 
-						AND peak_hour_historic_id NOT IN (SELECT * FROM historic_timepoints_used)
+						AND historic_date_utc NOT IN (SELECT * FROM historic_dates_used)
 					ORDER BY peak_load DESC
 					LIMIT 1
 				);
@@ -402,8 +402,8 @@ define_new_training_sets_loop: LOOP
 						@years_per_period * @hours_between_samples * @months_between_samples AS hours_in_sample
 						FROM study_timepoints 
 						WHERE DATE(datetime_utc) = @peak_day AND (HOUR(datetime_utc) MOD @hours_between_samples) = @peak_start_hour;
-				INSERT INTO historic_timepoints_used 
-					SELECT peak_hour_historic_id FROM _load_projection_daily_summaries WHERE load_scenario_id=@load_scenario_id AND date_utc=@peak_day;
+				INSERT INTO historic_dates_used 
+					SELECT historic_date_utc FROM _load_projection_daily_summaries WHERE load_scenario_id=@load_scenario_id AND date_utc=@peak_day;
 			END IF;
 
 
@@ -416,13 +416,13 @@ define_new_training_sets_loop: LOOP
 					SET @n_dates := (
 						SELECT COUNT(*) 
 							FROM _load_projection_daily_summaries JOIN t_period_populations USING (date_utc) 
-							WHERE periodnum = @periodnum AND MONTH(date_utc) = @month AND load_scenario_id=@load_scenario_id AND peak_hour_historic_id NOT IN (SELECT * FROM historic_timepoints_used)
+							WHERE periodnum = @periodnum AND MONTH(date_utc) = @month AND load_scenario_id=@load_scenario_id AND historic_date_utc NOT IN (SELECT * FROM historic_dates_used)
 					);
 					SET @date_utc := 0;
 					SET @date_sql_select := CONCAT(
 						'SELECT date_utc INTO @date_utc',
 						'	FROM _load_projection_daily_summaries JOIN t_period_populations USING (date_utc) ',
-						'	WHERE periodnum = @periodnum AND MONTH(date_utc) = @month AND load_scenario_id=@load_scenario_id AND peak_hour_historic_id NOT IN (SELECT * FROM historic_timepoints_used) ',
+						'	WHERE periodnum = @periodnum AND MONTH(date_utc) = @month AND load_scenario_id=@load_scenario_id AND historic_date_utc NOT IN (SELECT * FROM historic_dates_used) ',
 						'	ORDER BY total_load ',
 						'	LIMIT 1 ',
 						'	OFFSET ',(select FLOOR(@n_dates/2)));
@@ -455,7 +455,7 @@ define_new_training_sets_loop: LOOP
 					SET @date_utc := (
   					SELECT date_utc
               FROM _load_projection_daily_summaries JOIN t_period_populations USING (date_utc) 
-              WHERE periodnum = @periodnum AND MONTH(date_utc) = @month AND load_scenario_id=@load_scenario_id AND peak_hour_historic_id NOT IN (SELECT * FROM historic_timepoints_used) 
+              WHERE periodnum = @periodnum AND MONTH(date_utc) = @month AND load_scenario_id=@load_scenario_id AND historic_date_utc NOT IN (SELECT * FROM historic_dates_used) 
               ORDER BY abs(total_load - @daily_target)
               LIMIT 1
           );
@@ -470,7 +470,7 @@ define_new_training_sets_loop: LOOP
 						WHERE periodnum = @periodnum 
 							AND MONTH(date_utc) = @month 
 							AND load_scenario_id=@load_scenario_id 
-							AND peak_hour_historic_id NOT IN (SELECT * FROM historic_timepoints_used)
+							AND historic_date_utc NOT IN (SELECT * FROM historic_dates_used)
 						ORDER BY rand()
 						LIMIT 1
 					);
@@ -479,8 +479,8 @@ define_new_training_sets_loop: LOOP
 							FROM study_timepoints
 							WHERE DATE(datetime_utc) = @date_utc AND (HOUR(datetime_utc) MOD @hours_between_samples) = @start_hour;					
 			END CASE;
-			INSERT INTO historic_timepoints_used 
-				SELECT peak_hour_historic_id FROM _load_projection_daily_summaries WHERE load_scenario_id=@load_scenario_id AND date_utc=@date_utc;
+			INSERT INTO historic_dates_used 
+				SELECT historic_date_utc FROM _load_projection_daily_summaries WHERE load_scenario_id=@load_scenario_id AND date_utc=@date_utc;
 
 			DELETE FROM month_cursor WHERE month_of_year = @month;
 			IF ( (select count(*) from month_cursor) = 0 )
@@ -496,7 +496,7 @@ define_new_training_sets_loop: LOOP
 	END LOOP iterate_through_periods;
 
  	DROP TABLE period_cursor;
- 	DROP TABLE historic_timepoints_used;
+ 	DROP TABLE historic_dates_used;
 
 	CALL define_test_set(@training_set_id);
 
