@@ -982,7 +982,9 @@ BEGIN
 			(select table_name
 				from information_schema.columns
 				where table_schema = 'switch_results_wecc_v2_2'
-				and column_name = 'scenario_id') as columns_query
+				and column_name = 'scenario_id' 
+				AND (table_name='_generator_and_storage_dispatch' or table_name='_transmission_dispatch' OR table_name not like '%dispatch%')
+      ) as columns_query
 			using (table_name)
 		where table_schema ='switch_results_wecc_v2_2'
 		and table_type like 'Base Table'
