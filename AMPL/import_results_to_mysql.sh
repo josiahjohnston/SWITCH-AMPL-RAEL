@@ -146,7 +146,7 @@ if [ $ExportOnly = 0 ]; then
   printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$results_dir/run_times.txt\" REPLACE into table run_times ignore 1 lines (scenario_id, carbon_cost, process_type, time_seconds);") 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$results_dir/run_times.txt" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
 
   # Get the present year from the results files
-  f=$(ls $results_dir/present* | head -1)
+  f=$(ls $results_dir/present_gen_cap* | head -1)
   present_year=$(awk '{if (NR==2) print $3}' "$f")
   
   # now import all of the non-runtime results
