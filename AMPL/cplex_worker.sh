@@ -16,6 +16,11 @@ function print_help {
 	head -n $last_line $0 | sed -e '/^#[ 	]/ !d' -e 's/^#[ 	]//'
 }
 
+function is_process_running {
+  pid=$1
+  ps -p $pid | wc -l | awk '{print $1-1}'
+}
+
 # Set the umask to give group read & write permissions to all files & directories made by this script.
 umask=0002
 
@@ -85,7 +90,7 @@ for base_name in $problems; do
   cputime=$(echo $ps_output | awk '{print $5}' | sed -e 's/-/*24*3600 + /' -e 's/:/*3600 + /' -e 's/:/*60 + /' | bc )
   last_cputime=$cputime
   cpuusage=0
-  while [ -e /proc/$cplex_pid ]; do
+  while [ $( is_process_running $cplex_pid ) -eq 1 ]; do
     printf "%8d %d %d %.2f %s\n" $realtime $elapsedtime $cputime $cpuusage "$ps_output" >> $log_base".profile";
     sleep 30;
     ps_output="$(ps -o vsize,rssize,%mem,%cpu,time,comm -p $cplex_pid | tail -1)"
