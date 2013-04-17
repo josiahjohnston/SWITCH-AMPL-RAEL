@@ -415,7 +415,7 @@ set	month = convert(left(right(study_hour, 6),2), decimal),
 
 -- add hourly system load aggregated by load area here
 insert into system_load_summary_hourly (scenario_id, carbon_cost, period, study_date, study_hour, month, hour_of_day_UTC, hour_of_day_PST,
-  										hours_in_sample, system_load, satisfy_load_reduced_cost, satisfy_load_reserve_reduced_cost)
+  										hours_in_sample, system_load, satisfy_load_reduced_cost, satisfy_load_reserve_reduced_cost, res_comm_dr, ev_dr )
 	select 	scenario_id,
 			carbon_cost,
 			period,
@@ -427,7 +427,9 @@ insert into system_load_summary_hourly (scenario_id, carbon_cost, period, study_
 			hours_in_sample,
 			sum( power ) as system_load,
 			sum( satisfy_load_reduced_cost ) as satisfy_load_reduced_cost,
-			sum( satisfy_load_reserve_reduced_cost ) as satisfy_load_reserve_reduced_cost
+			sum( satisfy_load_reserve_reduced_cost ) as satisfy_load_reserve_reduced_cost,
+			sum( res_comm_dr ) as res_comm_dr,
+			sum( ev_dr ) as ev_dr
 	from _system_load
 	where scenario_id = @scenario_id
 	group by 1, 2, 3, 4, 5, 6, 7, 8, 9
@@ -440,7 +442,9 @@ insert into system_load_summary
 			period,
 			sum( hours_in_sample * system_load ) / sum_hourly_weights_per_period as system_load,
 			sum( hours_in_sample * satisfy_load_reduced_cost ) / sum_hourly_weights_per_period as satisfy_load_reduced_cost_weighted,
-			sum( hours_in_sample * satisfy_load_reserve_reduced_cost ) / sum_hourly_weights_per_period as satisfy_load_reserve_reduced_cost_weighted
+			sum( hours_in_sample * satisfy_load_reserve_reduced_cost ) / sum_hourly_weights_per_period as satisfy_load_reserve_reduced_cost_weighted,
+			sum( hours_in_sample * res_comm_dr ) / sum_hourly_weights_per_period as res_comm_dr,
+			sum( hours_in_sample * ev_dr ) / sum_hourly_weights_per_period as ev_dr
 	from system_load_summary_hourly join sum_hourly_weights_per_period_table using (scenario_id, period)
 	where scenario_id = @scenario_id
 	group by 1, 2, 3

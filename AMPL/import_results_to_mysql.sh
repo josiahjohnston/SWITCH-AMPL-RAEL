@@ -194,10 +194,8 @@ if [ $ExportOnly = 0 ]; then
           ) ;;
         system_load)
           db_row_count=$(
-            mysql $connection_string --column-names=false -e "load data local infile \"$file_path\" \
-              into table _system_load ignore 1 lines \
-              (scenario_id, carbon_cost, period, area_id, @junk, study_date, study_hour, hours_in_sample, power, satisfy_load_reduced_cost, satisfy_load_reserve_reduced_cost);\
-              select count(*) from _system_load where scenario_id=$SCENARIO_ID and $row_count_clause;"
+            mysql $connection_string --column-names=false -e "LOAD DATA LOCAL INFILE \"$file_path\" INTO TABLE _system_load FIELDS TERMINATED BY '\t' LINES TERMINATED BY '\n' IGNORE 1 LINES (scenario_id, carbon_cost, period, area_id, @junk, study_date, study_hour, hours_in_sample, power, satisfy_load_reduced_cost, satisfy_load_reserve_reduced_cost, res_comm_dr, ev_dr);\
+              SELECT count(*) FROM _system_load WHERE scenario_id=$SCENARIO_ID AND $row_count_clause;"
           ) ;;
         existing_trans_cost)
           db_row_count=$(

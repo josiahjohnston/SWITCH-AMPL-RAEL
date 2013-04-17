@@ -802,6 +802,8 @@ CREATE TABLE IF NOT EXISTS _system_load (
   power double,
   satisfy_load_reduced_cost double,
   satisfy_load_reserve_reduced_cost double,
+  res_comm_dr double default 0,
+  ev_dr double default 0,
   INDEX carbon_cost (carbon_cost),
   INDEX period (period),
   INDEX study_hour (study_hour),
@@ -811,7 +813,7 @@ CREATE TABLE IF NOT EXISTS _system_load (
 CREATE OR REPLACE VIEW system_load as
   SELECT 	scenario_id, carbon_cost, period, load_area, study_date, study_hour, month,
   			hour_of_day_UTC, mod(hour_of_day_UTC - 8, 24) as hour_of_day_PST,
-  			hours_in_sample, power, satisfy_load_reduced_cost, satisfy_load_reserve_reduced_cost
+  			hours_in_sample, power, satisfy_load_reduced_cost, satisfy_load_reserve_reduced_cost, res_comm_dr, ev_dr
     FROM _system_load join load_areas using(area_id);
 
 CREATE TABLE IF NOT EXISTS system_load_summary_hourly (
@@ -827,6 +829,8 @@ CREATE TABLE IF NOT EXISTS system_load_summary_hourly (
   system_load double,
   satisfy_load_reduced_cost double,
   satisfy_load_reserve_reduced_cost double,
+  res_comm_dr double default 0,
+  ev_dr double default 0,
   INDEX carbon_cost (carbon_cost),
   INDEX period (period),
   INDEX study_hour (study_hour),
@@ -840,6 +844,8 @@ CREATE TABLE IF NOT EXISTS system_load_summary (
   system_load double,
   satisfy_load_reduced_cost_weighted double,
   satisfy_load_reserve_reduced_cost_weighted double,
+  res_comm_dr double default 0,
+  ev_dr double default 0,
   INDEX carbon_cost (carbon_cost),
   INDEX period (period),
   PRIMARY KEY (scenario_id, carbon_cost, period)
