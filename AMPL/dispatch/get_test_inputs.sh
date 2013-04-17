@@ -147,12 +147,14 @@ read SCENARIO_ID < ../scenario_id.txt
 TRAINING_SET_ID=$(mysql $connection_string --column-names=false -e "select training_set_id from scenarios_v3 where scenario_id=$SCENARIO_ID;")
 LOAD_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select load_scenario_id from training_sets where training_set_id=$TRAINING_SET_ID;")
 GEN_INFO_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select gen_info_scenario_id from scenarios_v3 where scenario_id=$SCENARIO_ID;")
+DR_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select dr_scenario_id from scenarios_v3 where scenario_id=$SCENARIO_ID;")
+EV_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select ev_scenario_id from scenarios_v3 where scenario_id=$SCENARIO_ID;")
 
 ##########################
 # Make links to the common input files in the parent directory instead of exporting from the DB again
 input_dir="common_inputs"
 mkdir -p $input_dir
-for f in balancing_areas.tab biomass_supply_curve.tab carbon_cap_targets.tab existing_plants.tab fuel_costs.tab fuel_info.tab generator_costs.tab generator_info.tab load_areas.tab max_system_loads.tab misc_params.dat misc_options.run ng_supply_curve.tab  ng_regional_price_adders.tab proposed_projects.tab rps_compliance_entity_targets.tab scenario_information.txt transmission_lines.tab shiftable_res_comm_load.tab shiftable_ev_load.tab; do
+for f in balancing_areas.tab biomass_supply_curve.tab carbon_cap_targets.tab existing_plants.tab fuel_costs.tab fuel_info.tab generator_costs.tab generator_info.tab load_areas.tab max_system_loads.tab misc_params.dat misc_options.run ng_supply_curve.tab  ng_regional_price_adders.tab proposed_projects.tab rps_compliance_entity_targets.tab scenario_information.txt transmission_lines.tab ; do
   if [ -f ../inputs/$f ]; then
     ln -sf ../../inputs/$f $input_dir/
   else
@@ -252,6 +254,39 @@ for test_set_id in $(mysql $connection_string --column-names=false -e "select di
 	fi
 	[ -L $input_dir/$f ] && rm $input_dir/$f  # Remove the link if it exists
 	ln -s $data_dir/$f $input_dir/$f          # Make a new link
+
+
+	if [ $DR_SCENARIO_ID == 'NULL' ]; then
+		echo "No DR scenario specified. Skipping shiftable_res_comm_load.tab."
+	else
+		f="shiftable_res_comm_load.tab"
+		echo "	$f..."
+		if [ ! -f $data_dir/$f ]; then
+			echo ampl.tab 2 2 > $data_dir/$f
+		mysql $connection_string -e "\
+		  SELECT load_area, DATE_FORMAT(datetime_utc,'%Y%m%d%H') as hour, shiftable_res_comm_load, shifted_res_comm_load_hourly_max \
+			FROM shiftable_res_comm_load JOIN load_area_info USING(area_id) JOIN dispatch_test_sets USING(timepoint_id) JOIN study_timepoints USING(timepoint_id) \
+			WHERE training_set_id=$TRAINING_SET_ID AND test_set_id=$test_set_id AND load_scenario_id=$LOAD_SCENARIO_ID AND dr_scenario_id=$DR_SCENARIO_ID; "  >> $data_dir/$f
+		fi
+		[ -L $input_dir/$f ] && rm $input_dir/$f  # Remove the link if it exists
+		ln -s $data_dir/$f $input_dir/$f          # Make a new link
+	fi
+	
+	if [ $EV_SCENARIO_ID == 'NULL' ]; then
+		echo "No EV scenario specified. Skipping shiftable_ev_load.tab."
+	else
+		f="shiftable_ev_load.tab"
+		echo "	$f..."
+		if [ ! -f $data_dir/$f ]; then
+			echo ampl.tab 2 2 > $data_dir/$f
+		mysql $connection_string -e "\
+		  SELECT load_area, DATE_FORMAT(datetime_utc,'%Y%m%d%H') as hour, shiftable_ev_load, shifted_ev_load_hourly_max \
+			FROM shiftable_ev_load JOIN load_area_info USING(area_id) JOIN dispatch_test_sets USING(timepoint_id) JOIN study_timepoints USING(timepoint_id) \
+			WHERE training_set_id=$TRAINING_SET_ID AND test_set_id=$test_set_id AND load_scenario_id=$LOAD_SCENARIO_ID AND ev_scenario_id=$EV_SCENARIO_ID; "  >> $data_dir/$f
+		fi
+		[ -L $input_dir/$f ] && rm $input_dir/$f  # Remove the link if it exists
+		ln -s $data_dir/$f $input_dir/$f          # Make a new link
+	fi
 	
 	f="existing_intermittent_plant_cap_factor.tab"
 	echo "	$f..."
