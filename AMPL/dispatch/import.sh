@@ -212,7 +212,7 @@ fi
 if [ $SkipCrunch == 0 ]; then
   echo 'Crunching the data...'
 	read SCENARIO_ID < scenario_id.txt
-  data_crunch_path=$(mktemp -p tmp import_crunch_sql-XXX);
+  data_crunch_path=$(mktemp tmp/import_crunch_sql-XXX);
   echo "set @scenario_id := ${SCENARIO_ID};" >> $data_crunch_path
   cat crunch.sql >> $data_crunch_path
   mysql $connection_string < $data_crunch_path
