@@ -381,16 +381,15 @@ set HISTORICAL_TO_FUTURE_TIMEPOINT_MAPPING dimen 3;  # HISTORICAL_TIMEPOINT, FUT
 
 # make sure all hours are represented, and that cap factors make sense.
 # Solar thermal can be parasitic, which means negative cap factors are allowed (just not TOO negative)
-check {(pid, a, t, h) in PROJ_INTERMITTENT_HOURS: t in SOLAR_CSP_TECHNOLOGIES}: cap_factor[pid, a, t, h] >= -0.1;
+check {(pid, a, t, h) in PROJ_INTERMITTENT_HOURS: t in SOLAR_CSP_TECHNOLOGIES}: cap_factor[pid, a, t, h] >= -0.5001;
 # No other technology can be parasitic, so only positive cap factors allowed
 check {(pid, a, t, h) in PROJ_INTERMITTENT_HOURS: not( t in SOLAR_CSP_TECHNOLOGIES) }: cap_factor[pid, a, t, h] >= 0;
 # cap factors for solar can be greater than 1 because sometimes the sun shines more than 1000W/m^2
 # which is how PV cap factors are defined.
 # The below checks make sure that for other plants the cap factors
-# are <= 1 but for solar they are <= 1.4
-# (roughly the irradiation coming in from space, though the cap factor shouldn't ever approach this number)
+# are <= 1 but for solar they are <= 1.11
 check {(pid, a, t, h) in PROJ_INTERMITTENT_HOURS: not( t in SOLAR_TECHNOLOGIES )}: cap_factor[pid, a, t, h] <= 1;
-check {(pid, a, t, h) in PROJ_INTERMITTENT_HOURS: t in SOLAR_TECHNOLOGIES }: cap_factor[pid, a, t, h] <= 1.4;
+check {(pid, a, t, h) in PROJ_INTERMITTENT_HOURS: t in SOLAR_TECHNOLOGIES }: cap_factor[pid, a, t, h] <= 1.11;
 check {(pid, a, t) in PROJ_INTERMITTENT}: intermittent[t];
 
 ###############################################

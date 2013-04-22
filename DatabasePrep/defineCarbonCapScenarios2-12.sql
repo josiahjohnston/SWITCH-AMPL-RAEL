@@ -56,12 +56,14 @@ UPDATE _carbon_cap_targets
 -- Make new scenario entries
 INSERT INTO carbon_cap_scenarios (carbon_cap_scenario_id, name, description) VALUES
   (13, '10% by 2050', 'CA targets for 2010 to 2020, then a linear decrease from 100% of 1990 levels in 2020 to 10% by 2050, and continuing on that slope to zero emissions.'),
-  (14, '-20% by 2050', 'CA targets for 2010 to 2020, then a linear decrease from 100% of 1990 levels in 2020 to -20% by 2050, and continuing on that slope to -40% emissions');
+  (14, '-20% by 2050', 'CA targets for 2010 to 2020, then a linear decrease from 100% of 1990 levels in 2020 to -20% by 2050, and continuing on that slope to -40% emissions'),
+  (15, '-40% by 2050', 'CA targets for 2010 to 2020, then a linear decrease from 100% of 1990 levels in 2020 to -40% by 2050, and continuing on that slope to -60% emissions'),
+  (16, '-50% by 2050', 'CA targets for 2010 to 2020, then a linear decrease from 100% of 1990 levels in 2020 to -50% by 2050, and continuing on that slope to -70% emissions');
 
 -- Copy CA targets from scenario id 1 for 2010 to 2020. 
 INSERT INTO _carbon_cap_targets (carbon_cap_scenario_id, year, carbon_emissions_relative_to_base ) 
   SELECT id, year, carbon_emissions_relative_to_base
-  FROM (SELECT 13 AS id UNION SELECT 14) as new_id_table, _carbon_cap_targets
+  FROM (SELECT 13 AS id UNION SELECT 14 UNION SELECT 15 UNION SELECT 16) as new_id_table, _carbon_cap_targets
   WHERE _carbon_cap_targets.carbon_cap_scenario_id = 1 AND year <= 2020
   ORDER BY 1,2;
 
@@ -90,4 +92,26 @@ UPDATE _carbon_cap_targets
   WHERE carbon_emissions_relative_to_base < -0.4
     AND carbon_cap_scenario_id = 14;
 
+INSERT INTO _carbon_cap_targets (carbon_cap_scenario_id, year, carbon_emissions_relative_to_base ) 
+  SELECT 15, year, 
+    (1+0.4)/(2020-2050)*(year-2020) + 1
+  FROM _carbon_cap_targets
+  WHERE _carbon_cap_targets.carbon_cap_scenario_id = 1 AND year > 2020
+  ORDER BY 1,2;
 
+UPDATE _carbon_cap_targets 
+  SET carbon_emissions_relative_to_base = -0.6
+  WHERE carbon_emissions_relative_to_base < -0.6
+    AND carbon_cap_scenario_id = 15;
+
+INSERT INTO _carbon_cap_targets (carbon_cap_scenario_id, year, carbon_emissions_relative_to_base ) 
+  SELECT 16, year, 
+    (1+0.5)/(2020-2050)*(year-2020) + 1
+  FROM _carbon_cap_targets
+  WHERE _carbon_cap_targets.carbon_cap_scenario_id = 1 AND year > 2020
+  ORDER BY 1,2;
+
+UPDATE _carbon_cap_targets 
+  SET carbon_emissions_relative_to_base = -0.7
+  WHERE carbon_emissions_relative_to_base < -0.7
+    AND carbon_cap_scenario_id = 16;
