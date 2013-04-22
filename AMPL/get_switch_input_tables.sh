@@ -61,7 +61,7 @@ case $1 in
 		print_help; exit ;;
   *)
     echo "Unknown option $1"
-		print_help; exit ;;
+		print_help; exit 0 ;;
 esac
 done
 
@@ -150,7 +150,7 @@ read SCENARIO_ID < scenario_id.txt
 # Make sure this scenario id is valid.
 if [ $(mysql $connection_string --column-names=false -e "select count(*) from scenarios_v3 where scenario_id=$SCENARIO_ID;") -eq 0 ]; then 
 	echo "ERROR! This scenario id ($SCENARIO_ID) is not in the database. Exiting."
-	exit;
+	exit 0;
 fi
 
 export REGIONAL_MULTIPLIER_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select regional_cost_multiplier_scenario_id from scenarios_v3 where scenario_id=$SCENARIO_ID;")
@@ -171,9 +171,35 @@ export LINEARIZE_OPTIMIZATION=$(mysql $connection_string --column-names=false -e
 export STUDY_START_YEAR=$(mysql $connection_string --column-names=false -e "select study_start_year from training_sets where training_set_id=$TRAINING_SET_ID;")
 export STUDY_END_YEAR=$(mysql $connection_string --column-names=false -e "select study_start_year + years_per_period*number_of_periods from training_sets where training_set_id=$TRAINING_SET_ID;")
 number_of_years_per_period=$(mysql $connection_string --column-names=false -e "select years_per_period from training_sets where training_set_id=$TRAINING_SET_ID;")
+
+# Find the minimum historical year used for this training set. 
+# Scenarios based on 2006 data need to draw from newer tables
+# Scenarios based on 2004-05 data need to draw from older tables
+min_historical_year=$(mysql $connection_string --column-names=false -e "\
+  SELECT historical_year \
+  FROM _training_set_timepoints \
+    JOIN load_scenario_historic_timepoints USING(timepoint_id) \
+    JOIN hours ON(historic_hour=hournum) \
+  WHERE training_set_id=$TRAINING_SET_ID \
+  order by hournum asc \
+  limit 1;")
+if [ $min_historical_year -eq 2004 ]; then 
+  cap_factor_table="_cap_factor_intermittent_sites"
+  proposed_projects_table="_proposed_projects_v2"
+  proposed_projects_view="proposed_projects_v2"
+elif [ $min_historical_year -eq 2006 ]; then 
+  cap_factor_table="_cap_factor_intermittent_sites_v2"
+  proposed_projects_table="_proposed_projects_v3"
+  proposed_projects_view="proposed_projects_v3"
+else
+  echo "Unexpected training set timepoints! Min_historical_year is $min_historical_year. Exiting."
+  exit 0
+fi
+
 ###########################
 # Export data to be read into ampl.
 
+mkdir -p $write_to_path
 cd  $write_to_path
 
 echo 'Exporting Scenario Information'
@@ -291,7 +317,7 @@ SELECT project_id, load_area, technology, study_date as date, ROUND(avg_output,1
 
 echo '	proposed_projects.tab...'
 echo ampl.tab 3 7 > proposed_projects.tab
-mysql $connection_string -e "select project_id, proposed_projects_v2.load_area, technology, if(location_id is NULL, 0, location_id) as location_id, if(ep_project_replacement_id is NULL, 0, ep_project_replacement_id) as ep_project_replacement_id, if(capacity_limit is NULL, 0, capacity_limit) as capacity_limit, if(capacity_limit_conversion is NULL, 0, capacity_limit_conversion) as capacity_limit_conversion, heat_rate, cogen_thermal_demand, connect_cost_per_mw from proposed_projects_v2 join load_area_info using (area_id) where technology_id in (SELECT technology_id FROM generator_info_v2 where gen_info_scenario_id=$GEN_INFO_SCENARIO_ID) AND $INTERMITTENT_PROJECTS_SELECTION;" >> proposed_projects.tab
+mysql $connection_string -e "select project_id, $proposed_projects_view.load_area, technology, if(location_id is NULL, 0, location_id) as location_id, if(ep_project_replacement_id is NULL, 0, ep_project_replacement_id) as ep_project_replacement_id, if(capacity_limit is NULL, 0, capacity_limit) as capacity_limit, if(capacity_limit_conversion is NULL, 0, capacity_limit_conversion) as capacity_limit_conversion, heat_rate, cogen_thermal_demand, connect_cost_per_mw from $proposed_projects_view join load_area_info using (area_id) where technology_id in (SELECT technology_id FROM generator_info_v2 where gen_info_scenario_id=$GEN_INFO_SCENARIO_ID) AND $INTERMITTENT_PROJECTS_SELECTION;" >> proposed_projects.tab
 
 echo '	generator_info.tab...'
 echo ampl.tab 1 32 > generator_info.tab
@@ -389,8 +415,8 @@ select project_id, load_area, technology, DATE_FORMAT(datetime_utc,'%Y%m%d%H') a
   FROM _training_set_timepoints \
     JOIN study_timepoints USING(timepoint_id)\
     JOIN load_scenario_historic_timepoints USING(timepoint_id)\
-    JOIN _cap_factor_intermittent_sites ON(historic_hour=hour)\
-    JOIN _proposed_projects_v2 USING(project_id)\
+    JOIN $cap_factor_table ON(historic_hour=hour)\
+    JOIN $proposed_projects_table USING(project_id)\
     JOIN load_area_info USING(area_id)\
   WHERE training_set_id=$TRAINING_SET_ID \
     AND load_scenario_id=$LOAD_SCENARIO_ID \

@@ -150,6 +150,30 @@ GEN_INFO_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select 
 DR_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select dr_scenario_id from scenarios_v3 where scenario_id=$SCENARIO_ID;")
 EV_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select ev_scenario_id from scenarios_v3 where scenario_id=$SCENARIO_ID;")
 
+# Find the minimum historical year used for this training set. 
+# Scenarios based on 2006 data need to draw from newer tables
+# Scenarios based on 2004-05 data need to draw from older tables
+min_historical_year=$(mysql $connection_string --column-names=false -e "\
+  SELECT historical_year \
+  FROM _training_set_timepoints \
+    JOIN load_scenario_historic_timepoints USING(timepoint_id) \
+    JOIN hours ON(historic_hour=hournum) \
+  WHERE training_set_id=$TRAINING_SET_ID \
+  order by hournum asc \
+  limit 1;")
+if [ $min_historical_year -eq 2004 ]; then 
+  cap_factor_table="_cap_factor_intermittent_sites"
+  proposed_projects_table="_proposed_projects_v2"
+  proposed_projects_view="proposed_projects_v2"
+elif [ $min_historical_year -eq 2006 ]; then 
+  cap_factor_table="_cap_factor_intermittent_sites_v2"
+  proposed_projects_table="_proposed_projects_v3"
+  proposed_projects_view="proposed_projects_v3"
+else
+  echo "Unexpected training set timepoints! Exiting."
+  exit 0
+fi
+
 ##########################
 # Make links to the common input files in the parent directory instead of exporting from the DB again
 input_dir="common_inputs"
@@ -339,8 +363,8 @@ for test_set_id in $(mysql $connection_string --column-names=false -e "select di
       select project_id, load_area, technology, DATE_FORMAT(datetime_utc,'%Y%m%d%H') as historical_hour, cap_factor as cap_factor_historical \
         FROM dispatch_test_sets \
           JOIN hours ON(historic_hour=hournum) \
-          JOIN _cap_factor_intermittent_sites ON(historic_hour=hour) \
-          JOIN _proposed_projects_v2 USING(project_id) \
+          JOIN $cap_factor_table ON(historic_hour=hour) \
+          JOIN $proposed_projects_table USING(project_id) \
           JOIN load_area_info USING(area_id) \
         WHERE training_set_id=$TRAINING_SET_ID \
           AND test_set_id=$test_set_id \
@@ -353,39 +377,14 @@ for test_set_id in $(mysql $connection_string --column-names=false -e "select di
 	echo "	$f..."
 	if [ ! -f $data_dir/$f ]; then
     echo ampl.tab 3 0 > $data_dir/$f
-    if [ $LOAD_SCENARIO_ID -lt 10 ]; then 
-      mysql $connection_string -e "\
-        select DATE_FORMAT(hours.datetime_utc,'%Y%m%d%H') as historical_hour, DATE_FORMAT(study_timepoints.datetime_utc,'%Y%m%d%H') as future_hour, technology \
-          FROM dispatch_test_sets \
-            JOIN hours ON(historic_hour=hournum)\
-            JOIN study_timepoints USING(timepoint_id)\
-            JOIN (SELECT DISTINCT technology FROM generator_info_v2 WHERE intermittent=1) AS gen_info \
-          WHERE training_set_id=$TRAINING_SET_ID \
-            AND test_set_id=$test_set_id;" >> $data_dir/$f
-    else 
-      # Non-solar projects get cap factors from 2006
-      mysql $connection_string -e "\
-        select DATE_FORMAT(hours.datetime_utc,'%Y%m%d%H') as historical_hour, DATE_FORMAT(study_timepoints.datetime_utc,'%Y%m%d%H') as future_hour, technology \
-          FROM dispatch_test_sets \
-            JOIN hours ON(historic_hour=hournum) \
-            JOIN study_timepoints USING(timepoint_id) \
-            JOIN (SELECT DISTINCT technology FROM generator_info_v2 WHERE intermittent=1 AND fuel <> 'Solar') AS gen_info \
-          WHERE training_set_id=$TRAINING_SET_ID \
-            AND test_set_id=$test_set_id;" >> $data_dir/$f
-      # Solar projects get cap factors from 2005
-      mysql $connection_string -e "\
-        CREATE TEMPORARY TABLE solar_tp_mapping \
-          SELECT distinct historic_hour, historic_hour-8760 as hour_2005 from load_scenario_historic_timepoints WHERE load_scenario_id=$LOAD_SCENARIO_ID; \
-        ALTER TABLE solar_tp_mapping ADD INDEX ( historic_hour, hour_2005 ), ADD INDEX ( hour_2005, historic_hour ); \
-        SELECT DATE_FORMAT(hours.datetime_utc,'%Y%m%d%H') as historical_hour, DATE_FORMAT(study_timepoints.datetime_utc,'%Y%m%d%H') as future_hour, technology \
-            FROM dispatch_test_sets \
-              JOIN study_timepoints USING(timepoint_id)\
-              JOIN solar_tp_mapping USING (historic_hour) \
-              JOIN hours ON(hour_2005=hournum) \
-              JOIN (SELECT DISTINCT technology FROM generator_info_v2 WHERE intermittent=1 AND fuel='Solar') AS gen_info \
-          WHERE training_set_id=$TRAINING_SET_ID \
-            AND test_set_id=$test_set_id;" >> $data_dir/$f
-    fi
+    mysql $connection_string -e "\
+      select DATE_FORMAT(hours.datetime_utc,'%Y%m%d%H') as historical_hour, DATE_FORMAT(study_timepoints.datetime_utc,'%Y%m%d%H') as future_hour, technology \
+        FROM dispatch_test_sets \
+          JOIN hours ON(historic_hour=hournum)\
+          JOIN study_timepoints USING(timepoint_id)\
+          JOIN (SELECT DISTINCT technology FROM generator_info_v2 WHERE intermittent=1) AS gen_info \
+        WHERE training_set_id=$TRAINING_SET_ID \
+          AND test_set_id=$test_set_id;" >> $data_dir/$f
   fi
 	[ -L $input_dir/$f ] && rm $input_dir/$f  # Remove the link if it exists
 	ln -s $data_dir/$f $input_dir/$f          # Make a new link
