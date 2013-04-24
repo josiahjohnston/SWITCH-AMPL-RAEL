@@ -158,9 +158,10 @@ min_historical_year=$(mysql $connection_string --column-names=false -e "\
   FROM _training_set_timepoints \
     JOIN load_scenario_historic_timepoints USING(timepoint_id) \
     JOIN hours ON(historic_hour=hournum) \
-  WHERE training_set_id=$TRAINING_SET_ID \
-  order by hournum asc \
-  limit 1;")
+  WHERE training_set_id = $TRAINING_SET_ID \
+    AND load_scenario_id = $LOAD_SCENARIO_ID \
+  ORDER BY hournum ASC \
+  LIMIT 1;")
 if [ $min_historical_year -eq 2004 ]; then 
   cap_factor_table="_cap_factor_intermittent_sites"
   proposed_projects_table="_proposed_projects_v2"
@@ -209,6 +210,10 @@ awk '{ if( $3 ~ /'$techs_needed'/) print $1; }' ../inputs/proposed_projects.tab 
 ##########################
 # Make directories and gather inputs for each dispatch week in the study.
 for test_set_id in $(mysql $connection_string --column-names=false -e "select distinct test_set_id from dispatch_test_sets WHERE training_set_id=$TRAINING_SET_ID;"); do
+  if [ -z "$test_set_id" ]; then
+    echo "Error, the database returned a blank test_set_id!"
+    break;
+  fi
 	echo "test_set_id $test_set_id:"
 	test_path=$(printf "test_set_%.3d" $test_set_id)
 	input_dir=$test_path"/inputs"

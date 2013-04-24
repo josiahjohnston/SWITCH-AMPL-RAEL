@@ -181,8 +181,9 @@ min_historical_year=$(mysql $connection_string --column-names=false -e "\
     JOIN load_scenario_historic_timepoints USING(timepoint_id) \
     JOIN hours ON(historic_hour=hournum) \
   WHERE training_set_id=$TRAINING_SET_ID \
-  order by hournum asc \
-  limit 1;")
+    AND load_scenario_id = $LOAD_SCENARIO_ID \
+  ORDER BY hournum ASC \
+  LIMIT 1;")
 if [ $min_historical_year -eq 2004 ]; then 
   cap_factor_table="_cap_factor_intermittent_sites"
   proposed_projects_table="_proposed_projects_v2"
@@ -200,7 +201,7 @@ fi
 # Export data to be read into ampl.
 
 mkdir -p $write_to_path
-cd  $write_to_path
+cd $write_to_path
 
 echo 'Exporting Scenario Information'
 echo 'Scenario Information' > scenario_information.txt
