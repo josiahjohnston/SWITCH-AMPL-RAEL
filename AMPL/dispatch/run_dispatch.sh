@@ -87,7 +87,17 @@ find . -name '*sol' -size 0 -exec rm {} \;
 
 # Make a qsub file for each task using custom headers and generic templates
 echo "Making qsub files for each task. "
-for f in dispatch_compile.qsub dispatch_optimize.qsub dispatch_recompile.qsub dispatch_reoptimize.qsub dispatch_export.qsub dispatch_all.qsub; do
+for f in dispatch_compile.qsub dispatch_optimize.qsub dispatch_recompile.qsub dispatch_reoptimize.qsub dispatch_export.qsub dispatch_all.qsub; do  
+  outlog="logs/${f}.$(date +'%m_%d_%H_%M_%S').out"
+  errlog="logs/${f}.$(date +'%m_%d_%H_%M_%S').err"
+  # Create the log files if they don't exist so they will have a
+  # chance of inheriting good file permissions from this script. 
+  # The if statement prevents multi-task mode log files from unnecessarily cluttering the logs directory
+  if [ $single_task_mode -eq 0 ] || [ "$f" = "dispatch_all.qsub" ]; then 
+    touch $outlog
+    touch $errlog
+  fi
+
   if [ $single_task_mode -eq 0 ]; then 
     printf "$f\t"
   fi
@@ -98,8 +108,8 @@ for f in dispatch_compile.qsub dispatch_optimize.qsub dispatch_recompile.qsub di
     echo "#PBS -M $email" >> $f
     echo "#PBS -m bae" >> $f
   fi
-  echo "#PBS -o logs/${action}_out" >> $f     
-  echo "#PBS -e logs/${action}_err" >> $f
+  echo "#PBS -o $outlog" >> $f     
+  echo "#PBS -e $errlog" >> $f
   echo "#PBS -V"                    >> $f
   case "$f" in
     dispatch_compile.qsub)
