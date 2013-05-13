@@ -253,6 +253,19 @@ load data local infile
 	optionally enclosed by '"'
 	ignore 1 lines;
 
+-- identify DC lines as they'll be derated differently than AC lines...
+-- for WECC these are long lines that switch can't build new
+ALTER TABLE transmission_lines ADD COLUMN is_dc_line smallint default 0;
+update transmission_lines SET is_dc_line = 1
+WHERE new_transmission_builds_allowed = 0 and transmission_length_km > 800;
+
+-- now add a derating factor that accounts for contingencies, loop flows, stability, etc constraints on transmission
+-- this value is different for AC and DC, and is calculated in /Volumes/switch/Models/USA_CAN/Transmission/_switchwecc_path_matches_thermal.xlsx
+-- the value is 0.59 for AC lines and 0.91 for DC lines
+ALTER TABLE transmission_lines ADD COLUMN transmission_derating_factor float default 0.59;
+UPDATE transmission_lines SET transmission_derating_factor = 0.91 WHERE is_dc_line = 1;
+
+
 
 -- ---------------------------------------------------------------------
 --        NON-REGIONAL GENERATOR INFO

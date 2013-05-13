@@ -108,7 +108,14 @@ if [ $cluster == 1 ]; then
 	fi
 	# Translate the number of processes and processes per node into number of nodes
 	nodes=$(printf "%.0f" $(echo "scale=1; $num_workers/$workers_per_node" | bc))
-	[ $nodes -le 8 ] || nodes=8       # Set the number of nodes to 8 unless it is less than or equal to 8
+	# Don't let the value of nodes be larger than 8.
+	if [ $nodes -gt 8 ]; then
+	  nodes=8
+	fi
+	# Don't let the value of nodes be less than 1
+	if [ $nodes -lt 1 ]; then
+	  nodes=1
+	fi
 
 	# Process each qsub file for boilerplate stuff
 	for f in $qsub_files; do

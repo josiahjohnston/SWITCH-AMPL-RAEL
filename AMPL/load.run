@@ -78,7 +78,7 @@ read table carbon_cap_targets;
 
 table transmission_lines "inputs/transmission_lines.tab" IN: 
   TRANSMISSION_LINES <- [load_area_start, load_area_end], existing_transfer_capacity_mw, transmission_line_id, 
-  transmission_length_km, transmission_efficiency, new_transmission_builds_allowed;
+  transmission_length_km, transmission_efficiency, new_transmission_builds_allowed, is_dc_line, transmission_derating_factor;
 read table transmission_lines;
 
 table system_load "inputs/system_load.tab" IN: 

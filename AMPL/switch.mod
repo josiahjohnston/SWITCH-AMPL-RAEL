@@ -902,9 +902,6 @@ param distribution_losses = 0.053;
 # the cost to maintain the existing transmission infrustructure over all of WECC
 param transmission_sunk_annual_payment {LOAD_AREAS} >= 0;
 
-# forced outage rate for transmission lines, used for probabilistic dispatch(!)
-param transmission_forced_outage_rate = 0.01;
-
 # possible transmission lines are listed in advance;
 # these include all possible combinations of LOAD_AREAS, with no double-counting
 # The model could be simplified by only allowing lines to be built between neighboring zones.
@@ -918,6 +915,12 @@ param transmission_length_km {TRANSMISSION_LINES};
 
 # delivery efficiency on each transmission line
 param transmission_efficiency {TRANSMISSION_LINES};
+
+# is this a DC line?
+param is_dc_line {TRANSMISSION_LINES} binary;
+
+# how much should the transmission path be derated for contingencies, stability, voltage, etc. ?
+param transmission_derating_factor {TRANSMISSION_LINES} >= 0 <= 1;
 
 # the rating of existing lines in MW 
 param existing_transfer_capacity_mw {TRANSMISSION_LINES} >= 0 default 0;
@@ -1763,11 +1766,13 @@ subject to BuildGenOrNot_Constraint
 ########################################
 # TRANSMISSION CONSTRAINTS
 
-# the system can only use as much transmission as is expected to be available, which is availability * ( existing + new )
+# the system can only use as much transmission capacity as is available, considering stability, contingencies, etc
+# which is derating_factor * ( existing + new )
+# the derating factor currently differs between AC and DC, with AC at 0.59 and DC at 0.91.  
 subject to Maximum_DispatchTrans
   { (a1, a2, p) in TRANSMISSION_LINE_PERIODS, h in TIMEPOINTS: period[h] = p }:
   sum { (a1, a2, fc, p, h) in TRANSMISSION_LINE_HOURS } DispatchTrans[a1, a2, fc, p, h] 
-    <= ( 1 - transmission_forced_outage_rate ) * 
+    <= transmission_derating_factor[a1, a2] * 
           ( existing_transfer_capacity_mw[a1, a2] + sum { (a1, a2, online_yr) in TRANSMISSION_LINE_NEW_PERIODS: online_yr <= p } InstallTrans[a1, a2, online_yr] );
 
 # Simple fix to the problem of asymetrical transmission build-out
