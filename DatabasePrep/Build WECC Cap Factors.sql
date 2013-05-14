@@ -975,15 +975,15 @@ CREATE TABLE existing_plants_v2 (
 	scheduled_outage_rate double NOT NULL,
 	UNIQUE (technology, plant_name, eia_id, primemover, fuel, start_year),
 	INDEX area_id (area_id),
-	FOREIGN KEY (area_id) REFERENCES load_area_info(area_id), 
 	INDEX plant_name (plant_name)
 );
 
  -- The << operation moves the numeric form of the letter "E" (for existing plants) over by 3 bytes, effectively making its value into the most significant digits.
+-- make sure the joins work in the future - not updated correctly in the past...
 insert into existing_plants_v2 (project_id, load_area, technology, ep_id, area_id, plant_name, eia_id,
 								primemover, fuel, capacity_mw, heat_rate, cogen_thermal_demand_mmbtus_per_mwh, start_year,
 								overnight_cost, connect_cost_per_mw, fixed_o_m, variable_o_m, forced_outage_rate, scheduled_outage_rate )
-	select 	e.ep_id + (ascii( 'E' ) << 8*3),
+	select 	CASE WHEN e.fuel = 'Water' THEN e.ep_id ELSE e.ep_id+ (ascii( 'E' ) << 8*3) END,
 			e.load_area,
 			technology,
 			e.ep_id,
@@ -1005,7 +1005,18 @@ insert into existing_plants_v2 (project_id, load_area, technology, ep_id, area_i
 			from generator_info.existing_plants_agg e
 			join generator_info_v2 g using (technology)
 			join generator_costs_5yearly c using (technology)
-			join load_area_info a using (load_area);
+			join load_area_info a using (load_area)
+			WHERE year = 2000
+			AND	gen_costs_scenario_id = 2
+			AND gen_info_scenario_id = 2;
+
+
+
+
+
+-- code to export the data from postgresql
+
+
 
 			
 drop table if exists _existing_intermittent_plant_cap_factor;
@@ -1068,7 +1079,8 @@ SELECT      project_id,
 drop table can_existing_wind_hourly_import;
 
 -- HYDRO-------------------
--- made in 'build existing plants table.sql'
+-- made in 'existing_plants_usa_can.sql' and imported directly
+-- the project_id here is the ep_id (see how existing_plants_v2 is populated above)
 select 'Copying Hydro' as progress;
 
 drop table if exists _hydro_monthly_limits;
@@ -1086,6 +1098,16 @@ DROP VIEW IF EXISTS hydro_monthly_limits;
 CREATE VIEW hydro_monthly_limits as
   SELECT project_id, load_area, technology, year, month, avg_output
     FROM _hydro_monthly_limits join existing_plants_v2 using (project_id);
+
+
+load data local infile
+	'/Volumes/switch/Models/USA_CAN/existing_plants/hydro_monthly_average_output_mysql.csv'
+	into table _hydro_monthly_limits
+	fields terminated by	','
+	optionally enclosed by '"'
+	ignore 1 lines;
+
+
 
 -- the join is long here in an attempt to reduce the # of numeric ids flying around
 insert into hydro_monthly_limits (project_id, year, month, avg_output )
