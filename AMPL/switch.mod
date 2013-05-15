@@ -446,22 +446,23 @@ check: card({(pid, a, t) in EXISTING_PLANTS: intermittent[t] } diff EP_INTERMITT
 param eip_cap_factor {EP_INTERMITTENT_HOURS} >= 0 <=1.4;
 
 ###############################################
-# year when the plant will be retired
+# year when the plant is EXPECTED to be retired
 # this is rounded up to the end of the study period when the retirement would occur,
-# so power is generated and capital & O&M payments are made until the end of that period.
+# so capital payments are made until the end of that period.
 param ep_end_year {(pid, a, t) in EXISTING_PLANTS} =
   min( end_year, start_year + ceil( ( ep_vintage[pid, a, t] + max_age_years[t] - start_year ) / num_years_per_period ) * num_years_per_period );
 
 # plant-period combinations when existing plants can run
 # these are the times when a decision must be made about whether a plant will be kept available for the period
 # or retired to save on fixed O&M (or fuel, for baseload plants)
-# existing nuclear plants are assumed to be kept operational indefinitely, as their O&M costs generally keep them in really good condition
+# existing nuclear plants are assumed to be relicenced once, for a total lifetime of 60 years, unless you input max_age_years[t] > 60
+#  (nuclear capital is spread out over max_age_years[t])
+#  consistent with the end year calculation above, if 60 years falls within a period, let the plant live until the end of the period
 # hydro plants are kept operational indefinitely
 set EP_PERIODS :=
   { (pid, a, t) in EXISTING_PLANTS, p in PERIODS:
-  		( p < ep_end_year[pid, a, t] ) or
-		( hydro[t] ) or
-  		( t = 'Nuclear_EP' ) };
+		p < ep_end_year[pid, a, t] or hydro[t] or
+			( t = 'Nuclear_EP' and ( p < ep_vintage[pid, a, t] + if max_age_years['Nuclear_EP'] > 60 then max_age_years['Nuclear_EP'] else 60 ) )  };
 
 # if a period exists that is >= ep_end_year[pid, a, t], then this plant can be operational past the expected lifetime of the plant
 param ep_could_be_operating_past_expected_lifetime { (pid, a, t, p) in EP_PERIODS } =
