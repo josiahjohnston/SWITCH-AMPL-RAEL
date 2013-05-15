@@ -1696,13 +1696,13 @@ DROP TABLE IF EXISTS hydro_monthly_average_output_mysql;
 CREATE TABLE hydro_monthly_average_output_mysql(
 	ep_id int NOT NULL REFERENCES existing_plants_hydro_for_mysql,
 	month smallint NOT NULL CHECK (month BETWEEN 1 and 12),
-	avg_mw numeric(10,5) CHECK (avg_mw BETWEEN 0 AND 10000),
+	avg_capacity_factor_hydro numeric(6,5) CHECK (avg_capacity_factor_hydro BETWEEN 0 AND 1),
 	PRIMARY KEY (ep_id, month)
 );
 
 -- USA first			
-INSERT INTO hydro_monthly_average_output_mysql (ep_id, month, avg_mw)
-	SELECT ep_id, month, avg_capacity_factor_hydro * capacity_mw
+INSERT INTO hydro_monthly_average_output_mysql (ep_id, month, avg_capacity_factor_hydro)
+	SELECT ep_id, month, avg_capacity_factor_hydro
 	FROM
 	(SELECT facility_code_usa as eia_id, prime_mover, month, AVG(avg_mw / capacity_mw) as avg_capacity_factor_hydro
 		FROM hydro_monthly_limits_plant
@@ -1712,8 +1712,8 @@ INSERT INTO hydro_monthly_average_output_mysql (ep_id, month, avg_mw)
 	USING (eia_id, prime_mover);
 	
 -- Canada next			
-INSERT INTO hydro_monthly_average_output_mysql (ep_id, month, avg_mw)
-	SELECT ep_id, month, avg_capacity_factor_hydro * capacity_mw
+INSERT INTO hydro_monthly_average_output_mysql (ep_id, month, avg_capacity_factor_hydro)
+	SELECT ep_id, month, avg_capacity_factor_hydro
 	FROM
 	(SELECT facility_code_canada as eia_id, prime_mover, month, AVG(avg_mw / capacity_mw) as avg_capacity_factor_hydro
 		FROM hydro_monthly_limits_plant
@@ -1728,11 +1728,7 @@ copy (SELECT * FROM existing_plants_hydro_for_mysql ORDER BY load_area, plant_na
 TO '/Volumes/switch/Models/USA_CAN/existing_plants/existing_plants_hydro_for_mysql.csv'
 with csv header;
 
--- the WECC version of SWITCH needs specific years of hydro data to be backwards compatible
--- we'll use the average for any given year, so just populate with the same data from years 2004, 2005, and 2006
-copy (SELECT ep_id, year, month, avg_mw FROM hydro_monthly_average_output_mysql,
-		(SELECT 2004 as year UNION SELECT 2005 UNION SELECT 2006) as all_years
-			ORDER BY ep_id, month)
+copy (SELECT ep_id, month, avg_capacity_factor_hydro FROM hydro_monthly_average_output_mysql ORDER BY ep_id, month)
 TO '/Volumes/switch/Models/USA_CAN/existing_plants/hydro_monthly_average_output_mysql.csv'
 with csv header;
 

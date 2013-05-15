@@ -535,6 +535,7 @@ CREATE TABLE existing_plants_agg(
 	plant_name varchar(64) NOT NULL,
 	eia_id varchar(64) default 0,
 	start_year year(4) NOT NULL,
+	retirement_year smallint NOT NULL default 9999,
 	primemover varchar(4) NOT NULL,
 	cogen boolean NOT NULL,
 	fuel varchar(64)  NOT NULL,
@@ -619,6 +620,24 @@ load data local infile
 
 
 
+-- forced retirements.... MANUAL!
+-- right now only from once through cooling requirements from http://www.waterboards.ca.gov/water_issues/programs/ocean/cwa316/powerplants/
+-- all plants required to comply with once through cooling are forced to retire (they can be replaced with new plants)
+-- except for Diablo Canyon, which is kept operational
+-- and San Onofre, which is currently offline and we keep offline
+UPDATE existing_plants_agg
+SET retirement_year =
+	CASE WHEN plant_name = 'San_Onofre' THEN 2012
+		 WHEN plant_name = 'Dynergy_South_Bay_Power_Plant' THEN 2011
+		 WHEN plant_name = 'Haynes' AND primemover = 'ST' THEN 2013
+		 WHEN plant_name in ('El_Segundo_Power', 'Dynegy_Morro_Bay_LLC', 'Scattergood') THEN 2015
+		 WHEN plant_name in ('Encina', 'Contra_Costa', 'Pittsburg_Power', 'Pittsburg_Power_Plant') THEN 2017
+		 WHEN plant_name in ('Dynegy_Moss_Landing_Power_Plant') AND primemover = 'ST' THEN 2017
+		 WHEN plant_name in ('AES_Alamitos_LLC', 'AES_Huntington_Beach_LLC', 'AES_Redondo_Beach_LLC', 'Mandalay', 'Ormond_Beach') THEN 2020
+		 WHEN plant_name = 'Haynes' AND primemover = 'CC' THEN 2029
+		 WHEN plant_name = 'Harbor' THEN 2029
+		 ELSE 9999
+END;
 
 
 

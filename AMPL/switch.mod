@@ -417,6 +417,10 @@ param ep_cogen_thermal_demand {EXISTING_PLANTS} >= 0;
 # year when the plant was built (used to calculate annual capital cost and retirement date)
 param ep_vintage {EXISTING_PLANTS} >= 0;
 
+# year when plant is forced to retire... 9999 is the null value (i.e. no forced retirement)
+param ep_retirement_year {EXISTING_PLANTS} >= 2000;
+param ep_has_forced_retirement_year {(pid, a, t) in EXISTING_PLANTS} binary = if ep_retirement_year[pid, a, t] < 9999 then 1 else 0;
+
 # the ep costs already have the economic multiplier
 # overnight cost of the plant ($/MW)
 param ep_overnight_cost {EXISTING_PLANTS} >= 0;
@@ -587,34 +591,23 @@ param carbon_cap {p in PERIODS} = base_carbon_emissions *
 		( sum{ y in YEARS: y >= p and y < p + num_years_per_period } carbon_emissions_relative_to_base[y] );
 
 ##############################################
-# Existing hydro plants (assumed impossible to build more, but these last forever)
+# Existing hydro plants (assumed impossible to build more, but these last forever unless forcibly retired)
 
 # indexing sets for hydro data (read in along with data tables)
 # (this should probably be monthly data, but this has equivalent effect,
 # and doesn't require adding a month dataset and month <-> date links)
 set PROJ_HYDRO_DATES dimen 4; # project_id, load_area, technology, date
 
-# average output (in MW) for dams aggregated to the load area level for each day
-# (note: we assume that the average dispatch for each day must come out at this average level,
-# and flow will always be between minimum and maximum levels)
-# average is based on historical power production for each month
-# for simple hydro, minimum output is a fixed fraction of average output
-# for pumped hydro, minimum output is a negative value, showing the maximum pumping rate
-param avg_hydro_output {PROJ_HYDRO_DATES};
+# average capacity factor for dams for each day
+# average is based on average historical power production for each month
+# we assume that the average dispatch for each day must come out at this average level
+param avg_capacity_factor_hydro {PROJ_HYDRO_DATES} >=0, <=1;
 
-# Make sure hydro outputs aren't outside the bounds of the turbine capacities (should have already been fixed in mysql)
-check {(pid, a, t) in EXISTING_PLANTS, d in DATES: hydro[t]}: 
-  -ep_capacity_mw[pid, a, t] <= avg_hydro_output[pid, a, t, d] <= ep_capacity_mw[pid, a, t];
-check {(pid, a, t) in EXISTING_PLANTS, d in DATES: t = 'Hydro_NonPumped'}: 
-  0 <= avg_hydro_output[pid, a, t, d] <= ep_capacity_mw[pid, a, t];
-
-# make sure each hydro plant has an entry for each date.
+# make sure each hydro plant has a capacity factor entry for each date.
 check {(pid, a, t) in EXISTING_PLANTS: hydro[t]}:
 	card(DATES symdiff setof {(pid, a, t, d) in PROJ_HYDRO_DATES} (d)) = 0;
 
-# minimum dispatch that non-pumped hydro generators must do in each hour
-# TODO this should be derived from USGS stream flow data
-# right now, it's set at 50% of the average stream flow for each month
+# minimum dispatch that non-pumped hydro generators must output in each hour is 50% of the average output for each month
 # there isn't a similar paramter for pumped hydro because it is assumed that the lower resevoir is large enough
 # such that hourly stream flow can be maintained independent of the pumped hydro dispatch
 # especially because the daily flow through the turbine will be constrained to be within historical monthly averages below
@@ -637,9 +630,12 @@ set HYDRO_TECH_LOAD_AREAS := {a in LOAD_AREAS, t in TECHNOLOGIES: hydro[t]
 param hydro_capacity_mw_in_load_area { (a, t) in HYDRO_TECH_LOAD_AREAS }
 	= sum{(pid, a, t) in EXISTING_PLANTS: hydro[t]} ep_capacity_mw[pid, a, t];
 
+
+# ep_retirement_year
+
 # also sum up the hydro output to load area level because it's going to be dispatched at that level of aggregation
 param avg_hydro_output_load_area_agg_unrestricted { (a, t, p, d) in HYDRO_DATES }
-	= sum {(pid, a, t) in EXISTING_PLANTS: hydro[t]} avg_hydro_output[pid, a, t, d];
+	= sum {(pid, a, t) in EXISTING_PLANTS: hydro[t]} avg_capacity_factor_hydro[pid, a, t, d] * ep_capacity_mw[pid, a, t];
 # as avg_hydro_output_load_area_agg_unrestricted has gen_availability[t] built in because it's from historical generation data,
 # it may exceed hydro_capacity_mw_in_load_area[a, t] * gen_availability[t],
 # so the param below restricts generation to the amount expected to be available in the future for each date 

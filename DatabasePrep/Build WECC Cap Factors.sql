@@ -990,6 +990,7 @@ CREATE TABLE existing_plants_v2 (
 	heat_rate double NOT NULL,
 	cogen_thermal_demand_mmbtus_per_mwh double NOT NULL,
 	start_year year NOT NULL,
+	retirement_year smallint NOT NULL default 9999,
 	overnight_cost float NOT NULL,
 	connect_cost_per_mw float,
 	fixed_o_m double NOT NULL,
@@ -1004,7 +1005,7 @@ CREATE TABLE existing_plants_v2 (
  -- The << operation moves the numeric form of the letter "E" (for existing plants) over by 3 bytes, effectively making its value into the most significant digits.
 -- make sure the joins work in the future - not updated correctly in the past...
 insert into existing_plants_v2 (project_id, load_area, technology, ep_id, area_id, plant_name, eia_id,
-								primemover, fuel, capacity_mw, heat_rate, cogen_thermal_demand_mmbtus_per_mwh, start_year,
+								primemover, fuel, capacity_mw, heat_rate, cogen_thermal_demand_mmbtus_per_mwh, start_year, retirement_year
 								overnight_cost, connect_cost_per_mw, fixed_o_m, variable_o_m, forced_outage_rate, scheduled_outage_rate )
 	select 	CASE WHEN e.fuel = 'Water' THEN e.ep_id ELSE e.ep_id+ (ascii( 'E' ) << 8*3) END,
 			e.load_area,
@@ -1019,6 +1020,7 @@ insert into existing_plants_v2 (project_id, load_area, technology, ep_id, area_i
 			e.heat_rate,
 			e.cogen_thermal_demand_mmbtus_per_mwh,
 			e.start_year,
+			e.retirement_year,
 			c.overnight_cost * economic_multiplier,
 			g.connect_cost_per_mw_generic * economic_multiplier,		
 			c.fixed_o_m * economic_multiplier,
@@ -1032,14 +1034,6 @@ insert into existing_plants_v2 (project_id, load_area, technology, ep_id, area_i
 			WHERE year = 2000
 			AND	gen_costs_scenario_id = 2
 			AND gen_info_scenario_id = 2;
-
-
-
-
-
--- code to export the data from postgresql
-
-
 
 			
 drop table if exists _existing_intermittent_plant_cap_factor;
@@ -1106,43 +1100,28 @@ drop table can_existing_wind_hourly_import;
 -- the project_id here is the ep_id (see how existing_plants_v2 is populated above)
 select 'Copying Hydro' as progress;
 
-drop table if exists _hydro_monthly_limits;
-CREATE TABLE _hydro_monthly_limits (
+drop table if exists _hydro_monthly_limits_v2;
+CREATE TABLE _hydro_monthly_limits_v2 (
   project_id int unsigned,
-  year year,
   month tinyint,
-  avg_output float,
+  avg_capacity_factor_hydro float check (avg_capacity_factor_hydro between 0 and 1),
   INDEX (project_id),
-  PRIMARY KEY (project_id, year, month),
+  PRIMARY KEY (project_id, month),
   FOREIGN KEY (project_id) REFERENCES existing_plants_v2 (project_id)
 );
 
-DROP VIEW IF EXISTS hydro_monthly_limits;
-CREATE VIEW hydro_monthly_limits as
-  SELECT project_id, load_area, technology, year, month, avg_output
-    FROM _hydro_monthly_limits join existing_plants_v2 using (project_id);
+DROP VIEW IF EXISTS hydro_monthly_limits_v2;
+CREATE VIEW hydro_monthly_limits_v2 as
+  SELECT project_id, load_area, technology, month, avg_capacity_factor_hydro
+    FROM _hydro_monthly_limits_v2 join existing_plants_v2 using (project_id);
 
 
 load data local infile
 	'/Volumes/switch/Models/USA_CAN/existing_plants/hydro_monthly_average_output_mysql.csv'
-	into table _hydro_monthly_limits
+	into table _hydro_monthly_limits_v2
 	fields terminated by	','
 	optionally enclosed by '"'
 	ignore 1 lines;
-
-
-
--- the join is long here in an attempt to reduce the # of numeric ids flying around
-insert into hydro_monthly_limits (project_id, year, month, avg_output )
-	select 
-	  project_id,
-	  year,
-	  month,
-	  avg_output
-	from generator_info.hydro_monthly_limits
-	join existing_plants_v2 using (load_area, plant_name, eia_id, start_year, capacity_mw)
-	where fuel = 'Water';
-
 
 -- ---------------------------------------------------------------------
 -- PROPOSED PROJECTS--------------

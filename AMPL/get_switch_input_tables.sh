@@ -286,8 +286,8 @@ SELECT load_area, period_start as period, max(power) as max_system_load \
   GROUP BY 1,2; " >> max_system_loads.tab
 
 echo '	existing_plants.tab...'
-echo ampl.tab 3 10 > existing_plants.tab
-mysql $connection_string -e "select project_id, load_area, technology, plant_name, eia_id, capacity_mw, heat_rate, cogen_thermal_demand_mmbtus_per_mwh, if(start_year = 0, 1900, start_year) as start_year, overnight_cost, connect_cost_per_mw, fixed_o_m, variable_o_m from existing_plants_v2 order by 1, 2, 3;" >> existing_plants.tab
+echo ampl.tab 3 11 > existing_plants.tab
+mysql $connection_string -e "select project_id, load_area, technology, plant_name, eia_id, capacity_mw, heat_rate, cogen_thermal_demand_mmbtus_per_mwh, if(start_year = 0, 1900, start_year) as start_year, retirement_year, overnight_cost, connect_cost_per_mw, fixed_o_m, variable_o_m from existing_plants_v2 order by 1, 2, 3;" >> existing_plants.tab
 
 echo '	existing_intermittent_plant_cap_factor.tab...'
 echo ampl.tab 4 1 > existing_intermittent_plant_cap_factor.tab
@@ -304,17 +304,14 @@ echo '	hydro_monthly_limits.tab...'
 echo ampl.tab 4 1 > hydro_monthly_limits.tab
 mysql $connection_string -e "\
 CREATE TEMPORARY TABLE study_dates_export\
-  SELECT distinct period, YEAR(hours.datetime_utc) as year, MONTH(hours.datetime_utc) AS month, DATE_FORMAT(study_timepoints.datetime_utc,'%Y%m%d') AS study_date\
+  SELECT DISTINCT month_of_year AS month, DATE_FORMAT(study_timepoints.datetime_utc,'%Y%m%d') AS study_date\
   FROM _training_set_timepoints \
-    JOIN _load_projections USING (timepoint_id)\
     JOIN study_timepoints  USING (timepoint_id)\
-    JOIN hours ON(historic_hour=hournum)\
   WHERE training_set_id=$TRAINING_SET_ID \
-    AND load_scenario_id = $LOAD_SCENARIO_ID\
   ORDER BY 1,2;\
-SELECT project_id, load_area, technology, study_date as date, ROUND(avg_output,1) AS avg_output\
-  FROM hydro_monthly_limits \
-    JOIN study_dates_export USING(year, month);" >> hydro_monthly_limits.tab
+SELECT project_id, load_area, technology, study_date as date, ROUND(avg_capacity_factor_hydro,4) AS avg_capacity_factor_hydro\
+  FROM hydro_monthly_limits_v2 \
+    JOIN study_dates_export USING(month);" >> hydro_monthly_limits.tab
 
 echo '	proposed_projects.tab...'
 echo ampl.tab 3 7 > proposed_projects.tab

@@ -36,7 +36,7 @@ option substout 1, linelim 1;
 # Options to enable timing of compilation
 # option show_stats 1, times 1, gentimes 1;
 option solver cplexamp;
-option cplex_options (" threads=4 presolve=1 prestats=1 nodefile=2 startalgorithm=4 baralg=3 barstart=4 lpdisplay=1 bardisplay=2 mipdisplay=4 timing=1 baropt barobjrange=1e+30 " );
+option cplex_options (" threads=8 presolve=1 prestats=1 nodefile=2 startalgorithm=4 baralg=3 barstart=4 lpdisplay=1 bardisplay=2 mipdisplay=4 timing=1 baropt barobjrange=1e+30 " );
 # Use the option string below to enable iisfind when you are trying to diagnose infeasibilities
 #option cplex_options (" lpdisplay=1 iisfind=1 mipdisplay=2 presolve=1 prestats=1 timing=1 nodefile=2 treememory=15000 threads=4" );
 option cplex_options > results/cplex_options;
@@ -107,7 +107,7 @@ table existing_plants "inputs/existing_plants.tab" IN:
   EXISTING_PLANTS <- [project_id, load_area, technology], 
   	ep_plant_name ~ plant_name, ep_eia_id ~ eia_id,
     ep_capacity_mw ~ capacity_mw, ep_heat_rate ~ heat_rate, ep_cogen_thermal_demand ~ cogen_thermal_demand_mmbtus_per_mwh,
-    ep_vintage ~ start_year,  
+    ep_vintage ~ start_year,  ep_retirement_year ~ retirement_year,
     ep_overnight_cost ~ overnight_cost, ep_connect_cost_per_mw ~ connect_cost_per_mw, ep_fixed_o_m ~ fixed_o_m, ep_variable_o_m ~ variable_o_m;
 read table existing_plants;
 
@@ -116,7 +116,7 @@ table existing_intermittent_plant_cap_factor "inputs/existing_intermittent_plant
 read table existing_intermittent_plant_cap_factor;
 
 table hydro_monthly_limits "inputs/hydro_monthly_limits.tab" IN: 
-  PROJ_HYDRO_DATES <- [project_id, load_area, technology, date] avg_hydro_output ~ avg_output;
+  PROJ_HYDRO_DATES <- [project_id, load_area, technology, date] avg_capacity_factor_hydro;
 read table hydro_monthly_limits;
 
 table proposed_projects "inputs/proposed_projects.tab" IN: 
