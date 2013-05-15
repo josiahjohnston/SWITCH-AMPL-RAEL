@@ -236,7 +236,7 @@ mysql $connection_string -e "select balancing_area, load_only_spinning_reserve_r
 
 echo '	rps_compliance_entity_targets.tab...'
 echo ampl.tab 3 1 > rps_compliance_entity_targets.tab
-mysql $connection_string -e "select rps_compliance_entity, rps_compliance_type, rps_compliance_year, rps_compliance_fraction from rps_compliance_entity_targets where rps_compliance_year >= $STUDY_START_YEAR and rps_compliance_year <= $STUDY_END_YEAR;" >> rps_compliance_entity_targets.tab
+mysql $connection_string -e "select rps_compliance_entity, rps_compliance_type, rps_compliance_year, rps_compliance_fraction from rps_compliance_entity_targets_v2 where enable_rps = $ENABLE_RPS AND rps_compliance_year >= $STUDY_START_YEAR and rps_compliance_year <= $STUDY_END_YEAR;" >> rps_compliance_entity_targets.tab
 
 echo '	carbon_cap_targets.tab...'
 echo ampl.tab 1 1 > carbon_cap_targets.tab
@@ -397,6 +397,13 @@ order by load_area, period, breakpoint_id ;" >> biomass_supply_curve.tab
 echo '	fuel_info.tab...'
 echo ampl.tab 1 4 > fuel_info.tab
 mysql $connection_string -e "select fuel, rps_fuel_category, biofuel, carbon_content, carbon_sequestered from fuel_info_v2;" >> fuel_info.tab
+
+# switch.mod and load.run want enable_rps to be be a binary flag determining whether rps constraints will be written out
+# but the meaning of enable_rps in mysql was changed to mean rps_scenario_id
+# any value greater than zero indicates that we want rps constraints enabled
+if [ "$ENABLE_RPS" -gt 0 ]; then
+	ENABLE_RPS=1
+fi
 
 echo '	misc_params.dat...'
 echo "param scenario_id           := $SCENARIO_ID;" >  misc_params.dat

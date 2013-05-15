@@ -895,24 +895,47 @@ where	price_dollars_per_mmbtu_surplus_adjusted = 999999999;
 
 
 -- RPS COMPLIANCE INFO ---------------
-drop table if exists rps_compliance_entity_targets;
-create table rps_compliance_entity_targets(
+-- the column enable_rps is a bit of a misnomer as it now indicates rps_scenario_id...
+-- should change in future versions
+drop table if exists rps_compliance_entity_targets_v2;
+create table rps_compliance_entity_targets_v2(
+	enable_rps tinyint default 1,
 	rps_compliance_entity character varying(20),
 	rps_compliance_type character varying(20),
 	rps_compliance_year year,
 	rps_compliance_fraction float,
-	PRIMARY KEY (rps_compliance_entity, rps_compliance_type, rps_compliance_year),
+	PRIMARY KEY (enable_rps, rps_compliance_entity, rps_compliance_type, rps_compliance_year),
 	INDEX rps_compliance_year (rps_compliance_year)
 	);
 
 load data local infile
 	'rps_compliance_targets.csv'
-	into table rps_compliance_entity_targets
+	into table rps_compliance_entity_targets_v2
 	fields terminated by	','
 	optionally enclosed by '"'
 	ignore 1 lines;
 
+-- add in the option to not have an rps target... set the targets all to zero
+INSERT INTO rps_compliance_entity_targets_v2 (enable_rps, rps_compliance_entity, rps_compliance_type, rps_compliance_year, rps_compliance_fraction)
+	SELECT  0 as enable_rps,
+			rps_compliance_entity, rps_compliance_type, rps_compliance_year,
+			0 as rps_compliance_fraction
+	FROM 	rps_compliance_entity_targets_v2;
 
+-- RPS scenarios other than the default ones
+-- for now this will be only boosting California's RPS to 50% by 2030
+INSERT INTO rps_compliance_entity_targets_v2 (enable_rps, rps_compliance_entity, rps_compliance_type, rps_compliance_year, rps_compliance_fraction)
+	SELECT  2 as enable_rps,
+			rps_compliance_entity, rps_compliance_type, rps_compliance_year,
+			CASE WHEN primary_state = 'CA' AND rps_compliance_year BETWEEN 2021 AND 2030 AND rps_compliance_type = 'Primary'
+					THEN rps_compliance_fraction + (0.5-0.33)/(2030-2020) * (rps_compliance_year - 2020)
+				 WHEN primary_state = 'CA' AND rps_compliance_year > 2030 AND rps_compliance_type = 'Primary' THEN 0.5
+				 ELSE rps_compliance_fraction
+			END AS rps_compliance_fraction
+	FROM 	rps_compliance_entity_targets_v2
+	JOIN	(SELECT DISTINCT rps_compliance_entity, primary_state FROM load_area_info) as map_table USING (rps_compliance_entity)
+	WHERE	enable_rps = 1;
+    
 -- CARBON CAP INFO ---------------
 -- the current carbon cap in SWITCH is set by a linear decrease
 -- from 100% of 1990 levels in 2020 to 20% of 1990 levels in 2050
