@@ -91,10 +91,10 @@ let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }
 # add back pid to pumped hydro dispatch
 let { (pid, a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS_BY_PID }
   Pumped_Hydro_Storage_Stored[pid, a, t, p, h] :=
-		Store_Pumped_Hydro[a, t, p, h] * ( ep_capacity_mw[pid, a, t] / hydro_capacity_mw_in_load_area[a, t] );
+		Store_Pumped_Hydro[a, t, p, h] * ( ep_capacity_mw[pid, a, t] / hydro_capacity_mw_in_load_area[a, t, p] );
 let { (pid, a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS_BY_PID }
   Pumped_Hydro_Storage_Released[pid, a, t, p, h] :=
-		Dispatch_Pumped_Hydro_Storage[a, t, p, h] * ( ep_capacity_mw[pid, a, t] / hydro_capacity_mw_in_load_area[a, t] );
+		Dispatch_Pumped_Hydro_Storage[a, t, p, h] * ( ep_capacity_mw[pid, a, t] / hydro_capacity_mw_in_load_area[a, t, p] );
 
 # costs for storage are currently assumed to be incurred at dispatch only, not during the storage phase
 # for CAES, all costs including variable costs are assigned to the NG part via DispatchGen so it is excluded here
@@ -222,7 +222,7 @@ let { (pid, a, t, p, h) in AVAILABLE_HOURS: dispatchable[t] }
   Provide_Spinning_Reserve[pid, a, t, p, h] + Provide_Quickstart_Capacity[pid, a, t, p, h];
 let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: hydro[t] } 
 	Total_Operating_Reserve_Provided[pid, a, t, p, h] := 
-	Hydro_Operating_Reserve[a, t, p, h] * ( ep_capacity_mw[pid, a, t] / hydro_capacity_mw_in_load_area[a, t] );
+	Hydro_Operating_Reserve[a, t, p, h] * ( ep_capacity_mw[pid, a, t] / hydro_capacity_mw_in_load_area[a, t, p] );
 let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: hydro[t] } 
 	Spinning_Reserve_Provided[pid, a, t, p, h] := 
 	Fraction_of_Nonthermal_Reserves_That_Are_Spinning_in_Balancing_Area_in_Hour[balancing_area[a], h]
@@ -235,7 +235,7 @@ let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: hydro[t] }
 # assign a fuel category to the operating reserve provided by storage based on the daily mix of energy stored
 let { (pid, a, t, p, h) in AVAILABLE_HOURS: storage[t] } 
   Storage_Operating_Reserve_Provided[pid, a, t, p, h] := 
-	( if t = 'Hydro_Pumped' then ( Pumped_Hydro_Storage_Operating_Reserve[a, t, p, h] * ( ep_capacity_mw[pid, a, t] / hydro_capacity_mw_in_load_area[a, t] ) )
+	( if t = 'Hydro_Pumped' then ( Pumped_Hydro_Storage_Operating_Reserve[a, t, p, h] * ( ep_capacity_mw[pid, a, t] / hydro_capacity_mw_in_load_area[a, t, p] ) )
 	else Storage_Operating_Reserve[pid, a, t, p, h] );
 
 let { (pid, a, t, p) in AVAILABLE_VINTAGES, d in DATES: period_of_date[d] = p and storage[t] }

@@ -990,7 +990,7 @@ CREATE TABLE existing_plants_v2 (
 	heat_rate double NOT NULL,
 	cogen_thermal_demand_mmbtus_per_mwh double NOT NULL,
 	start_year year NOT NULL,
-	retirement_year smallint NOT NULL default 9999,
+	forced_retirement_year smallint NOT NULL default 9999,
 	overnight_cost float NOT NULL,
 	connect_cost_per_mw float,
 	fixed_o_m double NOT NULL,
@@ -1005,7 +1005,7 @@ CREATE TABLE existing_plants_v2 (
  -- The << operation moves the numeric form of the letter "E" (for existing plants) over by 3 bytes, effectively making its value into the most significant digits.
 -- make sure the joins work in the future - not updated correctly in the past...
 insert into existing_plants_v2 (project_id, load_area, technology, ep_id, area_id, plant_name, eia_id,
-								primemover, fuel, capacity_mw, heat_rate, cogen_thermal_demand_mmbtus_per_mwh, start_year, retirement_year
+								primemover, fuel, capacity_mw, heat_rate, cogen_thermal_demand_mmbtus_per_mwh, start_year, forced_retirement_year
 								overnight_cost, connect_cost_per_mw, fixed_o_m, variable_o_m, forced_outage_rate, scheduled_outage_rate )
 	select 	CASE WHEN e.fuel = 'Water' THEN e.ep_id ELSE e.ep_id+ (ascii( 'E' ) << 8*3) END,
 			e.load_area,
@@ -1020,7 +1020,7 @@ insert into existing_plants_v2 (project_id, load_area, technology, ep_id, area_i
 			e.heat_rate,
 			e.cogen_thermal_demand_mmbtus_per_mwh,
 			e.start_year,
-			e.retirement_year,
+			e.forced_retirement_year,
 			c.overnight_cost * economic_multiplier,
 			g.connect_cost_per_mw_generic * economic_multiplier,		
 			c.fixed_o_m * economic_multiplier,

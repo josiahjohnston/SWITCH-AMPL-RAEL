@@ -287,7 +287,7 @@ SELECT load_area, period_start as period, max(power) as max_system_load \
 
 echo '	existing_plants.tab...'
 echo ampl.tab 3 11 > existing_plants.tab
-mysql $connection_string -e "select project_id, load_area, technology, plant_name, eia_id, capacity_mw, heat_rate, cogen_thermal_demand_mmbtus_per_mwh, if(start_year = 0, 1900, start_year) as start_year, retirement_year, overnight_cost, connect_cost_per_mw, fixed_o_m, variable_o_m from existing_plants_v2 order by 1, 2, 3;" >> existing_plants.tab
+mysql $connection_string -e "select project_id, load_area, technology, plant_name, eia_id, capacity_mw, heat_rate, cogen_thermal_demand_mmbtus_per_mwh, if(start_year = 0, 1900, start_year) as start_year, forced_retirement_year, overnight_cost, connect_cost_per_mw, fixed_o_m, variable_o_m from existing_plants_v2 order by 1, 2, 3;" >> existing_plants.tab
 
 echo '	existing_intermittent_plant_cap_factor.tab...'
 echo ampl.tab 4 1 > existing_intermittent_plant_cap_factor.tab

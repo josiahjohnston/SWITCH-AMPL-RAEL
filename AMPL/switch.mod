@@ -418,8 +418,8 @@ param ep_cogen_thermal_demand {EXISTING_PLANTS} >= 0;
 param ep_vintage {EXISTING_PLANTS} >= 0;
 
 # year when plant is forced to retire... 9999 is the null value (i.e. no forced retirement)
-param ep_retirement_year {EXISTING_PLANTS} >= 2000;
-param ep_has_forced_retirement_year {(pid, a, t) in EXISTING_PLANTS} binary = if ep_retirement_year[pid, a, t] < 9999 then 1 else 0;
+param ep_forced_retirement_year {EXISTING_PLANTS} >= 2000;
+param ep_has_forced_retirement_year {(pid, a, t) in EXISTING_PLANTS} binary = if ep_forced_retirement_year[pid, a, t] < 9999 then 1 else 0;
 
 # the ep costs already have the economic multiplier
 # overnight cost of the plant ($/MW)
@@ -450,23 +450,27 @@ check: card({(pid, a, t) in EXISTING_PLANTS: intermittent[t] } diff EP_INTERMITT
 param eip_cap_factor {EP_INTERMITTENT_HOURS} >= 0 <=1.4;
 
 ###############################################
-# year when the plant is EXPECTED to be retired
+# year when the plant is EXPECTED to be retired - either at max_age_years[t] or at ep_forced_retirement_year[pid, a, t]
 # this is rounded up to the end of the study period when the retirement would occur,
 # so capital payments are made until the end of that period.
 param ep_end_year {(pid, a, t) in EXISTING_PLANTS} =
-  min( end_year, start_year + ceil( ( ep_vintage[pid, a, t] + max_age_years[t] - start_year ) / num_years_per_period ) * num_years_per_period );
+  if present_year >= ep_forced_retirement_year[pid, a, t] then ep_forced_retirement_year[pid, a, t] else
+  	min( end_year, start_year + ceil( (
+  		( if ep_vintage[pid, a, t] + max_age_years[t] < ep_forced_retirement_year[pid, a, t] then ep_vintage[pid, a, t] + max_age_years[t] else ep_forced_retirement_year[pid, a, t] )
+  			- start_year ) / num_years_per_period ) * num_years_per_period );
 
 # plant-period combinations when existing plants can run
 # these are the times when a decision must be made about whether a plant will be kept available for the period
 # or retired to save on fixed O&M (or fuel, for baseload plants)
-# existing nuclear plants are assumed to be relicenced once, for a total lifetime of 60 years, unless you input max_age_years[t] > 60
-#  (nuclear capital is spread out over max_age_years[t])
+# existing nuclear plants are assumed to be relicenced once, for a total lifetime of 60 years (unless you input max_age_years[t] > 60)
+#  nuclear capital is spread out over max_age_years[t]
 #  consistent with the end year calculation above, if 60 years falls within a period, let the plant live until the end of the period
-# hydro plants are kept operational indefinitely
+# hydro plants are kept operational indefinitely unless forcibly retired
 set EP_PERIODS :=
   { (pid, a, t) in EXISTING_PLANTS, p in PERIODS:
-		p < ep_end_year[pid, a, t] or hydro[t] or
-			( t = 'Nuclear_EP' and ( p < ep_vintage[pid, a, t] + if max_age_years['Nuclear_EP'] > 60 then max_age_years['Nuclear_EP'] else 60 ) )  };
+		p < ep_end_year[pid, a, t]
+		or ( hydro[t] and p < ep_forced_retirement_year[pid, a, t] )
+		or ( t = 'Nuclear_EP' and p < ep_forced_retirement_year[pid, a, t] and ( p < ep_vintage[pid, a, t] + if max_age_years['Nuclear_EP'] > 60 then max_age_years['Nuclear_EP'] else 60 ) )  };
 
 # if a period exists that is >= ep_end_year[pid, a, t], then this plant can be operational past the expected lifetime of the plant
 param ep_could_be_operating_past_expected_lifetime { (pid, a, t, p) in EP_PERIODS } =
@@ -476,14 +480,17 @@ param ep_could_be_operating_past_expected_lifetime { (pid, a, t, p) in EP_PERIOD
 
 # do a join of EXISTING_PLANTS and PROJECT_EP_REPLACMENTS to find the end year of the original existing plant
 # such that we can only allow it to install new replacement plants after the old plant has finished its operational lifetime
+# and such that new plants aren't installed if the existing one is forced to retire
 param original_ep_end_year { (pid, a, t) in PROJECT_EP_REPLACMENTS } = 
 	min { (pid_ep, a_ep, t_ep) in EXISTING_PLANTS: pid_ep = ep_project_replacement_id[pid, a, t] } ep_end_year[pid_ep, a_ep, t_ep];
+param original_ep_has_forced_retirement_year { (pid, a, t) in PROJECT_EP_REPLACMENTS } = 
+	min { (pid_ep, a_ep, t_ep) in EXISTING_PLANTS: pid_ep = ep_project_replacement_id[pid, a, t] } ep_has_forced_retirement_year[pid_ep, a_ep, t_ep];
 
 # project-vintage combinations that can be installed
 # the second part of the union keeps existing plants from being prematurly replaced by making p >= original_ep_end_year
 set PROJECT_VINTAGES = { (pid, a, t) in PROJECTS, p in PERIODS: (pid, a, t) not in PROJECT_EP_REPLACMENTS and (t, p) in NEW_TECHNOLOGY_PERIODS }
 	union
-	{ (pid, a, t) in PROJECT_EP_REPLACMENTS, p in PERIODS: p >= original_ep_end_year[pid, a, t] and (t, p) in NEW_TECHNOLOGY_PERIODS };
+	{ (pid, a, t) in PROJECT_EP_REPLACMENTS, p in PERIODS: p >= original_ep_end_year[pid, a, t] and not original_ep_has_forced_retirement_year[pid, a, t] and (t, p) in NEW_TECHNOLOGY_PERIODS };
 	
 # date when a plant of each type and vintage will stop being included in the simulation
 # note: if it would be expected to retire between study periods,
@@ -625,23 +632,20 @@ set HYDRO_AVAILABLE_HOURS := NONPUMPED_HYDRO_AVAILABLE_HOURS union PUMPED_HYDRO_
 set HYDRO_DATES := NONPUMPED_HYDRO_DATES union PUMPED_HYDRO_DATES;
 
 # sum up the hydro capacity in each load area
-set HYDRO_TECH_LOAD_AREAS := {a in LOAD_AREAS, t in TECHNOLOGIES: hydro[t]
-	and ( sum{(pid, a, t) in EXISTING_PLANTS} ep_capacity_mw[pid, a, t] > 0 ) };
-param hydro_capacity_mw_in_load_area { (a, t) in HYDRO_TECH_LOAD_AREAS }
-	= sum{(pid, a, t) in EXISTING_PLANTS: hydro[t]} ep_capacity_mw[pid, a, t];
-
-
-# ep_retirement_year
+# this will be the existing capacity in each load area unless some has been forcibly retired
+set HYDRO_TECH_LOAD_AREA_PERIODS := setof { (pid, a, t, p) in EP_PERIODS: hydro[t] } (a, t, p);
+param hydro_capacity_mw_in_load_area { (a, t, p) in HYDRO_TECH_LOAD_AREA_PERIODS }
+	= sum{(pid, a, t, p) in EP_PERIODS} ep_capacity_mw[pid, a, t];
 
 # also sum up the hydro output to load area level because it's going to be dispatched at that level of aggregation
 param avg_hydro_output_load_area_agg_unrestricted { (a, t, p, d) in HYDRO_DATES }
-	= sum {(pid, a, t) in EXISTING_PLANTS: hydro[t]} avg_capacity_factor_hydro[pid, a, t, d] * ep_capacity_mw[pid, a, t];
+	= sum {(pid, a, t, p) in EP_PERIODS: hydro[t] and period_of_date[d] = p} avg_capacity_factor_hydro[pid, a, t, d] * ep_capacity_mw[pid, a, t];
 # as avg_hydro_output_load_area_agg_unrestricted has gen_availability[t] built in because it's from historical generation data,
-# it may exceed hydro_capacity_mw_in_load_area[a, t] * gen_availability[t],
+# it may exceed hydro_capacity_mw_in_load_area[a, t, p] * gen_availability[t],
 # so the param below restricts generation to the amount expected to be available in the future for each date 
 param avg_hydro_output_load_area_agg { (a, t, p, d) in HYDRO_DATES }
-	= 	if ( avg_hydro_output_load_area_agg_unrestricted[a, t, p, d] > hydro_capacity_mw_in_load_area[a, t] * gen_availability[t] )
-		then hydro_capacity_mw_in_load_area[a, t] * gen_availability[t]
+	= 	if ( avg_hydro_output_load_area_agg_unrestricted[a, t, p, d] > hydro_capacity_mw_in_load_area[a, t, p] * gen_availability[t] )
+		then hydro_capacity_mw_in_load_area[a, t, p] * gen_availability[t]
 		else avg_hydro_output_load_area_agg_unrestricted[a, t, p, d];
 	
 
@@ -702,13 +706,21 @@ param cost_of_plant_one_year_before_operational {(pid, a, t, p) in AVAILABLE_VIN
   	* (1 + discount_rate) ^ ( construction_time_years[t] - yr_of_constr - 1 )
   	);
 
+# plant lifetime - number of years the plant is EXPECTED to be operational: for new plants, this will just be max_age_years[t]
+# for existing plants, it will be max_age_years[t] unless the plant is forced to retire early
+param plant_lifetime_years { (pid, a, t) in ALL_PLANTS } = 
+	if can_build_new[t] then max_age_years[t]
+	else ( if ep_forced_retirement_year[pid, a, t] - ep_vintage[pid, a, t] > max_age_years[t] then max_age_years[t] else ep_forced_retirement_year[pid, a, t] - ep_vintage[pid, a, t] );
+
 # Spread the costs of the plant evenly over the plant's operation. 
 # This doesn't represent the cash flow. Rather, it spreads the costs of bringing the plant online evenly over the operational period
 # so the linear program optimization won't experience "boundary conditions"
-# and avoid making long-term investments close to the last year of the simulation. 
+# and avoid making long-term investments close to the last year of the simulation.
+# For existing plants that are forced to retire early, the number of years over which capital is spread is decreased.
+# this means that capital will be recovered more quickly for these plants than for plants that live out their entire lifetime.
 param capital_cost_annual_payment {(pid, a, t, p) in AVAILABLE_VINTAGES} = 
   cost_of_plant_one_year_before_operational[pid, a, t, p] *
-  discount_rate / ( 1 - (1 + discount_rate) ^ ( -1 * max_age_years[t] ) );
+  discount_rate / ( 1 - (1 + discount_rate) ^ ( -1 * plant_lifetime_years[pid, a, t] ) );
 
 # Convert annual payments made in each period the plant is operational to a lump-sum in the first year of the period and then discount back to the base year
 param capital_cost {(pid, a, t, online_yr) in PROJECT_VINTAGES} = 
@@ -1256,7 +1268,7 @@ minimize Power_Cost:
 	# variable costs for releasing energy from pumped hydro storage - currently zero because the variable O&M value is zero
 	# decision variables are on the load area level - this shares them out by plant (pid) in case plants have different variable costs within a load area
 	+ ( sum {(pid, a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS_BY_PID}
-		Dispatch_Pumped_Hydro_Storage[a, t, p, h] * ( ep_capacity_mw[pid, a, t] / hydro_capacity_mw_in_load_area[a, t] ) * variable_o_m_cost_hourly[pid, a, t, p, h] )
+		Dispatch_Pumped_Hydro_Storage[a, t, p, h] * ( ep_capacity_mw[pid, a, t] / hydro_capacity_mw_in_load_area[a, t, p] ) * variable_o_m_cost_hourly[pid, a, t, p, h] )
 	# carbon costs for keeping spinning reserves from existing dispatchable thermal plants (fuel costs for NG generators are handled via the NG supply curve, but is included in fuel_cost_hourly_spinning_reserve for oil plants)
 	+ ( sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: dispatchable[t] }
 		Provide_Spinning_Reserve[pid, a, t, p, h] * ( fuel_cost_hourly_spinning_reserve[pid, a, t, p, h] + carbon_cost_per_mwh_hourly_spinning_reserve[pid, a, t, p, h] ) )
@@ -1684,7 +1696,7 @@ subject to Minimum_Loading_Existing_Flexible_Baseload_Plants { (pid, a, t, p, d)
 # so the load area variables are apportioned to each plant by capacity (this assumes that each plant operates similarly)
 # DispatchHydro is derated by gen_availability[t] in the hydro constraints below
 subject to EP_Power_From_Hydro_Plants { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: hydro[t] }: 
-	ProducePowerEP[pid, a, t, p, h] = DispatchHydro[a, t, p, h] * ( ep_capacity_mw[pid, a, t] / hydro_capacity_mw_in_load_area[a, t] );
+	ProducePowerEP[pid, a, t, p, h] = DispatchHydro[a, t, p, h] * ( ep_capacity_mw[pid, a, t] / hydro_capacity_mw_in_load_area[a, t, p] );
 	
 	
 # Max capacity that can be dedicated to spinning reserves
@@ -1888,7 +1900,7 @@ subject to Maximum_Dispatch_and_Operating_Reserve_Hydro { (a, t, p, h) in HYDRO_
 	+ (if t = 'Hydro_Pumped'
 		then ( Dispatch_Pumped_Hydro_Storage[a, t, p, h] + Pumped_Hydro_Storage_Operating_Reserve[a, t, p, h] )
 		else 0 )
-    <= hydro_capacity_mw_in_load_area[a, t] * gen_availability[t];
+    <= hydro_capacity_mw_in_load_area[a, t, p] * gen_availability[t];
 
 # for every hour, for NONPUMPED hydro,
 # the amount of water released can't be less than that necessary to maintain stream flow
@@ -1911,7 +1923,7 @@ subject to Average_Hydro_Output { (a, t, p, d) in HYDRO_DATES }:
 subject to Max_Operating_Reserve_Hydro { (a, t, p, h) in HYDRO_AVAILABLE_HOURS }:
 	Hydro_Operating_Reserve[a, t, p, h] 
 	+ ( if t = 'Hydro_Pumped' then Pumped_Hydro_Storage_Operating_Reserve[a, t, p, h] else 0 )
-	<= 0.20 * hydro_capacity_mw_in_load_area[a, t]; 
+	<= 0.20 * hydro_capacity_mw_in_load_area[a, t, p]; 
 
 # Can't pump more water uphill than the pump capacity (in MW)
 # As mentioned above, Store_Pumped_Hydro represents the grid load of storage
@@ -1921,7 +1933,7 @@ subject to Max_Operating_Reserve_Hydro { (a, t, p, h) in HYDRO_AVAILABLE_HOURS }
 # or if they can take capacity_mw / storage_efficiency[t] in load thereby storing their capacity_mw uphill.
 # We'll take the conservative assumption here that they can only store capacity_mw * storage_efficiency[t]
 subject to Maximum_Store_Pumped_Hydro { (a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS }:
-  Store_Pumped_Hydro[a, t, p, h] <= hydro_capacity_mw_in_load_area[a, t] * gen_availability[t] ;
+  Store_Pumped_Hydro[a, t, p, h] <= hydro_capacity_mw_in_load_area[a, t, p] * gen_availability[t] ;
 
 # Pumped hydro has to dispatch all electrons it stored each day 
 subject to Pumped_Hydro_Energy_Balance { (a, t, p, d) in PUMPED_HYDRO_DATES: period_of_date[d] = p }:

@@ -535,7 +535,7 @@ CREATE TABLE existing_plants_agg(
 	plant_name varchar(64) NOT NULL,
 	eia_id varchar(64) default 0,
 	start_year year(4) NOT NULL,
-	retirement_year smallint NOT NULL default 9999,
+	forced_retirement_year smallint NOT NULL default 9999,
 	primemover varchar(4) NOT NULL,
 	cogen boolean NOT NULL,
 	fuel varchar(64)  NOT NULL,
@@ -626,7 +626,7 @@ load data local infile
 -- except for Diablo Canyon, which is kept operational
 -- and San Onofre, which is currently offline and we keep offline
 UPDATE existing_plants_agg
-SET retirement_year =
+SET forced_retirement_year =
 	CASE WHEN plant_name = 'San_Onofre' THEN 2012
 		 WHEN plant_name = 'Dynergy_South_Bay_Power_Plant' THEN 2011
 		 WHEN plant_name = 'Haynes' AND primemover = 'ST' THEN 2013
