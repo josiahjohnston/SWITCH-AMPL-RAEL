@@ -6,6 +6,8 @@
 #PBS -N test-present_day_dispatch
 # Please keep nodes below 8. Each node has 8 processors & 24GB RAM
 #PBS -l nodes=1:ppn=1
+# reserve a complete node for this process so AMPL can get the memory it needs
+#PBS -W x=\"NACCESSPOLICY:SINGLEJOB\"
 # How long you expect the job to run. The PBS scheduler will kill the job after this long. 72h is the maximum. Format is HH:MM:SS
 #PBS -l walltime=06:00:00
 # Name of the files to direct stdout and stderr. These files will be written to the working directory. 
