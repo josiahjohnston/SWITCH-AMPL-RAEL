@@ -706,11 +706,17 @@ param cost_of_plant_one_year_before_operational {(pid, a, t, p) in AVAILABLE_VIN
   	* (1 + discount_rate) ^ ( construction_time_years[t] - yr_of_constr - 1 )
   	);
 
-# plant lifetime - number of years the plant is EXPECTED to be operational: for new plants, this will just be max_age_years[t]
-# for existing plants, it will be max_age_years[t] unless the plant is forced to retire early
+# plant lifetime - number of years the plant is to be operational IN SWITCH
+# the ceiling function makes sure that plants pay capital payments uniformly over a period
+# by setting their max age to multiple of num_years_per_period
+# this is consistent with how O&M and fuel costs are paid in the model
+# see the calculation of project_end_year and ep_end_year for further clarification
+# The plant lifetimes are indexed to max_age_years[t] unless an existing plant is forced to retire early
 param plant_lifetime_years { (pid, a, t) in ALL_PLANTS } = 
+	ceil( (
 	if can_build_new[t] then max_age_years[t]
-	else ( if ep_forced_retirement_year[pid, a, t] - ep_vintage[pid, a, t] > max_age_years[t] then max_age_years[t] else ep_forced_retirement_year[pid, a, t] - ep_vintage[pid, a, t] );
+	else ( if ep_forced_retirement_year[pid, a, t] - ep_vintage[pid, a, t] > max_age_years[t] then max_age_years[t] else ep_forced_retirement_year[pid, a, t] - ep_vintage[pid, a, t] )
+	) / num_years_per_period ) * num_years_per_period;
 
 # Spread the costs of the plant evenly over the plant's operation. 
 # This doesn't represent the cash flow. Rather, it spreads the costs of bringing the plant online evenly over the operational period
@@ -725,7 +731,7 @@ param capital_cost_annual_payment {(pid, a, t, p) in AVAILABLE_VINTAGES} =
 # Convert annual payments made in each period the plant is operational to a lump-sum in the first year of the period and then discount back to the base year
 param capital_cost {(pid, a, t, online_yr) in PROJECT_VINTAGES} = 
   sum {p in PERIODS: online_yr <= p < project_end_year[pid, a, t, online_yr]}
-  	capital_cost_annual_payment [pid, a, t, online_yr] * discount_to_base_year[p];
+  	capital_cost_annual_payment[pid, a, t, online_yr] * discount_to_base_year[p];
 
 # discount capital costs to a lump-sum value at the start of the study.
 param ep_capital_cost { (pid, a, t, p) in EP_PERIODS } =
