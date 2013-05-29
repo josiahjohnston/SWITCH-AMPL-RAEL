@@ -1,6 +1,6 @@
 Scenario Information
 scenario_id	scenario_name	training_set_id	regional_cost_multiplier_scenario_id	regional_fuel_cost_scenario_id	gen_costs_scenario_id	gen_info_scenario_id	enable_rps	carbon_cap_scenario_id	nems_fuel_scenario_id	dr_scenario_id	ev_scenario_id	notes	model_version	inputs_adjusted	enforce_ca_dg_mandate	linearize_optimization
-3684	NULL	508	1	1	2	2	1	1	1	NULL	NULL			no	0	0
+7583	NULL	508	1	1	6	8	1	1	6	NULL	NULL			no	0	1
 Training Set Information
 training_set_id	load_scenario_id	num_timepoints	study_start_year	years_per_period	number_of_periods	exclude_peaks	months_between_samples	start_month	hours_between_samples	start_hour	selection_method	notes	orig_scenario_id
 508	1	48	2015	10	4	0	12	12	4	0	MEDIAN_FEB29DAYS	For each month, the day with peak load and a representative day with near-median load were selected. The peak day was selected system-wide, while the median was based on total consumption during the day.	NULL

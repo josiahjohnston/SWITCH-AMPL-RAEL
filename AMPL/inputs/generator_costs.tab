@@ -1,9 +1,9 @@
 ampl.tab 2 3
 technology	period	overnight_cost	fixed_o_m	variable_o_m_by_year
-Battery_Storage	2013	3654900	23436	54.87
-Battery_Storage	2025	3394500	23436	54.87
-Battery_Storage	2035	3208500	23436	54.87
-Battery_Storage	2045	3022500	23436	54.87
+Battery_Storage	2013	3654900	23436	0
+Battery_Storage	2025	3394500	23436	0
+Battery_Storage	2035	3208500	23436	0
+Battery_Storage	2045	3022500	23436	0
 Biomass_IGCC	2013	3561900	88350	13.95
 Biomass_IGCC	2015	3561900	88350	13.95
 Biomass_IGCC	2025	3561900	88350	13.95

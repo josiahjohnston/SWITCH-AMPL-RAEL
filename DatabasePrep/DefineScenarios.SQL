@@ -61,15 +61,15 @@ insert ignore into scenarios_v3 (
 		training_set_id, 
 	  1 as regional_cost_multiplier_scenario_id,
 		1 as regional_fuel_cost_scenario_id,
-		2 as gen_costs_scenario_id,
-		2 as gen_info_scenario_id,
+		6 as gen_costs_scenario_id,
+		8 as gen_info_scenario_id,
 		enable_rps,
 		enable_carbon_cap,
-		1 as nems_fuel_scenario_id,
+		6 as nems_fuel_scenario_id,
 		NULL as dr_scenario_id,
 		NULL as ev_scenario_id,
 		0 as enforce_ca_dg_mandate,
-		0 as linearize_optimization
+		1 as linearize_optimization
 	FROM training_sets, 
 	(
 		SELECT 0 AS enable_rps UNION
