@@ -1336,6 +1336,22 @@ CREATE TABLE _dispatch_decisions (
   KEY aggregation (scenario_id, carbon_cost, period, technology_id)
 );
 
+CREATE TABLE _dispatch_marg_costs (
+  scenario_id int unsigned NOT NULL,
+  carbon_cost smallint NOT NULL DEFAULT '0',
+  period year NOT NULL,
+  area_id smallint NOT NULL,
+  study_timepoint_id int unsigned, 
+  study_timepoint_utc datetime,
+  test_set_id int unsigned NOT NULL,
+  hours_in_sample double,
+  marg_cost_load double,
+  marg_cost_load_reserve double,
+  PRIMARY KEY (scenario_id, carbon_cost, period, area_id, study_timepoint_utc ),
+  KEY (scenario_id, carbon_cost, study_timepoint_id),
+  KEY check_import_count (scenario_id, carbon_cost, test_set_id)
+);
+
 CREATE TABLE _dispatch_extra_cap (
   scenario_id int unsigned NOT NULL,
   carbon_cost smallint NOT NULL DEFAULT '0',
