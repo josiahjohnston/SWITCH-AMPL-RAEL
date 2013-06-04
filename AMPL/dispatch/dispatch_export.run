@@ -140,3 +140,17 @@ printf {  t in TECHNOLOGIES, a in LOAD_AREAS, h in TIMEPOINTS: storage[t]
   >> (outfile);
 
 close(outfile);
+
+#########################
+# Store hourly dispatch summary for each load area and technology
+let outfile := results_path & sprintf( "dispatch_marg_costs_%d.txt", carbon_cost );
+printf "scenario_id\tcarbon_cost\tperiod\tload_area_id\tload_area\tbalancing_area\tdate\thour\ttest_set_id\thours_in_sample\t marg_cost_load\tmarg_cost_load_reserve\n"
+  > (outfile);
+printf {  a in LOAD_AREAS, h in TIMEPOINTS }
+  "%s\t%d\t%d\t%d\t%s\t%s\t%d\t%d\t%s\t%.3f\t%.3f\t%.3f\n",
+  scenario_id, carbon_cost, period[h], load_area_id[a], a, balancing_area[a], 
+  date[h], h, test_set_id, dispatch_hours_in_sample[period[h]],
+  Satisfy_Load[a,h].ldual, 
+  Satisfy_Load_Reserve[a,h].ldual
+  >> (outfile);
+close(outfile);
