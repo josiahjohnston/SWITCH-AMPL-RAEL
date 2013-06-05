@@ -332,10 +332,14 @@ for test_set_id in $(mysql $connection_string --column-names=false -e "select di
 	[ -L $input_dir/$f ] && rm $input_dir/$f  # Remove the link if it exists
 	ln -s $data_dir/$f $input_dir/$f          # Make a new link
 	
+	# Jimmy updated hydro data and columns, so new code wants a different hydro file than old code. 
+	# The hydro file that gets written to the shared data directory gets the version in its name. 
+	# The link that gets created does not have the version in its name so it will be compatible with load.run 
 	f="hydro_monthly_limits.tab"
+	f2="hydro_monthly_limits2.tab"
 	echo "	$f..."
-	if [ ! -f $data_dir/$f ]; then
-		echo ampl.tab 4 1 > $data_dir/$f
+	if [ ! -f $data_dir/$f2 ]; then
+		echo ampl.tab 4 1 > $data_dir/$f2
 		mysql $connection_string -e "\
     CREATE TEMPORARY TABLE study_dates_export\
       SELECT distinct \
@@ -351,12 +355,12 @@ for test_set_id in $(mysql $connection_string --column-names=false -e "select di
         AND load_scenario_id = $LOAD_SCENARIO_ID\
         AND test_set_id=$test_set_id\
       ORDER BY 1,2;\
-    SELECT project_id, load_area, technology, study_date as date, ROUND(avg_output,1) AS avg_output\
-      FROM hydro_monthly_limits \
-        JOIN study_dates_export USING(year, month);" >> $data_dir/$f
+    SELECT project_id, load_area, technology, study_date as date, ROUND(avg_capacity_factor_hydro,1) AS avg_capacity_factor_hydro\
+      FROM hydro_monthly_limits_v2 \
+        JOIN study_dates_export USING(month);" >> $data_dir/$f2
 	fi
 	[ -L $input_dir/$f ] && rm $input_dir/$f  # Remove the link if it exists
-	ln -s $data_dir/$f $input_dir/$f          # Make a new link
+	ln -s $data_dir/$f2 $input_dir/$f         # Make a new link
 
   ###############################
   # New way of gathering cap factors based on historical hour of every project and a mapping from historical hour to future hour
