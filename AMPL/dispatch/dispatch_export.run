@@ -78,7 +78,7 @@ printf { t in TECHNOLOGIES, a in LOAD_AREAS, h in TIMEPOINTS: can_build_new[t] a
 
 # Existing Plants
 printf { t in TECHNOLOGIES, a in LOAD_AREAS, h in TIMEPOINTS: not can_build_new[t] and sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS } (ProducePowerEP[pid, a, t, p, h] + Total_Operating_Reserve_Provided[pid, a, t, p, h]) >= 0.001} 
-  "%s	%d	%d	%d	%s	%s	%d	%d	%s	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
+  "%s	%d	%d	%d	%s	%s	%d	%d	%s	%d	%s	%d	%d	%d	%d	%s	%s	%.4f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
   scenario_id, carbon_cost, period[h], load_area_id[a], a, balancing_area[a], 
   date[h], h, test_set_id,
   technology_id[t], t, 0, baseload[t], cogen[t], 0, fuel[t], rps_fuel_category[fuel[t]], 
@@ -115,7 +115,7 @@ printf {  t in TECHNOLOGIES, a in LOAD_AREAS, h in TIMEPOINTS: storage[t]
       (sum {(pid, a, t, p, h) in AVAILABLE_HOURS} abs(Storage_Net_Power[pid, a, t, p, h]) ) > 0.01 or
       (sum {(pid, a, t, p, h) in AVAILABLE_HOURS} abs(Storage_Operating_Reserve_Provided[pid, a, t, p, h]) ) > 0.01
     ) }
-  "%s	%d	%d	%d	%s	%s	%d	%d	%s	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
+  "%s	%d	%d	%d	%s	%s	%d	%d	%s	%d	%s	%d	%d	%d	%d	%s	%s	%.4f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
   scenario_id, carbon_cost, period[h], load_area_id[a], a, balancing_area[a], 
   date[h], h, test_set_id,
   technology_id[t], t, can_build_new[t], 0, 0, 1, 'Storage', 'Storage', dispatch_hours_in_sample[period[h]],
@@ -144,13 +144,24 @@ close(outfile);
 #########################
 # Store hourly dispatch summary for each load area and technology
 let outfile := results_path & sprintf( "dispatch_marg_costs_%d.txt", carbon_cost );
-printf "scenario_id\tcarbon_cost\tperiod\tload_area_id\tload_area\tbalancing_area\tdate\thour\ttest_set_id\thours_in_sample\t marg_cost_load\tmarg_cost_load_reserve\n"
+printf "scenario_id\tcarbon_cost\tperiod\tload_area_id\tload_area\tbalancing_area\tdate\thour\ttest_set_id\thours_in_sample\tmarg_cost_load\tmarg_cost_load_reserve\tdr_com_res_from_dual\tdr_com_res_to_dual\tdr_ev_from_dual\tdr_ev_to_dual\n"
   > (outfile);
 printf {  a in LOAD_AREAS, h in TIMEPOINTS }
-  "%s\t%d\t%d\t%d\t%s\t%s\t%d\t%d\t%s\t%.3f\t%.3f\t%.3f\n",
+  "%s\t%d\t%d\t%d\t%s\t%s\t%d\t%d\t%s\t%.4f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\n",
   scenario_id, carbon_cost, period[h], load_area_id[a], a, balancing_area[a], 
   date[h], h, test_set_id, dispatch_hours_in_sample[period[h]],
-  Satisfy_Load[a,h].ldual, 
-  Satisfy_Load_Reserve[a,h].ldual
+  # Numerator is $(NPV of variable costs), denominator is the power demand in a timepoint
+  # The cost of the numerator includes the terms * ( hours_in_sample[h] / num_years_per_period ) * discount_to_base_year[p]
+  # The first part (in paranthesis) is the timepoint weighting necessary to scale it up to one year of a period
+  # The discount_to_base_year part is a value to convert an equal series of annual payments that occur throughout a period into an NPV
+  # I convert the NPV in the numberator to a reoccuring annual cost by dividing by discount_to_base_year.
+  # I convert the power in the denominator to annual energy by applying the ( hours_in_sample[h] / num_years_per_period ) term.
+  # My numerator then becomes $(future of variable costs of energy in a year) and the denominator becomes total energy represented by the timepoint within a year
+  Satisfy_Load[a,h].dual / discount_to_base_year[period[h]] * num_years_per_period/hours_in_sample[h], 
+  Satisfy_Load_Reserve[a,h].dual / discount_to_base_year[period[h]] * num_years_per_period/hours_in_sample[h], 
+  Maximum_Res_Comm_Load_That_Can_Be_Shifted_from_Hour[a,h].dual / discount_to_base_year[period[h]] * num_years_per_period/hours_in_sample[h], 
+  Maximum_Res_Comm_Load_That_Can_Be_Shifted_to_Hour[a,h].dual / discount_to_base_year[period[h]] * num_years_per_period/hours_in_sample[h], 
+  Maximum_EV_Load_That_Can_Be_Shifted_from_Hour[a,h].dual / discount_to_base_year[period[h]] * num_years_per_period/hours_in_sample[h], 
+  Maximum_EV_Load_That_Can_Be_Shifted_to_Hour[a,h].dual / discount_to_base_year[period[h]] * num_years_per_period/hours_in_sample[h]
   >> (outfile);
 close(outfile);
