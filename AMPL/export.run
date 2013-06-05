@@ -402,6 +402,21 @@ for {c in CARBON_COSTS} {
         close (carbon_cost_by_period_path);
       }      
 
+      # Reduced cost of meeting rps
+      if (enable_rps = 1) then { 
+        printf "scenario_id\tcarbon_cost\tperiod\trps_area\tcompliance_type\trps_dual\n" > (rps_reduced_cost_path);
+        # The dual value of the Carbon_Cap constraint is in units of $(NPV) / MWh in an entire period. 
+        # The numerator's units are the same as the objective function. The denominator units are set by the right hand value of the constraint, which come out to MWh in a period. 
+        # We divide by the discount to base year parameter to bring NPV in the numerator to a uniform series of payments over the period. 
+        # We multiply by the number of years per period to convert the denominator from MWh served over a whole period to the MWh served per year
+        printf {(r,c,p) in RPS_TARGETS: c = 'Primary'} "%d\t%d\t%d\t%s\t%s\t%.3f\n", scenario_id, carbon_cost, p, r, c, Satisfy_Primary_RPS[r, c, p].dual / discount_to_base_year[p] * num_years_per_period
+          >> (rps_reduced_cost_path);
+        printf {(r,c,p) in RPS_TARGETS: c = 'Distributed' and able_to_meet_rps[r, c, p]}
+          "%d\t%s\t%s\t%.3f\n", p, r, c, Satisfy_Distributed_RPS[r, c, p].dual / discount_to_base_year[p] * num_years_per_period
+          >> (rps_reduced_cost_path);
+        close (rps_reduced_cost_path);
+      }      
+
       # Natural gas consumption levels & resultant costs for use in dispatch
       # Construct an artificial supply curve that will be read in and used by dispatch. 
       # The supply curve will have one breakpoint which is the amount of NG used in the entire period.

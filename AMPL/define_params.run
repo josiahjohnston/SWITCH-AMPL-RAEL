@@ -21,6 +21,7 @@ param OperateEPDuringPeriod_tab_path symbolic := results_path & "OperateEPDuring
 param InstallTrans_tab_path          symbolic := results_path & "InstallTrans" & carbon_cost & ".tab";
 param install_local_td_tab_path      symbolic := results_path & "install_local_td" & carbon_cost & ".tab";
 param carbon_cost_by_period_path     symbolic := results_path & "carbon_cost_by_period.tab";
+param rps_reduced_cost_path          symbolic := results_path & "rps_reduced_cost.tab";
 param ng_consumption_and_prices_by_period_path     symbolic := results_path & "ng_consumption_and_prices_by_period_" & carbon_cost & ".tab";
 param biomass_consumption_and_prices_by_period_path     symbolic := results_path & "biomass_consumption_and_prices_by_period_" & carbon_cost & ".tab";
 
