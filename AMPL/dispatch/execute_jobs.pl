@@ -33,3 +33,5 @@ sub showhelp
 	print "\nUsage: execute_jobs.pl <filename>\n\n";
 	print "<filename> should contain a list of executables, one-per-line, including the path.\n\n";
 }
+
+system("ampl_lic stop;");
