@@ -7,6 +7,7 @@ if [ $(echo "$cplex_options" | grep iisfind | wc -l) -eq 0 ]; then \
 else \
   cplex_options=$(echo $cplex_options | sed -e "s/iisfind=./iisfind=1/"); \
 fi \
+cplex_options=$(echo $cplex_options | sed -e "s/baropt//"); \
 echo "option cplex_options (''$cplex_options'');" > cplex_options.run; \
 echo "$cplex_options" > results/cplex_options ');
 include cplex_options.run;
