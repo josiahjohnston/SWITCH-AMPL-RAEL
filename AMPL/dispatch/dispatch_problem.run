@@ -56,8 +56,7 @@ problem Dispatch_Only:
 # Operating Reserve Variables
   Spinning_Reserve_Requirement, Quickstart_Reserve_Requirement, 
 # Operating Reserve Constraints
-  Spinning_Reserve_Requirement_in_Balancing_Area_in_Hour, Quickstart_Reserve_Requirement_in_Balancing_Area_in_Hour, Satisfy_Spinning_Reserve_Requirement,
-  Satisfy_Quickstart_Reserve_Requirement,
+  Satisfy_Spinning_Reserve_Requirement, Satisfy_Quickstart_Reserve_Requirement,
 # Demand response
   Shift_Res_Comm_Load, Meet_Shifted_Load, Shift_EV_Load, Charge_EVs, Maximum_Res_Comm_Load_That_Can_Be_Shifted_from_Hour, Maximum_Res_Comm_Load_That_Can_Be_Shifted_to_Hour, Res_Comm_Demand_Response_Energy_Balance, Maximum_EV_Load_That_Can_Be_Shifted_from_Hour, Maximum_EV_Load_That_Can_Be_Shifted_to_Hour, EV_Charging_Energy_Balance
 ;
@@ -95,8 +94,7 @@ problem Dispatch_peakers_and_storage:
 # Operating Reserve Variables
   Spinning_Reserve_Requirement, Quickstart_Reserve_Requirement, 
 # Operating Reserve Constraints
-  Spinning_Reserve_Requirement_in_Balancing_Area_in_Hour, Quickstart_Reserve_Requirement_in_Balancing_Area_in_Hour, Satisfy_Spinning_Reserve_Requirement,
-  Satisfy_Quickstart_Reserve_Requirement,
+  Satisfy_Spinning_Reserve_Requirement, Satisfy_Quickstart_Reserve_Requirement,
 # Demand response
   Shift_Res_Comm_Load, Meet_Shifted_Load, Shift_EV_Load, Charge_EVs, Maximum_Res_Comm_Load_That_Can_Be_Shifted_from_Hour, Maximum_Res_Comm_Load_That_Can_Be_Shifted_to_Hour, Res_Comm_Demand_Response_Energy_Balance, Maximum_EV_Load_That_Can_Be_Shifted_from_Hour, Maximum_EV_Load_That_Can_Be_Shifted_to_Hour, EV_Charging_Energy_Balance
 ;

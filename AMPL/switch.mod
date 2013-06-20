@@ -1105,30 +1105,6 @@ var DispatchHydro {HYDRO_AVAILABLE_HOURS} >= 0;
 var Dispatch_Pumped_Hydro_Storage {PUMPED_HYDRO_AVAILABLE_HOURS} >= 0;
 var Store_Pumped_Hydro {PUMPED_HYDRO_AVAILABLE_HOURS} >= 0;
 
-
-# Operating reserve variables
-
-# Operating reserve requirement in each balancing area by period, divided into a spining reserve component and a quickstart component
-# The WECC standard on operating reserves is the
-#"Regional Reliability Standard to address the Operating Reserve requirements of the Western Interconnection."
-# It prescribes that "[t]he sum of five percent of the load responsibility served by hydro generation and seven percent of the load responsibility served by thermal generation" be covered by contingency reserves, and that at least half of that be spinning
-# we assume that the quickstart requirement is a multiple of the spinning reserve requirement at a 1 to 1 ratio)
-# The spinning reserve requirement level depends on load level, wind generation level, and solar generation level
-# For now, we apply a conservative esitmate of the reserve requirement: the 3-5 rule from WWSIS, i.e. 3 percent load and 5 percent of wind is kept as spinning reserves in all hours
-# We also assume that solar generation, with the exception of CSP with 6 hours of storage, which exhibits little 10-min variability, impose reserve requirements similar to wind's (i.e. 5 percent of generation). Solar CSP without storage contributes only to the quickstart requirement
-var Spinning_Reserve_Requirement { b in BALANCING_AREAS, h in TIMEPOINTS } >= 0;
-var Quickstart_Reserve_Requirement { b in BALANCING_AREAS, h in TIMEPOINTS } >= 0;
-
-# Spinning reserve and quickstart capacity can be provided by dispatchable generators, hydro, and storage
-# Because hydro and storage are assumed to be able to ramp up to full capacity very quickly, the operating reserve provided by them is not divided into
-# a spinning and quickstart component (all of their operating reserve can count as spinning)
-
-var Provide_Spinning_Reserve { (pid, a, t, p, h) in AVAILABLE_HOURS: dispatchable[t] } >= 0;
-var Provide_Quickstart_Capacity { (pid, a, t, p, h) in AVAILABLE_HOURS: dispatchable[t] } >= 0;
-var Storage_Operating_Reserve { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] } >= 0;
-var Hydro_Operating_Reserve { (a, t, p, h) in HYDRO_AVAILABLE_HOURS} >= 0;
-var Pumped_Hydro_Storage_Operating_Reserve { (a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS } >= 0;
-
 ######### Demand response ##############
 
 param shiftable_res_comm_load { a in LOAD_AREAS, h in TIMEPOINTS } >= 0 default 0;
@@ -1140,6 +1116,64 @@ var Shift_Res_Comm_Load {a in LOAD_AREAS, h in TIMEPOINTS} >= 0 default 0;
 var Meet_Shifted_Load {a in LOAD_AREAS, h in TIMEPOINTS} >= 0 default 0;
 var Shift_EV_Load {a in LOAD_AREAS, h in TIMEPOINTS} >= 0 default 0;
 var Charge_EVs {a in LOAD_AREAS, h in TIMEPOINTS} >= 0 default 0;
+
+
+# Operating reserve variables
+
+# Operating reserve requirement in each balancing area by period, divided into a spining reserve component and a quickstart component
+# The WECC standard on operating reserves is the
+#"Regional Reliability Standard to address the Operating Reserve requirements of the Western Interconnection."
+# It prescribes that "[t]he sum of five percent of the load responsibility served by hydro generation and seven percent of the load responsibility served by thermal generation" be covered by contingency reserves, and that at least half of that be spinning
+# we assume that the quickstart requirement is a multiple of the spinning reserve requirement at a 1 to 1 ratio)
+# The spinning reserve requirement level depends on load level, wind generation level, and solar generation level
+# For now, we apply a conservative esitmate of the reserve requirement: the 3-5 rule from WWSIS, i.e. 3 percent load and 5 percent of wind is kept as spinning reserves in all hours
+# We also assume that solar generation, with the exception of CSP with 6 hours of storage, which exhibits little 10-min variability, impose reserve requirements similar to wind's (i.e. 5 percent of generation). Solar CSP without storage contributes only to the quickstart requirement
+var Spinning_Reserve_Requirement { b in BALANCING_AREAS, h in TIMEPOINTS } = load_only_spinning_reserve_requirement[b]
+	* (	sum {a in LOAD_AREAS: balancing_area[a] = b} ( system_load[a, h] + Meet_Shifted_Load[a, h] - Shift_Res_Comm_Load[a, h] + Charge_EVs[a, h] - Shift_EV_Load[a, h] ) )
+	+ wind_spinning_reserve_requirement[b]
+	* (
+	# existing wind
+	( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: balancing_area[a] = b and fuel[t] = 'Wind' } 
+		eip_cap_factor[pid, a, t, h] * ep_capacity_mw[pid, a, t] )
+	# new wind
+	+ ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: balancing_area[a] = b and fuel[t] = 'Wind' } (
+	Installed_To_Date[pid, a, t, p] * cap_factor[pid, a, t, h] ) )
+	)
+	+ solar_spinning_reserve_requirement[b] 
+	* (
+	# solar CSP with and without storage does not contribute to the spinning reserve requirement
+	# existing solar PV
+	( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: balancing_area[a] = b and fuel[t] = 'Solar' and t not in SOLAR_CSP_TECHNOLOGIES } 
+		eip_cap_factor[pid, a, t, h] * ep_capacity_mw[pid, a, t] )
+	# new solar PV
+	+ (	sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: balancing_area[a] = b and fuel[t] = 'Solar' and t not in SOLAR_CSP_TECHNOLOGIES } (
+	Installed_To_Date[pid, a, t, p] * cap_factor[pid, a, t, h] ) )
+	);
+	
+var Quickstart_Reserve_Requirement { b in BALANCING_AREAS, h in TIMEPOINTS } = quickstart_requirement_relative_to_spinning_reserve_requirement[b]
+	* Spinning_Reserve_Requirement[b, h]
+	# CSP trough with no storage contributes only to the quickstart requirement
+	# CSP trough with storage doesn't contribute to either spinning or quickstart
+	+ csp_quickstart_reserve_requirement[b] 
+	* (
+	# existing CSP with no storage
+	( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: balancing_area[a] = b and t = 'CSP_Trough_No_Storage' } 
+		eip_cap_factor[pid, a, t, h] * ep_capacity_mw[pid, a, t] )
+	# new CSP with no storage
+	+ (	sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: balancing_area[a] = b and t = 'CSP_Trough_No_Storage' } (
+	Installed_To_Date[pid, a, t, p] * cap_factor[pid, a, t, h] ) )
+	);
+
+# Spinning reserve and quickstart capacity can be provided by dispatchable generators, hydro, and storage
+# Because hydro and storage are assumed to be able to ramp up to full capacity very quickly, the operating reserve provided by them is not divided into
+# a spinning and quickstart component (all of their operating reserve can count as spinning)
+
+var Provide_Spinning_Reserve { (pid, a, t, p, h) in AVAILABLE_HOURS: dispatchable[t] } >= 0;
+var Provide_Quickstart_Capacity { (pid, a, t, p, h) in AVAILABLE_HOURS: dispatchable[t] } >= 0;
+var Storage_Operating_Reserve { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] } >= 0;
+var Hydro_Operating_Reserve { (a, t, p, h) in HYDRO_AVAILABLE_HOURS} >= 0;
+var Pumped_Hydro_Storage_Operating_Reserve { (a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS } >= 0;
+
 
 ############ Fuel consumption ###############
 
@@ -1523,50 +1557,10 @@ subject to Conservation_Of_Energy_NonDistributed_Reserve {a in LOAD_AREAS, h in 
 ##########################################
 # OPERATING RESERVE CONSTRAINTS
 
-subject to Spinning_Reserve_Requirement_in_Balancing_Area_in_Hour {b in BALANCING_AREAS, h in TIMEPOINTS}: 
-	Spinning_Reserve_Requirement[b, h]
-	>= load_only_spinning_reserve_requirement[b]
-	* (	sum {a in LOAD_AREAS: balancing_area[a] = b} ( system_load[a, h] + Meet_Shifted_Load[a, h] - Shift_Res_Comm_Load[a, h] + Charge_EVs[a, h] - Shift_EV_Load[a, h] ) )
-	+ wind_spinning_reserve_requirement[b]
-	* (
-	# existing wind
-	( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: balancing_area[a] = b and fuel[t] = 'Wind' } 
-		eip_cap_factor[pid, a, t, h] * ep_capacity_mw[pid, a, t] )
-	# new wind
-	+ ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: balancing_area[a] = b and fuel[t] = 'Wind' } (
-	Installed_To_Date[pid, a, t, p] * cap_factor[pid, a, t, h] ) )
-	)
-	+ solar_spinning_reserve_requirement[b] 
-	* (
-	# solar CSP with and without storage does not contribute to the spinning reserve requirement
-	# existing solar
-	( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: balancing_area[a] = b and fuel[t] = 'Solar' and t not in SOLAR_CSP_TECHNOLOGIES } 
-		eip_cap_factor[pid, a, t, h] * ep_capacity_mw[pid, a, t] )
-	# new solar
-	+ (	sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: balancing_area[a] = b and fuel[t] = 'Solar' and t not in SOLAR_CSP_TECHNOLOGIES } (
-	Installed_To_Date[pid, a, t, p] * cap_factor[pid, a, t, h] ) )
-	);
-
-subject to Quickstart_Reserve_Requirement_in_Balancing_Area_in_Hour {b in BALANCING_AREAS, h in TIMEPOINTS}:
-	Quickstart_Reserve_Requirement[b, h] 
-	>= quickstart_requirement_relative_to_spinning_reserve_requirement[b]
-	* Spinning_Reserve_Requirement[b, h]
-	# CSP trough with no storage contributes only to the quickstart requirement
-	# CSP trough with storage doesn't contribute to either spinning or quickstart
-	+ csp_quickstart_reserve_requirement[b] 
-	* (
-	# existing CSP
-	( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: balancing_area[a] = b and t = 'CSP_Trough_No_Storage' } 
-		eip_cap_factor[pid, a, t, h] * ep_capacity_mw[pid, a, t] )
-	# new CSP
-	+ (	sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: balancing_area[a] = b and t = 'CSP_Trough_No_Storage' } (
-	Installed_To_Date[pid, a, t, p] * cap_factor[pid, a, t, h] ) )
-	);
-
 # Ensure that the spinning reserve requirement is met in each hour in each balancing area
 subject to Satisfy_Spinning_Reserve_Requirement {b in BALANCING_AREAS, h in TIMEPOINTS}:
 	Spinning_Reserve_Requirement[b, h]
-	<=
+	=
     # new and existing dispatchable plants
     sum { (pid, a, t, p, h) in AVAILABLE_HOURS: dispatchable[t] and t <> 'Compressed_Air_Energy_Storage' and balancing_area[a] = b }
     Provide_Spinning_Reserve[pid, a, t, p, h]
@@ -1588,7 +1582,7 @@ subject to Satisfy_Spinning_Reserve_Requirement {b in BALANCING_AREAS, h in TIME
 # Ensure that the quickstart reserve requirement is met in each hour in each balancing area in addition to the spinning reserve requirement
 subject to Satisfy_Quickstart_Reserve_Requirement {b in BALANCING_AREAS, h in TIMEPOINTS}:
 	Quickstart_Reserve_Requirement[b, h]
-	<=
+	=
 	# first add all operating reserve provided
     # new and existing dispatchable plants, including the NG part of CAES
     sum { (pid, a, t, p, h) in AVAILABLE_HOURS: dispatchable[t] and balancing_area[a] = b } 
@@ -1989,8 +1983,7 @@ problem Investment_Cost_Minimization:
   # Operating Reserve Variables
     Spinning_Reserve_Requirement, Quickstart_Reserve_Requirement,
   # Operating Reserve Constraints
-    Spinning_Reserve_Requirement_in_Balancing_Area_in_Hour, Quickstart_Reserve_Requirement_in_Balancing_Area_in_Hour, Satisfy_Spinning_Reserve_Requirement,
-    Satisfy_Quickstart_Reserve_Requirement,
+  	Satisfy_Spinning_Reserve_Requirement, Satisfy_Quickstart_Reserve_Requirement,
   # Demand response
   	Shift_Res_Comm_Load, Meet_Shifted_Load, Shift_EV_Load, Charge_EVs, Maximum_Res_Comm_Load_That_Can_Be_Shifted_from_Hour, Maximum_Res_Comm_Load_That_Can_Be_Shifted_to_Hour, Res_Comm_Demand_Response_Energy_Balance, Maximum_EV_Load_That_Can_Be_Shifted_from_Hour, Maximum_EV_Load_That_Can_Be_Shifted_to_Hour, EV_Charging_Energy_Balance
 ;
@@ -2024,6 +2017,5 @@ problem Present_Day_Cost_Minimization:
   # Operating Reserve Variables
     Spinning_Reserve_Requirement, Quickstart_Reserve_Requirement,
   # Operating Reserve Constraints
-    Spinning_Reserve_Requirement_in_Balancing_Area_in_Hour, Quickstart_Reserve_Requirement_in_Balancing_Area_in_Hour, Satisfy_Spinning_Reserve_Requirement,
-    Satisfy_Quickstart_Reserve_Requirement
+    Satisfy_Spinning_Reserve_Requirement, Satisfy_Quickstart_Reserve_Requirement
 ;
