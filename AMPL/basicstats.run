@@ -150,15 +150,6 @@ let { b in BALANCING_AREAS, h in TIMEPOINTS } CSP_Solar_Generation_Level_in_Bala
 	+ sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: balancing_area[a] = b and t = 'CSP_Trough_No_Storage' } (
 	Installed_To_Date[pid, a, t, p]	* cap_factor[pid, a, t, h] ) ;
 
-let { b in BALANCING_AREAS, h in TIMEPOINTS } Spinning_Reserve_Required_in_Balancing_Area_in_Hour[b, h] :=
-	load_only_spinning_reserve_requirement[b] * Load_Level_in_Balancing_Area_in_Hour[b, h]
-	+ wind_spinning_reserve_requirement[b] * Wind_Generation_Level_in_Balancing_Area_in_Hour[b, h]
-	+ solar_spinning_reserve_requirement[b] * Non_CSP_Solar_Generation_Level_in_Balancing_Area_in_Hour[b, h];
-
-let { b in BALANCING_AREAS, h in TIMEPOINTS } Quickstart_Capacity_Required_in_Balancing_Area_in_Hour[b, h] :=
-	quickstart_requirement_relative_to_spinning_reserve_requirement[b] * Spinning_Reserve_Required_in_Balancing_Area_in_Hour[b, h]
-	+ csp_quickstart_reserve_requirement[b] * CSP_Solar_Generation_Level_in_Balancing_Area_in_Hour[b, h];
-
 let { b in BALANCING_AREAS, h in TIMEPOINTS }
 	Thermal_Spinning_Reserve_Provided_in_Balancing_Area_in_Hour[b, h] :=
 	sum { (pid, a, t, p, h) in AVAILABLE_HOURS: balancing_area[a] = b and dispatchable[t] }
@@ -180,7 +171,7 @@ let { b in BALANCING_AREAS, h in TIMEPOINTS }
 
 let { b in BALANCING_AREAS, h in TIMEPOINTS } 
 	Nonthermal_Spinning_Reserve_Provided_in_Balancing_Area_in_Hour[b, h] :=
-	Spinning_Reserve_Required_in_Balancing_Area_in_Hour[b, h] - Thermal_Spinning_Reserve_Provided_in_Balancing_Area_in_Hour[b, h];
+	Spinning_Reserve_Requirement[b, h] - Thermal_Spinning_Reserve_Provided_in_Balancing_Area_in_Hour[b, h];
 
 let { b in BALANCING_AREAS, h in TIMEPOINTS } 
 	Fraction_of_Nonthermal_Reserves_That_Are_Spinning_in_Balancing_Area_in_Hour[b, h] :=
@@ -212,7 +203,7 @@ let {(pid, a, t, p, h) in AVAILABLE_HOURS } Quickstart_Capacity_Provided[pid, a,
 let {(pid, a, t, p, h) in AVAILABLE_HOURS } Total_Operating_Reserve_Provided[pid, a, t, p, h] := 0;
 let {(pid, a, t, p, h) in AVAILABLE_HOURS: storage[t] } Storage_Operating_Reserve_Provided[pid, a, t, p, h] := 0;
 
-
+# dispatchable generators; NG part of CAES is currently included here
 let { (pid, a, t, p, h) in AVAILABLE_HOURS: dispatchable[t] }
   Spinning_Reserve_Provided[pid, a, t, p, h] := Provide_Spinning_Reserve[pid, a, t, p, h];
 let { (pid, a, t, p, h) in AVAILABLE_HOURS: dispatchable[t] }
@@ -220,6 +211,8 @@ let { (pid, a, t, p, h) in AVAILABLE_HOURS: dispatchable[t] }
 let { (pid, a, t, p, h) in AVAILABLE_HOURS: dispatchable[t] }
   Total_Operating_Reserve_Provided[pid, a, t, p, h] := 
   Provide_Spinning_Reserve[pid, a, t, p, h] + Provide_Quickstart_Capacity[pid, a, t, p, h];
+  
+# hydro generators (reserves from pumped hydro storage are included separately with storage below)
 let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: hydro[t] } 
 	Total_Operating_Reserve_Provided[pid, a, t, p, h] := 
 	Hydro_Operating_Reserve[a, t, p, h] * ( ep_capacity_mw[pid, a, t] / hydro_capacity_mw_in_load_area[a, t, p] );
@@ -232,34 +225,39 @@ let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: hydro[t] }
 	( 1 - Fraction_of_Nonthermal_Reserves_That_Are_Spinning_in_Balancing_Area_in_Hour[balancing_area[a], h] )
 	* Total_Operating_Reserve_Provided[pid, a, t, p, h];
 
-# assign a fuel category to the operating reserve provided by storage based on the daily mix of energy stored
-let { (pid, a, t, p, h) in AVAILABLE_HOURS: storage[t] } 
-  Storage_Operating_Reserve_Provided[pid, a, t, p, h] := 
-	( if t = 'Hydro_Pumped' then ( Pumped_Hydro_Storage_Operating_Reserve[a, t, p, h] * ( ep_capacity_mw[pid, a, t] / hydro_capacity_mw_in_load_area[a, t, p] ) )
-	else Storage_Operating_Reserve[pid, a, t, p, h] );
+# storage plants
 
-let { (pid, a, t, p) in AVAILABLE_VINTAGES, d in DATES: period_of_date[d] = p and storage[t] }
-  Total_Stored_Energy_by_Date[pid, a, t, p, d] :=
-  	( sum { h in TIMEPOINTS: date[h] = d }  
-		( if t = 'Hydro_Pumped' then Pumped_Hydro_Storage_Stored[pid, a, t, p, h] 
-		else StoreEnergy[pid, a, t, p, h] ) );
-
-let { (pid, a, t, p, h) in AVAILABLE_HOURS: storage[t] and t <> 'Compressed_Air_Energy_Storage' } 		
+let { (pid, a, t, p, h) in AVAILABLE_HOURS: storage[t] }
+	Storage_Operating_Reserve_Provided[pid, a, t, p, h] :=
+	if t = 'Hydro_Pumped' then ( Pumped_Hydro_Storage_Operating_Reserve[a, t, p, h] * ( ep_capacity_mw[pid, a, t] / hydro_capacity_mw_in_load_area[a, t, p] ) )
+	else Storage_Operating_Reserve[pid, a, t, p, h];
+	
+let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: t = 'Hydro_Pumped' } 		
 	Storage_Spinning_Reserve_Provided[pid, a, t, p, h] := 
 	Fraction_of_Nonthermal_Reserves_That_Are_Spinning_in_Balancing_Area_in_Hour[balancing_area[a], h]
-	* Storage_Operating_Reserve_Provided[pid, a, t, p, h];
-let { (pid, a, t, p, h) in AVAILABLE_HOURS: storage[t] and t <>  'Compressed_Air_Energy_Storage' } 
+	* Pumped_Hydro_Storage_Operating_Reserve[a, t, p, h] * ( ep_capacity_mw[pid, a, t] / hydro_capacity_mw_in_load_area[a, t, p] );
+let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: t = 'Hydro_Pumped' } 
+	Storage_Quickstart_Capacity_Provided[pid, a, t, p, h] := 
+	( 1 - Fraction_of_Nonthermal_Reserves_That_Are_Spinning_in_Balancing_Area_in_Hour[balancing_area[a], h] )
+	* Pumped_Hydro_Storage_Operating_Reserve[a, t, p, h] * ( ep_capacity_mw[pid, a, t] / hydro_capacity_mw_in_load_area[a, t, p] );
+
+let { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t = 'Battery_Storage' } 		
+	Storage_Spinning_Reserve_Provided[pid, a, t, p, h] := 
+	Fraction_of_Nonthermal_Reserves_That_Are_Spinning_in_Balancing_Area_in_Hour[balancing_area[a], h]
+	* Storage_Operating_Reserve[pid, a, t, p, h];
+let { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t = 'Battery_Storage' } 
 	Storage_Quickstart_Capacity_Provided[pid, a, t, p, h] := 
 	( 1 - Fraction_of_Nonthermal_Reserves_That_Are_Spinning_in_Balancing_Area_in_Hour[balancing_area[a], h] )
 	* Storage_Operating_Reserve_Provided[pid, a, t, p, h];
 
-let { (pid, a, t, p, h) in AVAILABLE_HOURS: t = 'Compressed_Air_Energy_Storage' } 		
+let { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t = 'Compressed_Air_Energy_Storage' } 		
 	Storage_Spinning_Reserve_Provided[pid, a, t, p, h] := 
 	caes_storage_to_ng_ratio[t] * Provide_Spinning_Reserve[pid, a, t, p, h];
-
-let { (pid, a, t, p, h) in AVAILABLE_HOURS: t = 'Compressed_Air_Energy_Storage'} 		
+let { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t = 'Compressed_Air_Energy_Storage'} 		
 	Storage_Quickstart_Capacity_Provided[pid, a, t, p, h] := 
 	caes_storage_to_ng_ratio[t] * Provide_Quickstart_Capacity[pid, a, t, p, h];
+	
+
 
 # calculate the fuel and carbon costs incurred for thermal spinning reserves
 let { (pid, a, t, p, h) in AVAILABLE_HOURS } Thermal_Spinning_Reserve_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := 0;  
