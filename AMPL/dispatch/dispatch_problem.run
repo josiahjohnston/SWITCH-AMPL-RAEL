@@ -17,10 +17,11 @@ set PROJECT_VINTAGES_ALL dimen 4;
 set PROJ_MIN_BUILD_VINTAGES_ALL dimen 4;
 set EP_PERIODS_ALL dimen 4;
 set TRANSMISSION_LINE_VINTAGES_ALL dimen 3;
-set LocalTD_VINTAGES_ALL dimen 2;
+set LOCAL_TD_VINTAGES_ALL dimen 2;
 param InstallGen_Init {PROJECT_VINTAGES_ALL};
 param OperateEPDuringPeriod_Init {EP_PERIODS_ALL} >= 0, <= 1, integer;
 param InstallTrans_Init {TRANSMISSION_LINE_VINTAGES_ALL} >= 0;
+param InstallLocalTD_Init {LOCAL_TD_VINTAGES_ALL} >= 0;
 param hours_per_period {p in PERIODS} = sum {h in TIMEPOINTS: period[h] = p } hours_in_sample[h];
 param dispatch_hours_in_sample {p in PERIODS} = (sum {h in TIMEPOINTS: period[h] = p } hours_in_sample[h] ) / card( {h in TIMEPOINTS: period[h] = p } );
 param test_set_id;
@@ -36,6 +37,9 @@ problem Dispatch_Only:
 # Satisfy Load and Power Consumption
   Satisfy_Load,
   Conservation_Of_Energy_NonDistributed, ConsumeNonDistributedPower,  
+  
+# Installation Constraints
+  Minimum_Local_TD,
   
 # Dispatch Decisions
   DispatchGen, DispatchFlexibleBaseload, Deep_Cycle_Amount, Commit_Intermediate_Gen, Startup_MW_from_Last_Hour, ProducePowerEP, ConsumeBioSolid, ConsumeNaturalGas, ConsumeNaturalGasRegional,
@@ -67,7 +71,9 @@ problem Dispatch_peakers_and_storage:
 
 # Satisfy Load and Power Consumption
   Satisfy_Load,
-  Conservation_Of_Energy_NonDistributed, ConsumeNonDistributedPower,  
+  Conservation_Of_Energy_NonDistributed, ConsumeNonDistributedPower,
+# Installation Constraints
+  Minimum_Local_TD,
   
 # Dispatch can install more peakers or local T&D only if the investments generate infeasibilities.
   Increase_Gen_Only,  
@@ -106,6 +112,8 @@ table TableOperateEPDuringPeriod IN "inputs/OperateEPDuringPeriod.tab":
   EP_PERIODS_ALL <- [pid, a, t, p], OperateEPDuringPeriod_Init ~ OperateEPDuringPeriod;
 table TableInstallTrans IN "inputs/InstallTrans.tab":
   TRANSMISSION_LINE_VINTAGES_ALL <- [a1, a2, p], InstallTrans_Init ~ InstallTrans;
+table TableInstallLocalTD IN "inputs/InstallLocalTD.tab":
+  LOCAL_TD_VINTAGES_ALL <- [a, p], InstallLocalTD_Init ~ InstallLocalTD;
 
 param cost_problem_file symbolic := results_path & "sol" & carbon_cost & "dispatch";
 param cost_problem_file_path symbolic := cost_problem_file & ".nl";

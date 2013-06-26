@@ -334,8 +334,7 @@ let { a in LOAD_AREAS, p in PERIODS }
 # costs for new local T&D
 let { a in LOAD_AREAS, p in PERIODS }
   Local_TD_New_Cost_Per_Period[a, p] := 
-    sum { online_yr in PERIODS: online_yr <= p < local_td_end_year[online_yr] }
-    local_td_new_annual_payment_per_mw[a] * install_local_td[a, online_yr] * num_years_per_period;
+    ( sum { online_yr in PERIODS: online_yr <= p < local_td_end_year[online_yr] } InstallLocalTD[a, online_yr] ) * local_td_new_annual_payment_per_mw[a] * num_years_per_period;
 
 # costs for existing transmission
 let { a in LOAD_AREAS, p in PERIODS }

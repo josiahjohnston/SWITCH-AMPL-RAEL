@@ -281,7 +281,7 @@ for {c in CARBON_COSTS} {
       printf {a in LOAD_AREAS, p in PERIODS}:
         "%s	%d	%d	%d	%s	%d	%.2f	%.2f\n",
         scenario_id, carbon_cost, p, load_area_id[a], a, 1,
-        sum {online_yr in PERIODS: online_yr <= p < local_td_end_year[online_yr]} install_local_td[a, online_yr],
+        sum { online_yr in PERIODS: online_yr <= p < local_td_end_year[online_yr] } InstallLocalTD[a, online_yr],
         Local_TD_New_Cost_Per_Period[a, p]
         >> (outfile);
       
@@ -383,13 +383,13 @@ for {c in CARBON_COSTS} {
       close (InstallTrans_tab_path);
       
       # Installed Local T & D
-      printf "ampl.tab 2 1\na	p	install_local_td\n"
-        > (install_local_td_tab_path);
+      printf "ampl.tab 2 1\na	p	InstallLocalTD\n"
+        > (InstallLocalTD_tab_path);
       printf {a in LOAD_AREAS, p in PERIODS} 
         "%s	%d	%.2f\n",
-        a, p, install_local_td[a, p]
-        >> (install_local_td_tab_path);
-      close (install_local_td_tab_path);
+        a, p, InstallLocalTD[a, p]
+        >> (InstallLocalTD_tab_path);
+      close (InstallLocalTD_tab_path);
       
       # Reduced cost of meeting a carbon cap
       if (enable_carbon_cap = 1) then { 

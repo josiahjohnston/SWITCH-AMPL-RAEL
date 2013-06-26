@@ -884,14 +884,8 @@ param max_coincident_load_for_local_td {LOAD_AREAS} >= 0;
 # TODO: find better data on how much Local T&D is already installed above peak load
 param existing_local_td {a in LOAD_AREAS} = max_coincident_load_for_local_td[a] * ( 1 + planning_reserve_margin );
 
-# the cost to maintin the existing local T&D infrustructure for each load area
+# the cost to maintain the existing local T&D infrustructure for each load area
 param local_td_sunk_annual_payment {LOAD_AREAS} >= 0;
-
-# amount of local transmission and distribution capacity
-# (to carry peak power from transmission network to distributed loads)
-param install_local_td {a in LOAD_AREAS, p in PERIODS} = 
-  max( 0, # This max ensures that the value will never fall below 0. 
-  (max_system_load[a,p] - existing_local_td[a] - sum { build in PERIODS: build < p } install_local_td[a, build] ) );
 
 # date when a when local T&D infrastructure of each vintage will stop being included in the simulation
 # note: if it would be expected to retire between study periods,
@@ -1010,13 +1004,17 @@ set TRANSMISSION_LINES_FUEL_CATEGORIES := { (a1, a2) in TRANSMISSION_LINES, fc i
 # trans_line-vintage-hour combinations for which dispatch decisions must be made
 set TRANSMISSION_LINE_HOURS := { (a1, a2, fc) in TRANSMISSION_LINES_FUEL_CATEGORIES, p in PERIODS, h in TIMEPOINTS: p = period[h] };
 
-######## TRANSMISSION VARIABLES ########
+######## TRANSMISSION AND DISTRIBUTION VARIABLES ########
 
 # number of MW to install in each transmission corridor at each vintage
 var InstallTrans { TRANSMISSION_LINE_NEW_PERIODS } >= 0;
 
 # number of MW to transmit through each transmission corridor in each hour for each transmission fuel category
 var DispatchTrans { (a1, a2, fc, p, h) in TRANSMISSION_LINE_HOURS } >= 0;
+
+# number of MW of local distribution capacity to install in each load area in each period (to carry peak power from transmission network to distributed loads)
+var InstallLocalTD { a in LOAD_AREAS, p in PERIODS } >= 0;
+var Local_TD_Installed_To_Date { a in LOAD_AREAS, p in PERIODS } = sum { online_yr in PERIODS: online_yr <= p < local_td_end_year[online_yr] } InstallLocalTD[a, online_yr];
 
 ######## GENERATOR AND STORAGE VARIABLES ########
 
@@ -1336,7 +1334,7 @@ minimize Power_Cost:
 		InstallTrans[a1, a2, p] * transmission_fixed_o_m_by_period[a1, a2, p] )
 	# Calculate the cost of installing new local (intra-load area) transmission and distribution
 	+ ( sum {a in LOAD_AREAS, p in PERIODS}
-		install_local_td[a, p] * local_td_cost_per_mw[a, p] )
+		InstallLocalTD[a, p] * local_td_cost_per_mw[a, p] )
 	# Sunk costs of operating the existing local (intra-load area) transmission and distribution
 	+ ( sum {a in LOAD_AREAS, p in PERIODS} local_td_sunk_annual_payment[a] * discount_to_base_year[p] )
 ;
@@ -1773,7 +1771,7 @@ subject to BuildGenOrNot_Constraint
 
 
 ########################################
-# TRANSMISSION CONSTRAINTS
+# TRANSMISSION AND DISTRIBUTION CONSTRAINTS
 
 # the system can only use as much transmission capacity as is available, considering stability, contingencies, etc
 # which is derating_factor * ( existing + new )
@@ -1811,6 +1809,12 @@ subject to Mexican_Export_Limit
 	+ ( sum { (a, a2, fc, p, h) in TRANSMISSION_LINE_HOURS } DispatchTrans[a, a2, fc, p, h] * hours_in_sample[h] )
 	<=
 	mex_baja_export_limit_mwh[p];
+
+# Local distribution capacity must be sufficient to meet peak load plus a reserve margin
+subject to Minimum_Local_TD {a in LOAD_AREAS, h in TIMEPOINTS}:
+	existing_local_td[a] + Local_TD_Installed_To_Date[a, period[h]]
+	>=
+	max( ( system_load[a, h] + Meet_Shifted_Load[a, h] - Shift_Res_Comm_Load[a, h] + Charge_EVs[a, h] - Shift_EV_Load[a, h] ), max_system_load[a, period[h]] );
 
 #################################
 # Installable (non pumped hydro) storage constraints
@@ -1957,10 +1961,10 @@ problem Investment_Cost_Minimization:
 	Carbon_Cap,
 	ConsumeREC, Conservation_of_REC,
   # Investment Decisions
-	InstallGen, BuildGenOrNot, InstallTrans, 
+	InstallGen, BuildGenOrNot, InstallTrans, InstallLocalTD,
   # Installation Constraints
 	Maximum_Resource_Central_Station_Solar, Maximum_Resource_Bio, Maximum_Resource_Single_Location, Maximum_Resource_EP_Cogen_Replacement,
-	Minimum_GenSize, BuildGenOrNot_Constraint, SymetricalTrans, 
+	Minimum_GenSize, BuildGenOrNot_Constraint, SymetricalTrans, Minimum_Local_TD,
   # Dispatch Decisions
 	DispatchGen, DispatchFlexibleBaseload, Deep_Cycle_Amount, Commit_Intermediate_Gen, Startup_MW_from_Last_Hour, OperateEPDuringPeriod, ProducePowerEP, ConsumeBioSolid, ConsumeNaturalGas, ConsumeNaturalGasRegional,
 	DispatchTrans,  
@@ -1995,8 +1999,10 @@ problem Present_Day_Cost_Minimization:
   # Satisfy Load and Power Consumption
     Satisfy_Load,
 	Conservation_Of_Energy_NonDistributed, ConsumeNonDistributedPower, 
-  # Installation Decisions - only gas combustion turbines for the present day optimization
-	{(pid, a, t, p) in PROJECT_VINTAGES: t='Gas_Combustion_Turbine' } InstallGen[pid, a, t, p], 
+  # Installation Decisions - only gas combustion turbines and local TD for the present day optimization
+	{(pid, a, t, p) in PROJECT_VINTAGES: t='Gas_Combustion_Turbine' } InstallGen[pid, a, t, p], InstallLocalTD,
+  # Installation Constraints
+  	Minimum_Local_TD,
   # Dispatch Decisions
 	DispatchGen, DispatchFlexibleBaseload, Deep_Cycle_Amount, Commit_Intermediate_Gen, Startup_MW_from_Last_Hour, ProducePowerEP, ConsumeBioSolid,
 	ConsumeNaturalGas, ConsumeNaturalGasRegional,
