@@ -931,6 +931,9 @@ param is_dc_line {TRANSMISSION_LINES} binary;
 # how much should the transmission path be derated for contingencies, stability, voltage, etc. ?
 param transmission_derating_factor {TRANSMISSION_LINES} >= 0 <= 1;
 
+# relative to a typical transmission line, how much should cost of the transmission line costs be increased or decreased based on terrain (land cover and slope)?
+param terrain_multiplier {TRANSMISSION_LINES} >= 0.5 <= 3;
+
 # the rating of existing lines in MW 
 param existing_transfer_capacity_mw {TRANSMISSION_LINES} >= 0 default 0;
 
@@ -946,12 +949,6 @@ set TRANSMISSION_LINES_NEW_BUILDS_ALLOWED := { (a1, a2) in TRANSMISSION_LINES: n
 param transmission_capital_cost_per_mw_km = 1000;
 param transmission_capital_cost_per_mw_km_per_direction = transmission_capital_cost_per_mw_km / 2;
 
-# costs for transmission maintenance, which is quoted as 3% of the installation cost in the 2009 WREZ transmission model transmission data
-# costs for existing transmission maintenance is included in the transmission_sunk_annual_payment (most of the lines are old, so this is primarily O&M costs)
-param transmission_fixed_o_m_annual_payment { (a1, a2) in TRANSMISSION_LINES_NEW_BUILDS_ALLOWED } =
-	0.03 * transmission_capital_cost_per_mw_km_per_direction * transmission_length_km[a1, a2]
-		 * ( (economic_multiplier[a1] + economic_multiplier[a2]) / 2 );
-
 # financial age for transmission lines - from the 2009 WREZ transmission model transmission data
 param transmission_max_age_years = 20;
 
@@ -966,8 +963,14 @@ param transmission_end_year {p in PERIODS} =
 # cost per MW for transmission lines
 param transmission_capital_cost_annual_payment { (a1, a2) in TRANSMISSION_LINES_NEW_BUILDS_ALLOWED } = 
   discount_rate / ( 1 - ( 1 + discount_rate ) ^ ( -1 * transmission_max_age_years ) ) 
-  * transmission_capital_cost_per_mw_km_per_direction * transmission_length_km[a1, a2]
+  * transmission_capital_cost_per_mw_km_per_direction * terrain_multiplier[a1, a2] * transmission_length_km[a1, a2]
   * ( (economic_multiplier[a1] + economic_multiplier[a2]) / 2 );
+
+# costs for transmission maintenance, which is quoted as 3% of the installation cost in the 2009 WREZ transmission model transmission data
+# costs for existing transmission maintenance is included in the transmission_sunk_annual_payment (most of the lines are old, so this is primarily O&M costs)
+param transmission_fixed_o_m_annual_payment { (a1, a2) in TRANSMISSION_LINES_NEW_BUILDS_ALLOWED } =
+	0.03 * transmission_capital_cost_per_mw_km_per_direction * terrain_multiplier[a1, a2] * transmission_length_km[a1, a2]
+		 * ( (economic_multiplier[a1] + economic_multiplier[a2]) / 2 );
 
 # the set of all periods in which transmission decisions must be made
 set TRANSMISSION_LINE_PERIODS := { (a1, a2) in TRANSMISSION_LINES, p in PERIODS };

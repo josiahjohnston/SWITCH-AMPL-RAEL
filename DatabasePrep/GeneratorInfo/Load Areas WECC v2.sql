@@ -281,11 +281,18 @@ create table wecc_trans_lines(
 	transmission_efficiency double precision,
 	new_transmission_builds_allowed smallint default 1,
 	first_line_direction int default 0,
-	dc_line smallint default 0
+	is_dc_line smallint default 0,
+	terrain_multiplier NUMERIC(4,3) CHECK (terrain_multiplier BETWEEN 0.5 AND 4),
+	is_new_path smallint CHECK (is_new_path = 0 or is_new_path = 1)
 );
 
 SELECT AddGeometryColumn ('public','wecc_trans_lines','straightline_geom',4326,'LINESTRING',2);
+SELECT AddGeometryColumn ('public','wecc_trans_lines','existing_lines_geom',4326,'MULTILINESTRING',2);
 SELECT AddGeometryColumn ('public','wecc_trans_lines','route_geom',4326,'MULTILINESTRING',2);
+CREATE INDEX ON wecc_trans_lines USING GIST (straightline_geom);
+CREATE INDEX ON wecc_trans_lines USING GIST (existing_lines_geom);
+CREATE INDEX ON wecc_trans_lines USING GIST (route_geom);
+
 
 -- first add straightline_distance_km
 insert into wecc_trans_lines (load_area_start, load_area_end, straightline_distance_km, straightline_geom)
@@ -325,18 +332,10 @@ update wecc_trans_lines set distances_along_existing_lines_km = distances_along_
 from distances_along_existing_trans_lines d where (d.load_area_start like wecc_trans_lines.load_area_start and d.load_area_end like wecc_trans_lines.load_area_end)  
 
 -- Autumn should insert the script that outputs transline geoms here
-update wecc_trans_lines set route_geom = wecc_trans_lines_old.route_geom
+update wecc_trans_lines set existing_lines_geom = wecc_trans_lines_old.route_geom
 from wecc_trans_lines_old
 where 	wecc_trans_lines.load_area_start = wecc_trans_lines_old.load_area_start
 and		wecc_trans_lines.load_area_end = wecc_trans_lines_old.load_area_end;
-
--- update the transmission_length_km to be along existing lines whenever possible
--- the case selects out lines which have really long distances along existing transmission lines
--- this effectivly limits their distance to 1.5 x that of the straight-line distance
-update wecc_trans_lines	set transmission_length_km = 
-	CASE WHEN ( distances_along_existing_lines_km > 1.5 * straightline_distance_km or distances_along_existing_lines_km is null )
-			THEN 1.5 * straightline_distance_km
-		ELSE distances_along_existing_lines_km END;
 
 
 -- TRANSFER CAPACITY
@@ -368,20 +367,18 @@ insert into transmission_line_average_rated_capacities (voltage_kv, volt_class, 
 -- get the Pacific DC line capacity and length
 update wecc_trans_lines
 set existing_transfer_capacity_mw = 3100, 
-	distances_along_existing_lines_km = (580.437+264.593),
-	transmission_length_km = (580.437+264.593),
-	dc_line = 1
+	is_dc_line = 1
 where 	( load_area_start = 'OR_WA_BPA' and load_area_end = 'CA_LADWP');
 
 -- get the Intermountain Utah-California line
 update wecc_trans_lines
 set existing_transfer_capacity_mw = 1920, 
-	dc_line = 1
+	is_dc_line = 1
 where 	( load_area_start = 'UT_S' and load_area_end = 'CA_SCE_CEN');
 
--- Intermountain doesn't have quite the correct route_geom, but add something here that is almost correct
+-- Intermountain doesn't have quite the correct existing_lines_geom, but add something here that is almost correct
 update wecc_trans_lines
-set route_geom = transline_geom
+set existing_lines_geom = transline_geom
 from (select transline_geom from wecc_trans_lines_that_cross_load_area_borders where load_area_end = 'UT_S' and load_area_start = 'CA_SCE_CEN') as intermountain_geom
 where ( load_area_start = 'UT_S' and load_area_end = 'CA_SCE_CEN') or ( load_area_end = 'UT_S' and load_area_start = 'CA_SCE_CEN');
 
@@ -467,18 +464,47 @@ and		wecc_trans_lines.load_area_end = susceptance_table.load_area_end;
 update wecc_trans_lines w1
 set existing_transfer_capacity_mw = w1.existing_transfer_capacity_mw + w2.existing_transfer_capacity_mw,
 	existing_susceptance = w1.existing_susceptance + w2.existing_susceptance,
-	dc_line = case when ( w1.dc_line = 1 or w2.dc_line = 1 ) then 1 else 0 end
+	is_dc_line = case when ( w1.is_dc_line = 1 or w2.is_dc_line = 1 ) then 1 else 0 end
 from wecc_trans_lines w2
 where 	w1.load_area_start = w2.load_area_end
 and		w1.load_area_end = w2.load_area_start;
 
-
--- calculate losses as 1 percent losses per 100 miles or 1 percent per 160.9344 km (reference from ReEDS Solar Vision Study documentation)
-update wecc_trans_lines set transmission_efficiency = 1 - (0.01 / 160.9344 * transmission_length_km);
-
 -- to reduce the number of decision variables, delete all transmission lines that aren't existing paths or that don't have load areas that border each other
 delete from wecc_trans_lines where (existing_transfer_capacity_mw = 0 and not load_areas_border_each_other);
 
+-- route_geom is the actual geometry that SWITCH is going to assume connects two load areas
+-- in most cases it will be along existing lines, unless the path represents a new path (existing_transfer_capacity_mw = 0)
+-- in which case we'll assume a straight line path between the two load areas if existing lines don't connect the two load areas
+-- at a distance <= 1.5x of the straightline distance
+-- this straightline path will get a terrain_multiplier of whatever terrain is in its way...
+-- might not be the optimal route, but in exchange it gets the shortest distance
+
+-- below also updates transmission_length_km to be consistent with the length of route_geom
+
+-- update the transmission_length_km to be along existing lines whenever possible
+-- the case selects out lines which have really long distances along existing transmission lines
+-- this effectivly limits their distance to 1.5 x that of the straight-line distance
+update wecc_trans_lines
+set   is_new_path = CASE WHEN distances_along_existing_lines_km > 1.5 * straightline_distance_km AND existing_transfer_capacity_mw = 0 THEN 1
+						 WHEN distances_along_existing_lines_km is null THEN 1
+						 ELSE 0 END;
+
+-- we're going to derive the transmission length for new paths from that of existing paths, so set new path transmission distances to null for now
+update wecc_trans_lines
+SET		route_geom = CASE WHEN is_new_path = 1 THEN ST_Multi(straightline_geom) ELSE existing_lines_geom END,
+		transmission_length_km = CASE WHEN is_new_path = 0 THEN distances_along_existing_lines_km ELSE NULL END;
+
+-- now derive the length for new paths... this came out to ~1.3x the straightline distance
+UPDATE 	wecc_trans_lines
+SET 	transmission_length_km = straightline_distance_km * length_multiplier
+FROM	(SELECT sum(distances_along_existing_lines_km) / sum(straightline_distance_km) as length_multiplier
+			FROM wecc_trans_lines
+			WHERE is_new_path = 0
+		) AS length_multiplier_table
+WHERE	transmission_length_km IS NULL;
+
+-- calculate losses as 1 percent losses per 100 miles or 1 percent per 160.9344 km (reference from ReEDS Solar Vision Study documentation)
+update wecc_trans_lines set transmission_efficiency = 1 - (0.01 / 160.9344 * transmission_length_km);
 
 -- a handful of existing long transmission lines are effectivly the combination of a few shorter ones in SWITCH,
 -- so they are flagged here to prevent new builds along the longer corridors
@@ -542,6 +568,31 @@ from
 where wecc_trans_lines.transmission_line_id = min_id_table.transmission_line_id;
 
 
+-- now run transmission_terrain.sql to create a transmission terrain map of WECC
+-- that will be used to calculate the terrain_multiplier
+-- the transmission costs that we use in SWITCH for transmission already have a default multiplier embedded
+-- which evaluates to roughly 1.5, so divide by 1.5 to give the correct multiplicative factor to the $/MW-km value that we presently use
+update wecc_trans_lines
+set terrain_multiplier = multiplier/1.5
+FROM	
+	(SELECT transmission_line_id,
+			sum(	m.terrain_multiplier
+					* ST_Length(ST_Intersection(m.the_geom, route_geom)::geography, false)
+					/ ST_Length(route_geom::geography, false)
+				) as multiplier
+	FROM wecc_trans_lines,
+	 	 transmission_terrain_multiplier m
+	where 	ST_Intersects(m.the_geom, route_geom)
+	GROUP BY transmission_line_id
+) calc_multiplier
+WHERE calc_multiplier.transmission_line_id = wecc_trans_lines.transmission_line_id;
+
+
+-- now add a derating factor that accounts for contingencies, loop flows, stability, etc constraints on transmission
+-- this value is different for AC and DC, and is calculated in /Volumes/switch/Models/USA_CAN/Transmission/_switchwecc_path_matches_thermal.xlsx
+-- the value is 0.59 for AC lines and 0.91 for DC lines
+ALTER TABLE wecc_trans_lines ADD COLUMN transmission_derating_factor float default 0.59;
+UPDATE wecc_trans_lines SET transmission_derating_factor = 0.91 WHERE is_dc_line = 1;
 
 -- export the data to mysql
 COPY 
@@ -549,15 +600,16 @@ COPY
 		load_area_start,
 		load_area_end,
 		existing_transfer_capacity_mw,
-		existing_susceptance,
 		transmission_length_km,
 		transmission_efficiency,
 		new_transmission_builds_allowed,
 		first_line_direction,
-		dc_line
+		is_dc_line,
+		transmission_derating_factor,
+		terrain_multiplier
 	from 	wecc_trans_lines
 	order by load_area_start, load_area_end)
-TO 		'/Volumes/1TB_RAID/Models/Switch\ Input\ Data/Transmission/wecc_trans_lines.csv'
+TO 		'/Volumes/switch/Models/USA_CAN/Transmission/_SWITCH_WECC/wecc_trans_lines.csv'
 WITH 	CSV
 		HEADER;
 

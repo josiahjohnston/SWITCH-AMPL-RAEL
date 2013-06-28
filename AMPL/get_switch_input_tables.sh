@@ -243,8 +243,8 @@ echo ampl.tab 1 1 > carbon_cap_targets.tab
 mysql $connection_string -e "select year, carbon_emissions_relative_to_base from carbon_cap_targets where year >= $STUDY_START_YEAR and year <= $STUDY_END_YEAR and carbon_cap_scenario_id=$CARBON_CAP_SCENARIO_ID;" >> carbon_cap_targets.tab
 
 echo '	transmission_lines.tab...'
-echo ampl.tab 2 7 > transmission_lines.tab
-mysql $connection_string -e "select load_area_start, load_area_end, existing_transfer_capacity_mw, transmission_line_id, transmission_length_km, transmission_efficiency, new_transmission_builds_allowed, is_dc_line, transmission_derating_factor from transmission_lines order by 1,2;" >> transmission_lines.tab
+echo ampl.tab 2 8 > transmission_lines.tab
+mysql $connection_string -e "select load_area_start, load_area_end, existing_transfer_capacity_mw, transmission_line_id, transmission_length_km, transmission_efficiency, new_transmission_builds_allowed, is_dc_line, transmission_derating_factor, terrain_multiplier from transmission_lines order by 1,2;" >> transmission_lines.tab
 
 echo '	system_load.tab...'
 echo ampl.tab 2 2 > system_load.tab
