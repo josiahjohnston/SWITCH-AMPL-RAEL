@@ -1813,11 +1813,14 @@ subject to Mexican_Export_Limit
 	<=
 	mex_baja_export_limit_mwh[p];
 
-# Local distribution capacity must be sufficient to meet peak load plus a reserve margin
-subject to Minimum_Local_TD {a in LOAD_AREAS, h in TIMEPOINTS}:
+# Local distribution capacity must be sufficient to meet peak load, either the max local system load from the input load data or the max hourly shifted load, whichever is bigger
+subject to Minimum_Local_TD_No_DR {a in LOAD_AREAS, p in PERIODS}:
+	existing_local_td[a] + Local_TD_Installed_To_Date[a, p]
+	>= max_system_load[a, p];
+
+subject to Minimum_Local_TD_DR {a in LOAD_AREAS, h in TIMEPOINTS}:
 	existing_local_td[a] + Local_TD_Installed_To_Date[a, period[h]]
-	>=
-	max( ( system_load[a, h] + Meet_Shifted_Load[a, h] - Shift_Res_Comm_Load[a, h] + Charge_EVs[a, h] - Shift_EV_Load[a, h] ), max_system_load[a, period[h]] );
+	>= system_load[a, h] + Meet_Shifted_Load[a, h] - Shift_Res_Comm_Load[a, h] + Charge_EVs[a, h] - Shift_EV_Load[a, h];
 
 #################################
 # Installable (non pumped hydro) storage constraints
@@ -1967,7 +1970,7 @@ problem Investment_Cost_Minimization:
 	InstallGen, BuildGenOrNot, InstallTrans, InstallLocalTD,
   # Installation Constraints
 	Maximum_Resource_Central_Station_Solar, Maximum_Resource_Bio, Maximum_Resource_Single_Location, Maximum_Resource_EP_Cogen_Replacement,
-	Minimum_GenSize, BuildGenOrNot_Constraint, SymetricalTrans, Minimum_Local_TD,
+	Minimum_GenSize, BuildGenOrNot_Constraint, SymetricalTrans, Minimum_Local_TD_No_DR, Minimum_Local_TD_DR,
   # Dispatch Decisions
 	DispatchGen, DispatchFlexibleBaseload, Deep_Cycle_Amount, Commit_Intermediate_Gen, Startup_MW_from_Last_Hour, OperateEPDuringPeriod, ProducePowerEP, ConsumeBioSolid, ConsumeNaturalGas, ConsumeNaturalGasRegional,
 	DispatchTrans,  
@@ -2005,7 +2008,7 @@ problem Present_Day_Cost_Minimization:
   # Installation Decisions - only gas combustion turbines and local TD for the present day optimization
 	{(pid, a, t, p) in PROJECT_VINTAGES: t='Gas_Combustion_Turbine' } InstallGen[pid, a, t, p], InstallLocalTD,
   # Installation Constraints
-  	Minimum_Local_TD,
+  	Minimum_Local_TD_No_DR,
   # Dispatch Decisions
 	DispatchGen, DispatchFlexibleBaseload, Deep_Cycle_Amount, Commit_Intermediate_Gen, Startup_MW_from_Last_Hour, ProducePowerEP, ConsumeBioSolid,
 	ConsumeNaturalGas, ConsumeNaturalGasRegional,
