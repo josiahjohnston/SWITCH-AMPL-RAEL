@@ -39,7 +39,7 @@ problem Dispatch_Only:
   Conservation_Of_Energy_NonDistributed, ConsumeNonDistributedPower,  
   
 # Installation Constraints
-  Minimum_Local_TD,
+  Minimum_Local_TD_No_DR, Minimum_Local_TD_DR,
   
 # Dispatch Decisions
   DispatchGen, DispatchFlexibleBaseload, Deep_Cycle_Amount, Commit_Intermediate_Gen, Startup_MW_from_Last_Hour, ProducePowerEP, ConsumeBioSolid, ConsumeNaturalGas, ConsumeNaturalGasRegional,
@@ -73,7 +73,7 @@ problem Dispatch_peakers_and_storage:
   Satisfy_Load,
   Conservation_Of_Energy_NonDistributed, ConsumeNonDistributedPower,
 # Installation Constraints
-  Minimum_Local_TD,
+  Minimum_Local_TD_No_DR, Minimum_Local_TD_DR,
   
 # Dispatch can install more peakers or local T&D only if the investments generate infeasibilities.
   Increase_Gen_Only,  
