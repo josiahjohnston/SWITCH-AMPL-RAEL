@@ -276,8 +276,7 @@ create table wecc_trans_lines(
 	straightline_distance_km double precision,
 	distances_along_existing_lines_km double precision,
 	transmission_length_km double precision,
-	existing_transfer_capacity_mw double precision default 0,
-	existing_susceptance int default 0,
+	existing_transfer_capacity_mw NUMERIC(5,0) default 0,
 	transmission_efficiency double precision,
 	new_transmission_builds_allowed smallint default 1,
 	first_line_direction int default 0,
@@ -337,33 +336,17 @@ from wecc_trans_lines_old
 where 	wecc_trans_lines.load_area_start = wecc_trans_lines_old.load_area_start
 and		wecc_trans_lines.load_area_end = wecc_trans_lines_old.load_area_end;
 
+-- Intermountain doesn't have quite the correct existing_lines_geom, but add something here that is almost correct
+update wecc_trans_lines
+set existing_lines_geom = transline_geom
+from (select transline_geom from wecc_trans_lines_that_cross_load_area_borders where load_area_end = 'UT_S' and load_area_start = 'CA_SCE_CEN') as intermountain_geom
+where ( load_area_start = 'UT_S' and load_area_end = 'CA_SCE_CEN') or ( load_area_end = 'UT_S' and load_area_start = 'CA_SCE_CEN');
 
 -- TRANSFER CAPACITY
--- add approximate single circuit transfer capacites for lines that cross load area borders
--- this data comes primarly from the WREZ excel transmission planning model which can be found at
--- /Volumes/1TB_RAID/Models/Switch_Input_Data/Transmission/GTMWG\ Version\ 2_0\ June\ 2009.xlsm
--- also, data for <230kV class transfer capacities is found at
--- http://www.idahopower.com/pdfs/AboutUs/PlanningForFuture/ProjectNews/wrep/PresentationTransmissionParamMar2207.pdf
--- a copy of which is in the same folder as above
+-- add transfer capacites for lines that cross load area borders
+-- run bus_matches_wecc.sql to match ventyx and ferc 715 data
 
-drop table if exists transmission_line_average_rated_capacities;
-create table transmission_line_average_rated_capacities (
-	voltage_kv int primary key,
-	volt_class character varying(10),
-	rated_capacity_mw double precision,
-	resistance_ohms_per_km double precision,
-	reactance_ohms_per_km double precision);
-	
-insert into transmission_line_average_rated_capacities (voltage_kv, volt_class, rated_capacity_mw) values
-	(69, 'Under 100', 50),
-	(115, '100-161', 100),
-	(138, '100-161', 150),
-	(230, '230-287', 400),
-	(345, '345', 750),
-	(500, '500', 1500);
-	
-
--- dc lines won't match on voltage
+-- bus_matches_wecc.sql doesn't get DC lines, so add them first
 -- get the Pacific DC line capacity and length
 update wecc_trans_lines
 set existing_transfer_capacity_mw = 3100, 
@@ -376,94 +359,21 @@ set existing_transfer_capacity_mw = 1920,
 	is_dc_line = 1
 where 	( load_area_start = 'UT_S' and load_area_end = 'CA_SCE_CEN');
 
--- Intermountain doesn't have quite the correct existing_lines_geom, but add something here that is almost correct
-update wecc_trans_lines
-set existing_lines_geom = transline_geom
-from (select transline_geom from wecc_trans_lines_that_cross_load_area_borders where load_area_end = 'UT_S' and load_area_start = 'CA_SCE_CEN') as intermountain_geom
-where ( load_area_start = 'UT_S' and load_area_end = 'CA_SCE_CEN') or ( load_area_end = 'UT_S' and load_area_start = 'CA_SCE_CEN');
-
--- now update capacites and that match on voltage_kv
-update wecc_trans_lines
-set existing_transfer_capacity_mw = existing_transfer_capacity_mw_voltage_kv
-from 
-	( select 	load_area_start,
-				load_area_end,
-				sum( num_lines * rated_capacity_mw ) as existing_transfer_capacity_mw_voltage_kv,
-	from wecc_trans_lines_that_cross_load_area_borders
-	join transmission_line_average_rated_capacities using (voltage_kv)
-	where wecc_trans_lines_that_cross_load_area_borders.volt_class != 'DC Line'
-	group by load_area_start, load_area_end ) as cap_voltage_kv
-where 	wecc_trans_lines.load_area_start = cap_voltage_kv.load_area_start
-and		wecc_trans_lines.load_area_end = cap_voltage_kv.load_area_end;
-
--- now update capacites that match on volt_class but not voltage_kv
-update wecc_trans_lines
-set existing_transfer_capacity_mw = existing_transfer_capacity_mw + existing_transfer_capacity_mw_volt_class
-from 
-	( select 	load_area_start,
-				load_area_end,
-				sum(rated_capacity_mw * num_lines) as existing_transfer_capacity_mw_volt_class
-	from wecc_trans_lines_that_cross_load_area_borders
-	join (select volt_class, avg(rated_capacity_mw) as rated_capacity_mw from transmission_line_average_rated_capacities group by volt_class) as volt_class_agg using (volt_class)
-	where wecc_trans_lines_that_cross_load_area_borders.voltage_kv not in (select voltage_kv from transmission_line_average_rated_capacities)
-	and	wecc_trans_lines_that_cross_load_area_borders.volt_class != 'DC Line'
-	group by load_area_start, load_area_end ) as cap_volt_class
-where 	wecc_trans_lines.load_area_start = cap_volt_class.load_area_start
-and		wecc_trans_lines.load_area_end = cap_volt_class.load_area_end;
+update  wecc_trans_lines
+set		existing_transfer_capacity_mw = rating_mva
+from (	select load_area_start, load_area_end, sum(rating_mva) as rating_mva
+		from	trans_wecc_ferc_ventyx
+		group by load_area_start, load_area_end
+	) as rating_table
+where	wecc_trans_lines.load_area_start = rating_table.load_area_start
+and		wecc_trans_lines.load_area_end = rating_table.load_area_end
+and		is_dc_line = 0;
 
 
-
--- SUSCEPTANCE
--- now add in the average reactance and resistance values per km from ferc 715 data to the transmission_line_average_rated_capacities table
--- 100MVA system base, so to convert reactances from per unit quantities to ohms, multiply by Zbase= voltage^2/MVAbase,
--- st is 'in service'
--- dividing by 1.609344 converts from miles (the native unit of length here) to km
-update transmission_line_average_rated_capacities 
-set resistance_ohms_per_km = f715_resist_react.resistance_ohms_per_km,
-	reactance_ohms_per_km = f715_resist_react.reactance_ohms_per_km
-from
-	( select * from 
-		(select bus1_kv as voltage_kv,
-			avg(resist*(bus1_kv*1000)^2/(length*100000000))/1.609344 as resistance_ohms_per_km,
-			avg(react*(bus1_kv*1000)^2/(length*100000000))/1.609344 as reactance_ohms_per_km,
-			count(*) as cnt
-		from wecc_f715_branch_info_pk
-		where rate1 > 0
-		and length > 10
-		and react > 0
-		and resist > 0
-		and st = 1
-		group by bus1_kv order by bus1_kv) as foo
-		where cnt > 10 ) as f715_resist_react
-where transmission_line_average_rated_capacities.voltage_kv = f715_resist_react.voltage_kv
-	;
-
-
--- add susceptance of lines
--- SWITCH uses a 1MVA base, so to get the susceptance of each line in SWITCH per unit, multiply by the square of line voltage and divide by 1MVA
-update wecc_trans_lines
-set existing_susceptance = existing_susceptance_volt_class
-from 
-	( select 	load_area_start,
-				load_area_end,
-				round( sum( ( ( wecc_trans_lines_that_cross_load_area_borders.voltage_kv * 1000 )^2 / 1000000 )
-					* num_lines / ( reactance_ohms_per_km * transmission_length_km ) ) ) as existing_susceptance_volt_class	
-	from wecc_trans_lines_that_cross_load_area_borders
-	join wecc_trans_lines using (load_area_start, load_area_end)
-	join transmission_line_average_rated_capacities using (volt_class)
-	where wecc_trans_lines_that_cross_load_area_borders.volt_class != 'DC Line'
-	and wecc_trans_lines_that_cross_load_area_borders.voltage_kv > 0
-	group by load_area_start, load_area_end ) as susceptance_table
-where 	wecc_trans_lines.load_area_start = susceptance_table.load_area_start
-and		wecc_trans_lines.load_area_end = susceptance_table.load_area_end;
-
-
-
--- each line needs to have the same capacity and susceptance in both directions, which is the sum of the lines in each direction
+-- each line needs to have the same capacity in both directions, which is the sum of the lines in each direction
 -- (the 'direction' of each line is arbitrary - power can flow either way on any line)
 update wecc_trans_lines w1
 set existing_transfer_capacity_mw = w1.existing_transfer_capacity_mw + w2.existing_transfer_capacity_mw,
-	existing_susceptance = w1.existing_susceptance + w2.existing_susceptance,
 	is_dc_line = case when ( w1.is_dc_line = 1 or w2.is_dc_line = 1 ) then 1 else 0 end
 from wecc_trans_lines w2
 where 	w1.load_area_start = w2.load_area_end
