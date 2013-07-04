@@ -1515,7 +1515,8 @@ subject to Conservation_Of_Energy_NonDistributed_Reserve {a in LOAD_AREAS, h in 
   (
 	#    NEW PLANTS
   # new dispatchable capacity (no need to decide how to dispatch it; we just need to know it's available)
-	  ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t] and not storage[t]}
+  # CAES is included here as we assume the combustion turbine can be run even at low cavern pressure (when storage is not fully charged) at a worse heat rat; CAES also has many hours of storage, so it is very likely that it will be fully available during times of high grid stress
+	  ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t] }
 		Installed_To_Date[pid, a, t, p] )
   # output from new intermittent projects. 
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: intermittent[t] and t not in SOLAR_DIST_PV_TECHNOLOGIES} 
@@ -1523,8 +1524,8 @@ subject to Conservation_Of_Energy_NonDistributed_Reserve {a in LOAD_AREAS, h in 
   # new baseload plants
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t] or flexible_baseload[t] } 
 		Installed_To_Date[pid, a, t, p] * ( 1 - scheduled_outage_rate[t] ) )
-  # new storage projects
-	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t]}
+  # new battery storage projects
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t = 'Battery_Storage' }
 		( ReleaseEnergy[pid, a, t, p, h] - StoreEnergy[pid, a, t, p, h] ) )
 	#############################
 	#    EXISTING PLANTS
