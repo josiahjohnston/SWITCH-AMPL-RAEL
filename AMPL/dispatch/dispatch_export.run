@@ -165,3 +165,22 @@ printf {  a in LOAD_AREAS, h in TIMEPOINTS }
   Maximum_EV_Load_That_Can_Be_Shifted_to_Hour[a,h].dual / discount_to_base_year[period[h]] * num_years_per_period/hours_in_sample[h]
   >> (outfile);
 close(outfile);
+
+
+#########################
+# Store hourly de facto reserve margin for each load area
+let outfile := results_path & sprintf( "reserve_margin_%d.txt", carbon_cost );
+printf "scenario_id	carbon_cost	period	test_set_id	load_area_id	load_area	date	hour	static_load	net_shifted_load	total_load	total_capacity	reserve_margin_total	reserve_margin_percentage\n"
+  > (outfile);
+printf {  a in LOAD_AREAS, h in TIMEPOINTS }
+	"%s	%d	%d	%s	%d	%s	%d	%d	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
+	scenario_id, carbon_cost, period[h], test_set_id, load_area_id[a], a, date[h], h, system_load[a,h], 
+	( Meet_Shifted_Load[a, h] - Shift_Res_Comm_Load[a, h] + Charge_EVs[a, h] - Shift_EV_Load[a, h] ),
+	( system_load[a,h] + Meet_Shifted_Load[a, h] - Shift_Res_Comm_Load[a, h] + Charge_EVs[a, h] - Shift_EV_Load[a, h] ),
+	Reserve_Margin_Eligible_Capacity_MW[a, h],
+	Reserve_Margin_MW[a, h],
+	Reserve_Margin_Percentage[a, h]
+	>> (outfile);
+close(outfile);
+	
+	

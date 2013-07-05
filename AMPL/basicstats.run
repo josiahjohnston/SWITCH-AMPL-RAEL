@@ -352,6 +352,58 @@ let { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS }
   Transmission_Fixed_OM_Per_Period[a1, a2, p] := Transmission_Installed_To_Date[a1, a2, p] * transmission_fixed_o_m_annual_payment[a1, a2] * num_years_per_period;
 
 
+# Reserve margin (calculated for dispatch)
+let { a in LOAD_AREAS, h in TIMEPOINTS }
+  Reserve_Margin_Eligible_Capacity_MW[a, h] := 
+  # non-distributed generation, adjusted for losses in the distribution system
+   # dispatchable projects, including CAES
+    ( ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t] }
+		Installed_To_Date[pid, a, t, p] )
+   # intermittent projects. 
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: intermittent[t] and t not in SOLAR_DIST_PV_TECHNOLOGIES} 
+		Installed_To_Date[pid, a, t, p] * cap_factor[pid, a, t, h] )
+   # new baseload plants
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t] or flexible_baseload[t] } 
+		Installed_To_Date[pid, a, t, p] * ( 1 - scheduled_outage_rate[t] ) )
+   # new storage projects
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t = 'Battery_Storage' }
+		( ReleaseEnergy[pid, a, t, p, h] - StoreEnergy[pid, a, t, p, h] ) )
+   # existing dispatchable capacity
+	+ ( sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: dispatchable[t]}
+		OperateEPDuringPeriod[pid, a, t, p] * ep_capacity_mw[pid, a, t] )
+   # existing intermittent plants
+	+ ( sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: intermittent[t] and t not in SOLAR_DIST_PV_TECHNOLOGIES} 
+		eip_cap_factor[pid, a, t, h] * ep_capacity_mw[pid, a, t] )
+   # existing baseload plants
+	+ ( sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: baseload[t] or flexible_baseload[t] } 
+		OperateEPDuringPeriod[pid, a, t, p] * ep_capacity_mw[pid, a, t] * ( 1 - scheduled_outage_rate[t] ) )
+   # non-storage hydro dispatch (includes pumped storage watershed electrons)
+	+ ( sum {(a, t, p, h) in HYDRO_AVAILABLE_HOURS}
+		DispatchHydro[a, t, p, h] )
+   # pumped hydro storage and dispatch
+	+ ( sum {(a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS} 
+	( Dispatch_Pumped_Hydro_Storage[a, t, p, h] - Store_Pumped_Hydro[a, t, p, h] ) )
+   # transmission in and out of each load area
+	+ ( sum { (a2, a, fc, p, h) in TRANSMISSION_LINE_HOURS } DispatchTrans[a2, a, fc, p, h] * transmission_efficiency[a2, a] )
+	- ( sum { (a, a1, fc, p, h) in TRANSMISSION_LINE_HOURS } DispatchTrans[a, a1, fc, p, h] )
+	) / (1 + distribution_losses)
+  # distributed generation, which does not incur distribution losses
+	+ (	( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES}
+          Installed_To_Date[pid, a, t, p] * cap_factor[pid, a, t, h] )
+		+ ( sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES}
+   	      eip_cap_factor[pid, a, t, h] * ep_capacity_mw[pid, a, t] ) 
+   	   );
+
+let { a in LOAD_AREAS, h in TIMEPOINTS }
+  Reserve_Margin_MW[a, h] := 
+     Reserve_Margin_Eligible_Capacity_MW[a, h]
+   	 - ( system_load[a, h] + Meet_Shifted_Load[a, h] - Shift_Res_Comm_Load[a, h] + Charge_EVs[a, h] - Shift_EV_Load[a, h] );
+ 
+let { a in LOAD_AREAS, h in TIMEPOINTS }
+  Reserve_Margin_Percentage[a, h] := 
+   	 100 *  ( Reserve_Margin_MW[a, h] / ( system_load[a,h] + Meet_Shifted_Load[a, h] - Shift_Res_Comm_Load[a, h] + Charge_EVs[a, h] - Shift_EV_Load[a, h] ) );
+   	 
+   	   
 ############################################################
 # Basic Stats - print out results for quick inspection of runs
 

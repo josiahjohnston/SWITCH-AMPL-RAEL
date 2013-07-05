@@ -141,7 +141,9 @@ if [ $SkipImport == 0 ]; then
   echo 'Clearing old results...'
   mysql $connection_string -e "\
     delete from _dispatch_decisions where scenario_id=$SCENARIO_ID; \
-    delete from _dispatch_extra_cap where scenario_id=$SCENARIO_ID; "
+    delete from _dispatch_extra_cap where scenario_id=$SCENARIO_ID; \
+    delete from _dispatch_marg_costs where scenario_id=$SCENARIO_ID; \
+    delete from _dispatch_reserve_margin where scenario_id=$SCENARIO_ID;"
 
   echo 'Importing results files...'
 
@@ -223,6 +225,29 @@ if [ $SkipImport == 0 ]; then
     end_time=$(date +%s)
     db_row_count=$(mysql $connection_string --column-names=false -e "select count(*) from _dispatch_extra_cap where scenario_id=$SCENARIO_ID and carbon_cost=$CARBON_COST and test_set_id=$TEST_SET_ID;")
     if [ -n "$db_row_count" ] && [ $db_row_count -eq $file_row_count ]; then
+    	printf "%20s seconds to import %s rows\n" $(($end_time - $start_time)) $file_row_count
+    else
+    	printf " -------------\n -- ERROR! Imported %d rows, but expected %d. (%d seconds.) --\n -------------\n" $db_row_count $file_row_count $(($end_time - $start_time))
+    	exit
+    fi
+  done
+  
+  
+  file_base_name="reserve_margin"
+  for file_path in $(find $(pwd) -name "${file_base_name}_*txt" | grep "[[:digit:]]"); do
+    echo "    ${file_path}  ->  ${DB_name}._dispatch_reserve_margin"
+    file_row_count=$(wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g' | awk '{print ($1-1)}')
+    TEST_SET_ID=$(echo $file_path | sed -e 's|.*/test_set_\([0-9]*\)/.*|\1|')
+    CARBON_COST=$(echo $file_path | sed -e 's|.*'$reserve_margin'_\([0-9]*\)\.txt|\1|')
+    start_time=$(date +%s)
+    mysql $connection_string -e "\
+    load data local infile \"$file_path\" into table _dispatch_reserve_margin ignore 1 lines \
+      (scenario_id, carbon_cost, period, test_set_id, area_id, @load_area, @date, @hour, static_load, net_shifted_load, total_load, total_capacity, reserve_margin_total, reserve_margin_percentage)\
+      set study_timepoint_utc = str_to_date( @hour, '%Y%m%d%H'), \
+          study_timepoint_id = timestampdiff(HOUR,'$starting_timestamp',study_timepoint_utc);"
+    end_time=$(date +%s)
+    db_row_count=$(mysql $connection_string --column-names=false -e "select count(*) from _dispatch_reserve_margin where scenario_id=$SCENARIO_ID and carbon_cost=$CARBON_COST and test_set_id=$TEST_SET_ID;")
+    if [ $db_row_count -eq $file_row_count ]; then
     	printf "%20s seconds to import %s rows\n" $(($end_time - $start_time)) $file_row_count
     else
     	printf " -------------\n -- ERROR! Imported %d rows, but expected %d. (%d seconds.) --\n -------------\n" $db_row_count $file_row_count $(($end_time - $start_time))

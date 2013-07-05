@@ -1484,3 +1484,26 @@ CREATE TABLE IF NOT EXISTS dispatch_co2_cc (
   PRIMARY KEY (scenario_id, carbon_cost, period)
 );
 
+CREATE TABLE _dispatch_reserve_margin (
+  scenario_id int unsigned NOT NULL,
+  carbon_cost smallint NOT NULL DEFAULT '0',
+  period year NOT NULL,
+  test_set_id int unsigned NOT NULL,
+  area_id smallint NOT NULL,
+  study_timepoint_id int unsigned, 
+  study_timepoint_utc datetime,
+  static_load double,  
+  net_shifted_load double,
+  total_load double,
+  total_capacity double,
+  reserve_margin_total double,
+  reserve_margin_percentage double,
+  INDEX scenario_id (scenario_id),
+  INDEX carbon_cost (carbon_cost),
+  INDEX period (period),
+  INDEX test_set_id (test_set_id),
+  INDEX area_id (area_id),
+  INDEX study_timepoint_utc (study_timepoint_utc),
+  PRIMARY KEY (scenario_id, carbon_cost, period, test_set_id, area_id, study_timepoint_utc)
+);
+
