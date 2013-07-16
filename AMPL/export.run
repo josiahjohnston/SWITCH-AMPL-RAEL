@@ -42,9 +42,8 @@ for {c in CARBON_COSTS} {
       # storage is included here with a fuel of 'Storage' and power < 0 when storing
       let output_section := 'generator_and_storage_dispatch';
       let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
-      if ( file_exists(outfile) == 0 ) then {
       printf "scenario_id	carbon_cost	period	project_id	load_area_id	load_area	balancing_area	date	hour	technology_id	technology	new	baseload	cogen	storage	fuel	fuel_category	hours_in_sample	power	co2_tons	heat_rate	fuel_cost	carbon_cost_hourly	variable_o_m	spinning_reserve	quickstart_capacity	total_operating_reserve	spinning_co2_tons	spinning_fuel_cost	spinning_carbon_cost_incurred	deep_cycling_amount	deep_cycling_fuel_cost	deep_cycling_carbon_cost	deep_cycling_co2_tons	mw_started_up	startup_fuel_cost	startup_nonfuel_cost	startup_carbon_cost	startup_co2_tons\n"
-        > (outfile); }
+        > (outfile);
       
       # New Plants
       printf {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' and ( Power_Produced[pid, a, t, p, h] + Total_Operating_Reserve_Provided[pid, a, t, p, h] ) > 0.001 } 
@@ -144,9 +143,8 @@ for {c in CARBON_COSTS} {
       
       let output_section := 'generation_capacity';
       let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
-      if ( file_exists(outfile) == 0 ) then {
       printf "scenario_id	carbon_cost	period	project_id	load_area_id	load_area	technology_id	technology	site	new	baseload	cogen	fuel	capacity	capital_cost	fixed_o_m_cost\n"
-        > (outfile); }
+        > (outfile);
       
       # New Plants, inclusive of new storage projects
       printf {(pid, a, t, p) in PROJECT_VINTAGES: Installed_To_Date[pid, a, t, p]  > 0.001}
@@ -175,9 +173,8 @@ for {c in CARBON_COSTS} {
       # store all trans capacity between zones
       let output_section := 'transmission_capacity';
       let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
-      if ( file_exists(outfile) == 0 ) then {
       printf "scenario_id	carbon_cost	period	transmission_line_id	start_id	end_id	start	end	new	trans_mw	fixed_cost\n"
-        > (outfile); }
+        > (outfile); 
       
       # existing lines
       # the cost of the existing transmission grid is calculated in the param transmission_sunk_cost and is not included here
@@ -204,9 +201,8 @@ for {c in CARBON_COSTS} {
       
       let output_section := 'transmission_dispatch';
       let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
-      if ( file_exists(outfile) == 0 ) then {
       printf "scenario_id	carbon_cost	period	transmission_line_id	load_area_receive_id	load_area_from_id	load_area_receive	load_area_from	date	hour	rps_fuel_category	power_sent	power_received	hours_in_sample\n"
-        > (outfile); }
+        > (outfile);
       
       # detailed non-rps transmission imports & exports
       printf { (a1, a2, fc, p, h) in TRANSMISSION_LINE_HOURS: DispatchTrans[a1, a2, fc, p, h] > 0.001 } 
@@ -225,9 +221,8 @@ for {c in CARBON_COSTS} {
       # store the costs of all existing transmission capacity
       let output_section := 'existing_trans_cost';
       let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
-      if ( file_exists(outfile) == 0 ) then {
       printf "scenario_id	carbon_cost	period	load_area_id	load_area	existing_trans_cost\n"
-        > (outfile); }
+        > (outfile);
       
       printf {a in LOAD_AREAS, p in PERIODS}:
           "%s	%d	%d	%d	%s	%.2f\n",
@@ -241,9 +236,8 @@ for {c in CARBON_COSTS} {
       # store the reduced costs of the RPS constraint
       let output_section := 'rps_reduced_cost';
       let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
-      if ( file_exists(outfile) == 0 ) then {
       printf "scenario_id	carbon_cost	period	rps_compliance_entity	rps_reduced_cost\n"
-        > (outfile); }
+        > (outfile);
       
       if (enable_rps = 1) then {
         printf { (r, c, p) in RPS_TARGETS: able_to_meet_rps[r, c, p] }:
@@ -265,9 +259,8 @@ for {c in CARBON_COSTS} {
       # store local T&D capacity within each zone
       let output_section := 'local_td_capacity';
       let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
-      if ( file_exists(outfile) == 0 ) then {
       printf "scenario_id	carbon_cost	period	load_area_id	load_area	new	local_td_mw	fixed_cost\n"
-        > (outfile); }
+        > (outfile);
       
       # existing local T&D - assumed to be equal to the planning reserve margin above max_coincident_load_for_local_td 
       printf {a in LOAD_AREAS, p in PERIODS}:
@@ -291,9 +284,8 @@ for {c in CARBON_COSTS} {
       # system LOAD, demand response, and consume variables
       let output_section := 'system_load';
       let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
-      if ( file_exists(outfile) == 0 ) then {
       printf "scenario_id	carbon_cost	period	load_area_id	load_area	date	hour	hours_in_sample	power	satisfy_load_reduced_cost	satisfy_load_reserve_reduced_cost	res_comm_dr	ev_dr\n"
-        > (outfile); }
+        > (outfile);
       
 	  # system load and DR first
       printf {a in LOAD_AREAS, h in TIMEPOINTS, p in PERIODS: period[h]=p} 
@@ -308,9 +300,8 @@ for {c in CARBON_COSTS} {
       # consume variables second
       let output_section := 'consume_variables';
       let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
-      if ( file_exists(outfile) == 0 ) then {
       printf "scenario_id	carbon_cost	period	load_area_id	load_area	date	hour	hours_in_sample	fuel_category	consume_nondistributed_power\n"
-        > (outfile); }
+        > (outfile);
   
       printf {a in LOAD_AREAS, h in TIMEPOINTS} 
         "%s	%d	%d	%d	%s	%d	%d	%d	%.2f\n",
@@ -325,9 +316,8 @@ for {c in CARBON_COSTS} {
       # Check that the amount of operating reserve makes sense relative to load, wind, and solar levels
       let output_section := 'load_wind_solar_operating_reserve_levels';
       let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
-      if ( file_exists(outfile) == 0 ) then {
       printf "scenario_id	carbon_cost	period	balancing_area	date	hour	hours_in_sample	load_level	wind_generation	noncsp_solar_generation	csp_generation	spinning_reserve_requirement	quickstart_capacity_requirement	total_spinning_reserve_provided	total_quickstart_capacity_provided	spinning_thermal_reserve_provided	spinning_nonthermal_reserve_provided	quickstart_thermal_capacity_provided	quickstart_nonthermal_capacity_provided\n"
-        > (outfile); }
+        > (outfile);
         
       printf { h in TIMEPOINTS, b in BALANCING_AREAS }
       "%s	%d	%d	%s	%d	%d	%d	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
