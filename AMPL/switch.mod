@@ -345,6 +345,12 @@ param cogen_thermal_demand {PROJECTS} >= 0 ;
 # the load center (or make it deliverable to other zones)
 param connect_cost_per_mw {PROJECTS} >= 0;
 
+# average cap factor for intermittent projects
+# NOTE: Should add a check to make sure that it's zero for non-intermittents
+# used below to make sure that the average generation in each study period by all intermittent renewables
+# doesn't exceed the yearly average capacity factor
+param average_capacity_factor_intermittent {PROJECTS} >= 0;
+
 # define a set of all periods in which each technology can be installed
 # present is included here for the present day dispatch installation of peaker plants
 set NEW_TECHNOLOGY_PERIODS := { t in TECHNOLOGIES, p in PERIODS: can_build_new[t] and p >= min_online_year[t] and ( p >= present_year + construction_time_years[t] ) };

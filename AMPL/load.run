@@ -121,7 +121,7 @@ read table hydro_monthly_limits;
 
 table proposed_projects "inputs/proposed_projects.tab" IN: 
   PROJECTS <- [project_id, load_area, technology], location_id, ep_project_replacement_id,
-    capacity_limit, capacity_limit_conversion, heat_rate, cogen_thermal_demand, connect_cost_per_mw;
+    capacity_limit, capacity_limit_conversion, heat_rate, cogen_thermal_demand, connect_cost_per_mw, average_capacity_factor_intermittent;
 read table proposed_projects;
 
 table generator_info "inputs/generator_info.tab" IN:  
