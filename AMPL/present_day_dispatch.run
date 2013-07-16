@@ -24,6 +24,7 @@ redeclare param OperateEPDuringPeriod_tab_path symbolic := results_path & "prese
 redeclare param InstallTrans_tab_path          symbolic := results_path & "present_InstallTrans" & carbon_cost & ".tab";
 redeclare param install_local_td_tab_path        symbolic := results_path & "present_install_local_td" & carbon_cost & ".tab";
 redeclare param ng_consumption_and_prices_by_period_path     symbolic := results_path & "present_ng_consumption_and_prices_by_period_" & carbon_cost & ".tab";
+redeclare param biomass_consumption_and_prices_by_period_path     symbolic := results_path & "present_biomass_consumption_and_prices_by_period_" & carbon_cost & ".tab";
 
 # timepoint params used in record_results.run - would be better to reset indexing of timepoints, but I don't know how to do this in AMPL
 # these get a bit complicated because the timepoint and date ids need to have different years
@@ -82,12 +83,7 @@ if ( file_exists(solution_path) ==  0) then {
   printf "%d	%d	%s	%d\n", scenario_id, carbon_cost, "Present_Day_Cost_Optimization", sol_time  >> (solution_times_path);
   close (solution_times_path);
 
+} 
   # Export the results to csv files and the like. We changed the file names above. 
+  printf "Found solution to present-day cost. Exporting results.\n";
   include export.run;
-
-} else {
-  printf "Found solution to present-day cost. This job is already done.\n";
-  solution(solution_path);
-  include basicstats.run;
-}
-
