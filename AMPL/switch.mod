@@ -952,7 +952,7 @@ set TRANSMISSION_LINES_NEW_BUILDS_ALLOWED := { (a1, a2) in TRANSMISSION_LINES: n
 # $ cost per mw-km for new transmission lines
 # because transmission lines are built in one direction only and then constrained to have the same capacity in both directions
 # the per direction value needs to be half of what it would cost to install each line
-param transmission_capital_cost_per_mw_km = 1000;
+param transmission_capital_cost_per_mw_km >=0;
 param transmission_capital_cost_per_mw_km_per_direction = transmission_capital_cost_per_mw_km / 2;
 
 # financial age for transmission lines - from the 2009 WREZ transmission model transmission data

@@ -94,6 +94,7 @@ CREATE TABLE IF NOT EXISTS scenarios_v3 (
   ev_scenario_id int unsigned default NULL COMMENT 'The default scenario is NULL: no ev demand response scenario specified. The EV scenario is linked to the load_scenario_id. Browse existing EV scenarios or define new ones in the ev_scenarios table.',
   enforce_ca_dg_mandate BOOLEAN NOT NULL DEFAULT 0,
   linearize_optimization BOOLEAN NOT NULL DEFAULT 0,
+  transmission_capital_cost_per_mw_km INT NOT NULL DEFAULT 1000,
   notes TEXT,
   model_version varchar(16) NOT NULL,
   inputs_adjusted varchar(16) NOT NULL DEFAULT 'no',
