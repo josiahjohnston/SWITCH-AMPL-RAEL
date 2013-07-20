@@ -99,7 +99,7 @@ CREATE TABLE IF NOT EXISTS scenarios_v3 (
   model_version varchar(16) NOT NULL,
   inputs_adjusted varchar(16) NOT NULL DEFAULT 'no',
   PRIMARY KEY (scenario_id), 
-  UNIQUE KEY unique_params (scenario_name, training_set_id, regional_cost_multiplier_scenario_id, regional_fuel_cost_scenario_id, gen_costs_scenario_id, gen_info_scenario_id, enable_rps, carbon_cap_scenario_id, nems_fuel_scenario_id, dr_scenario_id, ev_scenario_id, enforce_ca_dg_mandate, linearize_optimization, model_version, inputs_adjusted), 
+  UNIQUE KEY unique_params (scenario_name, training_set_id, regional_cost_multiplier_scenario_id, regional_fuel_cost_scenario_id, gen_costs_scenario_id, gen_info_scenario_id, enable_rps, carbon_cap_scenario_id, nems_fuel_scenario_id, dr_scenario_id, ev_scenario_id, enforce_ca_dg_mandate, linearize_optimization, model_version, inputs_adjusted, transmission_capital_cost_per_mw_km), 
   CONSTRAINT training_set_id FOREIGN KEY training_set_id (training_set_id)
     REFERENCES training_sets (training_set_id), 
   CONSTRAINT regional_cost_multiplier_scenario_id FOREIGN KEY regional_cost_multiplier_scenario_id (regional_cost_multiplier_scenario_id)
