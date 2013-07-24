@@ -502,9 +502,6 @@ mysql $connection_string -e "select * from system_load_summary_hourly where scen
 echo 'Exporting trans_cap_summary.txt...'
 mysql $connection_string -e "select * from trans_cap_summary where scenario_id = $SCENARIO_ID;" > $results_graphing_dir/trans_cap_summary.txt
 
-echo 'Exporting transmission_directed_hourly.txt...'
-mysql $connection_string -e "select * from transmission_directed_hourly where scenario_id = $SCENARIO_ID;" > $results_graphing_dir/transmission_directed_hourly.txt
-
 echo 'Exporting transmission_avg_directed.txt...'
 mysql $connection_string -e "select * from transmission_avg_directed where scenario_id = $SCENARIO_ID;" > $results_graphing_dir/transmission_avg_directed.txt
 

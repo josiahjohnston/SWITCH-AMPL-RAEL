@@ -723,31 +723,6 @@ CREATE OR REPLACE VIEW trans_loss as
     FROM _trans_loss join load_areas using(area_id);
 
 
-CREATE TABLE IF NOT EXISTS _transmission_directed_hourly (
-  scenario_id int,
-  carbon_cost smallint,
-  period year,
-  transmission_line_id int,
-  send_id smallint,
-  receive_id smallint,
-  study_hour int,
-  hour_of_day_UTC tinyint unsigned,
-  directed_trans_avg int,
-  INDEX scenario_id (scenario_id),
-  INDEX carbon_cost (carbon_cost),
-  INDEX period (period),
-  INDEX study_hour (study_hour),
-  INDEX transmission_line_id (transmission_line_id),
-  INDEX send_id (send_id),
-  INDEX receive_id (receive_id),
-  PRIMARY KEY (scenario_id, carbon_cost, period, study_hour, transmission_line_id)
-) ROW_FORMAT=FIXED;
-CREATE OR REPLACE VIEW transmission_directed_hourly as
-  SELECT	scenario_id, carbon_cost, period, transmission_line_id, load_area_start as load_area_from, load_area_end as load_area_receive, start_id as send_id, end_id as receive_id,
-  			study_hour,	hour_of_day_UTC, mod(hour_of_day_UTC - 8, 24) as hour_of_day_PST, directed_trans_avg
-    FROM _transmission_directed_hourly join transmission_lines using(transmission_line_id);
-
-
 CREATE TABLE IF NOT EXISTS _transmission_avg_directed (
   scenario_id int,
   carbon_cost smallint,
