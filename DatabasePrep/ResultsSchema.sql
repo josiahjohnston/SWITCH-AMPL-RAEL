@@ -602,20 +602,16 @@ CREATE OR REPLACE VIEW trans_cap as
 
 
 CREATE OR REPLACE VIEW trans_cap_summary AS
-select
-e.scenario_id, e.carbon_cost, e.period, e.transmission_line_id,
-load_area_start, load_area_end,
-e.trans_mw as existing_trans_mw, n.trans_mw as new_trans_mw, e.trans_mw + n.trans_mw as total_trans_mw
-from _trans_cap e, _trans_cap n join transmission_lines using (transmission_line_id)
-where e.scenario_id = n.scenario_id
-and e.carbon_cost = n.carbon_cost
-and e.period = n.period
-and e.transmission_line_id = n.transmission_line_id
-and e.start_id = n.start_id
-and e.end_id = n.end_id
-and e.new = 0
-and n.new = 1
-order by 1,2,3,5,6;
+  select
+    e.scenario_id, e.carbon_cost, e.period, e.transmission_line_id,
+    load_area_start, load_area_end,
+    e.trans_mw as existing_trans_mw, n.trans_mw as new_trans_mw, e.trans_mw + n.trans_mw as total_trans_mw
+  from _trans_cap e join 
+    _trans_cap n using(scenario_id, carbon_cost, period, transmission_line_id, start_id, end_id) join 
+    transmission_lines using (transmission_line_id)
+  where e.new = 0
+    and n.new = 1
+  order by 1,2,3,5,6;
 
 CREATE TABLE IF NOT EXISTS _existing_trans_cost (
   scenario_id int,
