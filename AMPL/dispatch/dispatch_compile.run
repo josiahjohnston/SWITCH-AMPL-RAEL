@@ -1,4 +1,5 @@
 problem Dispatch_Only;
+include tweak_problem.run;
 if ( file_exists(cost_solution_file) == 0 and file_exists( ( cost_problem_file & ".nl" ) ) == 0 ) then {
   printf "Dispatch problem not found on disk for a carbon cost of %d. Writing optimization problem\n", carbon_cost;
   let curtime := time();

@@ -21,6 +21,7 @@ for {c in CARBON_COSTS} {
     include dispatch_export_infeasibilities.run;
     # Swap problems to allow extra peakers
     problem Dispatch_peakers_and_storage;
+    include tweak_problem.run;
     if( file_exists( peaker_solution_file ) == 0 and 
         file_exists( peaker_problem_file_path ) == 0 ) then {
       printf "Writing problem file to %s\n", ( peaker_problem_file & ".nl" );

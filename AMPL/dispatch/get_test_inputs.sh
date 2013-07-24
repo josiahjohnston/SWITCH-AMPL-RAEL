@@ -233,7 +233,7 @@ for test_set_id in $(mysql $connection_string --column-names=false -e "select di
 	done
 		
 	# Do the same for the code.
-	for f in load.run compile.run define_params.run basicstats.run export.run switch.mod switch.dat; do
+	for f in load.run compile.run define_params.run basicstats.run export.run switch.mod switch.dat tweak_problem.run; do
 		if [ ! -L $test_path/$f ]; then
 			ln -s ../../$f $test_path/$f
 		fi

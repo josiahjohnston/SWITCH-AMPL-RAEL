@@ -29,7 +29,7 @@ update data;
 close;
 
 # Remove the links
-shell( "for f in InstallGen OperateEPDuringPeriod InstallTrans; do p=inputs/$f.tab; if [ -L $p ]; then rm $p; fi; done" );
+shell( "for f in InstallGen OperateEPDuringPeriod InstallTrans InstallLocalTD; do p=inputs/$f.tab; if [ -L $p ]; then rm $p; fi; done" );
 shell( "if [ -L inputs/ng_supply_curve.tab ]; then rm inputs/ng_supply_curve.tab; mv inputs/ng_supply_curve.tab.actual inputs/ng_supply_curve.tab; fi" );
 shell( "if [ -L inputs/biomass_supply_curve.tab ]; then rm inputs/biomass_supply_curve.tab; mv inputs/biomass_supply_curve.tab.actual inputs/biomass_supply_curve.tab; fi" );
 
