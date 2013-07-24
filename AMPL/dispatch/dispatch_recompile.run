@@ -4,11 +4,13 @@ then {
 } else {
   printf "Loading prior solution from %s.\n", cost_solution_file;
   problem Dispatch_Only;
+  include tweak_problem.run;
   solution( cost_solution_file );
   if( solve_result = 'infeasible' ) then {
     printf "Dispatch-only problem is Infeasible.\n";
     # Swap problems to allow extra peakers
     problem Dispatch_peakers_and_storage;
+    include tweak_problem.run;
     if( file_exists( peaker_solution_file ) == 0 and 
         file_exists( ( peaker_problem_file & ".nl" ) ) == 0 ) then {
       printf "Writing problem file to %s\n", ( peaker_problem_file & ".nl" );
