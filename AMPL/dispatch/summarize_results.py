@@ -5,6 +5,9 @@ import re
 import csv
 
 capacity_shortfalls = []
+periods = []
+emissions = {}                         # indexed by carbon cost, period, and emission type (direct or from sources of heat rate penalty)
+emission_targets = {}                  # indexed by period
 ng_consumption = {}                    # indexed by carbon cost & period
 ng_consumption_projections = {}
 biomass_consumption = {}               # indexed by carbon cost, period & load area
@@ -17,8 +20,10 @@ scenario_id = str(int(open("scenario_id.txt").read()))
 # Set the umask to give group read & write permissions to all files & directories made by this script.
 os.umask(0002)
 
+# Retrieve data from test_set_XXX/results/ directories
 for test_dir in glob.glob('test_set_*'):
   test_set_id = test_dir.replace('test_set_','')
+  # Find infeasibilities & capacity shortfalls
   for extra_peaker_path in glob.glob(test_dir + '/results/dispatch_extra_peakers_*'):
     carbon_cost = re.sub(r'^.*/dispatch_extra_peakers_(\d+).txt', r'\1', extra_peaker_path)
     load_infeasible_path = extra_peaker_path.replace('dispatch_extra_peakers','load_infeasibilities')
@@ -54,46 +59,68 @@ for test_dir in glob.glob('test_set_*'):
       for row in dat:
         period = row[2]
         cap_shortfall = row[14]
-        if period not in cap_shortfall_by_period.keys():
+        if period not in cap_shortfall_by_period:
           cap_shortfall_by_period[period] = float(cap_shortfall)
         else: 
           cap_shortfall_by_period[period] += float(cap_shortfall)
       f.close()
 
     # Update the capacity shortfalls to include capacity was built in earlier periods
-    for period1 in cap_shortfall_by_period.keys():
-      for period2 in cap_shortfall_by_period.keys():
+    for period1 in cap_shortfall_by_period:
+      for period2 in cap_shortfall_by_period:
         if period2 < period1:
           cap_shortfall_by_period[period1] += cap_shortfall_by_period[period2]
 
     # Cross the infeasible timepoints with the capacity shortfalls to produce the summary records
-    for period in cap_shortfall_by_period.keys():
+    for period in cap_shortfall_by_period:
       for tp in filter(lambda x: infeasible_timepoints[x] == period, infeasible_timepoints.keys()): 
         capacity_shortfalls.append( 
-          {"period": period, "timepoint": tp, "carbon_cost": carbon_cost, 
+          {"period": str(period), "timepoint": tp, "carbon_cost": carbon_cost, 
            "test_set_id": test_set_id, 
            "cap_shortfall_mw": cap_shortfall_by_period[period]})
       if len(filter(lambda x: infeasible_timepoints[x] == period, infeasible_timepoints.keys())) == 0: 
         capacity_shortfalls.append( 
-          {"period": period, "timepoint": "?", "carbon_cost": carbon_cost, 
+          {"period": str(period), "timepoint": "?", "carbon_cost": carbon_cost, 
            "test_set_id": test_set_id, 
            "cap_shortfall_mw": cap_shortfall_by_period[period]})
   
+  # Extract emissions for this test set
+  for dispatch_sums_path in glob.glob(test_dir + '/results/dispatch_sums_*'):
+    carbon_cost = re.sub(r'^.*/dispatch_sums_(\d+).txt', r'\1', dispatch_sums_path)
+    if carbon_cost not in emissions:
+      emissions[carbon_cost] = {}
+    f = open(dispatch_sums_path, 'rb')
+    dat = csv.reader(f, delimiter='\t')
+    col_headers = dat.next()
+    for row in dat:
+      period = int(row[2])
+      hours_in_sample = float(row[17])
+      co2_tons = float(row[19])
+      spinning_co2_tons = float(row[27])
+      deep_cycling_co2_tons = float(row[33])
+      startup_co2_tons = float(row[38])
+      if period not in emissions[carbon_cost]:
+        emissions[carbon_cost][period] = {'co2_tons': 0, 'spinning_co2_tons': 0, 'deep_cycling_co2_tons': 0, 'startup_co2_tons': 0}
+      emissions[carbon_cost][period]['co2_tons'] += co2_tons*hours_in_sample
+      emissions[carbon_cost][period]['spinning_co2_tons'] += spinning_co2_tons*hours_in_sample
+      emissions[carbon_cost][period]['deep_cycling_co2_tons'] += deep_cycling_co2_tons*hours_in_sample
+      emissions[carbon_cost][period]['startup_co2_tons'] += startup_co2_tons*hours_in_sample
+
   # Add the biomass consumption for this test set
   for biomass_consumed_path in glob.glob(test_dir + '/results/biomass_consumed_*'):
     carbon_cost = re.sub(r'^.*/biomass_consumed_(\d+).txt', r'\1', biomass_consumed_path)
-    if carbon_cost not in biomass_consumption.keys():
+    if carbon_cost not in biomass_consumption:
       biomass_consumption[carbon_cost] = {}
     f = open(biomass_consumed_path, 'rb')
     dat = csv.reader(f, delimiter='\t')
     col_headers = dat.next()
     for row in dat:
-      period = row[2]
+      period = int(row[2])
       load_area = row[4]
       consumption = float(row[6])
-      if period not in biomass_consumption[carbon_cost].keys():
+      if period not in biomass_consumption[carbon_cost]:
         biomass_consumption[carbon_cost][period] = {}
-      if load_area not in biomass_consumption[carbon_cost][period].keys():
+      if load_area not in biomass_consumption[carbon_cost][period]:
         biomass_consumption[carbon_cost][period][load_area] = consumption
         biomass_consumption_indexes.append( [ carbon_cost, period, load_area ] )
       else:
@@ -103,37 +130,38 @@ for test_dir in glob.glob('test_set_*'):
   # Add the biomass consumption for this test set
   for ng_consumed_path in glob.glob(test_dir + '/results/ng_consumed_*'):
     carbon_cost = re.sub(r'^.*/ng_consumed_(\d+).txt', r'\1', ng_consumed_path)
-    if carbon_cost not in ng_consumption.keys():
+    if carbon_cost not in ng_consumption:
       ng_consumption[carbon_cost] = {}
     f = open(ng_consumed_path, 'rb')
     dat = csv.reader(f, delimiter='\t')
     col_headers = dat.next()
     for row in dat:
-      period = row[2]
+      period = int(row[2])
       consumption = float(row[4])
-      if period not in ng_consumption[carbon_cost].keys():
+      if period not in ng_consumption[carbon_cost]:
         ng_consumption[carbon_cost][period] = consumption
         ng_consumption_indexes.append( [ carbon_cost, period ] )
       else:
         ng_consumption[carbon_cost][period] += consumption
     f.close()
 
+
 # Determine the projected consumption levels for biomass
 for biomass_projections_path in glob.glob('common_inputs/biomass_consumption_and_prices_by_period_*'):
   carbon_cost = re.sub(r'^.*/biomass_consumption_and_prices_by_period_(\d+).tab', r'\1', biomass_projections_path)
-  if carbon_cost not in biomass_consumption_projections.keys():
+  if carbon_cost not in biomass_consumption_projections:
     biomass_consumption_projections[carbon_cost] = {}
   f = open(biomass_projections_path, 'rb')
   dat = csv.reader(f, delimiter='\t')
   ampl_header = dat.next()
   col_headers = dat.next()
   for row in dat:
-    period = row[1]
+    period = int(row[1])
     load_area = row[0]
     breakpoint_id = row[2]
     projected_consumption = float(row[3])
     if int(breakpoint_id) != 1: continue
-    if period not in biomass_consumption_projections[carbon_cost].keys():
+    if period not in biomass_consumption_projections[carbon_cost]:
       biomass_consumption_projections[carbon_cost][period] = {}
     biomass_consumption_projections[carbon_cost][period][load_area] = projected_consumption
   f.close()
@@ -141,20 +169,46 @@ for biomass_projections_path in glob.glob('common_inputs/biomass_consumption_and
 # Determine the projected consumption levels for natural gas
 for ng_projections_path in glob.glob('common_inputs/ng_consumption_and_prices_by_period_*'):
   carbon_cost = re.sub(r'^.*/ng_consumption_and_prices_by_period_(\d+).tab', r'\1', ng_projections_path)
-  if carbon_cost not in ng_consumption_projections.keys():
+  if carbon_cost not in ng_consumption_projections:
     ng_consumption_projections[carbon_cost] = {}
   f = open(ng_projections_path, 'rb')
   dat = csv.reader(f, delimiter='\t')
   ampl_header = dat.next()
   col_headers = dat.next()
   for row in dat:
-    period = row[0]
+    period = int(row[0])
     breakpoint_id = row[1]
     projected_consumption = float(row[2])
     if int(breakpoint_id) != 1: continue
     ng_consumption_projections[carbon_cost][period] = projected_consumption
   f.close()
 
+# Determine the emission goals
+# Start by determing number of years per period
+f = open("common_inputs/misc_params.dat", 'rb')
+dat = csv.reader(f, delimiter=' ', skipinitialspace=True)
+for row in dat:
+  if row[1] == "num_years_per_period":
+    num_years_per_period = int(re.sub(r';', r'', row[3]))
+    break
+f.close()
+for period in sorted(emissions[ emissions.keys()[0] ].keys()):
+  periods.append(period)
+  emission_targets[period] = 0
+print "periods are: ", periods
+emissions_1990 = 284800000 # I'm too lazy right now to write code to pull this from the depths of switch.mod
+# Now open the carbon cap annual targets add up the total amount per period
+f = open("common_inputs/carbon_cap_targets.tab", 'rb')
+dat = csv.reader(f, delimiter='\t')
+ampl_header = dat.next()
+col_headers = dat.next()
+for row in dat:
+  year = int(row[0])
+  relative_goal = float(row[1])
+  for period in periods:
+    if year >= period and year < period + num_years_per_period: 
+      emission_targets[period] += relative_goal*emissions_1990
+f.close()
 
 # Start printing the summary output
 delimiter="\t"
@@ -171,7 +225,7 @@ summary_output.write(delimiter.join( [
   ]) + "\n")
 for carbon_cost, period, load_area in biomass_consumption_indexes: 
   summary_output.write(delimiter.join( [
-    scenario_id, carbon_cost, period, load_area, 
+    scenario_id, carbon_cost, str(period), load_area, 
     str(biomass_consumption[carbon_cost][period][load_area]),
     str(biomass_consumption_projections[carbon_cost][period][load_area]),
     str((biomass_consumption[carbon_cost][period][load_area] - biomass_consumption_projections[carbon_cost][period][load_area]) / biomass_consumption_projections[carbon_cost][period][load_area]) 
@@ -191,11 +245,39 @@ summary_output.write(delimiter.join( [
   ]) + "\n")
 for carbon_cost, period in ng_consumption_indexes: 
   summary_output.write(delimiter.join( [
-    scenario_id, carbon_cost, period, 
+    scenario_id, carbon_cost, str(period), 
     str(ng_consumption[carbon_cost][period]),
     str(ng_consumption_projections[carbon_cost][period]),
     str((ng_consumption[carbon_cost][period] - ng_consumption_projections[carbon_cost][period]) / ng_consumption_projections[carbon_cost][period])
   ]) + "\n")
+summary_output.close()
+
+
+# Summarize emission levels
+summary_output = open("emissions_summary.txt","w")
+summary_output.write(delimiter.join( [
+    "scenario_id", "carbon_cost", "period", 
+    "co2_tons", "spinning_co2_tons", "deep_cycling_co2_tons", "startup_co2_tons", "total_co2_tons", "target_co2_tons", "fraction_over_target", "emissions_frac_of_1990", "target_frac_of_1990" 
+  ]) + "\n")
+for carbon_cost in emissions:
+  for period in emissions[carbon_cost]: 
+    emissions[carbon_cost][period]['total'] = \
+      emissions[carbon_cost][period]['co2_tons'] + \
+      emissions[carbon_cost][period]['spinning_co2_tons'] + \
+      emissions[carbon_cost][period]['deep_cycling_co2_tons'] + \
+      emissions[carbon_cost][period]['startup_co2_tons']        
+    summary_output.write(delimiter.join( [
+      scenario_id, carbon_cost, str(period), 
+      str(emissions[carbon_cost][period]['co2_tons']),
+      str(emissions[carbon_cost][period]['spinning_co2_tons']),
+      str(emissions[carbon_cost][period]['deep_cycling_co2_tons']),
+      str(emissions[carbon_cost][period]['startup_co2_tons']),
+      str(emissions[carbon_cost][period]['total'] ),
+      str(emission_targets[period]),
+      str((emissions[carbon_cost][period]['total'] - emission_targets[period]) / emission_targets[period]),
+      str(emissions[carbon_cost][period]['total']/num_years_per_period/emissions_1990),
+      str(emission_targets[period]/num_years_per_period/emissions_1990)
+    ]) + "\n")
 summary_output.close()
 
 
