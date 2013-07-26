@@ -355,7 +355,7 @@ for test_set_id in $(mysql $connection_string --column-names=false -e "select di
         AND load_scenario_id = $LOAD_SCENARIO_ID\
         AND test_set_id=$test_set_id\
       ORDER BY 1,2;\
-    SELECT project_id, load_area, technology, study_date as date, ROUND(avg_capacity_factor_hydro,1) AS avg_capacity_factor_hydro\
+    SELECT project_id, load_area, technology, study_date as date, ROUND(avg_capacity_factor_hydro,4) AS avg_capacity_factor_hydro\
       FROM hydro_monthly_limits_v2 \
         JOIN study_dates_export USING(month);" >> $data_dir/$f2
 	fi
