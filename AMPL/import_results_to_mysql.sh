@@ -512,9 +512,9 @@ echo 'Exporting dispatch_summary_hourly_tech.txt...'
 mysql $connection_string -e "select * from gen_hourly_summary_by_tech WHERE scenario_id = $SCENARIO_ID;" > $results_graphing_dir/dispatch_summary_hourly_tech.txt
 
 #these take too long at the moment
-echo 'Exporting dispatch_hourly_summary_la_by_tech.txt...'
+# echo 'Exporting dispatch_hourly_summary_la_by_tech.txt...'
 #mysql $connection_string -e "select * from gen_hourly_summary_la_by_tech WHERE scenario_id = $SCENARIO_ID;" > $results_graphing_dir/dispatch_hourly_summary_la_by_tech.txt
 
-echo 'Exporting dispatch_hourly_summary_la_by_fuel.txt...'
+# echo 'Exporting dispatch_hourly_summary_la_by_fuel.txt...'
 #mysql $connection_string -e "select * from gen_hourly_summary_la_by_fuel WHERE scenario_id = $SCENARIO_ID;" > $results_graphing_dir/dispatch_hourly_summary_la_by_fuel.txt
 
