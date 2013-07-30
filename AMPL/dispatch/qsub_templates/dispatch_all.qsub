@@ -26,3 +26,5 @@ echo "compile job_path is $job_path"
 mpirun -v -np $NUM_WORKERS ./execute_jobs.pl $job_path;
 
 rm $job_path
+
+./summarize_results.py
