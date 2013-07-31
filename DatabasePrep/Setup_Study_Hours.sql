@@ -538,7 +538,7 @@ BEGIN
 
 
  	DROP TABLE IF EXISTS incomplete_test_sets;
- 	DROP TABLE IF EXISTS test_timepoints_per_period;
+ 	DROP TABLE IF EXISTS test_timepoints_per_period_month;
 	DROP TABLE IF EXISTS years_to_sample_from;
 
 	-- Make a list of years for each period that we will draw samples from.
@@ -588,18 +588,18 @@ BEGIN
   UPDATE dispatch_test_sets, test_timepoints_per_period_month, tmonths, study_timepoints
     SET hours_in_sample = (@years_per_period * days_in_month * 24)/cnt
     WHERE dispatch_test_sets.training_set_id = this_training_set_id AND
-      dispatch_test_sets.timepoint_id = study_timepoints.study_timepoint_id AND
+      dispatch_test_sets.timepoint_id = study_timepoints.timepoint_id AND
       study_timepoints.month_of_year = tmonths.month_of_year AND
-      study_timepoints.month_of_year = test_timepoints_per_period.month_of_year AND
-      dispatch_test_sets.periodnum = test_timepoints_per_period.periodnum
+      study_timepoints.month_of_year = test_timepoints_per_period_month.month_of_year AND
+      dispatch_test_sets.periodnum = test_timepoints_per_period_month.periodnum
       ;
   set @present_day_period_length := (select @study_start_year - YEAR(NOW()));
-  UPDATE dispatch_test_sets, test_timepoints_per_period, tmonths, study_timepoints
+  UPDATE dispatch_test_sets, test_timepoints_per_period_month, tmonths, study_timepoints
     SET hours_in_sample = (@present_day_period_length * days_in_month * 24)/cnt
     WHERE dispatch_test_sets.training_set_id = this_training_set_id AND
       dispatch_test_sets.timepoint_id = study_timepoints.timepoint_id AND
       study_timepoints.month_of_year = tmonths.month_of_year AND
-      study_timepoints.month_of_year = test_timepoints_per_period.month_of_year AND
+      study_timepoints.month_of_year = test_timepoints_per_period_month.month_of_year AND
       dispatch_test_sets.periodnum IS NULL AND 
       test_timepoints_per_period_month.periodnum IS NULL;
 
@@ -614,7 +614,7 @@ BEGIN
     GROUP BY 1,2;
 
  	DROP TABLE IF EXISTS incomplete_test_sets;
- 	DROP TABLE IF EXISTS test_timepoints_per_period;
+ 	DROP TABLE IF EXISTS test_timepoints_per_period_month;
 	DROP TABLE IF EXISTS years_to_sample_from;
 	DROP TABLE IF EXISTS tmonths;
 
