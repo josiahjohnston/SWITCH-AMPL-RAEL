@@ -48,8 +48,10 @@ done
 # Determine if this is being run in a cluster environment
 if [ -z $(which getid) ]; then cluster=0; else cluster=1; fi;
 
-# Determine the worker id of this process
+# Determine the worker id of this process in a cluster environment if it wasn't passed in as a command-line argument
 if [ -z "$worker_id" ] && [ "$cluster" == 1 ]; then worker_id=$(getid | awk '{print $1}'); fi
+# Hack.. If that didn't work, assume this process is the only worker. 
+if [ -z "$worker_id" ]; then worker_id=0; num_workers=1; fi
 
 # Basic error checking
 if [ -z "$worker_id" ]; then echo "ERROR! worker_id is unspecified."; exit; fi

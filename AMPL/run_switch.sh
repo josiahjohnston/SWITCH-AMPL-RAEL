@@ -12,10 +12,9 @@
 # 	--help                   Print this usage information
 #		--threads_per_cplex X    Allow CPLEX to use up to X threads for its parallel mode. This will increase the memory requirements by a factor of X.
 # OPTIONAL INPUTS FOR A CLUSTER ENVIRONMENT
-# 	--workers_per_node Y     Do not start more than Y workers on a node. 
 # 	--email foo@berkeley.edu Send emails on the job progress to this email
 # 	--jobname foo_bar        Give the job this name
-# 	--queue long             Put this in the specified queue. Available queues are express, short, normal and long with maximum runtimes of 30 minutes, 6 hours, 24 hours and 72 hours. 
+# 	--runtime 10             Request 10 hours of runtime for the optimization step. Whole numbers only. 
 
 # This function assumes that the lines at the top of the file that start with a # and a space or tab 
 # comprise the help message. It prints the matching lines with the prefix removed and stops at the first blank line.
@@ -30,6 +29,31 @@ umask=0002
 
 # Determine if this is being run in a cluster environment
 if [ -z $(which getid) ]; then cluster=0; else cluster=1; fi;
+
+# Determine which queues are available
+if [ $cluster -eq 1 ]; then 
+  cluster_login_name=$(qstat -q | sed -n -e's/^server: //p')
+  case $cluster_login_name in
+    psi) cluster_name="psi" ;;
+    perceus-citris.banatao.berkeley.edu) cluster_name="citris" ;;
+  	*) echo "Unknown cluster. Login node is $cluster_login_name."; exit ;;
+  esac
+  case $cluster_name in
+    psi)
+      queue_6hr=psi
+      queue_24hr=psi
+      queue_72hr=psi
+      queue_168hr=psi
+      ;;
+    citris)
+      queue_6hr=short
+      queue_24hr=normal
+      queue_72hr=normal
+      queue_168hr=normal
+      ;;
+  esac
+fi
+
 # Determine the number of cores available. Different platform require different strategies.
 if [ $(uname) == "Linux" ]; then 
 	num_cores=$(grep processor /proc/cpuinfo | wc -l | awk '{print $1}')
@@ -41,28 +65,19 @@ fi
 
 # Default values
 runtime_path='results/run_times.txt'
+opt_runtime=24
 num_workers=1
-workers_per_node=1
 is_worker=0
-# default number of cores: all of the cores on a node
-# the commented out code allows for reduction below this value
-# (|cut -f1 -d".") is a shell script floor function
-# threads_per_cplex=$(echo - | awk "{ print $num_cores*0.5}" | cut -f1 -d".")
-threads_per_cplex=$num_cores
 
 # Parse the options
 while [ -n "$1" ]; do
 case $1 in
-  -n | --num_workers)
-    num_workers=$2; shift 2 ;;
-  -w | --workers_per_node)
-    workers_per_node=$2; shift 2 ;;
   -e | --email)
     email=$2; shift 2 ;;
   -j | --jobname)
     jobname=$2; shift 2 ;;
-  -q | --queue)
-    queue=$2; shift 2 ;;
+  -r | --runtime)
+    opt_runtime=$2; shift 2 ;;
 	--is_worker)
 		is_worker=1; shift ;;
 	--worker)
@@ -82,8 +97,12 @@ done
 mkdir -p logs
 mkdir -p results
 
-# Update the number of threads cplex is allowed to use
-[ -n "$threads_per_cplex" ] && sed -i".orig" -e 's/^\(option cplex_options.*\)\(threads=[0-9]*\)\([^0-9].*\)$/\1threads='$threads_per_cplex'\3/' "load.run"
+# Validate the threads_per_cplex input and write it to the load.run file. Default and maximum value are num_cores
+if [ -z "$threads_per_cplex" ]; then 
+  threads_per_cplex=$num_cores; 
+fi
+sed -i".orig" -e 's/^\(option cplex_options.*\)\(threads=[0-9]*\)\([^0-9].*\)$/\1threads='$threads_per_cplex'\3/' "load.run"
+
 
 # If a jobname wasn't given, use the directory name this process is running in
 if [ -z "$jobname" ]; then 
@@ -102,19 +121,8 @@ if [ $cluster == 1 ]; then
 			jnelson) email="jameshenrynelson@gmail.com" ;;
 			siah) email="siah@berkeley.edu" ;;
 			amileva) email="amileva@berkeley.edu" ;;
-			sabebe) email="abebe.solomon@gmail.com" ;; 
 			dsanchez) email="dansanch01@gmail.com" ;; 
 		esac
-	fi
-	# Translate the number of processes and processes per node into number of nodes
-	nodes=$(printf "%.0f" $(echo "scale=1; $num_workers/$workers_per_node" | bc))
-	# Don't let the value of nodes be larger than 8.
-	if [ $nodes -gt 8 ]; then
-	  nodes=8
-	fi
-	# Don't let the value of nodes be less than 1
-	if [ $nodes -lt 1 ]; then
-	  nodes=1
 	fi
 
 	# Process each qsub file for boilerplate stuff
@@ -136,24 +144,43 @@ if [ $cluster == 1 ]; then
 		[ -n "$jobname" ] && sed -i".orig" -e 's/^#PBS -N .*$/#PBS -N '"$jobname-$action"'/' "$f"
 		[ -n "$email" ] && sed -i".orig" -e 's/^#PBS -M .*$/#PBS -M '"$email"'/' "$f"
 		sed -i".orig" -e 's|^working_dir=.*$|working_dir="'"$working_directory"'"|' "$f"
+		
+		# Update the queue parameter in everything mut the optimize file (we do that one below)
+		if [ "$action" != "optimize" ]; then
+		  runtime=$(sed -n -e 's/^#PBS -l walltime=\([0-9]*\):.*$/\1/p' $f)
+		else
+		  runtime=$opt_runtime
+      sed -i".orig" -e 's/^#PBS -l walltime=.*$/#PBS -l walltime='$runtime':00:00/' "$f"
+		fi
+    # Decide which queue to use
+    if [ $runtime -le 6 ]; then
+      sed -i".orig" -e 's/^#PBS -q .*$/#PBS -q '"$queue_6hr"'/' "$f"
+    elif [ $runtime -le 24 ]; then 
+      sed -i".orig" -e 's/^#PBS -q .*$/#PBS -q '"$queue_24hr"'/' "$f"
+    elif [ $runtime -le 72 ]; then 
+      if [ -n "$queue_72hr" ]; then
+        echo "This cluster ($cluster_name) does not support jobs with this much runtime. Try 24 hours or less."
+        exit;
+      fi
+      sed -i".orig" -e 's/^#PBS -q .*$/#PBS -q '"$queue_72hr"'/' "$f"
+    elif [ $runtime -le 168 ]; then 
+      if [ -n "$queue_168hr" ]; then
+        echo "This cluster ($cluster_name) does not support jobs with this much runtime. Try 72 hours or less."
+        exit;
+      fi
+      sed -i".orig" -e 's/^#PBS -q .*$/#PBS -q '"$queue_168hr"'/' "$f"
+    else
+      echo "This cluster ($cluster_name) does not support jobs with this much runtime."
+      exit;
+    fi
 	done
 
 	# Fill in the OPTIMIZE qsub file
 	f=optimize.qsub
 	# How many nodes & workers per node.
-	sed -i".orig" -e 's/^#PBS -l nodes=.*$/#PBS -l nodes='"$nodes"':ppn='"$workers_per_node"'/' "$f"
-	# Which queue to use. Assume we'll need all of the time the queue can offer
-	if [ -n "$queue" ]; then
-		case "$queue" in
-			express) sed -i".orig" -e 's/^#PBS -l walltime=.*$/#PBS -l walltime=00:30:00/' "$f" ;;
-			short)   sed -i".orig" -e 's/^#PBS -l walltime=.*$/#PBS -l walltime=06:00:00/' "$f" ;;
-			normal)  sed -i".orig" -e 's/^#PBS -l walltime=.*$/#PBS -l walltime=24:00:00/' "$f" ;;
-			long)    sed -i".orig" -e 's/^#PBS -l walltime=.*$/#PBS -l walltime=72:00:00/' "$f" ;;
-			dkammen) sed -i".orig" -e 's/^#PBS -l walltime=.*$/#PBS -l walltime=168:00:00/' "$f" ;;
-			*) echo "queue option $queue not known. Please read the help message and try again"; print_help; exit ;;
-		esac
-		sed -i".orig" -e 's/^#PBS -q .*$/#PBS -q '"$queue"'/' "$f"
-	fi
+	sed -i".orig" -e 's/^#PBS -l nodes=.*$/#PBS -l nodes=1:ppn='"$threads_per_cplex"'/' "$f"
+
+
 	
 	echo "Submitting jobs to the scheduler."
 	compile_jobid=$(qsub compile.qsub)

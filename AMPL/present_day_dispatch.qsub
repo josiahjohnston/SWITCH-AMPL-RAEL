@@ -6,30 +6,25 @@
 #PBS -N test-present_day_dispatch
 # Please keep nodes below 8. Each node has 8 processors & 24GB RAM
 #PBS -l nodes=1:ppn=1
-# reserve a complete node for this process so AMPL can get the memory it needs
-#PBS -W x=\"NACCESSPOLICY:SINGLEJOB\"
 # How long you expect the job to run. The PBS scheduler will kill the job after this long. 72h is the maximum. Format is HH:MM:SS
-#PBS -l walltime=06:00:00
+#PBS -l walltime=01:00:00
 # Name of the files to direct stdout and stderr. These files will be written to the working directory. 
 #PBS -o logs/outfile
 #PBS -e logs/errfile
 # The scheduler will send updates to this email.
-#PBS -M siah@berkeley.edu
+#PBS -M example@phoney.ugh
 # When do you want notifications? a = abort (aka failure), b = begin, e = end (without crashing)
 #PBS -m bae
 # Name of queue to use for this job. `qstat -q` lists the available queues (4 for now). `qstat` without options shows the jobs each queue.
-#PBS -q short
+#PBS -q psi
 #
 # Export all my environment variables to the job. Remove this if you don't want to export them. 
 #PBS -V
 #
 
 
-# Update this directory every time before you start the execution. run_switch should set this for you.
-working_dir="/global/home/users/siah/tmp/AMPL_dispatch_check"
-
 # Initialize the environment
-cd "$working_dir"          # Go to the working directory
+cd "$PBS_O_WORKDIR"          # Go to the working directory
 [ -d logs ] || mkdir logs  # Make a "logs" directory if one doesn't exist.
 if [ $( hostname | grep "citris" | wc -l ) -gt 0 ]; then
   module load ampl-cplex     # Load ampl & cplex. 
