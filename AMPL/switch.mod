@@ -918,8 +918,7 @@ param distribution_losses = 0.053;
 param transmission_sunk_annual_payment {LOAD_AREAS} >= 0;
 
 # possible transmission lines are listed in advance;
-# these include all possible combinations of LOAD_AREAS, with no double-counting
-# The model could be simplified by only allowing lines to be built between neighboring zones.
+# It includes existing lines and some potential new lines for neighboring zones not currently connected.
 set TRANSMISSION_LINES in {LOAD_AREAS, LOAD_AREAS};
 
 # unique ID for each transmission line, used for reporting results
