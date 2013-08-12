@@ -36,7 +36,7 @@ port=3306
 ssh_tunnel=1
 
 # Set the umask to give group read & write permissions to all files & directories made by this script.
-umask=0002
+umask 0002
 
 ###################################################
 # Detect optional command-line arguments

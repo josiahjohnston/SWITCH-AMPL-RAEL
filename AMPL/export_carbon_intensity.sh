@@ -30,7 +30,7 @@ function print_help {
 }
 
 # Set the umask to give group read & write permissions to all files & directories made by this script.
-umask=0002
+umask 0002
 
 # Export SWITCH input data from the Switch inputs database into text files that will be read in by AMPL
 # This script assumes that the input database has already been built by the script 'Build WECC Cap Factors.sql'

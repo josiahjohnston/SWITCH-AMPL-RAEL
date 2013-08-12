@@ -19,7 +19,7 @@ function print_help {
 }
 
 # Set the umask to give group read & write permissions to all files & directories made by this script.
-umask=0002
+umask 0002
 
 # Parse command-line parameters
 single_task_mode=1

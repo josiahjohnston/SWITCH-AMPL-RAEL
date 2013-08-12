@@ -33,7 +33,7 @@ results_dir="results"
 results_graphing_dir="results_for_graphing"
 
 # Set the umask to give group read & write permissions to all files & directories made by this script.
-umask=0002
+umask 0002
 
 ###################################################
 # Detect optional command-line arguments
