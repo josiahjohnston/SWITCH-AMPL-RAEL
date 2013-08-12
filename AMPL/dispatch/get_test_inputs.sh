@@ -178,7 +178,7 @@ fi
 ##########################
 # Make links to the common input files in the parent directory instead of exporting from the DB again
 input_dir="common_inputs"
-mkdir -p $input_dir
+mkdir -p $input_dir tmp
 for f in balancing_areas.tab biomass_supply_curve.tab carbon_cap_targets.tab existing_plants.tab fuel_costs.tab fuel_info.tab generator_costs.tab generator_info.tab load_areas.tab max_system_loads.tab misc_params.dat misc_options.run ng_supply_curve.tab  ng_regional_price_adders.tab proposed_projects.tab rps_compliance_entity_targets.tab scenario_information.txt transmission_lines.tab ; do
   if [ -f ../inputs/$f ]; then
     ln -sf ../../inputs/$f $input_dir/
@@ -195,27 +195,20 @@ done
 cd ..
 ln -sf ../scenario_id.txt .
 
-####################################################
-# Goal: Make a list of project IDs used by the optimization that we need capacity factors for. 
-mkdir -p tmp
-projects_that_need_cap_factors=tmp/projects_that_need_cap_factors.txt
-# First make a list of technologies that need capacity factors. The criteria are taken from the AMPL check: check: card({(pid, a, t) in PROJECTS: intermittent[t] and resource_limited[t] and not ccs[t]} diff PROJ_INTERMITTENT) = 0;
-awk '{ if(NF >= 18) { tech=$1; intermittent=$17; resource_limited=$18; ccs=$16; if(intermittent == 1 && resource_limited == 1 && ccs == 0) { print tech; } } }' ../inputs/generator_info.tab > tmp/tech_that_needs_cap_factors.txt
-# Make a regular expression to match any member in the list of technologies
-techs_needed=$(awk '{if (NR>1 && length($1)>0) printf "|"$1; else if (NR==1 && length($1) > 0) printf $1; }' tmp/tech_that_needs_cap_factors.txt)
-# Use the tech list to pull project ids
-awk '{ if( $3 ~ /'$techs_needed'/) print $1; }' ../inputs/proposed_projects.tab > $projects_that_need_cap_factors
-
 
 ##########################
 # Make directories and gather inputs for each dispatch week in the study.
-for test_set_id in $(mysql $connection_string --column-names=false -e "select distinct test_set_id from dispatch_test_sets WHERE training_set_id=$TRAINING_SET_ID;"); do
+mysql $connection_string --column-names=false -e "\
+  select distinct test_set_id, concat('test_set_', lpad(test_set_id,3,0)) as test_set_path \
+  from dispatch_test_sets \
+  where training_set_id=$TRAINING_SET_ID; \
+" > test_set_ids.txt; 
+cat test_set_ids.txt | while read test_set_id test_path; do
   if [ -z "$test_set_id" ]; then
     echo "Error, the database returned a blank test_set_id!"
     break;
   fi
 	echo "test_set_id $test_set_id:"
-	test_path=$(printf "test_set_%.3d" $test_set_id)
 	input_dir=$test_path"/inputs"
 	data_dir=$base_data_dir/tr_set_$TRAINING_SET_ID/$test_path
 	start_hour=$(mysql $connection_string --column-names=false -e "select historic_hour from dispatch_test_sets WHERE training_set_id=$TRAINING_SET_ID AND test_set_id=$test_set_id ORDER BY historic_hour ASC LIMIT 1;")

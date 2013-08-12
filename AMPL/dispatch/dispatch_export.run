@@ -1,13 +1,39 @@
+# dispatch_export.run
+# Synopsis
+#   include dispatch_problem.run; suffix iis symbolic OUT; include dispatch_load_grid.run; include dispatch_load_sols_for_export.run; include dispatch_export.run; 
+# If flat carbon costs are non-zero, iterate over the set of carbon costs
+
 include basicstats.run;
 
-# Store additional peakers needed
+# Describe capacity additions (if any) that were needed to make the problem feasible
 if( file_exists( peaker_solution_file ) == 1 ) then {
   let outfile := results_path & sprintf( "dispatch_extra_peakers_%d.txt", carbon_cost );
-  printf "scenario_id	carbon_cost	period	pid	load_area_id	load_area	test_set_id	technology_id	technology	new	baseload	cogen	storage	fuel	additional_capacity updated_capacity	capital_cost	fixed_o_m_cost\n"
-    > (outfile);
-  printf {(pid, a, t, p) in PROJECT_VINTAGES_ALL: (t='Gas_Combustion_Turbine' or storage[t]) and (InstallGen[pid, a, t, p] - InstallGen_Init[pid, a, t, p])  > 0.001}
-    "%s	%d	%d	%d	%d	%s	%d	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%.2f	%.2f\n",
-    scenario_id, carbon_cost, p, pid, load_area_id[a], a, test_set_id, technology_id[t], t, location_id[pid, a, t], 1, baseload[t], cogen[t], fuel[t],
+  printf (
+    # Core indexes
+    "scenario_id	carbon_cost	period	project_id	load_area_id	test_set_id	technology_id	" &
+    # Labels and auxillary info for convenience
+    "load_area	technology	new	baseload	cogen	storage	fuel	" &
+    # Data
+    "additional_capacity updated_capacity	capital_cost	fixed_o_m_cost\n"
+  ) > (outfile);
+  printf 
+    { (pid, a, t, p) in PROJECT_VINTAGES_ALL: 
+        (t='Gas_Combustion_Turbine' or storage[t]) and 
+        (InstallGen[pid, a, t, p] - InstallGen_Init[pid, a, t, p])  > 0.001
+    }
+    (
+      # Core indexes
+      "%s	%d	%d	%d	%d	%d	%d	" &
+      # Labels and auxillary info for convenience
+      "%s	%s	%d	%d	%d	%d	%s	" &
+      # Data
+      "%.2f	%.2f	%.2f	%.2f\n"
+    ),
+    # Core indexes
+    scenario_id, carbon_cost, p, pid, load_area_id[a], test_set_id, technology_id[t], 
+    # Labels and auxillary info for convenience
+    a, t, 1, baseload[t], cogen[t], storage[t], fuel[t],
+    # Data
     (InstallGen[pid, a, t, p] - InstallGen_Init[pid, a, t, p]),
     InstallGen[pid, a, t, p],
     Capital_Payments_by_Plant_and_Period[pid, a, t, p],
@@ -17,19 +43,26 @@ if( file_exists( peaker_solution_file ) == 1 ) then {
 }
 
 #########################
-# Store a summary of natural gas and biomass fuel consumption
+# Biomass fuel consumption summary
 let outfile := results_path & sprintf( "biomass_consumed_%d.txt", carbon_cost );
-printf "scenario_id	carbon_cost	period	load_area_id	load_area	test_set_id	biosolid_consumed_mmbtu\n"
+printf 
+"scenario_id	carbon_cost	period	load_area_id	load_area	test_set_id	biosolid_consumed_mmbtu\n"
   > (outfile);
-printf {a in LOAD_AREAS, p in PERIODS} 
+printf 
+  {a in LOAD_AREAS, p in PERIODS} 
   "%s	%d	%d	%d	%s	%d	%.2f\n",
   scenario_id, carbon_cost, p, load_area_id[a], a, test_set_id, ConsumeBioSolid[a, p]
   >> (outfile);
 close (outfile);
+
+#########################
+# Natural gas fuel consumption summary
 let outfile := results_path & sprintf( "ng_consumed_%d.txt", carbon_cost );
-printf "scenario_id	carbon_cost	period	test_set_id	ng_consumed_mmbtu\n"
+printf 
+  "scenario_id	carbon_cost	period	test_set_id	ng_consumed_mmbtu\n"
   > (outfile);
-printf {p in PERIODS} 
+printf 
+  {p in PERIODS} 
   "%s	%d	%d	%d	%.2f\n",
   scenario_id, carbon_cost, p, test_set_id, ConsumeNaturalGas[p]
   >> (outfile);
@@ -39,36 +72,87 @@ close (outfile);
 #########################
 # Store hourly dispatch summary for each load area and technology
 let outfile := results_path & sprintf( "dispatch_sums_%d.txt", carbon_cost );
-printf "scenario_id	carbon_cost	period	load_area_id	load_area	balancing_area	date	hour	test_set_id	technology_id	technology	new	baseload	cogen	storage	fuel	fuel_category	hours_in_sample	power	co2_tons	heat_rate	fuel_cost	carbon_cost_sum	variable_o_m	spinning_reserve	quickstart_capacity	total_operating_reserve	spinning_co2_tons	spinning_fuel_cost	spinning_carbon_cost_incurred	deep_cycling_amount	deep_cycling_fuel_cost	deep_cycling_carbon_cost	deep_cycling_co2_tons	mw_started_up	startup_fuel_cost	startup_nonfuel_cost	startup_carbon_cost	startup_co2_tons\n"
-  > (outfile);
+printf (
+  # Core indexes
+  "scenario_id	carbon_cost	period	load_area_id	hour	test_set_id	technology_id	" &
+  # Labels for convenience
+  "load_area	balancing_area	technology	fuel	fuel_category	" &
+  # Auxillary/duplicate info for convenience
+  "new	baseload	cogen	storage	date	hours_in_sample	heat_rate	" &
+  # Power dispatched and associated emissions and costs
+  "power	co2_tons	fuel_cost	carbon_cost_sum	variable_o_m	" &
+  # Operating reserves committed
+  "spinning_reserve	quickstart_capacity	total_operating_reserve	" &
+  # Emissions and costs for committing spinning reserves
+  "spinning_co2_tons	spinning_fuel_cost	spinning_carbon_cost_incurred	" &
+  # Deep cycling and associated emissions and costs
+  "deep_cycling_amount	deep_cycling_fuel_cost	deep_cycling_carbon_cost	deep_cycling_co2_tons	" &
+  # Capacity started up and associated emissions and costs
+  "mw_started_up	startup_fuel_cost	startup_nonfuel_cost	startup_carbon_cost	startup_co2_tons\n"
+) > (outfile);
 
 
 # New Plants
-printf { t in TECHNOLOGIES, a in LOAD_AREAS, h in TIMEPOINTS: can_build_new[t] and t <> 'Battery_Storage' and sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS} (Power_Produced[pid, a, t, p, h] + Total_Operating_Reserve_Provided[pid, a, t, p, h]) > 0.0001 } 
-  "%s	%d	%d	%d	%s	%s	%d	%d	%s	%d	%s	%d	%d	%d	%d	%s	%s	%.4f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
-  scenario_id, carbon_cost, period[h], load_area_id[a], a, balancing_area[a], 
-  date[h], h, test_set_id,
-  technology_id[t], t, 1, baseload[t], 0, 0, fuel[t], rps_fuel_category[fuel[t]], 
-  dispatch_hours_in_sample[period[h]],
+printf 
+  { 
+    t in TECHNOLOGIES, a in LOAD_AREAS, h in TIMEPOINTS: 
+      can_build_new[t] and 
+      t <> 'Battery_Storage' and 
+      sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS} 
+        (Power_Produced[pid, a, t, p, h] + Total_Operating_Reserve_Provided[pid, a, t, p, h]) > 0.0001 
+  } 
+  (
+    # Core indexes
+    "%s	%d	%d	%d	%d	%d	%d	" &
+    # Labels for convenience
+    "%s	%s	%s	%s	%s	" &
+    # Auxillary/duplicate info for convenience
+    "%d	%d	%d	%d	%d	%.4f	%.4f	" &
+    # Power dispatched and associated emissions and costs
+    "%.2f	%.2f	%.2f	%.2f	%.2f	" &
+    # Operating reserves committed
+    "%.2f	%.2f	%.2f	" &
+    # Emissions and costs for committing spinning reserves
+    "%.2f	%.2f	%.2f	" &
+    # Emissions and costs for deep cycling
+    "%.2f	%.2f	%.2f	%.2f	" &
+    # Capacity started up and associated emissions and costs
+    "%.2f	%.2f	%.2f	%.2f	%.2f\n"
+  ),
+  # Core indexes
+  scenario_id, carbon_cost, period[h], load_area_id[a], h, test_set_id, technology_id[t], 
+  # Labels for convenience
+  a, balancing_area[a], t, fuel[t], rps_fuel_category[fuel[t]], 
+  # Auxillary/duplicate info for convenience
+  1, baseload[t], 0, 0, date[h], dispatch_hours_in_sample[period[h]],
+  # Avg heat rate for this technology, weighted by capacity.
+  if ( (sum{(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS} Installed_To_Date[pid, a, t, period[h]]) <= 0 ) 
+  then 0 
+  else 
+    (sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS} 
+      heat_rate[pid, a, t] * Installed_To_Date[pid, a, t, period[h]] ) 
+    / (sum{(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS} 
+      Installed_To_Date[pid, a, t, period[h]]), 
+  # Power dispatched and associated emissions and costs
   sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS} Power_Produced[pid, a, t, p, h], 
   sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS} Carbon_Emissions[pid, a, t, p, h],
-  # Avg heat rate for this technology, weighted by capacity.
-  if( (sum{(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS} Installed_To_Date[pid, a, t, period[h]]) <= 0 ) 
-    then 0 
-    else (sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS} heat_rate[pid, a, t] * Installed_To_Date[pid, a, t, period[h]] ) / (sum{(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS} Installed_To_Date[pid, a, t, period[h]]), 
   sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS} Fuel_Cost_Incurred_Hourly[pid, a, t, p, h],
   sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS} Carbon_Cost_Incurred_Hourly[pid, a, t, p, h],
   sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS} Variable_Cost_Incurred_Hourly[pid, a, t, p, h],
+  # Operating reserves committed
   sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS} Spinning_Reserve_Provided[pid, a, t, p, h],
   sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS} Quickstart_Capacity_Provided[pid, a, t, p, h],
   sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS} Total_Operating_Reserve_Provided[pid, a, t, p, h],
+  # Emissions and costs for committing spinning reserves
   sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS} Thermal_Spinning_Reserve_Carbon_Emissions[pid, a, t, p, h],
   sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS} Thermal_Spinning_Reserve_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h],
   sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS} Thermal_Spinning_Reserve_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h],
+  # Deep cycling and associated emissions and costs
   sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS} Amount_Deep_Cycled[pid, a, t, p, h],
   sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS} Deep_Cycling_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h],
   sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS} Deep_Cycling_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h],
   sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS} Deep_Cycling_Carbon_Emissions[pid, a, t, p, h],
+  # Capacity started up and associated emissions and costs
   sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS} Startup_MW[pid, a, t, p, h],
   sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS} Startup_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h],
   sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS} Startup_NonFuel_Cost_Incurred_Hourly[pid, a, t, p, h],
@@ -77,31 +161,65 @@ printf { t in TECHNOLOGIES, a in LOAD_AREAS, h in TIMEPOINTS: can_build_new[t] a
   >> (outfile);
 
 # Existing Plants
-printf { t in TECHNOLOGIES, a in LOAD_AREAS, h in TIMEPOINTS: not can_build_new[t] and sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS } (ProducePowerEP[pid, a, t, p, h] + Total_Operating_Reserve_Provided[pid, a, t, p, h]) >= 0.001} 
-  "%s	%d	%d	%d	%s	%s	%d	%d	%s	%d	%s	%d	%d	%d	%d	%s	%s	%.4f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
-  scenario_id, carbon_cost, period[h], load_area_id[a], a, balancing_area[a], 
-  date[h], h, test_set_id,
-  technology_id[t], t, 0, baseload[t], cogen[t], 0, fuel[t], rps_fuel_category[fuel[t]], 
-  dispatch_hours_in_sample[period[h]],
+printf 
+  { 
+    t in TECHNOLOGIES, a in LOAD_AREAS, h in TIMEPOINTS: 
+      not can_build_new[t] and 
+      sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS } 
+        (ProducePowerEP[pid, a, t, p, h] + Total_Operating_Reserve_Provided[pid, a, t, p, h]) >= 0.001
+  } 
+  (
+    # Core indexes
+    "%s	%d	%d	%d	%d	%d	%d	" &
+    # Labels for convenience
+    "%s	%s	%s	%s	%s	" &
+    # Auxillary/duplicate info for convenience
+    "%d	%d	%d	%d	%d	%.4f	%.4f	" &
+    # Power dispatched and associated emissions and costs
+    "%.2f	%.2f	%.2f	%.2f	%.2f	" &
+    # Operating reserves committed
+    "%.2f	%.2f	%.2f	" &
+    # Emissions and costs for committing spinning reserves
+    "%.2f	%.2f	%.2f	" &
+    # Emissions and costs for deep cycling
+    "%.2f	%.2f	%.2f	%.2f	" &
+    # Capacity started up and associated emissions and costs
+    "%.2f	%.2f	%.2f	%.2f	%.2f\n"
+  ),
+  # Core indexes
+  scenario_id, carbon_cost, period[h], load_area_id[a], h, test_set_id, technology_id[t], 
+  # Labels for convenience
+  a, balancing_area[a], t, fuel[t], rps_fuel_category[fuel[t]], 
+  # Auxillary/duplicate info for convenience
+  0, baseload[t], cogen[t], 0, date[h], dispatch_hours_in_sample[period[h]],
+  # Avg heat rate for this technology, weighted by capacity.
+  if ( (sum{(pid, a, t, p, h) in EP_AVAILABLE_HOURS} ep_capacity_mw[pid, a, t]) <= 0 ) 
+  then 0 
+  else 
+    (sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS} 
+      ep_heat_rate[pid, a, t] * ep_capacity_mw[pid, a, t] ) 
+    / (sum{(pid, a, t, p, h) in EP_AVAILABLE_HOURS} 
+      ep_capacity_mw[pid, a, t]), 
+  # Power dispatched and associated emissions and costs
   sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS} ProducePowerEP[pid, a, t, p, h], 
   sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS} EP_Carbon_Emissions[pid, a, t, p, h],
-  # Avg heat rate for this technology, weighted by capacity.
-  if( (sum{(pid, a, t, p, h) in EP_AVAILABLE_HOURS} ep_capacity_mw[pid, a, t]) <= 0 ) 
-    then 0 
-    else (sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS} ep_heat_rate[pid, a, t] * ep_capacity_mw[pid, a, t] ) / (sum{(pid, a, t, p, h) in EP_AVAILABLE_HOURS} ep_capacity_mw[pid, a, t]), 
   sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS} EP_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h],
   sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS} EP_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h],
   sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS} EP_Variable_Cost_Incurred_Hourly[pid, a, t, p, h],
+  # Operating reserves committed
   sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS} Spinning_Reserve_Provided[pid, a, t, p, h],
   sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS} Quickstart_Capacity_Provided[pid, a, t, p, h],
   sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS} Total_Operating_Reserve_Provided[pid, a, t, p, h],
+  # Emissions and costs for committing spinning reserves
   sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS} Thermal_Spinning_Reserve_Carbon_Emissions[pid, a, t, p, h],
   sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS} Thermal_Spinning_Reserve_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h],
   sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS} Thermal_Spinning_Reserve_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h],
+  # Deep cycling and associated emissions and costs
   sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS} Amount_Deep_Cycled[pid, a, t, p, h],
   sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS} Deep_Cycling_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h],
   sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS} Deep_Cycling_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h],
   sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS} Deep_Cycling_Carbon_Emissions[pid, a, t, p, h],
+  # Capacity started up and associated emissions and costs
   sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS} Startup_MW[pid, a, t, p, h],
   sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS} Startup_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h],
   sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS} Startup_NonFuel_Cost_Incurred_Hourly[pid, a, t, p, h],
@@ -110,77 +228,172 @@ printf { t in TECHNOLOGIES, a in LOAD_AREAS, h in TIMEPOINTS: not can_build_new[
   >> (outfile);
 
 # Store all STORAGE DISPATCH decisions
-printf {  t in TECHNOLOGIES, a in LOAD_AREAS, h in TIMEPOINTS: storage[t]
-	and ( 
-      (sum {(pid, a, t, p, h) in AVAILABLE_HOURS} abs(Storage_Net_Power[pid, a, t, p, h]) ) > 0.01 or
-      (sum {(pid, a, t, p, h) in AVAILABLE_HOURS} abs(Storage_Operating_Reserve_Provided[pid, a, t, p, h]) ) > 0.01
-    ) }
-  "%s	%d	%d	%d	%s	%s	%d	%d	%s	%d	%s	%d	%d	%d	%d	%s	%s	%.4f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
-  scenario_id, carbon_cost, period[h], load_area_id[a], a, balancing_area[a], 
-  date[h], h, test_set_id,
-  technology_id[t], t, can_build_new[t], 0, 0, 1, 'Storage', 'Storage', dispatch_hours_in_sample[period[h]],
+printf 
+  {  
+    t in TECHNOLOGIES, a in LOAD_AREAS, h in TIMEPOINTS: 
+      storage[t] and 
+      (
+        (sum {(pid, a, t, p, h) in AVAILABLE_HOURS} 
+          abs(Storage_Net_Power[pid, a, t, p, h]) ) > 0.01 
+        or
+        (sum {(pid, a, t, p, h) in AVAILABLE_HOURS} 
+          abs(Storage_Operating_Reserve_Provided[pid, a, t, p, h]) ) > 0.01
+      ) 
+  }
+  (
+    # Core indexes
+    "%s	%d	%d	%d	%d	%d	%d	" &
+    # Labels for convenience
+    "%s	%s	%s	%s	%s	" &
+    # Auxillary/duplicate info for convenience
+    "%d	%d	%d	%d	%d	%.4f	%.4f	" &
+    # Power dispatched and associated emissions and costs
+    "%.2f	%.2f	%.2f	%.2f	%.2f	" &
+    # Operating reserves committed
+    "%.2f	%.2f	%.2f	" &
+    # Emissions and costs for committing spinning reserves
+    "%.2f	%.2f	%.2f	" &
+    # Emissions and costs for deep cycling
+    "%.2f	%.2f	%.2f	%.2f	" &
+    # Capacity started up and associated emissions and costs
+    "%.2f	%.2f	%.2f	%.2f	%.2f\n"
+  ),
+  # Core indexes
+  scenario_id, carbon_cost, period[h], load_area_id[a], h, test_set_id, technology_id[t], 
+  # Labels for convenience
+  a, balancing_area[a], t, 'Storage', 'Storage', 
+  # Auxillary/duplicate info for convenience
+  can_build_new[t], 0, 0, 1, date[h], dispatch_hours_in_sample[period[h]], 0, 
+  # Power dispatched and associated emissions and costs
   sum {(pid, a, t, p, h) in AVAILABLE_HOURS} Storage_Net_Power[pid, a, t, p, h],
-  0, 0, 0, 0,
-  if dispatchable[t] then 0 else (sum {(pid, a, t, p, h) in AVAILABLE_HOURS} Storage_Variable_Cost_Incurred_Hourly[pid, a, t, p, h]),
+  0, 0, 0,
+  if dispatchable[t] 
+    then 0 
+    else (sum {(pid, a, t, p, h) in AVAILABLE_HOURS} Storage_Variable_Cost_Incurred_Hourly[pid, a, t, p, h]),
+  # Operating reserves committed
   sum {(pid, a, t, p, h) in AVAILABLE_HOURS} Storage_Spinning_Reserve_Provided[pid, a, t, p, h],
   sum {(pid, a, t, p, h) in AVAILABLE_HOURS} Storage_Quickstart_Capacity_Provided[pid, a, t, p, h],
   sum {(pid, a, t, p, h) in AVAILABLE_HOURS} Storage_Operating_Reserve_Provided[pid, a, t, p, h],
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0
+  # Emissions and costs for committing spinning reserves
+  0, 0, 0,
+  # Deep cycling and associated emissions and costs
+  0, 0, 0, 0,
+  # Capacity started up and associated emissions and costs
+  0, 0, 0, 0, 0
   >> (outfile);
 
 close(outfile);
 
+
+#######################
+# store hourly TRANSMISSION decisions in standardized, MW terms
+let output_section := 'transmission_dispatch';
+let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
+printf (
+  # Core indexes
+  "scenario_id	carbon_cost	period	transmission_line_id	hour	rps_fuel_category	test_set_id	" &
+  # Auxillary info for convenience
+  "date	hours_in_sample	load_area_from_id	load_area_receive_id	load_area_from	load_area_receive	" &
+  # Data
+  "power_sent	power_received\n"
+) > (outfile);
+printf { (a1, a2, fc, p, h) in TRANSMISSION_LINE_HOURS: DispatchTrans[a1, a2, fc, p, h] > 0.001 }  
+(
+  # Core indexes
+  "%s	%d	%d	%d	%d	%s	%d	" &
+  # Auxillary info for convenience
+  "%d	%.4f	%d	%d	%s	%s	" &
+  # Data
+  "%.2f	%.2f\n"
+),
+  # Core indexes
+  scenario_id, carbon_cost, period[h], transmission_line_id[a1, a2], h, fc, test_set_id, 
+  # Auxillary info for convenience
+  date[h], hours_in_sample[h], load_area_id[a1], load_area_id[a2], a1, a2, 
+  # Data
+  DispatchTrans[a1, a2, fc, p, h],
+  DispatchTrans[a1, a2, fc, p, h] * transmission_efficiency[a1, a2]
+  >> (outfile);
+close (outfile);
+
 #########################
-# Store hourly dispatch summary for each load area and technology
-let outfile := results_path & sprintf( "dispatch_marg_costs_%d.txt", carbon_cost );
-printf "scenario_id\tcarbon_cost\tperiod\tload_area_id\tload_area\tbalancing_area\tdate\thour\ttest_set_id\thours_in_sample\tmarg_cost_load\tmarg_cost_load_reserve\tdr_com_res_from_dual\tdr_com_res_to_dual\tdr_ev_from_dual\tdr_ev_to_dual\n"
+# Delete this chunk after updating summarize_results.py to use the transmission_dispatch file. 
+# Store hourly transmission summary for balancing areas. 
+let outfile := results_path & sprintf( "dispatch_trans_ba_%d.txt", carbon_cost );
+printf "scenario_id\tcarbon_cost\tperiod\tbalancing_area\tdate\thour\ttest_set_id\thours_in_sample\ttx_in\ttx_out\ttx_net\n"
   > (outfile);
-printf {  a in LOAD_AREAS, h in TIMEPOINTS }
-  "%s\t%d\t%d\t%d\t%s\t%s\t%d\t%d\t%s\t%.4f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\n",
-  scenario_id, carbon_cost, period[h], load_area_id[a], a, balancing_area[a], 
+printf {  b in BALANCING_AREAS, h in TIMEPOINTS }
+  "%s\t%d\t%d\t%s\t%d\t%d\t%d\t%.4f\t%.2f\t%.2f\t%.2f\n",
+  scenario_id, carbon_cost, period[h], b, 
   date[h], h, test_set_id, dispatch_hours_in_sample[period[h]],
-  # Numerator is $(NPV of variable costs), denominator is the power demand in a timepoint
-  # The cost of the numerator includes the terms * ( hours_in_sample[h] / num_years_per_period ) * discount_to_base_year[p]
-  # The first part (in paranthesis) is the timepoint weighting necessary to scale it up to one year of a period
-  # The discount_to_base_year part is a value to convert an equal series of annual payments that occur throughout a period into an NPV
-  # I convert the NPV in the numberator to a reoccuring annual cost by dividing by discount_to_base_year.
-  # I convert the power in the denominator to annual energy by applying the ( hours_in_sample[h] / num_years_per_period ) term.
-  # My numerator then becomes $(future of variable costs of energy in a year) and the denominator becomes total energy represented by the timepoint within a year
+  sum {a in LOAD_AREAS, (a_start, a, fc) in TRANSMISSION_LINES_FUEL_CATEGORIES: balancing_area[a]=b} 
+    DispatchTrans[a_start, a, fc, period[h], h],
+  sum {a in LOAD_AREAS, (a, a_end, fc) in TRANSMISSION_LINES_FUEL_CATEGORIES: balancing_area[a]=b} 
+    DispatchTrans[a, a_end, fc, period[h], h],
+  ( sum {a in LOAD_AREAS, (a_start, a, fc) in TRANSMISSION_LINES_FUEL_CATEGORIES: balancing_area[a]=b} 
+      DispatchTrans[a_start, a, fc, period[h], h]  
+   - sum {a in LOAD_AREAS, (a, a_end, fc) in TRANSMISSION_LINES_FUEL_CATEGORIES: balancing_area[a]=b} 
+      DispatchTrans[a, a_end, fc, period[h], h]
+  ) >> (outfile);
+close(outfile);
+
+
+#########################
+# Store hourly, load-area level outputs
+#   * marginal costs of satisfying load, reserves, and DR constraints. 
+#   * demand response dispatch
+#   * de facto reserve margin for each load area
+let outfile := results_path & sprintf( "dispatch_hourly_la_%d.txt", carbon_cost );
+# Print the column headers
+printf (
+  # Core indexes
+  "scenario_id	carbon_cost	period	test_set_id	load_area_id	hour	" &
+  # Auxillary info for convenience
+  "load_area	date	hours_in_sample	" &
+  # Local load and distribution-side adjustments to it
+  "static_load	res_comm_dr	ev_dr	distributed_gen	" &
+  # Dual values of load-related constraints give the marginal costs of meeting those constraints
+  "satisfy_load_dual	satisfy_load_reserve_dual	dr_com_res_from_dual	dr_com_res_to_dual	dr_ev_from_dual	dr_ev_to_dual	" &
+  # Estimates of available reserve capacity
+  "reserve_margin_eligible_capacity_mw	reserve_margin_mw	reserve_margin_percent\n"
+) > (outfile);
+# Print the data
+printf {  a in LOAD_AREAS, h in TIMEPOINTS } (
+  # Core indexes
+  "%s	%d	%d	%d	%d	%d	" &
+  # Auxillary info for convenience
+  "%s	%d	%.4f	" &
+  # Local load and distribution-side adjustments to it
+  "%.2f	%.2f	%.2f	%.2f	" &
+  # Dual values of load-related constraints give the marginal costs of meeting those constraints
+  "%.3f	%.3f	%.3f	%.3f	%.3f	%.3f	" &
+  # Estimates of available reserve capacity
+  "%.2f	%.2f	%.2f\n"
+),
+  # Indexes and basic reference info
+	scenario_id, carbon_cost, period[h], test_set_id, load_area_id[a], h, 
+  # Auxillary info for convenience
+	a, date[h], hours_in_sample[h], 
+  # Local load and distribution-side adjustments to it
+	system_load[a,h], 
+	Res_Comm_DR_Net_Power[a, h], 
+	EV_DR_Net_Power[a, h],
+	(	
+	  ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES}
+      Installed_To_Date[pid, a, t, p] * cap_factor[pid, a, t, h] )
+	+ ( sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES}
+   	  eip_cap_factor[pid, a, t, h] * ep_capacity_mw[pid, a, t] ) 
+  ), 
+  # Dual values of load-related constraints give the marginal costs of meeting those constraints
   Satisfy_Load[a,h].dual / discount_to_base_year[period[h]] * num_years_per_period/hours_in_sample[h], 
   Satisfy_Load_Reserve[a,h].dual / discount_to_base_year[period[h]] * num_years_per_period/hours_in_sample[h], 
   Maximum_Res_Comm_Load_That_Can_Be_Shifted_from_Hour[a,h].dual / discount_to_base_year[period[h]] * num_years_per_period/hours_in_sample[h], 
   Maximum_Res_Comm_Load_That_Can_Be_Shifted_to_Hour[a,h].dual / discount_to_base_year[period[h]] * num_years_per_period/hours_in_sample[h], 
   Maximum_EV_Load_That_Can_Be_Shifted_from_Hour[a,h].dual / discount_to_base_year[period[h]] * num_years_per_period/hours_in_sample[h], 
-  Maximum_EV_Load_That_Can_Be_Shifted_to_Hour[a,h].dual / discount_to_base_year[period[h]] * num_years_per_period/hours_in_sample[h]
-  >> (outfile);
-close(outfile);
-
-
-#########################
-# Store hourly de facto reserve margin for each load area
-let outfile := results_path & sprintf( "reserve_margin_%d.txt", carbon_cost );
-printf "scenario_id	carbon_cost	period	test_set_id	load_area_id	load_area	date	hour	static_load	net_shifted_load	total_load	total_capacity	reserve_margin_total	reserve_margin_percentage\n"
-  > (outfile);
-printf {  a in LOAD_AREAS, h in TIMEPOINTS }
-	"%s	%d	%d	%s	%d	%s	%d	%d	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
-	scenario_id, carbon_cost, period[h], test_set_id, load_area_id[a], a, date[h], h, system_load[a,h], 
-	( Meet_Shifted_Load[a, h] - Shift_Res_Comm_Load[a, h] + Charge_EVs[a, h] - Shift_EV_Load[a, h] ),
-	( system_load[a,h] + Meet_Shifted_Load[a, h] - Shift_Res_Comm_Load[a, h] + Charge_EVs[a, h] - Shift_EV_Load[a, h] ),
+  Maximum_EV_Load_That_Can_Be_Shifted_to_Hour[a,h].dual / discount_to_base_year[period[h]] * num_years_per_period/hours_in_sample[h], 
+  # Estimates of available reserve capacity
 	Reserve_Margin_Eligible_Capacity_MW[a, h],
 	Reserve_Margin_MW[a, h],
 	Reserve_Margin_Percentage[a, h]
 	>> (outfile);
 close(outfile);
-	
-	

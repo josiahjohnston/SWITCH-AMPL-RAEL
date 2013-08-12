@@ -7,8 +7,6 @@ CREATE OR REPLACE VIEW technologies as
 	select technology_id, technology, fuel, storage, can_build_new from switch_inputs_wecc_v2_2.generator_info_v2;
 CREATE OR REPLACE VIEW load_areas as 
 	select area_id, load_area from switch_inputs_wecc_v2_2.load_area_info;
-CREATE OR REPLACE VIEW load_areas as 
-	select area_id, load_area from switch_inputs_wecc_v2_2.load_area_info;
 CREATE OR REPLACE VIEW transmission_lines as 
 	select 	transmission_line_id, load_area_start, load_area_end,
 			la1.area_id as start_id, la2.area_id as end_id
@@ -1264,7 +1262,7 @@ DELIMITER ;
 
 -- Tables for dispatch-only results
 
-CREATE TABLE _dispatch_decisions (
+CREATE TABLE IF NOT EXISTS _dispatch_decisions (
   scenario_id int unsigned NOT NULL,
   carbon_cost smallint NOT NULL DEFAULT '0',
   period year NOT NULL,
@@ -1307,7 +1305,52 @@ CREATE TABLE _dispatch_decisions (
   KEY aggregation (scenario_id, carbon_cost, period, technology_id)
 );
 
-CREATE TABLE _dispatch_marg_costs (
+CREATE TABLE IF NOT EXISTS _dispatch_transmission_decisions (
+  scenario_id int,
+  carbon_cost smallint,
+  period year,
+  transmission_line_id int,
+  test_set_id int unsigned not null,
+  study_hour int,
+  rps_fuel_category varchar(20),
+  receive_id smallint,
+  send_id smallint,
+  study_date int,
+  month int,
+  hour_of_day_UTC tinyint unsigned,
+  hours_in_sample double,
+  power_sent double,
+  power_received double,
+  PRIMARY KEY (scenario_id, carbon_cost, period, transmission_line_id, test_set_id, study_hour, rps_fuel_category),
+  KEY check_import_count (scenario_id, carbon_cost, test_set_id)
+) ROW_FORMAT=FIXED;
+CREATE OR REPLACE VIEW dispatch_transmission_decisions as
+  SELECT 	scenario_id, carbon_cost, period, transmission_line_id, start.load_area as load_area_receive, end.load_area as load_area_from, 
+  			test_set_id, study_date, study_hour, month, hour_of_day_UTC, mod(hour_of_day_UTC - 8, 24) as hour_of_day_PST,
+  			hours_in_sample, rps_fuel_category, power_sent, power_received  
+    FROM _dispatch_transmission_decisions join load_areas start on(receive_id=start.area_id) join load_areas end on(send_id=end.area_id);
+
+CREATE TABLE IF NOT EXISTS _dispatch_transmission_avg_directed (
+  scenario_id int,
+  carbon_cost smallint,
+  period year,
+  transmission_line_id int,
+  send_id smallint,
+  receive_id smallint,
+  directed_trans_avg int,
+  INDEX scenario_id (scenario_id),
+  INDEX carbon_cost (carbon_cost),
+  INDEX period (period),
+  INDEX transmission_line_id (transmission_line_id),
+  INDEX send_id (send_id),
+  INDEX receive_id (receive_id),
+  PRIMARY KEY (scenario_id, carbon_cost, period, transmission_line_id)
+) ROW_FORMAT=FIXED;
+CREATE OR REPLACE VIEW dispatch_transmission_avg_directed as
+  SELECT scenario_id, carbon_cost, period, transmission_line_id, load_area_start as load_area_from, load_area_end as load_area_receive, start_id as send_id, end_id as receive_id, directed_trans_avg
+    FROM _transmission_avg_directed join transmission_lines using(transmission_line_id);
+
+CREATE TABLE IF NOT EXISTS _dispatch_hourly_la_data (
   scenario_id int unsigned NOT NULL,
   carbon_cost smallint NOT NULL DEFAULT '0',
   period year NOT NULL,
@@ -1316,14 +1359,25 @@ CREATE TABLE _dispatch_marg_costs (
   study_timepoint_utc datetime,
   test_set_id int unsigned NOT NULL,
   hours_in_sample double,
-  marg_cost_load double,
-  marg_cost_load_reserve double,
+  static_load double,  
+  res_comm_dr double,
+  ev_dr double,
+  distributed_generation double,
+  satisfy_load_dual double,
+  satisfy_load_reserve_dual double,
+  dr_com_res_from_dual float,
+  dr_com_res_to_dual float,
+  dr_ev_from_dual float,
+  dr_ev_to_dual float,
+  reserve_margin_eligible_capacity_mw double,
+  reserve_margin_mw double,
+  reserve_margin_percent double,
   PRIMARY KEY (scenario_id, carbon_cost, period, area_id, study_timepoint_utc ),
   KEY (scenario_id, carbon_cost, study_timepoint_id),
   KEY check_import_count (scenario_id, carbon_cost, test_set_id)
 );
 
-CREATE TABLE _dispatch_extra_cap (
+CREATE TABLE IF NOT EXISTS _dispatch_extra_cap (
   scenario_id int unsigned NOT NULL,
   carbon_cost smallint NOT NULL DEFAULT '0',
   period year NOT NULL,
@@ -1340,19 +1394,12 @@ CREATE TABLE _dispatch_extra_cap (
   updated_capacity double,
   capital_cost double,
   fixed_o_m_cost double,
-  INDEX scenario_id (scenario_id),
-  INDEX carbon_cost (carbon_cost),
-  INDEX period (period),
-  INDEX test_set_id (test_set_id),
-  INDEX area_id (area_id),
-  INDEX technology_id (technology_id),
 --  FOREIGN KEY (area_id) REFERENCES load_areas(area_id), 
 --  FOREIGN KEY (technology_id) REFERENCES technologies(technology_id), 
-  INDEX site (project_id),
   PRIMARY KEY (scenario_id, carbon_cost, period, area_id, technology_id, project_id, test_set_id)
 );
 
-create table _gen_cap_dispatch_update (
+create table IF NOT EXISTS _gen_cap_dispatch_update (
   scenario_id int unsigned NOT NULL,
   carbon_cost smallint NOT NULL DEFAULT '0',
   period year NOT NULL,
@@ -1362,8 +1409,6 @@ create table _gen_cap_dispatch_update (
   capacity double,
   capital_cost double,
   fixed_o_m_cost double,
-  INDEX scenario_id (scenario_id),
-  INDEX carbon_cost (carbon_cost,scenario_id),
   INDEX period (period,scenario_id),
   INDEX area_id (area_id,scenario_id),
   INDEX technology_id (technology_id,scenario_id),
@@ -1372,13 +1417,13 @@ create table _gen_cap_dispatch_update (
 );
 
 
-CREATE TABLE _dispatch_gen_cap_summary_tech (
+CREATE TABLE IF NOT EXISTS _dispatch_gen_cap_summary_tech_v2 (
   scenario_id int unsigned NOT NULL,
   carbon_cost smallint NOT NULL,
   period year NOT NULL,
   technology_id tinyint unsigned NOT NULL,
   capacity double NOT NULL,
-  power double DEFAULT 0, 
+  energy double DEFAULT 0, 
   avg_power double DEFAULT 0,
   spinning_reserve double DEFAULT 0, 
   avg_spinning_reserve double DEFAULT 0,
@@ -1404,14 +1449,10 @@ CREATE TABLE _dispatch_gen_cap_summary_tech (
   avg_startup_co2_tons double DEFAULT 0,
   total_co2_tons double DEFAULT 0,
   avg_total_co2_tons double DEFAULT 0,
-  PRIMARY KEY (scenario_id, carbon_cost, period, technology_id),
-  KEY scenario_id (scenario_id),
-  KEY carbon_cost (carbon_cost),
-  KEY period (period),
-  KEY technology_id (technology_id)
+  PRIMARY KEY (scenario_id, carbon_cost, period, technology_id)
 );
 
-CREATE TABLE _dispatch_power_cost (
+CREATE TABLE IF NOT EXISTS _dispatch_power_cost (
   scenario_id int unsigned NOT NULL,
   carbon_cost smallint NOT NULL,
   period year NOT NULL,
@@ -1436,10 +1477,7 @@ CREATE TABLE _dispatch_power_cost (
   carbon_cost_total double default 0 NOT NULL,
   total_cost double default 0 NOT NULL,
   cost_per_mwh double default 0 NOT NULL,
-  PRIMARY KEY (scenario_id,carbon_cost,period),
-  KEY scenario_id (scenario_id),
-  KEY carbon_cost (carbon_cost),
-  KEY period (period)
+  PRIMARY KEY (scenario_id,carbon_cost,period)
 ); 
 
 CREATE TABLE IF NOT EXISTS dispatch_co2_cc (
@@ -1449,32 +1487,5 @@ CREATE TABLE IF NOT EXISTS dispatch_co2_cc (
   co2_tons double,
   co2_tons_reduced_1990 double,
   co2_share_reduced_1990 double,
-  INDEX scenario_id (scenario_id),
-  INDEX carbon_cost (carbon_cost),
-  INDEX period (period),
   PRIMARY KEY (scenario_id, carbon_cost, period)
 );
-
-CREATE TABLE _dispatch_reserve_margin (
-  scenario_id int unsigned NOT NULL,
-  carbon_cost smallint NOT NULL DEFAULT '0',
-  period year NOT NULL,
-  test_set_id int unsigned NOT NULL,
-  area_id smallint NOT NULL,
-  study_timepoint_id int unsigned, 
-  study_timepoint_utc datetime,
-  static_load double,  
-  net_shifted_load double,
-  total_load double,
-  total_capacity double,
-  reserve_margin_total double,
-  reserve_margin_percentage double,
-  INDEX scenario_id (scenario_id),
-  INDEX carbon_cost (carbon_cost),
-  INDEX period (period),
-  INDEX test_set_id (test_set_id),
-  INDEX area_id (area_id),
-  INDEX study_timepoint_utc (study_timepoint_utc),
-  PRIMARY KEY (scenario_id, carbon_cost, period, test_set_id, area_id, study_timepoint_utc)
-);
-

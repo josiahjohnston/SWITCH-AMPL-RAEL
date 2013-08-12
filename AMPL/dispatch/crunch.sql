@@ -29,8 +29,8 @@ INSERT IGNORE INTO _gen_cap_dispatch_update
 
 
 -- Summarize each period / technology combo. Set O&M total cost to the fixed component for now. Will add variable costs a few lines down.
-delete from _dispatch_gen_cap_summary_tech where scenario_id = @scenario_id;
-insert into _dispatch_gen_cap_summary_tech (scenario_id, carbon_cost, period, technology_id, capacity, capital_cost, o_m_cost_total)
+delete from _dispatch_gen_cap_summary_tech_v2 where scenario_id = @scenario_id;
+insert into _dispatch_gen_cap_summary_tech_v2 (scenario_id, carbon_cost, period, technology_id, capacity, capital_cost, o_m_cost_total)
   select 	scenario_id, carbon_cost, period, technology_id,
   			sum(_gen_cap_dispatch_update.capacity), 
   			sum(_gen_cap_dispatch_update.capital_cost), 
@@ -41,9 +41,9 @@ insert into _dispatch_gen_cap_summary_tech (scenario_id, carbon_cost, period, te
   order by 1, 2, 3, 4;
 
 -- Update summary table entries for projects that got retired early and will consequently have no dispatch decisions
-update _dispatch_gen_cap_summary_tech s
+update _dispatch_gen_cap_summary_tech_v2 s
 	set
-		s.power                     = 0,
+		s.energy                     = 0,
 		s.spinning_reserve          = 0,
 		s.quickstart_capacity       = 0,
 		s.total_operating_reserve   = 0,
@@ -63,7 +63,7 @@ update _dispatch_gen_cap_summary_tech s
 drop temporary table if exists temp_sum_table;
 create temporary table temp_sum_table
 	select carbon_cost, period, technology_id,
-				sum(power * hours_in_sample) as power,
+				sum(power * hours_in_sample) as energy,
 				sum(spinning_reserve * hours_in_sample) as spinning_reserve,
 				sum(quickstart_capacity * hours_in_sample) as quickstart_capacity,
 				sum(total_operating_reserve * hours_in_sample) as total_operating_reserve,
@@ -82,9 +82,9 @@ create temporary table temp_sum_table
 alter table temp_sum_table add index fcst_idx (carbon_cost, period, technology_id);
 
 -- Copy the variable costs into the summary table
-update _dispatch_gen_cap_summary_tech s, temp_sum_table t
+update _dispatch_gen_cap_summary_tech_v2 s, temp_sum_table t
 	set
-		s.power                     = t.power,
+		s.energy                    = t.energy,
 		s.spinning_reserve          = t.spinning_reserve,
 		s.quickstart_capacity       = t.quickstart_capacity,
 		s.total_operating_reserve   = t.total_operating_reserve,
@@ -104,9 +104,9 @@ update _dispatch_gen_cap_summary_tech s, temp_sum_table t
 		and s.technology_id = t.technology_id;
 
 -- Calculate the average values from the sums
-update _dispatch_gen_cap_summary_tech 
+update _dispatch_gen_cap_summary_tech_v2 
   set
-    avg_power = power / @hours_per_period,
+    avg_power = energy / @hours_per_period,
     avg_spinning_reserve = spinning_reserve / @hours_per_period,
     avg_quickstart_capacity = quickstart_capacity / @hours_per_period,
     avg_total_operating_reserve = total_operating_reserve / @hours_per_period,
@@ -124,7 +124,7 @@ delete from _dispatch_power_cost where scenario_id = @scenario_id;
 insert into _dispatch_power_cost (scenario_id, carbon_cost, period, load_in_period_mwh )
   select scenario_id, carbon_cost, period, load_in_period_mwh
   from (
-    select distinct scenario_id, carbon_cost, period from _dispatch_gen_cap_summary_tech
+    select distinct scenario_id, carbon_cost, period from _dispatch_gen_cap_summary_tech_v2
       where scenario_id = @scenario_id
   ) as distinct_scenario_carbon_cost_period_combos 
     JOIN switch_inputs_wecc_v2_2.scenarios_v3 USING (scenario_id)
@@ -166,98 +166,98 @@ update _dispatch_power_cost set new_transmission_cost =
 
 -- generation costs
 update _dispatch_power_cost set existing_plant_sunk_cost =
-	(select sum(capital_cost) from _dispatch_gen_cap_summary_tech g
+	(select sum(capital_cost) from _dispatch_gen_cap_summary_tech_v2 g
 		where g.scenario_id = @scenario_id 
 		and g.carbon_cost = _dispatch_power_cost.carbon_cost and g.period = _dispatch_power_cost.period and 
 		technology_id	in (select technology_id from technologies where can_build_new = 0) )
 	where scenario_id = @scenario_id;
 
 update _dispatch_power_cost set existing_plant_operational_cost =
-	(select sum(o_m_cost_total) from _dispatch_gen_cap_summary_tech g
+	(select sum(o_m_cost_total) from _dispatch_gen_cap_summary_tech_v2 g
 		where g.scenario_id = @scenario_id 
 		and g.carbon_cost = _dispatch_power_cost.carbon_cost and g.period = _dispatch_power_cost.period and 
 		technology_id	in (select technology_id from technologies where can_build_new = 0) )
 	where scenario_id = @scenario_id;
 
 update _dispatch_power_cost set new_coal_nonfuel_cost =
-	(select sum(capital_cost) + sum(o_m_cost_total) from _dispatch_gen_cap_summary_tech g
+	(select sum(capital_cost) + sum(o_m_cost_total) from _dispatch_gen_cap_summary_tech_v2 g
 		where g.scenario_id = @scenario_id 
 		and g.carbon_cost = _dispatch_power_cost.carbon_cost and g.period = _dispatch_power_cost.period and 
 		technology_id	in (select technology_id from technologies where fuel = 'Coal' and can_build_new = 1) )
 	where scenario_id = @scenario_id;
 
 update _dispatch_power_cost set coal_fuel_cost =
-	(select sum(fuel_cost) from _dispatch_gen_cap_summary_tech g
+	(select sum(fuel_cost) from _dispatch_gen_cap_summary_tech_v2 g
 		where g.scenario_id = @scenario_id 
 		and g.carbon_cost = _dispatch_power_cost.carbon_cost and g.period = _dispatch_power_cost.period and 
 		technology_id	in (select technology_id from technologies where fuel = 'Coal') )
 	where scenario_id = @scenario_id;
 
 update _dispatch_power_cost set new_gas_nonfuel_cost =
-	(select sum(capital_cost) + sum(o_m_cost_total) from _dispatch_gen_cap_summary_tech g
+	(select sum(capital_cost) + sum(o_m_cost_total) from _dispatch_gen_cap_summary_tech_v2 g
 		where g.scenario_id = @scenario_id 
 		and g.carbon_cost = _dispatch_power_cost.carbon_cost and g.period = _dispatch_power_cost.period and 
 		technology_id	in (select technology_id from technologies where fuel = 'Gas' and can_build_new = 1) )
 	where scenario_id = @scenario_id;
 
 update _dispatch_power_cost set gas_fuel_cost =
-	(select sum(fuel_cost) from _dispatch_gen_cap_summary_tech g
+	(select sum(fuel_cost) from _dispatch_gen_cap_summary_tech_v2 g
 		where g.scenario_id = @scenario_id 
 		and g.carbon_cost = _dispatch_power_cost.carbon_cost and g.period = _dispatch_power_cost.period and 
 		technology_id	in (select technology_id from technologies where fuel = 'Gas') )
 	where scenario_id = @scenario_id;
 
 update _dispatch_power_cost set new_nuclear_nonfuel_cost =
-	(select sum(capital_cost) + sum(o_m_cost_total) from _dispatch_gen_cap_summary_tech g
+	(select sum(capital_cost) + sum(o_m_cost_total) from _dispatch_gen_cap_summary_tech_v2 g
 		where g.scenario_id = @scenario_id 
 		and g.carbon_cost = _dispatch_power_cost.carbon_cost and g.period = _dispatch_power_cost.period and 
 		technology_id	in (select technology_id from technologies where fuel = 'Uranium' and can_build_new = 1) )
 	where scenario_id = @scenario_id;
 
 update _dispatch_power_cost set nuclear_fuel_cost =
-	(select sum(fuel_cost) from _dispatch_gen_cap_summary_tech g
+	(select sum(fuel_cost) from _dispatch_gen_cap_summary_tech_v2 g
 		where g.scenario_id = @scenario_id 
 		and g.carbon_cost = _dispatch_power_cost.carbon_cost and g.period = _dispatch_power_cost.period and 
 		technology_id	in (select technology_id from technologies where fuel = 'Uranium') )
 	where scenario_id = @scenario_id;
 
 update _dispatch_power_cost set new_geothermal_cost =
-	(select sum(capital_cost) + sum(o_m_cost_total) + sum(fuel_cost) from _dispatch_gen_cap_summary_tech g
+	(select sum(capital_cost) + sum(o_m_cost_total) + sum(fuel_cost) from _dispatch_gen_cap_summary_tech_v2 g
 		where g.scenario_id = @scenario_id 
 		and g.carbon_cost = _dispatch_power_cost.carbon_cost and g.period = _dispatch_power_cost.period and 
 		technology_id	in (select technology_id from technologies where fuel = 'Geothermal' and can_build_new = 1 ) )
 	where scenario_id = @scenario_id;
 
 update _dispatch_power_cost set new_bio_cost =
-	(select sum(capital_cost) + sum(o_m_cost_total) + sum(fuel_cost) from _dispatch_gen_cap_summary_tech g
+	(select sum(capital_cost) + sum(o_m_cost_total) + sum(fuel_cost) from _dispatch_gen_cap_summary_tech_v2 g
 		where g.scenario_id = @scenario_id 
 		and g.carbon_cost = _dispatch_power_cost.carbon_cost and g.period = _dispatch_power_cost.period and 
 		technology_id	in (select technology_id from technologies where fuel in ('Bio_Gas', 'Bio_Solid') and can_build_new = 1 ) )
 	where scenario_id = @scenario_id;
 
 update _dispatch_power_cost set new_wind_cost =
-	(select sum(capital_cost) + sum(o_m_cost_total) + sum(fuel_cost) from _dispatch_gen_cap_summary_tech g
+	(select sum(capital_cost) + sum(o_m_cost_total) + sum(fuel_cost) from _dispatch_gen_cap_summary_tech_v2 g
 		where g.scenario_id = @scenario_id 
 		and g.carbon_cost = _dispatch_power_cost.carbon_cost and g.period = _dispatch_power_cost.period and 
 		technology_id	in (select technology_id from technologies where fuel = 'Wind' and can_build_new = 1 ) )
 	where scenario_id = @scenario_id;
 
 update _dispatch_power_cost set new_solar_cost =
-	(select sum(capital_cost) + sum(o_m_cost_total) + sum(fuel_cost) from _dispatch_gen_cap_summary_tech g
+	(select sum(capital_cost) + sum(o_m_cost_total) + sum(fuel_cost) from _dispatch_gen_cap_summary_tech_v2 g
 		where g.scenario_id = @scenario_id 
 		and g.carbon_cost = _dispatch_power_cost.carbon_cost and g.period = _dispatch_power_cost.period and 
 		technology_id	in (select technology_id from technologies where fuel = 'Solar' and can_build_new = 1 ) )
 	where scenario_id = @scenario_id;
 
 update _dispatch_power_cost set new_storage_nonfuel_cost =
-	(select sum(capital_cost) + sum(o_m_cost_total) from _dispatch_gen_cap_summary_tech g
+	(select sum(capital_cost) + sum(o_m_cost_total) from _dispatch_gen_cap_summary_tech_v2 g
 		where g.scenario_id = _dispatch_power_cost.scenario_id
 		and g.carbon_cost = _dispatch_power_cost.carbon_cost and g.period = _dispatch_power_cost.period and 
 		technology_id	in (select technology_id from technologies where storage = 1 and can_build_new = 1 ) )
 where scenario_id = @scenario_id;
 
 update _dispatch_power_cost set carbon_cost_total =
-	(select sum(carbon_cost_total) from _dispatch_gen_cap_summary_tech g
+	(select sum(carbon_cost_total) from _dispatch_gen_cap_summary_tech_v2 g
 		where g.scenario_id = @scenario_id 
 		and g.carbon_cost = _dispatch_power_cost.carbon_cost and g.period = _dispatch_power_cost.period )
 	where scenario_id = @scenario_id;
@@ -288,7 +288,52 @@ insert into dispatch_co2_cc
 			sum( ( co2_tons + spinning_co2_tons + deep_cycling_co2_tons + startup_co2_tons ) ) / @years_per_period as co2_tons, 
      		@co2_tons_1990 - sum( ( co2_tons + spinning_co2_tons + deep_cycling_co2_tons + startup_co2_tons ) ) / @years_per_period as co2_tons_reduced_1990,
     		1 - ( sum( ( co2_tons + spinning_co2_tons + deep_cycling_co2_tons + startup_co2_tons ) ) / @years_per_period ) / @co2_tons_1990 as co2_share_reduced_1990
-  	from 	_dispatch_gen_cap_summary_tech 
+  	from 	_dispatch_gen_cap_summary_tech_v2 
   	where 	scenario_id = @scenario_id
   	group by 1, 2, 3
   	order by 1, 2, 3;
+
+-- Average directed transmission..
+-- the sum is still needed in the trans_direction_table as there could be different fuel types transmitted
+create temporary table trans_direction_table_tmp
+  select carbon_cost, period, send_id, receive_id,
+    sum( hours_in_sample * ( ( power_sent + power_received ) / 2 ) ) 
+      / @hours_per_period as average_transmission
+  from _dispatch_transmission_decisions 
+  where scenario_id = @scenario_id 
+  group by 1,2,3,4
+  UNION
+  select 	carbon_cost, period, receive_id as send_id, send_id as receive_id,
+    -1 * sum( hours_in_sample * ( ( power_sent + power_received ) / 2 ) ) 
+      / @hours_per_period as average_transmission
+  from _dispatch_transmission_decisions 
+  where scenario_id = @scenario_id 
+  group by 1,2,3,4;
+alter table trans_direction_table_tmp
+  add key (carbon_cost, period, send_id, receive_id);
+
+create temporary table avg_trans_table
+  select carbon_cost, period, send_id, receive_id,
+    sum(average_transmission) as average_transmission
+  from trans_direction_table_tmp
+  group by 1,2,3,4;
+alter table avg_trans_table 
+  add primary key (carbon_cost, period, send_id, receive_id);
+
+create temporary table directed_trans_table
+  select distinct carbon_cost, period,
+    if(average_transmission > 0, send_id, receive_id) as send_id,
+    if(average_transmission > 0, receive_id, send_id) as receive_id,
+    abs(average_transmission) as directed_trans_avg
+  from avg_trans_table;
+alter table directed_trans_table 
+  add primary key (carbon_cost, period, send_id, receive_id);
+
+DELETE FROM _dispatch_transmission_avg_directed where scenario_id = @scenario_id;
+insert into _dispatch_transmission_avg_directed
+select 	@scenario_id, carbon_cost, period, transmission_line_id, send_id, receive_id,
+		round( directed_trans_avg ) as directed_trans_avg
+from	transmission_lines tl, directed_trans_table
+where directed_trans_table.send_id = tl.start_id and
+      directed_trans_table.receive_id = tl.end_id
+order by 1, 2, 3, 4, 5, 6;

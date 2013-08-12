@@ -1,26 +1,25 @@
 #!/bin/bash
-# import.sh
-# SYNOPSIS
-#		./import.sh -h 127.0.0.1 -P 3307 # For connecting through an ssh tunnel you created
-#		./import.sh --tunnel             # Initiates an ssh tunnel and uses it to connect.
-# INPUTS
-#   --help                   Print this message
-#  -n | --no-tunnel         Do not try to initiate an ssh tunnel to connect to the database. Overrides default behavior. 
-#   -u [DB Username]
-#   -p [DB Password]
-#   -D [DB name]
-#   -P/--port [port number]
-#   -h [DB server]
-#   --SkipImport             Just crunch the results, don't import any files
-#   --SkipCrunch             Just import the raw files, don't crunch the data.
-# All arguments are optional.
 
-# This function assumes that the lines at the top of the file that start with a # and a space or tab 
-# comprise the help message. It prints the matching lines with the prefix removed and stops at the first blank line.
-# Consequently, there needs to be a blank line separating the documentation of this program from this "help" function
+
 function print_help {
-	last_line=$(( $(egrep '^[ \t]*$' -n -m 1 $0 | sed 's/:.*//') - 1 ))
-	head -n $last_line $0 | sed -e '/^#[ 	]/ !d' -e 's/^#[ 	]//'
+  cat <<END_HELP
+import.sh
+SYNOPSIS
+  ./import.sh
+DESCRIPTION
+  Import dispatch results into MySQL and crunch some numbers
+INPUTS
+  --help                   Print this message
+  -n/--no-tunnel         Do not try to initiate an ssh tunnel to connect to the database. Overrides default behavior. 
+  -u [DB Username]
+  -p [DB Password]
+  -D [DB name]
+  -P/--port [port number]
+  -h [DB server]
+  --SkipImport             Just crunch the results, don't import any files
+  --SkipCrunch             Just import the raw files, don't crunch the data.
+All arguments are optional.
+END_HELP
 }
 
 
@@ -33,7 +32,7 @@ port=3306
 ssh_tunnel=1
 
 # Set the umask to give group read & write permissions to all files & directories made by this script.
-umask=0002
+umask 0002
 
 ###################################################
 # Detect optional command-line arguments
@@ -57,7 +56,7 @@ case $1 in
     db_server=$2; shift 2 ;;
   --SkipImport) 
     SkipImport=1; shift 1 ;;
-	--SkipCrunch)
+  --SkipCrunch)
     SkipCrunch=1; shift 1 ;;
   --help)
     print_help; exit 0 ;;
@@ -70,23 +69,23 @@ done
 ##########################
 # Get the user name and password 
 # Note that passing the password to mysql via a command line parameter is considered insecure
-#	http://dev.mysql.com/doc/refman/5.0/en/password-security.html
+# http://dev.mysql.com/doc/refman/5.0/en/password-security.html
 default_user=$(whoami)
 if [ ! -n "$user" ]
 then 
-	printf "User name for MySQL $DB_name on $db_server [$default_user]? "
-	read user
-	if [ -z "$user" ]; then 
-	  user="$default_user"
-	fi
+  printf "User name for MySQL $DB_name on $db_server [$default_user]? "
+  read user
+  if [ -z "$user" ]; then 
+    user="$default_user"
+  fi
 fi
 if [ ! -n "$password" ]
 then 
-	echo "Password for MySQL $DB_name on $db_server? "
-	stty_orig=`stty -g`   # Save screen settings
-	stty -echo            # To keep the password vaguely secure, don't let it show to the screen
-	read password
-	stty $stty_orig       # Restore screen settings
+  echo "Password for MySQL $DB_name on $db_server? "
+  stty_orig=`stty -g`   # Save screen settings
+  stty -echo            # To keep the password vaguely secure, don't let it show to the screen
+  read password
+  stty $stty_orig       # Restore screen settings
 fi
 
 
@@ -134,126 +133,185 @@ then
   exit 0
 fi
 
+function check_file_and_get_row_count {
+  file_path=$1
+  if [ ! -f "$file_path" ]; then 
+    printf "Mandatory output file $file_path not found. Bailing out. \n";
+    exit 1;
+  fi;
+  file_row_count=$(awk 'END {print NR-1}' "$file_path")
+  if [ $file_row_count -le 0 ]; then
+    printf "Output file $file_path does not contain any records. Bailing out. \n";
+    exit 1;
+  fi;
+  echo $file_row_count
+}
+
+function check_db_row_count {
+  table_name=$1
+  SCENARIO_ID=$2
+  CARBON_COST=$3
+  TEST_SET_ID=$4
+  file_row_count=$5
+  db_row_count=$(mysql $connection_string --column-names=false -e "\
+    select count(*) from $table_name \
+      where scenario_id=$SCENARIO_ID and carbon_cost=$CARBON_COST and test_set_id=$TEST_SET_ID;" \
+  )
+  if [ -z "$db_row_count" ]; then
+    echo "ERROR! Could not count rows imported into $table_name. Bailing out."
+    exit 1
+  fi
+  if [ $db_row_count -ne $file_row_count ]; then
+    printf "ERROR! Imported %d rows, but expected %d. Bailing out. \n" \
+      $db_row_count $file_row_count
+    exit 1
+  fi
+}
+
+working_directory=$(pwd)
 ###################################################
 # Import all of the results files into the DB
 if [ $SkipImport == 0 ]; then
+
+  # Look up the starting timestamp & validate that the id assignment convention 
+  # holds true for the last timestamp in the series. 
+  # Setting the timepoint ids via a join can take over 15 hours, so we're going to 
+  # set them based on our convention of assigning ids sequentially starting from 0. 
+  # This means the id of any timestamp is just the hours between it and the starting 
+  # timestamp. 
+  starting_timestamp=$(
+    mysql $connection_string --column-names=false -e "\
+      select datetime_utc from switch_inputs_wecc_v2_2.study_timepoints where timepoint_id=0";
+  )
+  does_time_id_shortcut_work=$(
+    mysql $connection_string --column-names=false -e "\
+      select (timepoint_id = timestampdiff(HOUR,'$starting_timestamp',datetime_utc)) \
+      from switch_inputs_wecc_v2_2.study_timepoints \
+      order by datetime_utc desc limit 1";
+  )
+  if [ $does_time_id_shortcut_work -eq 0 ]; then
+    echo "The timepoint id lookup trick didn't work! You know, the one where the id of EVERY \
+          study timepoint is just the number of hours from the first timepoint? Bailing out!\n"
+    exit 1
+  fi
+
 
   echo 'Clearing old results...'
   mysql $connection_string -e "\
     delete from _dispatch_decisions where scenario_id=$SCENARIO_ID; \
     delete from _dispatch_extra_cap where scenario_id=$SCENARIO_ID; \
-    delete from _dispatch_marg_costs where scenario_id=$SCENARIO_ID; \
-    delete from _dispatch_reserve_margin where scenario_id=$SCENARIO_ID;"
+    delete from _dispatch_transmission_decisions where scenario_id=$SCENARIO_ID; \
+    delete from _dispatch_hourly_la_data where scenario_id=$SCENARIO_ID;"
 
   echo 'Importing results files...'
 
-  # Setting the timepoint ids via a join can take over 15 hours. 
-  # Look up the parameters of the id numbering convention & validate that it works
-  starting_timestamp=$(mysql $connection_string --column-names=false -e "select datetime_utc from switch_inputs_wecc_v2_2.study_timepoints where timepoint_id=0";)
-  time_id_shortcut_works=$(mysql $connection_string --column-names=false -e "select (timepoint_id=timestampdiff(HOUR,'$starting_timestamp',datetime_utc)) from switch_inputs_wecc_v2_2.study_timepoints order by datetime_utc desc limit 1";)
-  if [ $time_id_shortcut_works -eq 0 ]; then
-    echo "The timepoint id lookup trick didn't work! You know, the one where the id of EVERY study timepoint is just the number of hours from the first timepoint? Bailing out!\n"
-    exit 1
-  fi
+  # Iterate over test sets
+  cat test_set_ids.txt | while read TEST_SET_ID test_path; do
+    echo "  $test_path.."
 
-  file_base_name="dispatch_sums"
-  for file_path in $(find $(pwd) -name "${file_base_name}_*txt" | grep "[[:digit:]]"); do
-    echo "    ${file_path}  ->  ${DB_name}._dispatch_decisions"
-    file_row_count=$(wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g' | awk '{print ($1-1)}')
-    TEST_SET_ID=$(echo $file_path | sed -e 's|.*/test_set_\([0-9]*\)/.*|\1|')
-    CARBON_COST=$(echo $file_path | sed -e 's|.*dispatch_sums_\([0-9]*\)\.txt|\1|')
-    start_time=$(date +%s)
-    mysql $connection_string -e "\
-      load data local infile \"$file_path\" \
+    # Iterate over carbon costs
+    sed -n 's/set CARBON_COSTS *:= *\([0-9 ]*\);/\1/ p' ../switch.dat | while read CARBON_COST; do
+
+      # Import generation and storage dispatch decisions 
+      # Dispatch is aggregated by load area, timepoint and technology to reduce file size
+      file_base_name="dispatch_sums"
+      file_name="${file_base_name}_${CARBON_COST}.txt"
+      file_path="${working_directory}/${test_path}/results/${file_name}"
+      file_row_count=$(check_file_and_get_row_count "$file_path")
+      echo "    ${file_name}  ->  ${DB_name}._dispatch_decisions"
+      start_time=$(date +%s)
+      mysql $connection_string -e "\
+        load data local infile \"$file_path\" \
         into table _dispatch_decisions ignore 1 lines \
-        (scenario_id, carbon_cost, period, area_id, @load_area, @balancing_area, @date, @hour, test_set_id, technology_id, @tech, new, baseload, cogen, storage, fuel, fuel_category, hours_in_sample, power, co2_tons, heat_rate, fuel_cost, carbon_cost_incurred, variable_o_m_cost, spinning_reserve, quickstart_capacity, total_operating_reserve, spinning_co2_tons, spinning_fuel_cost, spinning_carbon_cost_incurred, deep_cycling_amount, deep_cycling_fuel_cost, deep_cycling_carbon_cost, deep_cycling_co2_tons, mw_started_up, startup_fuel_cost, startup_nonfuel_cost, startup_carbon_cost, startup_co2_tons )\
-        set study_timepoint_utc = str_to_date( @hour, '%Y%m%d%H'), \
+        ( \
+          scenario_id, carbon_cost, period, area_id, @study_hour, test_set_id, technology_id, \
+          @load_area, @balancing_area, @tech, fuel, fuel_category, \
+          new, baseload, cogen, storage, @date, hours_in_sample, heat_rate, \
+          power, co2_tons, fuel_cost, carbon_cost_incurred, variable_o_m_cost, \
+          spinning_reserve, quickstart_capacity, total_operating_reserve, \
+          spinning_co2_tons, spinning_fuel_cost, spinning_carbon_cost_incurred, \
+          deep_cycling_amount, deep_cycling_fuel_cost, deep_cycling_carbon_cost, deep_cycling_co2_tons, \
+          mw_started_up, startup_fuel_cost, startup_nonfuel_cost, startup_carbon_cost, startup_co2_tons \
+        ) \
+        set study_timepoint_utc = str_to_date( @study_hour, '%Y%m%d%H'), \
             study_timepoint_id = timestampdiff(HOUR,'$starting_timestamp',study_timepoint_utc);"
-    end_time=$(date +%s)
-    db_row_count=$(mysql $connection_string --column-names=false -e "\
-      select count(*) from _dispatch_decisions \
-        where scenario_id=$SCENARIO_ID and carbon_cost=$CARBON_COST and test_set_id=$TEST_SET_ID;" \
-    )
-    if [ $db_row_count -eq $file_row_count ]; then
-    	printf "%20s seconds to import %s rows\n" $(($end_time - $start_time)) $file_row_count
-    else
-    	printf " -------------\n -- ERROR! Imported %d rows, but expected %d. (%d seconds.) --\n -------------\n" $db_row_count $file_row_count $(($end_time - $start_time))
-    	exit
-    fi
-  done
-
-
-  file_base_name="dispatch_marg_costs"
-  for file_path in $(find $(pwd) -name "${file_base_name}_*txt" | grep "[[:digit:]]"); do
-    echo "    ${file_path}  ->  ${DB_name}._dispatch_marg_costs"
-    file_row_count=$(wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g' | awk '{print ($1-1)}')
-    TEST_SET_ID=$(echo $file_path | sed -e 's|.*/test_set_\([0-9]*\)/.*|\1|')
-    CARBON_COST=$(echo $file_path | sed -e 's|.*'$dispatch_marg_costs'_\([0-9]*\)\.txt|\1|')
-    start_time=$(date +%s)
-    mysql $connection_string -e "\
-      load data local infile \"$file_path\" \
-        into table _dispatch_marg_costs ignore 1 lines \
-        (scenario_id, carbon_cost, period, area_id, @load_area, @balancing_area, @date, @hour, test_set_id, hours_in_sample, marg_cost_load, marg_cost_load_reserve )\
-        set study_timepoint_utc = str_to_date( @hour, '%Y%m%d%H'), \
-            study_timepoint_id = timestampdiff(HOUR,'$starting_timestamp',study_timepoint_utc);"
-    end_time=$(date +%s)
-    db_row_count=$(mysql $connection_string --column-names=false -e "\
-      select count(*) from _dispatch_marg_costs \
-        where scenario_id=$SCENARIO_ID and carbon_cost=$CARBON_COST and test_set_id=$TEST_SET_ID;" \
-    )
-    if [ $db_row_count -eq $file_row_count ]; then
-    	printf "%20s seconds to import %s rows\n" $(($end_time - $start_time)) $file_row_count
-    else
-    	printf " -------------\n -- ERROR! Imported %d rows, but expected %d. (%d seconds.) --\n -------------\n" $db_row_count $file_row_count $(($end_time - $start_time))
-    	exit
-    fi
-  done
-
-
-  file_base_name="dispatch_extra_peakers"
-  for file_path in $(find $(pwd) -name "${file_base_name}_*txt" | grep "[[:digit:]]"); do
-    echo "    ${file_path}  ->  ${DB_name}._dispatch_extra_cap"
-    file_row_count=$(wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g' | awk '{print ($1-1)}')
+      end_time=$(date +%s)
+      check_db_row_count "_dispatch_decisions" $SCENARIO_ID $CARBON_COST $TEST_SET_ID $file_row_count
+      printf "      %d seconds to import %s rows\n" $(($end_time - $start_time)) $file_row_count
     
-    TEST_SET_ID=$(echo $file_path | sed -e 's|.*/test_set_\([0-9]*\)/.*|\1|')
-    CARBON_COST=$(echo $file_path | sed -e 's|.*dispatch_extra_peakers_\([0-9]*\)\.txt|\1|')
+      # Import transmission dispatch decisions
+      file_base_name="transmission_dispatch"
+      file_name="${file_base_name}_${CARBON_COST}.txt"
+      file_path="${working_directory}/${test_path}/results/${file_name}"
+      file_row_count=$(check_file_and_get_row_count "$file_path")
+      echo "    ${file_name}  ->  ${DB_name}._dispatch_transmission_decisions"
+      start_time=$(date +%s)
+      mysql $connection_string -e "\
+        load data local infile \"$file_path\" \
+        into table _dispatch_transmission_decisions ignore 1 lines \
+        ( \
+          scenario_id, carbon_cost, period, transmission_line_id, \
+            study_hour, rps_fuel_category, test_set_id, \
+          study_date, hours_in_sample, send_id, receive_id, @send_la, @receive_la, \
+          power_sent, power_received);"
+      end_time=$(date +%s)
+      check_db_row_count "_dispatch_transmission_decisions" $SCENARIO_ID $CARBON_COST $TEST_SET_ID $file_row_count
+      printf "      %d seconds to import %s rows\n" $(($end_time - $start_time)) $file_row_count
 
-    start_time=$(date +%s)
-    mysql $connection_string -e "\
-    load data local infile \"$file_path\" into table _dispatch_extra_cap ignore 1 lines \
-      (scenario_id, carbon_cost, period, project_id, area_id, @load_area, test_set_id, technology_id, @technology, new, baseload, cogen, storage, fuel, additional_capacity, updated_capacity, capital_cost, fixed_o_m_cost );"
-    end_time=$(date +%s)
-    db_row_count=$(mysql $connection_string --column-names=false -e "select count(*) from _dispatch_extra_cap where scenario_id=$SCENARIO_ID and carbon_cost=$CARBON_COST and test_set_id=$TEST_SET_ID;")
-    if [ -n "$db_row_count" ] && [ $db_row_count -eq $file_row_count ]; then
-    	printf "%20s seconds to import %s rows\n" $(($end_time - $start_time)) $file_row_count
-    else
-    	printf " -------------\n -- ERROR! Imported %d rows, but expected %d. (%d seconds.) --\n -------------\n" $db_row_count $file_row_count $(($end_time - $start_time))
-    	exit
-    fi
-  done
-  
-  
-  file_base_name="reserve_margin"
-  for file_path in $(find $(pwd) -name "${file_base_name}_*txt" | grep "[[:digit:]]"); do
-    echo "    ${file_path}  ->  ${DB_name}._dispatch_reserve_margin"
-    file_row_count=$(wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g' | awk '{print ($1-1)}')
-    TEST_SET_ID=$(echo $file_path | sed -e 's|.*/test_set_\([0-9]*\)/.*|\1|')
-    CARBON_COST=$(echo $file_path | sed -e 's|.*'$reserve_margin'_\([0-9]*\)\.txt|\1|')
-    start_time=$(date +%s)
-    mysql $connection_string -e "\
-    load data local infile \"$file_path\" into table _dispatch_reserve_margin ignore 1 lines \
-      (scenario_id, carbon_cost, period, test_set_id, area_id, @load_area, @date, @hour, static_load, net_shifted_load, total_load, total_capacity, reserve_margin_total, reserve_margin_percentage)\
-      set study_timepoint_utc = str_to_date( @hour, '%Y%m%d%H'), \
-          study_timepoint_id = timestampdiff(HOUR,'$starting_timestamp',study_timepoint_utc);"
-    end_time=$(date +%s)
-    db_row_count=$(mysql $connection_string --column-names=false -e "select count(*) from _dispatch_reserve_margin where scenario_id=$SCENARIO_ID and carbon_cost=$CARBON_COST and test_set_id=$TEST_SET_ID;")
-    if [ $db_row_count -eq $file_row_count ]; then
-    	printf "%20s seconds to import %s rows\n" $(($end_time - $start_time)) $file_row_count
-    else
-    	printf " -------------\n -- ERROR! Imported %d rows, but expected %d. (%d seconds.) --\n -------------\n" $db_row_count $file_row_count $(($end_time - $start_time))
-    	exit
-    fi
-  done
+
+      # Import hourly load area data that includes demand response, marginal costs and an estimate of reserve capacity
+      file_base_name="dispatch_hourly_la"
+      file_name="${file_base_name}_${CARBON_COST}.txt"
+      file_path="${working_directory}/${test_path}/results/${file_name}"
+      file_row_count=$(check_file_and_get_row_count "$file_path")
+      echo "    ${file_name}  ->  ${DB_name}._dispatch_hourly_la_data"
+      start_time=$(date +%s)
+      mysql $connection_string -e "\
+        load data local infile \"$file_path\" \
+        into table _dispatch_hourly_la_data ignore 1 lines \
+        ( \
+          scenario_id, carbon_cost, period, test_set_id, area_id, @study_hour, \
+          @load_area, @study_date, hours_in_sample, \
+          static_load, res_comm_dr, ev_dr, distributed_generation, \
+          satisfy_load_dual, satisfy_load_reserve_dual, dr_com_res_from_dual, \
+            dr_com_res_to_dual, dr_ev_from_dual, dr_ev_to_dual, \
+          reserve_margin_eligible_capacity_mw, reserve_margin_mw, reserve_margin_percent \
+        ) \
+        set study_timepoint_utc = str_to_date( @study_hour, '%Y%m%d%H'), \
+            study_timepoint_id = timestampdiff(HOUR,'$starting_timestamp',study_timepoint_utc);"
+      end_time=$(date +%s)
+      check_db_row_count "_dispatch_hourly_la_data" $SCENARIO_ID $CARBON_COST $TEST_SET_ID $file_row_count
+      printf "      %d seconds to import %s rows\n" $(($end_time - $start_time)) $file_row_count
+                
+      
+      # Import additional capacity (if any) that was required to meet load
+      file_base_name="dispatch_extra_peakers"
+      file_name="${file_base_name}_${CARBON_COST}.txt"
+      file_path="${working_directory}/${test_path}/results/${file_name}"
+      # This file won't exist if there was sufficient capacity, so don't worry if it isn't found
+      if [ -f "$file_path" ]; then 
+        file_row_count=$(awk 'END {print NR-1}' "$file_path")
+        if [ $file_row_count -le 0 ]; then
+          printf "Output file $file_path does not contain any records. Bailing out. \n";
+          exit 1;
+        fi;
+        echo "    ${file_name}  ->  ${DB_name}._dispatch_extra_cap"
+        start_time=$(date +%s)
+        mysql $connection_string -e "\
+          load data local infile \"$file_path\" \
+          into table _dispatch_extra_cap ignore 1 lines \
+          ( \
+            scenario_id, carbon_cost, period, project_id, area_id, test_set_id, technology_id, \
+            @load_area, @technology, new, baseload, cogen, storage, fuel, \
+            additional_capacity, updated_capacity, capital_cost, fixed_o_m_cost );"
+        end_time=$(date +%s)
+        check_db_row_count "_dispatch_extra_cap" $SCENARIO_ID $CARBON_COST $TEST_SET_ID $file_row_count
+        printf "      %d seconds to import %s rows\n" $(($end_time - $start_time)) $file_row_count        
+      fi;
+
+      
+    done # Done iterating over carbon costs
+  done # Done iterating over test_sets 
 
 else
   echo 'Skipping Import.'
@@ -263,12 +321,12 @@ fi
 # Crunch through the data
 if [ $SkipCrunch == 0 ]; then
   echo 'Crunching the data...'
-	read SCENARIO_ID < scenario_id.txt
+  mkdir -p tmp
   data_crunch_path=$(mktemp tmp/import_crunch_sql-XXX);
   echo "set @scenario_id := ${SCENARIO_ID};" >> $data_crunch_path
   cat crunch.sql >> $data_crunch_path
   mysql $connection_string < $data_crunch_path
-#  rm $data_crunch_path
+  rm $data_crunch_path
 else
   echo 'Skipping data crunching.'
 fi
