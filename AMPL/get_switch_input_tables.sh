@@ -283,7 +283,8 @@ SELECT load_area, period_start as period, max(power) as max_system_load \
     JOIN load_area_info        USING(area_id) \
     JOIN training_set_periods USING(training_set_id)  \
   WHERE training_set_id=$TRAINING_SET_ID  \
-    AND future_year = FLOOR( period_start + years_per_period / 2) \
+    AND future_year >= period_start \
+    AND future_year <= FLOOR( period_start + years_per_period / 2) \
   GROUP BY 1,2; " >> max_system_loads.tab
 
 echo '	existing_plants.tab...'
