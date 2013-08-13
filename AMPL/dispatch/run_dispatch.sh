@@ -1,21 +1,18 @@
 #!/bin/bash
-# run_dispatch.sh
-# SYNOPSIS
-# 	./run_dispatch.sh
-# DESCRIPTION
-# 	Prepares a dispatch run for a cluster 
-# OPTIONAL INPUTS
-# 	--help                     Print this usage information
-#   --single_task_mode | -s    Execute the steps of dispatch as a single task and delete
-#                              problem files as execution progresses. 
-#   --multiple_task_mode | -m  Execute the steps of dispatch as a separate tasks
 
-# This function assumes that the lines at the top of the file that start with a # and a space or tab 
-# comprise the help message. It prints the matching lines with the prefix removed and stops at the first blank line.
-# Consequently, there needs to be a blank line separating the documentation of this program from this "help" function
 function print_help {
-	last_line=$(( $(egrep '^[ \t]*$' -n -m 1 $0 | sed 's/:.*//') - 1 ))
-	head -n $last_line $0 | sed -e '/^#[ 	]/ !d' -e 's/^#[ 	]//'
+  cat <<END_HELP
+run_dispatch.sh
+SYNOPSIS
+	./run_dispatch.sh
+DESCRIPTION
+	Prepares a dispatch run for a cluster 
+OPTIONAL INPUTS
+	--help                     Print this usage information
+  --single_task_mode | -s    Execute the steps of dispatch as a single task and delete
+                             problem files as execution progresses. 
+  --multiple_task_mode | -m  Execute the steps of dispatch as a separate tasks
+END_HELP
 }
 
 # Set the umask to give group read & write permissions to all files & directories made by this script.
@@ -44,28 +41,26 @@ done
 # It has three slots for Number of workers, Number of nodes, and Number of workers per node. 
 # The NERSC clusters need the number of workers and the number of workers per node, while the Citris cluster needs the number of nodes and the number of workers per node. 
 # I'm using all three bits of data in the template so allow cluster-specific templates here and generic logic down below. 
-if [ $( hostname | grep "citris" | wc -l ) -gt 0 ]; then
-  cluster_name="citris"
-  queue_6hr=short
-  queue_24hr=normal
-  # Citris qsub files don't need the total number of workers, so that part will just be a comment line instead of a PBS command.
-  num_workers_and_node_template='## Num workers: %d\n#PBS -l nodes=%d:ppn=%d\n'
-elif [ -n "$NERSC_HOST" ]; then 
-  cluster_name="$NERSC_HOST"
-  queue_6hr=regular
-  queue_24hr=regular
-  # NERSC clusters don't need the number of nodes, so that part will just be a comment line instead of a PBS command.
-  num_workers_and_node_template='#PBS -l mppwidth=%d\n## Num nodes: %d\n#PBS -L mppnppn=%d\n'
-else 
-  echo "Unknown cluster."
-  exit;
-fi
-# Most clusters don't require special suffixes for specifying job dependencies. Hopper requires @sdb to be added to the end of the job name. This variable is used in the qsub command below.
-if [ "$cluster_name" == "hopper" ]; then
-  dependency_suffix='@sdb'
-else 
-  dependency_suffix='' 
-fi
+cluster_login_name=$(qstat -q | sed -n -e's/^server: //p')
+case $cluster_login_name in
+  psi) cluster_name="psi" ;;
+  perceus-citris.banatao.berkeley.edu) cluster_name="citris" ;;
+  *) echo "Unknown cluster. Login node is $cluster_login_name."; exit ;;
+esac
+case $cluster_name in
+  psi) 
+    queue_6hr=psi
+    queue_24hr=psi
+  ;;
+  citris)
+    queue_6hr=short
+    queue_24hr=normal
+  ;;
+  *)
+    echo "Unknown cluster."
+    exit;
+  ;;
+esac
 
 
 
@@ -80,10 +75,6 @@ if [ -z "$email" ]; then
     amileva) email="amileva@berkeley.edu" ;;
   esac
 fi
-
-# Clear out any 0-sized problem or solution files that could have accumulated from prior incomplete runs.
-find . -name '*nl' -size 0 -exec rm {} \;
-find . -name '*sol' -size 0 -exec rm {} \;
 
 # Make a qsub file for each task using custom headers and generic templates
 echo "Making qsub files for each task. "
@@ -116,39 +107,44 @@ for f in dispatch_compile.qsub dispatch_optimize.qsub dispatch_recompile.qsub di
       echo "#PBS -q $queue_24hr" >> $f
       echo "#PBS -l walltime=16:00:00" >> $f
       num_workers=16; num_nodes=2; num_workers_per_node=8;
-      printf "$num_workers_and_node_template" $num_workers $num_nodes $num_workers_per_node  >> $f
+      printf "#PBS -l nodes=%d:ppn=%d\n" $num_nodes $num_workers_per_node  >> $f
     ;;
     dispatch_recompile.qsub)
       echo "#PBS -q $queue_24hr" >> $f
       echo "#PBS -l walltime=24:00:00" >> $f
       num_workers=16; num_nodes=2; num_workers_per_node=8;
-      printf "$num_workers_and_node_template" $num_workers $num_nodes $num_workers_per_node  >> $f
+      printf "#PBS -l nodes=%d:ppn=%d\n" $num_nodes $num_workers_per_node  >> $f
     ;;
     dispatch_export.qsub)
       echo "#PBS -q $queue_24hr" >> $f
       echo "#PBS -l walltime=16:00:00" >> $f
       num_workers=16; num_nodes=2; num_workers_per_node=8;
-      printf "$num_workers_and_node_template" $num_workers $num_nodes $num_workers_per_node >> $f
+      printf "#PBS -l nodes=%d:ppn=%d\n" $num_nodes $num_workers_per_node >> $f
     ;;
     dispatch_optimize.qsub)
       echo "#PBS -q $queue_24hr" >> $f
       echo "#PBS -l walltime=24:00:00" >> $f
       num_workers=16; num_nodes=2; num_workers_per_node=8;
-      printf "$num_workers_and_node_template" $num_workers $num_nodes $num_workers_per_node >> $f
+      printf "#PBS -l nodes=%d:ppn=%d\n" $num_nodes $num_workers_per_node >> $f
       echo "threads_per_cplex=1" >> $f
     ;;
     dispatch_reoptimize.qsub)
       echo "#PBS -q $queue_24hr" >> $f
       echo "#PBS -l walltime=24:00:00" >> $f
       num_workers=16; num_nodes=2; num_workers_per_node=8;
-      printf "$num_workers_and_node_template" $num_workers $num_nodes $num_workers_per_node >> $f
+      printf "#PBS -l nodes=%d:ppn=%d\n" $num_nodes $num_workers_per_node >> $f
       echo "threads_per_cplex=1" >> $f
     ;;
     dispatch_all.qsub)
-      echo "#PBS -q $queue_24hr" >> $f
-      echo "#PBS -l walltime=24:00:00" >> $f
-      num_workers=16; num_nodes=2; num_workers_per_node=8;
-      printf "$num_workers_and_node_template" $num_workers $num_nodes $num_workers_per_node >> $f
+      echo "#PBS -q $queue_6hr" >> $f
+      echo "#PBS -l walltime=4:00:00" >> $f
+      if [ "$cluster_name" == "psi" ]; then 
+        num_workers=8; num_nodes=1; num_workers_per_node=8;
+      else
+        num_workers=16; num_nodes=2; num_workers_per_node=8;
+      fi
+      echo "#PBS -l cput="$((4*$num_workers))":00:00" >> $f
+      printf "#PBS -l nodes=%d:ppn=%d\n" $num_nodes $num_workers_per_node >> $f
       echo "threads_per_cplex=1" >> $f
     ;;
   esac
@@ -171,7 +167,7 @@ for f in dispatch_compile.qsub dispatch_optimize.qsub dispatch_recompile.qsub di
     if [ -z "$prior_jobid" ]; then
       prior_jobid=$(qsub $f)
     else
-      prior_jobid=$(qsub $f -W depend=afterok:$prior_jobid$dependency_suffix)
+      prior_jobid=$(qsub $f -W depend=afterok:$prior_jobid)
     fi
     printf "$prior_jobid\n"
   fi

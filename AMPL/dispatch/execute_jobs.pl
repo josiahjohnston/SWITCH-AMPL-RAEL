@@ -5,13 +5,18 @@
 # call getid to get the MPI id number
 use strict;
 
-my ($worker_id, $numprocs) = split(/\s+/,`getid`);
+my ($worker_id, $numprocs, $jobs_file );
+if ( scalar(@ARGV) == 3 ) {
+  ($jobs_file, $worker_id, $numprocs) = @ARGV;
+} else {
+  $jobs_file = $ARGV[0];
+  ($worker_id, $numprocs) = split(/\s+/,`getid`);
+}
+
 my $hostname = `hostname`;
 chomp $hostname;
 
 # open file and execute appropriate command
-
-my $jobs_file = $ARGV[0];
 open (INPUT_FILE, $jobs_file) or &showhelp;
 
 my $job_commands;

@@ -1,27 +1,24 @@
 #!/bin/bash
-# get_test_inputs.sh
-# SYNOPSIS
-#   ./get_test_inputs.sh
-# DESCRIPTION
-#   Prepare runtime directories and inputs for dispatch-only  verification on hours that 
-# were withheld from the investment/dispatch joint optimization.
-#
-# INPUTS. 
-#  --help                   Print this message
-#  -t | --tunnel            Initiate an ssh tunnel to connect to the database. This won't work if ssh prompts you for your password.
-#  -u [DB Username]
-#  -p [DB Password]
-#  -D [DB name]
-#  -P/--port [port number]
-#  -h [DB server]
-# All arguments are optional.
 
-# This function assumes that the lines at the top of the file that start with a # and a space or tab 
-# comprise the help message. It prints the matching lines with the prefix removed and stops at the first blank line.
-# Consequently, there needs to be a blank line separating the documentation of this program from this "help" function
 function print_help {
-	last_line=$(( $(egrep '^[ \t]*$' -n -m 1 $0 | sed 's/:.*//') - 1 ))
-	head -n $last_line $0 | sed -e '/^#[ 	]/ !d' -e 's/^#[ 	]//'
+  cat <<END_HELP
+get_test_inputs.sh
+SYNOPSIS
+  ./get_test_inputs.sh
+DESCRIPTION
+  Prepare runtime directories and inputs for dispatch-only verification on hours that 
+were withheld from the primary investment optimization.
+
+INPUTS. 
+ --help                   Print this message
+ -t | --tunnel            Initiate an ssh tunnel with your ssh key for mysql
+ -u [DB Username]
+ -p [DB Password]
+ -D [DB name]
+ -P/--port [port number]
+ -h [DB server]
+All arguments are optional.
+END_HELP
 }
 
 # Set the umask to give group read & write permissions to all files & directories made by this script.
@@ -30,16 +27,34 @@ umask 0002
 db_server="switch-db1.erg.berkeley.edu"
 DB_name="switch_inputs_wecc_v2_2"
 port=3306
-if [ $(hostname | grep 'citris' | wc -l) -gt 0 ]; then
-  base_data_dir="$HOME/shared/data/dispatch/daily"
-else
+ssh_tunnel=1
+
+# Determine if this is being run in a cluster environment, and if so, which cluster this is being run on
+if [ -z $(which getid) ]; then 
+  cluster=0; 
   base_data_dir="/Volumes/switch/switch_dispatch_all_weeks/daily"
+else 
+  cluster=1; 
+fi;
+
+if [ $cluster -eq 1 ]; then 
+  cluster_login_name=$(qstat -q | sed -n -e's/^server: //p')
+  case $cluster_login_name in
+    psi) cluster_name="psi" ;;
+    perceus-citris.banatao.berkeley.edu) cluster_name="citris" ;;
+  	*) echo "Unknown cluster. Login node is $cluster_login_name."; exit ;;
+  esac
+  case $cluster_name in
+    psi) 
+      base_data_dir="$HOME/work/data/dispatch/daily" ;;
+    citris)
+      base_data_dir="$HOME/shared/data/dispatch/daily" ;;
+  esac
 fi
 if [ ! -d "$base_data_dir" ]; then 
   echo "Cannot find a base directory for the dispatch inputs at $base_data_dir."
   exit -1
 fi
-ssh_tunnel=1
 
 ###################################################
 # Detect optional command-line arguments
