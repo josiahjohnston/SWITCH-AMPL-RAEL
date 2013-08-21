@@ -511,7 +511,7 @@ update power_cost set new_bio_cost =
 	(select sum(capital_cost) + sum(o_m_cost_total) + sum(fuel_cost) from _gen_cap_summary_tech g
 		where g.scenario_id = power_cost.scenario_id
 		and g.carbon_cost = power_cost.carbon_cost and g.period = power_cost.period and 
-		technology_id	in (select technology_id from technologies where fuel in ('Bio_Gas', 'Bio_Solid', 'Bio_Gas_CCS', 'Bio_Solid_CCS') and can_build_new = 1 ) )
+		technology_id	in (select technology_id from technologies where fuel in ('Bio_Gas', 'Bio_Solid', 'Bio_Liquid', 'Bio_Gas_CCS', 'Bio_Liquid_CCS', 'Bio_Solid_CCS') and can_build_new = 1 ) )
 where scenario_id = @scenario_id;
 
 update power_cost set new_wind_cost =

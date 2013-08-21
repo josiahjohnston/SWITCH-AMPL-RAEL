@@ -183,28 +183,28 @@ update _dispatch_power_cost set new_coal_nonfuel_cost =
 	(select sum(capital_cost) + sum(o_m_cost_total) from _dispatch_gen_cap_summary_tech_v2 g
 		where g.scenario_id = @scenario_id 
 		and g.carbon_cost = _dispatch_power_cost.carbon_cost and g.period = _dispatch_power_cost.period and 
-		technology_id	in (select technology_id from technologies where fuel = 'Coal' and can_build_new = 1) )
+		technology_id	in (select technology_id from technologies where fuel in ('Coal', 'Coal_CCS') and can_build_new = 1) )
 	where scenario_id = @scenario_id;
 
 update _dispatch_power_cost set coal_fuel_cost =
 	(select sum(fuel_cost) from _dispatch_gen_cap_summary_tech_v2 g
 		where g.scenario_id = @scenario_id 
 		and g.carbon_cost = _dispatch_power_cost.carbon_cost and g.period = _dispatch_power_cost.period and 
-		technology_id	in (select technology_id from technologies where fuel = 'Coal') )
+		technology_id	in (select technology_id from technologies where fuel in ('Coal', 'Coal_CCS') ) )
 	where scenario_id = @scenario_id;
 
 update _dispatch_power_cost set new_gas_nonfuel_cost =
 	(select sum(capital_cost) + sum(o_m_cost_total) from _dispatch_gen_cap_summary_tech_v2 g
 		where g.scenario_id = @scenario_id 
 		and g.carbon_cost = _dispatch_power_cost.carbon_cost and g.period = _dispatch_power_cost.period and 
-		technology_id	in (select technology_id from technologies where fuel = 'Gas' and can_build_new = 1) )
+		technology_id	in (select technology_id from technologies where fuel in ('Gas', 'Gas_CCS') and storage = 0 and can_build_new = 1 ) )
 	where scenario_id = @scenario_id;
 
 update _dispatch_power_cost set gas_fuel_cost =
 	(select sum(fuel_cost) from _dispatch_gen_cap_summary_tech_v2 g
 		where g.scenario_id = @scenario_id 
 		and g.carbon_cost = _dispatch_power_cost.carbon_cost and g.period = _dispatch_power_cost.period and 
-		technology_id	in (select technology_id from technologies where fuel = 'Gas') )
+		technology_id	in (select technology_id from technologies where fuel in ('Gas', 'Gas_CCS') and storage = 0 and can_build_new = 1 ) )
 	where scenario_id = @scenario_id;
 
 update _dispatch_power_cost set new_nuclear_nonfuel_cost =
@@ -232,7 +232,7 @@ update _dispatch_power_cost set new_bio_cost =
 	(select sum(capital_cost) + sum(o_m_cost_total) + sum(fuel_cost) from _dispatch_gen_cap_summary_tech_v2 g
 		where g.scenario_id = @scenario_id 
 		and g.carbon_cost = _dispatch_power_cost.carbon_cost and g.period = _dispatch_power_cost.period and 
-		technology_id	in (select technology_id from technologies where fuel in ('Bio_Gas', 'Bio_Solid') and can_build_new = 1 ) )
+		technology_id	in (select technology_id from technologies where fuel in ('Bio_Gas', 'Bio_Solid', 'Bio_Liquid', 'Bio_Gas_CCS', 'Bio_Liquid_CCS', 'Bio_Solid_CCS') and can_build_new = 1 ) )
 	where scenario_id = @scenario_id;
 
 update _dispatch_power_cost set new_wind_cost =
