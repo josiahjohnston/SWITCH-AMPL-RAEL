@@ -65,6 +65,11 @@ param previous_timepoint {h in TIMEPOINTS} =
 	if h <> first_hour_of_date[date[h]]
 	then prev(h, TIMEPOINTS)
 	else last_hour_of_date[date[h]];
+	
+# number of hours sampled per date
+param number_of_hours_sampled_per_date { d in DATES } = card { h in TIMEPOINTS: date[h] = d };
+# number of hours of day each timepoint represents; this assumes that sampled hours are evenly spaced (e.g. sample every four hours)
+param number_of_hours_of_day_timepoint_represents { h in TIMEPOINTS } = 24 / number_of_hours_sampled_per_date[date[h]];
 
 ###############################################
 # System loads and areas
@@ -297,6 +302,12 @@ set INTERMEDIATE_TECHNOLOGIES = { "CCGT", "CCGT_CCS", "CCGT_EP", "Gas_Steam_Turb
 param storage_efficiency {TECHNOLOGIES} >= 0 <= 1;
 # how fast can this technology store electricity relative to the releasing capacity
 param max_store_rate {TECHNOLOGIES} >=0;
+
+# hours of storage assumed for each technology
+# hard-code this temporarily until we implement the storage energy capacity as a variable
+# these numbers are based on the Black and Veatch cost report; http://bv.com/docs/reports-studies/nrel-cost-report.pdf
+param hours_of_storage {t in TECHNOLOGIES: t = 'Compressed_Air_Energy_Storage' or t = 'Battery_Storage'} = 
+if t = 'Compressed_Air_Energy_Storage' then 15 else if t = 'Battery_Storage' then 8.1;
 
 # Round-trip efficiency for compressed air energy storage
 # this is inclusive of energy added from natural gas and stored energy, so it's greater than 1
@@ -839,6 +850,9 @@ param max_spinning_reserve_fraction_of_capacity { t in TECHNOLOGIES };
 # this is used in the hydro and storage energy balance constraints
 param fraction_of_time_operating_reserves_are_deployed := 0.01;
 
+# output duration requirement if operating reserves are called upon; this matters for storage as operating reserves should only be committed when sufficient energy is available in storage to sustain the committed level of output
+param duration_requirement_for_operating_reserves_hours := 1;
+
 
 #######################################
 # Deep-cycling (flexible baseload coal and intermediate plants) and startup costs (peakers and intermediate plants)
@@ -1103,6 +1117,11 @@ var ConsumeBioSolid {a in LOAD_AREAS, p in PERIODS: num_bio_breakpoints[a, p] > 
 var StoreEnergy {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t]} >= 0;
 # number of MW to generate from each storage project, in each hour. 
 var ReleaseEnergy {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t]} >= 0;
+
+# This variable helps to track how much energy is available in storage in each hour and is used to limit the amount of operating reserves storage can provide
+# The timepoint-to-timepoint trakcing of energy in storage is only implemented for new storage projects
+# (the energy availability for pumped hydro is determined by historical data)
+var TotalEnergyAvailableinStorage { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] } >= 0;
 
 # amount of hydro to store and dispatch during each hour
 # note: Store_Pumped_Hydro represents the load on the grid so the amount of energy available for release
@@ -1860,21 +1879,32 @@ subject to Maximum_Release_and_Operating_Reserve_Storage_Rate { (pid, a, t, p, h
   	+ Storage_Operating_Reserve[pid, a, t, p, h] 
   		<= Installed_To_Date[pid, a, t, p] * gen_availability[t];
 
+# Max energy capacity for new storage projects
+# For CAES, the max storage energy capacity is calculated based on the fraction of turbine capacity taken up by storage when running at full capacity
+subject to Max_Energy_in_Storage { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] }:
+	TotalEnergyAvailableinStorage[pid, a, t, p, h]
+	<= Installed_To_Date[pid, a, t, p] * hours_of_storage[t]
+	* ( if t = 'Compressed_Air_Energy_Storage' then ( caes_storage_to_ng_ratio[t]/(1 + caes_storage_to_ng_ratio[t]) ) else if t = 'Battery_Storage' then 1 );
+
+# No more energy can be released or reserved for operating reserves than the energy available in storage plus any energy that the storage project is storing from the grid in that hour
+subject to Maximum_Release_and_Operating_Reserve_Storage_Energy { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] }:
+  	number_of_hours_of_day_timepoint_represents[h] * ReleaseEnergy[pid, a, t, p, h] 
+  	+ duration_requirement_for_operating_reserves_hours * Storage_Operating_Reserve[pid, a, t, p, h] 
+  		<= TotalEnergyAvailableinStorage[pid, a, t, p, h] + number_of_hours_of_day_timepoint_represents[h] * StoreEnergy[pid, a, t, p, h] * storage_efficiency[t];	
+	
 # Energy balance
-# The parameter round_trip_efficiency below expresses the relationship between the amount of electricity from the grid used
+# The parameter storage_efficiency below expresses the relationship between the amount of electricity from the grid used
 # to charge the storage device and the amount that is dispatched back to the grid.
 # For hybrid technologies like compressed-air energy storage (CAES), the round-trip efficiency will be higher than 1
-# because natural gas is added to run the turbine. For CAES, this parameter is therefore only a "partial energy balance,"
+# because natural gas is added to run the turbine. For CAES, the storage_efficiency parameter is therefore only a "partial energy balance,"
 # i.e. only one form of energy -- electricity -- is included in the balancing.
 # The input of natural gas is handeled in CAES_Combined_Dispatch above
   
-# this energy balance constraint also takes into account the useful energy released by storage projects when the operating reserve is actually deployed
-subject to Storage_Projects_Energy_Balance { (pid, a, t, p) in PROJECT_VINTAGES, d in DATES: storage[t] and period_of_date[d] = p }:
-	sum { h in TIMEPOINTS: date[h] = d } ( 
-		ReleaseEnergy[pid, a, t, p, h]
-		+ fraction_of_time_operating_reserves_are_deployed * Storage_Operating_Reserve[pid, a, t, p, h]
-			)
-		<= sum { h in TIMEPOINTS: date[h] = d } ( StoreEnergy[pid, a, t, p, h] * storage_efficiency[t] );
+subject to Storage_Projects_Hourly_Energy_Tracking { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] }:
+	TotalEnergyAvailableinStorage[pid, a, t, p, h]
+	=   TotalEnergyAvailableinStorage[pid, a, t, p, previous_timepoint[h]]
+	  + number_of_hours_of_day_timepoint_represents[previous_timepoint[h]] * ( StoreEnergy[pid, a, t, p, previous_timepoint[h]] * storage_efficiency[t] - ReleaseEnergy[pid, a, t, p, previous_timepoint[h]] );
+	
 		
 ###### Demand response constraints ###########		
 
@@ -1926,11 +1956,8 @@ subject to Minimum_Dispatch_Hydro { (a, t, p, h) in NONPUMPED_HYDRO_AVAILABLE_HO
   DispatchHydro[a, t, p, h] >= avg_hydro_output_load_area_agg[a, t, p, date[h]] * min_nonpumped_hydro_dispatch_fraction;
 
 # for every day, the historical monthly average flow must be met to maintain downstream flow
-# these electrons will be labeled blue by other constraints
-# this energy balance constraint also takes into account the energy provided by hydro
-# when operating reserve is actually deployed
 subject to Average_Hydro_Output { (a, t, p, d) in HYDRO_DATES }:
-  sum { h in TIMEPOINTS: date[h]=d } ( DispatchHydro[a, t, p, h] + fraction_of_time_operating_reserves_are_deployed * Hydro_Operating_Reserve[a, t, p, h] )
+  sum { h in TIMEPOINTS: date[h]=d } DispatchHydro[a, t, p, h]
 # The sum below is equivalent to the daily hydro flow, but only over the study hours considered in each day
   <= sum {h in TIMEPOINTS: date[h]=d} avg_hydro_output_load_area_agg[a, t, p, d];
 
@@ -1953,9 +1980,8 @@ subject to Maximum_Store_Pumped_Hydro { (a, t, p, h) in PUMPED_HYDRO_AVAILABLE_H
 
 # Pumped hydro has to dispatch all electrons it stored each day 
 subject to Pumped_Hydro_Energy_Balance { (a, t, p, d) in PUMPED_HYDRO_DATES: period_of_date[d] = p }:
-    sum { h in TIMEPOINTS: date[h]=d } ( 
+    sum { h in TIMEPOINTS: date[h]=d }
     Dispatch_Pumped_Hydro_Storage[a, t, p, h]
-    + fraction_of_time_operating_reserves_are_deployed * Pumped_Hydro_Storage_Operating_Reserve[a, t, p, h] ) 
     <= 
 	sum { h in TIMEPOINTS: date[h]=d } Store_Pumped_Hydro[a, t, p, h] * storage_efficiency[t];
 
@@ -1980,7 +2006,7 @@ problem Investment_Cost_Minimization:
   # Dispatch Decisions
 	DispatchGen, DispatchFlexibleBaseload, Deep_Cycle_Amount, Commit_Intermediate_Gen, Startup_MW_from_Last_Hour, OperateEPDuringPeriod, ProducePowerEP, ConsumeBioSolid, ConsumeNaturalGas, ConsumeNaturalGasRegional,
 	DispatchTrans,  
-	StoreEnergy, ReleaseEnergy,
+	StoreEnergy, ReleaseEnergy, TotalEnergyAvailableinStorage,
 	DispatchHydro, Dispatch_Pumped_Hydro_Storage, Store_Pumped_Hydro,
 	Provide_Spinning_Reserve, Provide_Quickstart_Capacity, Storage_Operating_Reserve, Hydro_Operating_Reserve, Pumped_Hydro_Storage_Operating_Reserve,
   # Dispatch Constraints
@@ -1992,7 +2018,8 @@ problem Investment_Cost_Minimization:
 	Mexican_Export_Limit, 
 	Maximum_Dispatch_and_Operating_Reserve_Hydro, Minimum_Dispatch_Hydro, Average_Hydro_Output, Max_Operating_Reserve_Hydro,
 	Maximum_Store_Pumped_Hydro, Pumped_Hydro_Energy_Balance,
-	CAES_Combined_Dispatch, CAES_Combined_Operating_Reserve, Maximum_Store_Rate, Maximum_Release_and_Operating_Reserve_Storage_Rate, Storage_Projects_Energy_Balance,
+	CAES_Combined_Dispatch, CAES_Combined_Operating_Reserve, Maximum_Store_Rate, Maximum_Release_and_Operating_Reserve_Storage_Rate, Maximum_Release_and_Operating_Reserve_Storage_Energy,
+	Max_Energy_in_Storage, Storage_Projects_Hourly_Energy_Tracking,
   # Contigency Planning Constraints
 	Satisfy_Load_Reserve, 
 	Conservation_Of_Energy_NonDistributed_Reserve, ConsumeNonDistributedPower_Reserve,
