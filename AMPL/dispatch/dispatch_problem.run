@@ -20,6 +20,7 @@ set EP_PERIODS_ALL dimen 4;
 set TRANSMISSION_LINE_VINTAGES_ALL dimen 3;
 set LOCAL_TD_VINTAGES_ALL dimen 2;
 param InstallGen_Init {PROJECT_VINTAGES_ALL};
+param InstallStorageEnergyCapacity_Init {PROJECT_VINTAGES_ALL: storage[t]};
 param OperateEPDuringPeriod_Init {EP_PERIODS_ALL} >= 0, <= 1, integer;
 param InstallTrans_Init {TRANSMISSION_LINE_VINTAGES_ALL} >= 0;
 param InstallLocalTD_Init {LOCAL_TD_VINTAGES_ALL} >= 0;
@@ -109,6 +110,8 @@ problem Dispatch_peakers_and_storage:
 
 table TableInstallGen IN "inputs/InstallGen.tab": 
   PROJECT_VINTAGES_ALL <- [ pid, a, t, p ], InstallGen_Init ~ InstallGen;
+table TableInstallStorageEnergyCapacity IN "inputs/InstallStorageEnergyCapacity.tab": 
+  PROJECT_VINTAGES_ALL <- [ pid, a, t, p ], InstallStorageEnergyCapacity_Init ~ InstallStorageEnergyCapacity;
 table TableOperateEPDuringPeriod IN "inputs/OperateEPDuringPeriod.tab": 
   EP_PERIODS_ALL <- [pid, a, t, p], OperateEPDuringPeriod_Init ~ OperateEPDuringPeriod;
 table TableInstallTrans IN "inputs/InstallTrans.tab":

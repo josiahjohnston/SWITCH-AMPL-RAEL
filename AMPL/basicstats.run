@@ -3,10 +3,15 @@
 
 
 # Fixed Cash flows for each possible project for every period in the study.
-let { (pid, a, t, p) in PROJECT_VINTAGES }
+let { (pid, a, t, p) in PROJECT_VINTAGES: not storage[t] }
   Capital_Payments_by_Plant_and_Period[pid, a, t, p] :=
   	sum {(pid, a, t, online_yr) in PROJECT_VINTAGES: online_yr <= p < project_end_year[pid, a, t, online_yr] } (
 	    InstallGen[pid, a, t, online_yr] * capital_cost_annual_payment [pid, a, t, online_yr] * num_years_per_period );
+let { (pid, a, t, p) in PROJECT_VINTAGES: storage[t] }
+  Capital_Payments_by_Plant_and_Period[pid, a, t, p] :=
+  	sum {(pid, a, t, online_yr) in PROJECT_VINTAGES: online_yr <= p < project_end_year[pid, a, t, online_yr] } (	( InstallGen[pid, a, t, online_yr] * capital_cost_annual_payment [pid, a, t, online_yr] * num_years_per_period )
+	    		+	( InstallStorageEnergyCapacity[pid, a, t, online_yr] * storage_energy_capacity_annual_payment[pid, a, t, online_yr] * num_years_per_period )
+	    		);
 let { (pid, a, t, p) in PROJECT_VINTAGES }
 	Fixed_OM_by_Plant_and_Period[pid, a, t, p] :=
   	sum {(pid, a, t, online_yr) in PROJECT_VINTAGES: online_yr <= p < project_end_year[pid, a, t, online_yr] } (
@@ -541,8 +546,10 @@ let {p in PERIODS} Distribution_Losses_by_Period[p] :=
 		   eip_cap_factor[pid, a, t, h] * ep_capacity_mw[pid, a, t] ) 
 			);
 			
-let {p in PERIODS} Total_New_Storage_Installed_To_Date[p] :=
+let {p in PERIODS} Total_New_Storage_Power_Capacity_Installed_To_Date[p] :=
 	sum { (pid, a, t, p) in PROJECT_VINTAGES: storage[t] } Installed_To_Date[pid, a, t, p];
+let {p in PERIODS} Total_New_Storage_Energy_Capacity_Installed_To_Date[p] :=
+	sum { (pid, a, t, p) in PROJECT_VINTAGES: storage[t] } Storage_Energy_Capacity_Installed_To_Date[pid, a, t, p];
 			
 let {p in PERIODS} Storage_Losses_by_Period[p] :=
 	sum { (a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS }
@@ -599,7 +606,8 @@ for {p in PERIODS} {
 	printf "Total Load  = %.0f MWh\n", total_loads_by_period_weighted[p];
 	printf "Total Trans Losses = %.0f MWh\n", Transmission_Losses_by_Period[p];
 	printf "Total Distribution Losses = %.0f MWh\n", Distribution_Losses_by_Period[p];
-	printf "Total New Storage Installed to Date = %.0f MW\n", Total_New_Storage_Installed_To_Date[p];
+	printf "Total New Storage Power Capacity Installed to Date = %.0f MW\n", Total_New_Storage_Power_Capacity_Installed_To_Date[p];
+	printf "Total New Storage Energy Capacity Installed to Date = %.0f MWh\n", Total_New_Storage_Energy_Capacity_Installed_To_Date[p];
 	printf "Total Storage Losses = %.0f MWh\n", Storage_Losses_by_Period[p];
 	printf "Total Load Shifted = %.0f MWh\n", Total_Load_Shifted[p];
 	printf "Total Spilled = %.0f MWh\n", Gross_Power_by_Period[p] - total_loads_by_period_weighted[p] - Transmission_Losses_by_Period[p] - Storage_Losses_by_Period[p] - Distribution_Losses_by_Period[p];

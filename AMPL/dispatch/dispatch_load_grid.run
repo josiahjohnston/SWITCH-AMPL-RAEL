@@ -3,10 +3,11 @@
 let curtime := time();
 
 # Make links to the files containing investment decisions for this carbon cost
-shell( "for f in InstallGen OperateEPDuringPeriod InstallTrans InstallLocalTD; do ln -sf ${f}" & carbon_cost & ".tab inputs/$f.tab; done" );
+shell( "for f in InstallGen InstallStorageEnergyCapacity OperateEPDuringPeriod InstallTrans InstallLocalTD; do ln -sf ${f}" & carbon_cost & ".tab inputs/$f.tab; done" );
 shell( "mv inputs/ng_supply_curve.tab inputs/ng_supply_curve.tab.actual; ln -sf ng_consumption_and_prices_by_period_" & carbon_cost & ".tab inputs/ng_supply_curve.tab;" );
 shell( "mv inputs/biomass_supply_curve.tab inputs/biomass_supply_curve.tab.actual; ln -sf biomass_consumption_and_prices_by_period_" & carbon_cost & ".tab inputs/biomass_supply_curve.tab;" );
 read table TableInstallGen;
+read table TableInstallStorageEnergyCapacity;
 read table TableOperateEPDuringPeriod;
 read table TableInstallTrans;
 read table TableInstallLocalTD;
@@ -29,13 +30,16 @@ update data;
 close;
 
 # Remove the links
-shell( "for f in InstallGen OperateEPDuringPeriod InstallTrans InstallLocalTD; do p=inputs/$f.tab; if [ -L $p ]; then rm $p; fi; done" );
+shell( "for f in InstallGen InstallStorageEnergyCapacity OperateEPDuringPeriod InstallTrans InstallLocalTD; do p=inputs/$f.tab; if [ -L $p ]; then rm $p; fi; done" );
 shell( "if [ -L inputs/ng_supply_curve.tab ]; then rm inputs/ng_supply_curve.tab; mv inputs/ng_supply_curve.tab.actual inputs/ng_supply_curve.tab; fi" );
 shell( "if [ -L inputs/biomass_supply_curve.tab ]; then rm inputs/biomass_supply_curve.tab; mv inputs/biomass_supply_curve.tab.actual inputs/biomass_supply_curve.tab; fi" );
 
 # Copy data into fixed decision variables. 
 for {(pid, a, t, p) in PROJECT_VINTAGES} {
   let InstallGen[pid, a, t, p] := max(InstallGen_Init[pid, a, t, p], 0);
+}
+for {(pid, a, t, p) in PROJECT_VINTAGES: storage[t] } {
+  let InstallStorageEnergyCapacity[pid, a, t, p] := max(InstallStorageEnergyCapacity_Init[pid, a, t, p], 0);
 }
 for {(a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS} {
   let InstallTrans[a1, a2, p] := InstallTrans_Init[a1, a2, p];

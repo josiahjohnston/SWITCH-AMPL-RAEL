@@ -150,7 +150,7 @@ if ( file_exists("inputs/cap_factor_historical.tab") && file_exists("inputs/hist
 } }
 
 table generator_costs "inputs/generator_costs.tab" IN:
-	[technology, period] overnight_cost, fixed_o_m, variable_o_m_by_year;
+	[technology, period] overnight_cost, storage_energy_capacity_overnight_cost ~ storage_energy_capacity_cost_per_mwh, fixed_o_m, variable_o_m_by_year;
 read table generator_costs;
 
 table fuel_costs "inputs/fuel_costs.tab" IN:

@@ -324,8 +324,8 @@ echo ampl.tab 1 32 > generator_info.tab
 mysql $connection_string -e "select technology, technology_id, min_online_year, fuel, construction_time_years, year_1_cost_fraction, year_2_cost_fraction, year_3_cost_fraction, year_4_cost_fraction, year_5_cost_fraction, year_6_cost_fraction, max_age_years, forced_outage_rate, scheduled_outage_rate, can_build_new, ccs, intermittent, resource_limited, baseload, flexible_baseload, dispatchable, cogen, min_build_capacity, competes_for_space, storage, storage_efficiency, max_store_rate, max_spinning_reserve_fraction_of_capacity, heat_rate_penalty_spinning_reserve, minimum_loading, deep_cycling_penalty, startup_mmbtu_per_mw, startup_cost_dollars_per_mw from generator_info_v2 where gen_info_scenario_id=$GEN_INFO_SCENARIO_ID;" >> generator_info.tab
 
 echo '	generator_costs.tab...'
-echo ampl.tab 2 3 > generator_costs.tab
-mysql $connection_string -e "select technology, period_start as period, overnight_cost, fixed_o_m, var_o_m as variable_o_m_by_year \
+echo ampl.tab 2 4 > generator_costs.tab
+mysql $connection_string -e "select technology, period_start as period, overnight_cost, storage_energy_capacity_cost_per_mwh, fixed_o_m, var_o_m as variable_o_m_by_year \
 from generator_costs_yearly \
 join generator_info_v2 g using (technology), \
 training_set_periods \
@@ -336,7 +336,7 @@ and gen_costs_scenario_id=$GEN_COSTS_SCENARIO_ID \
 and gen_info_scenario_id=$GEN_INFO_SCENARIO_ID \
 and training_set_id=$TRAINING_SET_ID \
 UNION \
-select technology, $present_year as period, overnight_cost, fixed_o_m, var_o_m as variable_o_m_by_year from generator_costs_yearly \
+select technology, $present_year as period, overnight_cost, storage_energy_capacity_cost_per_mwh, fixed_o_m, var_o_m as variable_o_m_by_year from generator_costs_yearly \
 where year = $present_year \
 and gen_costs_scenario_id=$GEN_COSTS_SCENARIO_ID \
 order by technology, period;" >> generator_costs.tab

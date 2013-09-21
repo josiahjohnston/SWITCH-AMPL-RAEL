@@ -303,12 +303,6 @@ param storage_efficiency {TECHNOLOGIES} >= 0 <= 1;
 # how fast can this technology store electricity relative to the releasing capacity
 param max_store_rate {TECHNOLOGIES} >=0;
 
-# hours of storage assumed for each technology
-# hard-code this temporarily until we implement the storage energy capacity as a variable
-# these numbers are based on the Black and Veatch cost report; http://bv.com/docs/reports-studies/nrel-cost-report.pdf
-param hours_of_storage {t in TECHNOLOGIES: t = 'Compressed_Air_Energy_Storage' or t = 'Battery_Storage'} = 
-if t = 'Compressed_Air_Energy_Storage' then 15 else if t = 'Battery_Storage' then 8.1;
-
 # Round-trip efficiency for compressed air energy storage
 # this is inclusive of energy added from natural gas and stored energy, so it's greater than 1
 param round_trip_efficiency_caes = 1.4;
@@ -371,6 +365,10 @@ set NEW_TECHNOLOGY_PERIODS_AND_PRESENT := { t in TECHNOLOGIES, p in PERIODS_AND_
 # overnight cost here is the real capital cost in the year that construction starts rather than in the first year of the operation
 # economic multiplier has not yet been applied for new plants
 param overnight_cost { (t, p) in NEW_TECHNOLOGY_PERIODS_AND_PRESENT } >= 0;
+
+# overnight cost for storage energy capacity ($/MWh)
+param storage_energy_capacity_overnight_cost { (t, p) in NEW_TECHNOLOGY_PERIODS_AND_PRESENT } >= 0;
+check { (t, p) in NEW_TECHNOLOGY_PERIODS_AND_PRESENT: not storage[t] }: storage_energy_capacity_overnight_cost[t, p] = 0;
 
 # fixed O&M ($/MW-year)
 param fixed_o_m { (t, p) in NEW_TECHNOLOGY_PERIODS_AND_PRESENT } >= 0;
@@ -687,6 +685,10 @@ param cost_fraction {t in TECHNOLOGIES, yr in YEAR_OF_CONSTRUCTION};
 param project_vintage_overnight_costs {(pid, a, t, p) in PROJECT_VINTAGES} = 
 	overnight_cost[t, p] * economic_multiplier[a];
 
+# For CAES and battery storage, calculate an additional cost component: for the storage ENERGY capacity in addition to the POWER capacity per MW cost
+param storage_energy_capacity_vintage_overnight_costs { (pid, a, t, p) in PROJECT_VINTAGES: storage[t] } = 
+	storage_energy_capacity_overnight_cost[t, p] * economic_multiplier[a];
+
 
 # CCS projects incur extra pipeline costs if their load area doesn't have a viable sink
 # we'll use the assumptions of R.S. Middleton, J.M. Bielicki / Energy Policy 37 (2009) 1052–1060 
@@ -723,6 +725,14 @@ param cost_of_plant_one_year_before_operational {(pid, a, t, p) in AVAILABLE_VIN
   	* (1 + discount_rate) ^ ( construction_time_years[t] - yr_of_constr - 1 )
   	);
 
+param cost_of_storage_energy_capacity_one_year_before_operational { (pid, a, t, p) in PROJECT_VINTAGES: storage[t] } =
+  # Construction costs are incurred annually during the construction phase. 
+  sum{ yr_of_constr in YEAR_OF_CONSTRUCTION } (
+  	cost_fraction[t, yr_of_constr] * storage_energy_capacity_vintage_overnight_costs[pid, a, t, p]
+  	# This exponent will range from (construction_time - 1) to 0, meaning the cost of the last year's construction doesn't accrue interest.
+  	* (1 + discount_rate) ^ ( construction_time_years[t] - yr_of_constr - 1 )
+  	);
+
 # plant lifetime - number of years the plant is to be operational IN SWITCH
 # the ceiling function makes sure that plants pay capital payments uniformly over a period
 # by setting their max age to multiple of num_years_per_period
@@ -745,6 +755,11 @@ param capital_cost_annual_payment {(pid, a, t, p) in AVAILABLE_VINTAGES} =
   cost_of_plant_one_year_before_operational[pid, a, t, p] *
   discount_rate / ( 1 - (1 + discount_rate) ^ ( -1 * plant_lifetime_years[pid, a, t] ) );
 
+param storage_energy_capacity_annual_payment { (pid, a, t, p) in PROJECT_VINTAGES: storage[t] } = 
+  cost_of_storage_energy_capacity_one_year_before_operational[pid, a, t, p] *
+  discount_rate / ( 1 - (1 + discount_rate) ^ ( -1 * plant_lifetime_years[pid, a, t] ) );
+  
+  
 # Convert annual payments made in each period the plant is operational to a lump-sum in the first year of the period and then discount back to the base year
 param capital_cost {(pid, a, t, online_yr) in PROJECT_VINTAGES} = 
   sum {p in PERIODS: online_yr <= p < project_end_year[pid, a, t, online_yr]}
@@ -755,6 +770,10 @@ param ep_capital_cost { (pid, a, t, p) in EP_PERIODS } =
   if ep_could_be_operating_past_expected_lifetime[pid, a, t, p] then 0
     else capital_cost_annual_payment[pid, a, t, p] * discount_to_base_year[p];
 
+param storage_energy_capacity_capital_cost { (pid, a, t, online_yr) in PROJECT_VINTAGES: storage[t] } = 
+  sum {p in PERIODS: online_yr <= p < project_end_year[pid, a, t, online_yr]}
+  	storage_energy_capacity_annual_payment [pid, a, t, online_yr] * discount_to_base_year[p];
+  	
 # fixed cost by project vintage
 # also apply economic multiplier here as it hasn't been applied yet for new plants
 param project_vintage_fixed_o_m {(pid, a, t, p) in PROJECT_VINTAGES} =
@@ -1054,11 +1073,20 @@ var ConsumeREC {r in RPS_AREAS, h in TIMEPOINTS} >= 0;
 # Project-level decision variables about how much generation to make available and how much power to dispatch
 
 # number of MW to install for each project in each investment period
-var InstallGen {PROJECT_VINTAGES} >= 0;
+# for storage, this is the amount of POWER capacity
+var InstallGen { (pid, a, t, p) in PROJECT_VINTAGES } >= 0;
+
+# number of MWh of ENERGY capacity to install for each storage project in each investment period
+# dividing this number by the installed POWER capacity would give us the duration of storage
+# for compressed air, this number includes energy that is provided by NG (so EnergyCapacity/PowerCapacity is still the duration in hours over which the hybrid NG/storage system can operate (which is our cost data structure))
+var InstallStorageEnergyCapacity { (pid, a, t, p) in PROJECT_VINTAGES: storage[t] } >= 0;
 
 # derived variable which represents the total amount of capacity installed and active for each project in each investment period
 var Installed_To_Date { (pid, a, t, p) in PROJECT_VINTAGES } =
 	sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr];
+	
+var Storage_Energy_Capacity_Installed_To_Date { (pid, a, t, p) in PROJECT_VINTAGES: storage[t] } =
+	sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallStorageEnergyCapacity[pid, a, t, online_yr];
 
 # number of MW to dispatch from each dispatchable generator
 var DispatchGen {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t]} >= 0;
@@ -1262,6 +1290,8 @@ minimize Power_Cost:
 	# Capital costs and fixed costs
       ( sum { (pid, a, t, p) in PROJECT_VINTAGES } 
         InstallGen[pid, a, t, p] * ( capital_cost[pid, a, t, p] + fixed_o_m_discounted[pid, a, t, p] ) )
+    + ( sum { (pid, a, t, p) in PROJECT_VINTAGES: storage[t] } 
+        InstallStorageEnergyCapacity[pid, a, t, p] *  storage_energy_capacity_capital_cost[pid, a, t, p] )    
 	# Variable, fuel, and carbon costs for intermittent and baseload generators
 	# Bio_solid fuel cost isn't included here - it's in the bio supply curve
     + ( sum { (pid, a, t, p) in PROJECT_VINTAGES: intermittent[t] or baseload[t] } 
@@ -1883,7 +1913,7 @@ subject to Maximum_Release_and_Operating_Reserve_Storage_Rate { (pid, a, t, p, h
 # For CAES, the max storage energy capacity is calculated based on the fraction of turbine capacity taken up by storage when running at full capacity
 subject to Max_Energy_in_Storage { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] }:
 	TotalEnergyAvailableinStorage[pid, a, t, p, h]
-	<= Installed_To_Date[pid, a, t, p] * hours_of_storage[t]
+	<= Storage_Energy_Capacity_Installed_To_Date[pid, a, t, p]
 	* ( if t = 'Compressed_Air_Energy_Storage' then ( caes_storage_to_ng_ratio[t]/(1 + caes_storage_to_ng_ratio[t]) ) else if t = 'Battery_Storage' then 1 );
 
 # No more energy can be released or reserved for operating reserves than the energy available in storage plus any energy that the storage project is storing from the grid in that hour
@@ -1999,7 +2029,7 @@ problem Investment_Cost_Minimization:
 	Carbon_Cap,
 	ConsumeREC, Conservation_of_REC,
   # Investment Decisions
-	InstallGen, BuildGenOrNot, InstallTrans, InstallLocalTD,
+	InstallGen, InstallStorageEnergyCapacity, BuildGenOrNot, InstallTrans, InstallLocalTD,
   # Installation Constraints
 	Maximum_Resource_Central_Station_Solar, Maximum_Resource_Bio, Maximum_Resource_Single_Location, Maximum_Resource_EP_Cogen_Replacement,
 	Minimum_GenSize, BuildGenOrNot_Constraint, SymetricalTrans, Minimum_Local_TD_No_DR, Minimum_Local_TD_DR,

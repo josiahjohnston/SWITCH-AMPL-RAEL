@@ -168,7 +168,7 @@ if [ $ExportOnly = 0 ]; then
           db_row_count=$(
             mysql $connection_string --column-names=false -e "load data local infile \"$file_path\" \
               into table _gen_cap ignore 1 lines \
-              (scenario_id, carbon_cost, period, project_id, area_id, @junk, technology_id, @junk, @junk, new, baseload, cogen, fuel, capacity, capital_cost, fixed_o_m_cost);\
+              (scenario_id, carbon_cost, period, project_id, area_id, @junk, technology_id, @junk, @junk, new, baseload, cogen, fuel, capacity, storage_energy_capacity, capital_cost, fixed_o_m_cost);\
               select count(*) from _gen_cap where scenario_id=$SCENARIO_ID and $row_count_clause;"
           ) ;;
         trans_cap)

@@ -143,14 +143,15 @@ for {c in CARBON_COSTS} {
       
       let output_section := 'generation_capacity';
       let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
-      printf "scenario_id	carbon_cost	period	project_id	load_area_id	load_area	technology_id	technology	site	new	baseload	cogen	fuel	capacity	capital_cost	fixed_o_m_cost\n"
+      printf "scenario_id	carbon_cost	period	project_id	load_area_id	load_area	technology_id	technology	site	new	baseload	cogen	fuel	capacity	storage_energy_capacity	capital_cost	fixed_o_m_cost\n"
         > (outfile);
       
       # New Plants, inclusive of new storage projects
       printf {(pid, a, t, p) in PROJECT_VINTAGES: Installed_To_Date[pid, a, t, p]  > 0.001}
-        "%s	%d	%d	%d	%d	%s	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%.2f\n",
+        "%s	%d	%d	%d	%d	%s	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%.2f	%.2f\n",
         scenario_id, carbon_cost, p, pid, load_area_id[a], a, technology_id[t], t, location_id[pid, a, t], 1, baseload[t], cogen[t], fuel[t],
         Installed_To_Date[pid, a, t, p],
+        if storage[t] then Storage_Energy_Capacity_Installed_To_Date[pid, a, t, p] else 0,
         Capital_Payments_by_Plant_and_Period[pid, a, t, p],
         Fixed_OM_by_Plant_and_Period[pid, a, t, p]
         >> (outfile);
@@ -159,10 +160,10 @@ for {c in CARBON_COSTS} {
       # note: they're only counted as "capacity" if they are operable during this period
       # existing intermittent plants generally have low operational costs and are therefore kept running
       printf {(pid, a, t, p) in EP_PERIODS}
-        "%s	%d	%d	%d	%d	%s	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%.2f\n",
+        "%s	%d	%d	%d	%d	%s	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%.2f	%.2f\n",
         scenario_id, carbon_cost, p, pid, load_area_id[a], a, technology_id[t], t,
         ep_plant_name[pid, a, t], 0, baseload[t], cogen[t], fuel[t],
-        ( if ( intermittent[t] or hydro[t] ) then 1 else OperateEPDuringPeriod[pid, a, t, p] ) * ep_capacity_mw[pid, a, t],
+        ( if ( intermittent[t] or hydro[t] ) then 1 else OperateEPDuringPeriod[pid, a, t, p] ) * ep_capacity_mw[pid, a, t], 0, 
         EP_Capital_Payments_by_Plant_and_Period[pid, a, t, p], 
         EP_Fixed_OM_by_Plant_and_Period[pid, a, t, p]
         >> (outfile);
@@ -380,6 +381,16 @@ for {c in CARBON_COSTS} {
         a, p, InstallLocalTD[a, p]
         >> (InstallLocalTD_tab_path);
       close (InstallLocalTD_tab_path);
+      
+      # Installed storage energy capacity
+      printf "ampl.tab 4 1\npid	a	t	p	InstallStorageEnergyCapacity\n"
+        > (InstallStorageEnergyCapacity_tab_path);
+      printf {(pid, a, t, p) in PROJECT_VINTAGES } 
+        "%d	%s	%s	%d	%.2f\n",
+        pid, a, t, p, if storage[t] then InstallStorageEnergyCapacity[pid, a, t, p] else 0
+        >> (InstallStorageEnergyCapacity_tab_path);
+      close (InstallStorageEnergyCapacity_tab_path);
+      
       
       # Reduced cost of meeting a carbon cap
       if (enable_carbon_cap = 1) then { 
