@@ -1,4 +1,4 @@
-# This is the fundamental code of Switch which compiles a mixed integer linear program to be solved by CPLEX.
+# This is the fundamental code of Switch which compiles a linear program (or optionally, a mixed-integer program) to be solved by CPLEX.
 
 ###############################################
 # Time-tracking parameters
