@@ -8,9 +8,12 @@ select 'Creating generation summaries' as progress;
 -- note: technology_id and fuel are not quite redundant here as energy stored or released from storage comes in as fuel = 'storage'
 insert into _gen_hourly_summary_tech_la
 		(scenario_id, carbon_cost, period, area_id, study_date, study_hour, hours_in_sample, technology_id, fuel,
-			variable_o_m_cost, fuel_cost, carbon_cost_incurred, co2_tons, power, spinning_fuel_cost, spinning_carbon_cost_incurred, spinning_co2_tons, spinning_reserve, quickstart_capacity, total_operating_reserve)
+			variable_o_m_cost, fuel_cost, carbon_cost_incurred, co2_tons, power,
+			spinning_fuel_cost, spinning_carbon_cost_incurred, spinning_co2_tons, spinning_reserve, quickstart_capacity, total_operating_reserve, deep_cycling_amount, deep_cycling_fuel_cost, deep_cycling_carbon_cost, deep_cycling_co2_tons, total_co2_tons)
 	select 	scenario_id, carbon_cost, period, area_id, study_date, study_hour, hours_in_sample, technology_id, fuel,
-			sum(variable_o_m_cost), sum(fuel_cost), sum(carbon_cost_incurred), sum(co2_tons), sum(power), sum(spinning_fuel_cost), sum(spinning_carbon_cost_incurred), sum(spinning_co2_tons), sum(spinning_reserve), sum(quickstart_capacity), sum(total_operating_reserve)
+			sum(variable_o_m_cost), sum(fuel_cost), sum(carbon_cost_incurred), sum(co2_tons), sum(power),
+			sum(spinning_fuel_cost), sum(spinning_carbon_cost_incurred), sum(spinning_co2_tons), sum(spinning_reserve), sum(quickstart_capacity), sum(total_operating_reserve), sum(deep_cycling_amount), sum(deep_cycling_fuel_cost), sum(deep_cycling_carbon_cost), sum(deep_cycling_co2_tons),
+			sum(co2_tons + spinning_co2_tons + deep_cycling_co2_tons) as total_co2_tons
     	from _generator_and_storage_dispatch
     	where scenario_id = @scenario_id
     group by 1, 2, 3, 4, 5, 6, 7, 8, 9
@@ -18,14 +21,20 @@ insert into _gen_hourly_summary_tech_la
 
 -- add month and hour_of_day_UTC. 
 update _gen_hourly_summary_tech_la
-set	month = mod(floor(study_hour/100000),100),
-	hour_of_day_UTC = mod(floor(study_hour/1000),100)
+set	month = convert(left(right(study_hour, 6),2), decimal),
+	hour_of_day_UTC = convert(right(study_hour, 2), decimal)
 	where scenario_id = @scenario_id;
 
 
 -- total generation each hour by carbon cost and technology
-insert into _gen_hourly_summary_tech ( scenario_id, carbon_cost, period, study_date, study_hour, hours_in_sample, month, hour_of_day_UTC, technology_id, power, spinning_reserve, quickstart_capacity, total_operating_reserve )
-	select scenario_id, carbon_cost, period, study_date, study_hour, hours_in_sample, month, hour_of_day_UTC, technology_id, sum(power) as power, sum(spinning_reserve) as spinning_reserve, sum(quickstart_capacity) as quickstart_capacity, sum(total_operating_reserve) as total_operating_reserve
+insert into _gen_hourly_summary_tech ( scenario_id, carbon_cost, period, study_date, study_hour, hours_in_sample, month, hour_of_day_UTC, technology_id,
+				power, co2_tons, spinning_reserve, spinning_co2_tons, quickstart_capacity, total_operating_reserve, deep_cycling_amount, deep_cycling_co2_tons, total_co2_tons )
+	select scenario_id, carbon_cost, period, study_date, study_hour, hours_in_sample, month, hour_of_day_UTC, technology_id,
+	sum(power) as power, sum(co2_tons) as co2_tons,
+	sum(spinning_reserve) as spinning_reserve, sum(spinning_co2_tons) as spinning_co2_tons,
+	sum(quickstart_capacity) as quickstart_capacity, sum(total_operating_reserve) as total_operating_reserve,
+	sum(deep_cycling_amount) as deep_cycling_amount, sum(deep_cycling_co2_tons) as deep_cycling_co2_tons,
+	sum(total_co2_tons) as total_co2_tons
 		from _gen_hourly_summary_tech_la
 		where scenario_id = @scenario_id
 		group by 1, 2, 3, 4, 5, 6, 7, 8, 9
@@ -47,20 +56,33 @@ insert into sum_hourly_weights_per_period_table ( scenario_id, period, sum_hourl
 		group by period;
 
 -- total generation each period by carbon cost, technology and load area
-insert into _gen_summary_tech_la ( scenario_id, carbon_cost, period, area_id, technology_id, avg_power, avg_spinning_reserve, avg_quickstart_capacity, avg_total_operating_reserve )
+insert into _gen_summary_tech_la ( scenario_id, carbon_cost, period, area_id, technology_id, avg_power, avg_co2_tons,
+				avg_spinning_reserve, avg_spinning_co2_tons, avg_quickstart_capacity, avg_total_operating_reserve, avg_deep_cycling_amount, avg_deep_cycling_co2_tons, avg_total_co2_tons )
   select scenario_id, carbon_cost, period, area_id, technology_id,
     	sum(power * hours_in_sample) / sum_hourly_weights_per_period as avg_power,
+    	sum(co2_tons * hours_in_sample) / sum_hourly_weights_per_period as avg_co2_tons,
     	sum(spinning_reserve * hours_in_sample) / sum_hourly_weights_per_period as avg_spinning_reserve,
+    	sum(spinning_co2_tons * hours_in_sample) / sum_hourly_weights_per_period as avg_spinning_co2_tons,
     	sum(quickstart_capacity * hours_in_sample) / sum_hourly_weights_per_period as avg_quickstart_capacity,
-    	sum(total_operating_reserve * hours_in_sample) / sum_hourly_weights_per_period as avg_total_operating_reserve
+    	sum(total_operating_reserve * hours_in_sample) / sum_hourly_weights_per_period as avg_total_operating_reserve,
+    	sum(deep_cycling_amount * hours_in_sample) / sum_hourly_weights_per_period as avg_deep_cycling_amount,
+    	sum(deep_cycling_co2_tons * hours_in_sample) / sum_hourly_weights_per_period as avg_deep_cycling_co2_tons,
+    	sum(total_co2_tons * hours_in_sample) / sum_hourly_weights_per_period as avg_total_co2_tons
 		from _gen_hourly_summary_tech_la join sum_hourly_weights_per_period_table using (scenario_id, period)
     	where scenario_id = @scenario_id
     	group by 1, 2, 3, 4, 5
     	order by 1, 2, 3, 4, 5;
 
 -- total generation each period by carbon cost and technology
-insert into _gen_summary_tech ( scenario_id, carbon_cost, period, technology_id, avg_power, avg_spinning_reserve, avg_quickstart_capacity, avg_total_operating_reserve )
-	select scenario_id, carbon_cost, period, technology_id,	sum(avg_power) as avg_power, sum(avg_spinning_reserve) as avg_spinning_reserve, sum(avg_quickstart_capacity) as avg_quickstart_capacity, sum(avg_total_operating_reserve) as avg_total_operating_reserve
+insert into _gen_summary_tech ( scenario_id, carbon_cost, period, technology_id, avg_power, avg_co2_tons,
+				avg_spinning_reserve, avg_spinning_co2_tons, avg_quickstart_capacity, avg_total_operating_reserve, avg_deep_cycling_amount, avg_deep_cycling_co2_tons, avg_total_co2_tons )
+	select scenario_id, carbon_cost, period, technology_id,
+	sum(avg_power) as avg_power, sum(avg_co2_tons) as avg_co2_tons,
+	sum(avg_spinning_reserve) as avg_spinning_reserve, sum(avg_spinning_co2_tons) as avg_spinning_co2_tons,
+	sum(avg_quickstart_capacity) as avg_quickstart_capacity, sum(avg_total_operating_reserve) as avg_total_operating_reserve,
+	sum(avg_deep_cycling_amount) as avg_deep_cycling_amount,
+	sum(avg_deep_cycling_co2_tons) as avg_deep_cycling_co2_tons,	
+	sum(avg_total_co2_tons) as avg_total_co2_tons
     from _gen_summary_tech_la
     where scenario_id = @scenario_id
     group by 1, 2, 3, 4
@@ -70,36 +92,61 @@ insert into _gen_summary_tech ( scenario_id, carbon_cost, period, technology_id,
 -- generation by fuel----------
 
 -- total generation each hour by carbon cost, fuel and load area
-insert into _gen_hourly_summary_fuel_la (scenario_id, carbon_cost, period, area_id, study_date, study_hour, hours_in_sample, month, hour_of_day_UTC, fuel, power, spinning_reserve, quickstart_capacity, total_operating_reserve )
-	select scenario_id, carbon_cost, period, area_id, study_date, study_hour, hours_in_sample, month, hour_of_day_UTC, fuel, sum(power) as power, sum(spinning_reserve) as spinning_reserve, sum(quickstart_capacity) as quickstart_capacity, sum(total_operating_reserve) as total_operating_reserve
+insert into _gen_hourly_summary_fuel_la (scenario_id, carbon_cost, period, area_id, study_date, study_hour, hours_in_sample, month, hour_of_day_UTC, fuel,
+					power, co2_tons, spinning_reserve, spinning_co2_tons, quickstart_capacity, total_operating_reserve, deep_cycling_amount, deep_cycling_co2_tons, total_co2_tons )
+	select scenario_id, carbon_cost, period, area_id, study_date, study_hour, hours_in_sample, month, hour_of_day_UTC, fuel,
+	sum(power) as power, sum(co2_tons) as co2_tons,
+	sum(spinning_reserve) as spinning_reserve, sum(spinning_co2_tons) as spinning_co2_tons,
+	sum(quickstart_capacity) as quickstart_capacity, sum(total_operating_reserve) as total_operating_reserve,
+	sum(deep_cycling_amount) as deep_cycling_amount, sum(deep_cycling_co2_tons) as deep_cycling_co2_tons,
+	sum(total_co2_tons) as total_co2_tons
 		from _gen_hourly_summary_tech_la
 		where scenario_id = @scenario_id
 		group by 1, 2, 3, 4, 5, 6, 7, 8, 9, 10
 		order by 1, 2, 3, 4, 5, 6, 7, 8, 9, 10;
 
 -- total generation each hour by carbon cost and fuel
-insert into _gen_hourly_summary_fuel ( scenario_id, carbon_cost, period, study_date, study_hour, hours_in_sample, month, hour_of_day_UTC, fuel, power, spinning_reserve, quickstart_capacity, total_operating_reserve )
-	select scenario_id, carbon_cost, period, study_date, study_hour, hours_in_sample, month, hour_of_day_UTC, fuel, sum(power) as power, sum(spinning_reserve) as spinning_reserve, sum(quickstart_capacity) as quickstart_capacity, sum(total_operating_reserve) as total_operating_reserve
+insert into _gen_hourly_summary_fuel ( scenario_id, carbon_cost, period, study_date, study_hour, hours_in_sample, month, hour_of_day_UTC, fuel,
+					power, co2_tons, spinning_reserve, spinning_co2_tons, quickstart_capacity, total_operating_reserve, deep_cycling_amount, deep_cycling_co2_tons, total_co2_tons )
+	select scenario_id, carbon_cost, period, study_date, study_hour, hours_in_sample, month, hour_of_day_UTC, fuel,
+	sum(power) as power,  sum(co2_tons) as co2_tons,
+	sum(spinning_reserve) as spinning_reserve,  sum(spinning_co2_tons) as spinning_co2_tons,
+	sum(quickstart_capacity) as quickstart_capacity, sum(total_operating_reserve) as total_operating_reserve,
+	sum(deep_cycling_amount) as deep_cycling_amount, sum(deep_cycling_co2_tons) as deep_cycling_co2_tons,
+	sum(total_co2_tons) as total_co2_tons
 		from _gen_hourly_summary_fuel_la
 		where scenario_id = @scenario_id
 		group by 1, 2, 3, 4, 5, 6, 7, 8, 9
 		order by 1, 2, 3, 4, 5, 6, 7, 8, 9;
 	
 -- total generation each period by carbon cost, fuel and load area
-insert into _gen_summary_fuel_la ( scenario_id, carbon_cost, period, area_id, fuel, avg_power, avg_spinning_reserve, avg_quickstart_capacity, avg_total_operating_reserve )
+insert into _gen_summary_fuel_la ( scenario_id, carbon_cost, period, area_id, fuel,
+					avg_power, avg_co2_tons, avg_spinning_reserve, avg_spinning_co2_tons, avg_quickstart_capacity, avg_total_operating_reserve, avg_deep_cycling_amount, avg_deep_cycling_co2_tons, avg_total_co2_tons )
   select scenario_id, carbon_cost, period, area_id, fuel,
     	sum(power * hours_in_sample) / sum_hourly_weights_per_period as avg_power,
+    	sum(co2_tons * hours_in_sample) / sum_hourly_weights_per_period as avg_co2_tons,
     	sum(spinning_reserve * hours_in_sample) / sum_hourly_weights_per_period as avg_spinning_reserve,
+    	sum(spinning_co2_tons * hours_in_sample) / sum_hourly_weights_per_period as avg_spinning_co2_tons,
     	sum(quickstart_capacity * hours_in_sample) / sum_hourly_weights_per_period as avg_quickstart_capacity,
-    	sum(total_operating_reserve * hours_in_sample) / sum_hourly_weights_per_period as avg_total_operating_reserve
+    	sum(total_operating_reserve * hours_in_sample) / sum_hourly_weights_per_period as avg_total_operating_reserve,
+    	sum(deep_cycling_amount * hours_in_sample) / sum_hourly_weights_per_period as avg_deep_cycling_amount,
+    	sum(deep_cycling_co2_tons * hours_in_sample) / sum_hourly_weights_per_period as avg_deep_cycling_co2_tons,
+    	sum(total_co2_tons * hours_in_sample) / sum_hourly_weights_per_period as avg_total_co2_tons 	
 		from _gen_hourly_summary_fuel_la join sum_hourly_weights_per_period_table using (scenario_id, period)
     	where scenario_id = @scenario_id
     	group by 1, 2, 3, 4, 5
     	order by 1, 2, 3, 4, 5;
 
 -- total generation each period by carbon cost and fuel
-insert into gen_summary_fuel ( scenario_id, carbon_cost, period, fuel, avg_power, avg_spinning_reserve, avg_quickstart_capacity, avg_total_operating_reserve )
-	select scenario_id, carbon_cost, period, fuel, sum(avg_power) as avg_power, sum(avg_spinning_reserve) as avg_spinning_reserve, sum(avg_quickstart_capacity) as avg_quickstart_capacity, sum(avg_total_operating_reserve) as avg_operating_reserve
+insert into gen_summary_fuel ( scenario_id, carbon_cost, period, fuel,
+				avg_power, avg_co2_tons, avg_spinning_reserve, avg_spinning_co2_tons, avg_quickstart_capacity, avg_total_operating_reserve, avg_deep_cycling_amount, avg_deep_cycling_co2_tons, avg_total_co2_tons )
+	select scenario_id, carbon_cost, period, fuel,
+	sum(avg_power) as avg_power, sum(avg_co2_tons) as avg_co2_tons,
+	sum(avg_spinning_reserve) as avg_spinning_reserve, sum(avg_spinning_co2_tons) as avg_spinning_co2_tons,
+	sum(avg_quickstart_capacity) as avg_quickstart_capacity, sum(avg_total_operating_reserve) as avg_operating_reserve,
+	sum(avg_deep_cycling_amount) as avg_deep_cycling_amount, 
+	sum(avg_deep_cycling_co2_tons) as avg_deep_cycling_co2_tons,
+	sum(avg_total_co2_tons) as avg_total_co2_tons
     from _gen_summary_fuel_la
     where scenario_id = @scenario_id
     group by 1, 2, 3, 4
@@ -122,8 +169,8 @@ drop temporary table if exists tfuel_carbon_sum_table;
 create temporary table tfuel_carbon_sum_table
 	select		scenario_id, carbon_cost, period, area_id, technology_id,
 				sum(variable_o_m_cost * hours_in_sample) as variable_o_m_cost,		
-				sum( ( fuel_cost + spinning_fuel_cost ) * hours_in_sample) as fuel_cost,
-				sum( ( carbon_cost_incurred + spinning_carbon_cost_incurred) * hours_in_sample) as carbon_cost_total
+				sum( ( fuel_cost + spinning_fuel_cost + deep_cycling_fuel_cost ) * hours_in_sample) as fuel_cost,
+				sum( ( carbon_cost_incurred + spinning_carbon_cost_incurred + deep_cycling_carbon_cost ) * hours_in_sample) as carbon_cost_total
 			from _gen_hourly_summary_tech_la
 		    where scenario_id = @scenario_id
 		    group by 1, 2, 3, 4, 5;
@@ -175,8 +222,8 @@ select 'Creating transmission summaries' as progress;
 
 -- add helpful columns to _transmission_dispatch
 update _transmission_dispatch
-	set month = mod(floor(study_hour/100000),100),
-		hour_of_day_UTC = mod(floor(study_hour/1000),100)
+set	month = convert(left(right(study_hour, 6),2), decimal),
+	hour_of_day_UTC = convert(right(study_hour, 2), decimal)
 	where scenario_id = @scenario_id;
 
 
@@ -341,9 +388,9 @@ insert into co2_cc
 	select 	scenario_id,
 			carbon_cost,
 			_gen_hourly_summary_tech_la.period,
-			sum( ( co2_tons + spinning_co2_tons) * hours_in_sample ) / years_per_period as co2_tons, 
-     		@co2_tons_1990 - sum( ( co2_tons + spinning_co2_tons) * hours_in_sample ) / years_per_period as co2_tons_reduced_1990,
-    		1 - ( sum( co2_tons * hours_in_sample ) / years_per_period ) / @co2_tons_1990 as co2_share_reduced_1990
+			sum( ( co2_tons + spinning_co2_tons + deep_cycling_co2_tons ) * hours_in_sample ) / years_per_period as co2_tons, 
+     		@co2_tons_1990 - sum( ( co2_tons + spinning_co2_tons + deep_cycling_co2_tons ) * hours_in_sample ) / years_per_period as co2_tons_reduced_1990,
+    		1 - ( sum( ( co2_tons + spinning_co2_tons + deep_cycling_co2_tons ) * hours_in_sample ) / years_per_period ) / @co2_tons_1990 as co2_share_reduced_1990
   	from 	_gen_hourly_summary_tech_la join sum_hourly_weights_per_period_table using (scenario_id, period)
   	where 	scenario_id = @scenario_id
   	group by 1, 2, 3
@@ -353,8 +400,8 @@ insert into co2_cc
 
 -- SYSTEM LOAD ---------------
 update _system_load
-	set month = mod(floor(study_hour/100000),100),
-		hour_of_day_UTC = mod(floor(study_hour/1000),100)
+set	month = convert(left(right(study_hour, 6),2), decimal),
+	hour_of_day_UTC = convert(right(study_hour, 2), decimal)
 	where scenario_id = @scenario_id;
 
 -- add hourly system load aggregated by load area here
@@ -524,4 +571,31 @@ update power_cost set total_cost =
 
 update power_cost set cost_per_mwh = total_cost / load_in_period_mwh
 	where scenario_id = @scenario_id;
-	
+
+-- Extract fuel category definitions from the results
+CREATE TEMPORARY TABLE fc_defs
+  SELECT DISTINCT scenario_id, period, technology_id, fuel, fuel_category
+    FROM _generator_and_storage_dispatch
+    WHERE scenario_id = @scenario_id;
+INSERT IGNORE INTO fuel_categories (fuel_category)
+  SELECT DISTINCT fuel_category FROM fc_defs;
+INSERT IGNORE INTO fuel_category_definitions (fuel_category_id, scenario_id, period, technology_id, fuel )
+  SELECT fuel_category_id, scenario_id, period, technology_id, fuel 
+    FROM fuel_categories JOIN fc_defs USING (fuel_category);
+
+-- Calculate summary stats based on fuel category
+-- We're incorectly adding emissions from spinning reserves to the locally produced power. Really, the spinning emissions need to be apportioned based on what they are spinning for. 
+-- Some of the emissions will be based on 5% of load for load areas in the balancing area. 
+-- The remainder of the emissions will be based on 3% of renewable output, and needs to be embedded with the renewable power and ultimately assigned to whichever load area consumes it. 
+-- This is too complicated for me for now and doesn't really matter because emissions from spinning reserves are less than .1% of total emissions. 
+INSERT INTO _gen_hourly_summary_fc_la 
+  (scenario_id, carbon_cost, period, area_id, study_date, study_hour, hours_in_sample, fuel_category_id, storage, power, total_co2_tons)
+  SELECT scenario_id, carbon_cost, period, area_id, study_date, study_hour, hours_in_sample, fuel_category_id, 
+      IF(fuel='Storage', 1, 0 ) AS storage, SUM(power), SUM(co2_tons + spinning_co2_tons + deep_cycling_co2_tons)
+    FROM _generator_and_storage_dispatch 
+      JOIN fuel_categories USING( fuel_category)
+    WHERE scenario_id = @scenario_id
+    GROUP BY scenario_id, carbon_cost, period, area_id, study_date, study_hour, hours_in_sample, fuel_category_id, storage;
+
+-- Calculate the carbon intensity of electricity
+CALL calc_carbon_intensity(@scenario_id);

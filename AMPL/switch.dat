@@ -1,16 +1,18 @@
 # cost of carbon emissions ($/tonneCO2)
 param carbon_cost;
 # Set this to more than one value if you want to run the carbon curve scripty thing
-set CARBON_COSTS := 0 60;
+set CARBON_COSTS := 0;
 
 param: 
 RESULT_FILES:                        result_file_path_templates :=
 generator_and_storage_dispatch				'generator_and_storage_dispatch_%d.txt'
-system_load									'system_load_%d.txt'
+system_load							        'system_load_%d.txt'
 transmission_dispatch						'transmission_dispatch_%d.txt'
 generation_capacity							'gen_cap_%d.txt'
 transmission_capacity						'trans_cap_%d.txt'
 existing_trans_cost							'existing_trans_cost_%d.txt'
 rps_reduced_cost							'rps_reduced_cost_%d.txt'
 local_td_capacity							'local_td_cap_%d.txt'
-load_wind_solar_operating_reserve_levels	'load_wind_solar_operating_reserve_levels_%d.txt';
+load_wind_solar_operating_reserve_levels	'load_wind_solar_operating_reserve_levels_%d.txt'
+consume_variables							'consume_variables_%d.txt'
+;

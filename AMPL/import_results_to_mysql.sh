@@ -1,8 +1,28 @@
 #!/bin/bash
+# import_results_to_mysql.sh
+# SYNOPSIS
+#		./import_results_to_mysql.sh -h 127.0.0.1 -P 3307 # For connecting through an ssh tunnel
+#		./import_results_to_mysql.sh                      # For connecting to the DB directly
+# INPUTS
+#   -u [DB Username]
+#   -p [DB Password]
+#   -D [DB name]
+#   -P/--port [port number]
+#   -h [DB server]
+#   --ExportOnly             Only export summaries of the results, don't import or crunch data in the DB
+#   --help                   
+# All arguments are optional.
 
+# This function assumes that the lines at the top of the file that start with a # and a space or tab 
+# comprise the help message. It prints the matching lines with the prefix removed and stops at the first blank line.
+# Consequently, there needs to be a blank line separating the documentation of this program from this "help" function
+function print_help {
+	last_line=$(( $(egrep '^[ \t]*$' -n -m 1 $0 | sed 's/:.*//') - 1 ))
+	head -n $last_line $0 | sed -e '/^#[ 	]/ !d' -e 's/^#[ 	]//'
+}
 
 ##########################
-# Constants
+# Default values
 read SCENARIO_ID < scenario_id.txt
 DB_name='switch_results_wecc_v2_2'
 db_server='switch-db1.erg.berkeley.edu'
@@ -20,57 +40,27 @@ results_dir="results"
 ###################################################
 # Detect optional command-line arguments
 ExportOnly=0
-help=0
 while [ -n "$1" ]; do
 case $1 in
   -u)
-    user=$2
-    shift 2
-  ;;
+    user=$2; shift 2 ;;
   -p)
-    password=$2
-    shift 2
-  ;;
+    password=$2; shift 2 ;;
   -P | --port)
-    port=$2
-    shift 2
-  ;;
+    port=$2; shift 2 ;;
   -D)
-    DB_name=$2
-    shift 2
-  ;;
+    DB_name=$2; shift 2 ;;
   -h)
-    db_server=$2
-    shift 2
-  ;;
+    db_server=$2; shift 2 ;;
   --ExportOnly) 
-    ExportOnly=1
-    shift 1
-  ;;
+    ExportOnly=1; shift 1 ;;
   --help)
-    help=1
-    shift 1
-  ;;
+    print_help; exit 0 ;;
   *)
-    echo "Unknown option $1"
-    shift 1
-  ;;
+    echo "Unknown option $1"; print_help; exit 1 ;;
 esac
 done
 
-if [ $help = 1 ]
-then
-  echo "Usage: $0 [OPTIONS]"
-  echo "  --help                   Print this menu"
-  echo "  -u [DB Username]"
-  echo "  -p [DB Password]"
-  echo "  -D [DB name]"
-  echo "  -P/--port [port number]"
-  echo "  -h [DB server]"
-  echo "  --ExportOnly             Only export summaries of the results, don't import or crunch data in the DB"
-  echo "All arguments are optional. "
-  exit 0
-fi
 
 ##########################
 # Get the user name and password 
@@ -116,9 +106,9 @@ if [ $ExportOnly = 0 ]; then
   printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$results_dir/run_times.txt\" REPLACE into table run_times ignore 1 lines (scenario_id, carbon_cost, process_type, time_seconds);") 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$results_dir/run_times.txt" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
   
   # now import all of the non-runtime results
-  for file_base_name in gen_cap trans_cap local_td_cap transmission_dispatch system_load existing_trans_cost rps_reduced_cost generator_and_storage_dispatch load_wind_solar_operating_reserve_levels
+  for file_base_name in gen_cap trans_cap local_td_cap transmission_dispatch system_load existing_trans_cost rps_reduced_cost generator_and_storage_dispatch load_wind_solar_operating_reserve_levels consume_variables
   do
-   for file_name in `ls $results_dir/${file_base_name}_*txt | grep "[[:digit:]]"` 
+   for file_name in $(ls $results_dir/*${file_base_name}_*txt | grep "[[:digit:]]")
    do
   file_path="$current_dir/$file_name"
   echo "    ${file_name}  ->  ${DB_name}._${file_base_name}"
@@ -136,17 +126,19 @@ if [ $ExportOnly = 0 ]; then
     ;;
     existing_trans_cost) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" into table _existing_trans_cost ignore 1 lines (scenario_id, carbon_cost, period, area_id, @junk, existing_trans_cost);" ) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
     ;;
-    rps_reduced_cost) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" into table _rps_reduced_cost ignore 1 lines (scenario_id, carbon_cost, period, rps_compliance_entity, rps_reduced_cost);" ) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
+    rps_reduced_cost) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" into table _rps_reduced_cost ignore 1 lines (scenario_id, carbon_cost, period, rps_compliance_entity, rps_compliance_type, rps_reduced_cost);" ) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
     ;;
-    generator_and_storage_dispatch) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" into table _generator_and_storage_dispatch ignore 1 lines (scenario_id, carbon_cost, period, project_id, area_id, @junk, @junk, study_date, study_hour, technology_id, @junk, new, baseload, cogen, storage, fuel, fuel_category, hours_in_sample, power, co2_tons, heat_rate, fuel_cost, carbon_cost_incurred, variable_o_m_cost, spinning_reserve, quickstart_capacity, total_operating_reserve, spinning_co2_tons, spinning_fuel_cost, spinning_carbon_cost_incurred);" ) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
+    generator_and_storage_dispatch) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" into table _generator_and_storage_dispatch ignore 1 lines (scenario_id, carbon_cost, period, project_id, area_id, @junk, @junk, study_date, study_hour, technology_id, @junk, new, baseload, cogen, storage, fuel, fuel_category, hours_in_sample, power, co2_tons, heat_rate, fuel_cost, carbon_cost_incurred, variable_o_m_cost, spinning_reserve, quickstart_capacity, total_operating_reserve, spinning_co2_tons, spinning_fuel_cost, spinning_carbon_cost_incurred, deep_cycling_amount, deep_cycling_fuel_cost, deep_cycling_carbon_cost, deep_cycling_co2_tons);" ) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
     ;;
     load_wind_solar_operating_reserve_levels) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" into table _load_wind_solar_operating_reserve_levels ignore 1 lines (scenario_id, carbon_cost, period, balancing_area, study_date, study_hour, hours_in_sample, load_level, wind_generation, noncsp_solar_generation, csp_generation, spinning_reserve_requirement, quickstart_capacity_requirement, total_spinning_reserve_provided, total_quickstart_capacity_provided, spinning_thermal_reserve_provided, spinning_nonthermal_reserve_provided, quickstart_thermal_capacity_provided, quickstart_nonthermal_capacity_provided);" ) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
+    ;;
+    consume_variables) printf "%20s seconds to import %s rows\n" `(time -p mysql $connection_string -e "load data local infile \"$file_path\" into table _consume_and_redirect_variables ignore 1 lines (scenario_id, carbon_cost, period, area_id, @junk, study_date, study_hour, hours_in_sample, rps_fuel_category, consume_nondistributed_power, consume_distributed_power);" ) 2>&1 | grep -e '^real' | sed -e 's/real //'` `wc -l "$file_path" | sed -e 's/^[^0-9]*\([0-9]*\) .*$/\1/g'`
     ;;
    esac
    done
   done
 
-###################################################
+####################################################
 # Crunch through the data
   echo 'Crunching the data...'
   data_crunch_path=tmp_data_crunch$$.sql

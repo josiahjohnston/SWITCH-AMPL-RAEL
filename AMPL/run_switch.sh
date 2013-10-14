@@ -16,11 +16,6 @@
 # 	--email foo@berkeley.edu Send emails on the job progress to this email
 # 	--jobname foo_bar        Give the job this name
 # 	--queue long             Put this in the specified queue. Available queues are express, short, normal and long with maximum runtimes of 30 minutes, 6 hours, 24 hours and 72 hours. 
-# INPUTS INTENDED FOR INTERNAL USAGE
-# 	--is_worker              If this is specified, then this script is being executed as a worker and will perform optimization for certain carbon costs based on the workerid. 
-# 	--worker N               Used with is_worker in a non-cluster environment with a fork to indicate the worker id of the child process
-# 	--problems "results/prob1 results/prob2" 
-# 	                         Lists the base filename of the optimization problems that need to be divided among workers
 
 # This function assumes that the lines at the top of the file that start with a # and a space or tab 
 # comprise the help message. It prints the matching lines with the prefix removed and stops at the first blank line.
@@ -30,13 +25,16 @@ function print_help {
 	head -n $last_line $0 | sed -e '/^#[ 	]/ !d' -e 's/^#[ 	]//'
 }
 
+# Set the umask to give group read & write permissions to all files & directories made by this script.
+umask=0002
+
 # Determine if this is being run in a cluster environment
 if [ -z $(which getid) ]; then cluster=0; else cluster=1; fi;
-# Figure out what platform this is running on and choose the appropriate sed syntax
+# Determine the number of cores available. Different platform require different strategies.
 if [ $(uname) == "Linux" ]; then 
-	sed_in_place_flag="--in-place"; 
+	num_cores=$(grep processor /proc/cpuinfo | wc -l | awk '{print $1}')
 elif [ $(uname) == "Darwin" ]; then 
-	sed_in_place_flag="-i ''"; 
+	num_cores=$(sysctl hw.ncpu | awk '{print $2}')
 else
 	echo "Unknown platform "$(uname); exit; 
 fi
@@ -46,6 +44,11 @@ runtime_path='results/run_times.txt'
 num_workers=1
 workers_per_node=1
 is_worker=0
+# default number of cores: all of the cores on a node
+# the commented out code allows for reduction below this value
+# (|cut -f1 -d".") is a shell script floor function
+# threads_per_cplex=$(echo - | awk "{ print $num_cores*0.5}" | cut -f1 -d".")
+threads_per_cplex=$num_cores
 
 # Parse the options
 while [ -n "$1" ]; do
@@ -76,38 +79,16 @@ esac
 done
 
 # Make directories for logs & results if they don't already exist
-[ -d logs ] || mkdir logs
-[ -d results ] || mkdir results
+mkdir -p logs
+mkdir -p results
 
+# Update the number of threads cplex is allowed to use
+[ -n "$threads_per_cplex" ] && sed -i".orig" -e 's/^\(option cplex_options.*\)\(threads=[0-9]*\)\([^0-9].*\)$/\1threads='$threads_per_cplex'\3/' "load.run"
 
-# Do cplex optimization if this script is being called as a worker.
-if [ "$is_worker" == 1 ]; then
-	if [ "$cluster" == 1 ]; then worker_id=$(getid | awk '{print $1}'); fi
-	
-	if [ -z "$worker_id" ]; then echo "ERROR! worker_id is unspecified."; exit; fi
-	if [ -z "$num_workers" ]; then echo "ERROR! num_workers was not specified."; exit; fi
-	if [ -z "$problems" ]; then echo "ERROR! problems was not specified."; exit; fi
-
-	cplex_options=$(sed -e "s/^[^']*'\([^']*\)'.*$/\1/" results/cplex_options)
-	scenario_id=$(grep 'scenario_id' inputs/misc_params.dat | sed 's/[^0-9]//g')
-	prob_number=-1
-	printf "problems is '$problems'\n";
-	for base_name in $problems; do
-		prob_number=$(($prob_number+1))
-		# Skip this problem if there is an available solution.
-		if [ -f $base_name".sol" ]; then continue; fi
-		# Skip this problem if it doesn't match up with this worker id
-		if [ $(( $prob_number % $num_workers )) -ne $worker_id ]; then continue; fi
-		# Otherwise, solve this problem
-		carbon_cost=$(echo "$base_name" | sed -e 's_^.*[^0-9]\([0-9][0-9]*\)[^/]*$_\1_')
-		log_base="logs/cplex_optimization_"$carbon_cost"_"$(date +'%m_%d_%H_%M_%S')
-		printf "About to run cplex. \n\tLogs are ${log_base}_cplex...\n\tcommand is: cplexamp $base_name -AMPL \"$cplex_options\"\n"
-		runtime=$((time -p cplexamp $base_name -AMPL "$cplex_options" 1>>$log_base"_cplex.log" 2>>$log_base"_cplex.error_log" )2>&1 | grep real | awk '{print $2}')
-		printf "$scenario_id\t$carbon_cost\tcplex_optimize\t"$(date +'%s')"\t$runtime\n" >> "$runtime_path"
-	done
-	exit
+# If a jobname wasn't given, use the directory name this process is running in
+if [ -z "$jobname" ]; then 
+	jobname=$(pwd | sed -e 's|^.*/||'); 
 fi
-
 
 # Set up the .qsub files and submit job requests to the queue if this is operating on a cluster
 if [ $cluster == 1 ]; then
@@ -115,20 +96,26 @@ if [ $cluster == 1 ]; then
 	qsub_files="compile.qsub   optimize.qsub   export.qsub	present_day_dispatch.qsub"
 	# Process parameter values
 	working_directory=$(pwd)
-	# Try to guess who gets the email notifications
+	# If the email wasn't specified, try to guess who gets the email notifications
 	if [ -z "$email" ]; then
 		case `whoami` in
 			jnelson) email="jameshenrynelson@gmail.com" ;;
 			siah) email="siah@berkeley.edu" ;;
 			amileva) email="amileva@berkeley.edu" ;;
+			ganghe) email="steel.he@gmail.com" ;; 
+			dsanchez) email="dansanch01@gmail.com" ;; 
 		esac
 	fi
 	# Translate the number of processes and processes per node into number of nodes
 	nodes=$(printf "%.0f" $(echo "scale=1; $num_workers/$workers_per_node" | bc))
-	[ $nodes -le 8 ] || nodes=8       # Set the number of nodes to 8 unless it is less than or equal to 8
-
-	# Update the number of threads cplex is allowed if the threads_per_cplex parameter was given.
-	[ -n "$threads_per_cplex" ] && sed -e 's/^\(option cplex_options.*\)\(threads=[0-9]*\)\([^0-9].*\)$/\1threads='$threads_per_cplex'\3/' $sed_in_place_flag "load.run"
+	# Don't let the value of nodes be larger than 8.
+	if [ $nodes -gt 8 ]; then
+	  nodes=8
+	fi
+	# Don't let the value of nodes be less than 1
+	if [ $nodes -lt 1 ]; then
+	  nodes=1
+	fi
 
 	# Process each qsub file for boilerplate stuff
 	for f in $qsub_files; do
@@ -146,25 +133,26 @@ if [ $cluster == 1 ]; then
 		action=$(echo $f | sed -e 's/\.qsub//')
 
 		# Update these default parameters in each qsub file.
-		[ -n "$jobname" ] && sed -e 's/^#PBS -N .*$/#PBS -N '"$jobname-$action"'/' $sed_in_place_flag "$f"
-		[ -n "$email" ] && sed -e 's/^#PBS -M .*$/#PBS -M '"$email"'/' $sed_in_place_flag "$f"
-		sed -e 's|^working_dir=.*$|working_dir="'"$working_directory"'"|' $sed_in_place_flag "$f"
+		[ -n "$jobname" ] && sed -i".orig" -e 's/^#PBS -N .*$/#PBS -N '"$jobname-$action"'/' "$f"
+		[ -n "$email" ] && sed -i".orig" -e 's/^#PBS -M .*$/#PBS -M '"$email"'/' "$f"
+		sed -i".orig" -e 's|^working_dir=.*$|working_dir="'"$working_directory"'"|' "$f"
 	done
 
 	# Fill in the OPTIMIZE qsub file
 	f=optimize.qsub
 	# How many nodes & workers per node.
-	sed -e 's/^#PBS -l nodes=.*$/#PBS -l nodes='"$nodes"':ppn='"$workers_per_node"'/' $sed_in_place_flag "$f"
+	sed -i".orig" -e 's/^#PBS -l nodes=.*$/#PBS -l nodes='"$nodes"':ppn='"$workers_per_node"'/' "$f"
 	# Which queue to use. Assume we'll need all of the time the queue can offer
 	if [ -n "$queue" ]; then
 		case "$queue" in
-			express) sed -e 's/^#PBS -l walltime=.*$/#PBS -l walltime=00:30:00/' $sed_in_place_flag "$f" ;;
-			short)   sed -e 's/^#PBS -l walltime=.*$/#PBS -l walltime=06:00:00/' $sed_in_place_flag "$f" ;;
-			normal)  sed -e 's/^#PBS -l walltime=.*$/#PBS -l walltime=24:00:00/' $sed_in_place_flag "$f" ;;
-			long)    sed -e 's/^#PBS -l walltime=.*$/#PBS -l walltime=72:00:00/' $sed_in_place_flag "$f" ;;
+			express) sed -i".orig" -e 's/^#PBS -l walltime=.*$/#PBS -l walltime=00:30:00/' "$f" ;;
+			short)   sed -i".orig" -e 's/^#PBS -l walltime=.*$/#PBS -l walltime=06:00:00/' "$f" ;;
+			normal)  sed -i".orig" -e 's/^#PBS -l walltime=.*$/#PBS -l walltime=24:00:00/' "$f" ;;
+			long)    sed -i".orig" -e 's/^#PBS -l walltime=.*$/#PBS -l walltime=72:00:00/' "$f" ;;
+			dkammen) sed -i".orig" -e 's/^#PBS -l walltime=.*$/#PBS -l walltime=168:00:00/' "$f" ;;
 			*) echo "queue option $queue not known. Please read the help message and try again"; print_help; exit ;;
 		esac
-		sed -e 's/^#PBS -q .*$/#PBS -q '"$queue"'/' $sed_in_place_flag "$f"
+		sed -i".orig" -e 's/^#PBS -q .*$/#PBS -q '"$queue"'/' "$f"
 	fi
 	
 	echo "Submitting jobs to the scheduler."
@@ -186,25 +174,6 @@ fi
 
 # If we've made it here, we aren't in a cluster environment. Execute SWITCH appropriately. 
 
-# Compile the problems sequentially with one copy of AMPL
-log_base="logs/ampl_compilation_"$(date +'%m_%d_%H_%M_%S')
-printf "Compiling optimization problems. Logging results to $log_base...\n"
-echo 'include load.run; include compile.run;' | ampl 1>$log_base".log"  2>$log_base".error_log" 
-
-# Optimize the problems with N copies of cplex
-printf "Spawning %d workers for cplex optimization...\n" $num_workers
-problems=$(ls results/*nl | sed -e 's/.nl$//' | while read b; do if [ ! -f "$b.sol" ]; then echo $b; fi; done | tr '\n' ' ')
-log_base="logs/worker_"$(date +'%m_%d_%H_%M_%S')
-pids=''
-printf "Worker pids are: "
-for ((i=0; i<$num_workers; i++)); do
-#	printf "./run_switch.sh --is_worker --num_workers $num_workers --worker $i --problems '$problems'\n"
-	./run_switch.sh --is_worker --num_workers $num_workers --worker $i --problems "$problems" 1>$log_base"-$i.log" 2>$log_base"-$i.log" &
-	pids[$i]=$!
-	printf "%d " ${pids[$i]}
-done
-printf "\n";
-
 function cpu_usage() {
 	pid=$1
 	tmp_path='logs/tmp.txt'
@@ -219,24 +188,56 @@ function cpu_usage() {
 	rm $tmp_path
 }
 
-echo "Workers' cpu usage..."
-still_running=$num_workers
-while [ $still_running -gt 0 ]; do
-	still_running=0
-	status_line=""
-	for ((i=0; i<$num_workers; i++)); do
-		if [ $(ps -p ${pids[$i]} | wc -l | awk '{print $1}') -gt 1 ]; then
-			status[$i]=$(cpu_usage ${pids[$i]})
-			still_running=$(($still_running + 1))
-		else
-			status[$i]=done
-		fi
-		status_line="$status_line $i: "${status[$i]}
-	done
-	echo -ne "\r$status_line"
-	sleep 2
-done
-printf "\nOptimization done.\n"
+
+# Compile the problems sequentially with one copy of AMPL
+log_base="logs/ampl_compilation_"$(date +'%m_%d_%H_%M_%S')
+printf "Compiling optimization problems. Logging results to $log_base...\n"
+echo 'include load.run; include compile.run;' | ampl 1>$log_base".log"  2>$log_base".error_log" 
+
+# Optimize the problems with N copies of cplex
+problems=$(                  # Find problems that lack solutions
+  find results -name '*nl' | # Search for files in the results directory with an 'nl' suffix. Pipe the results (if any) to the next step. 
+  sed -e 's/.nl$//' |        # Strip the '.nl' suffix off the end of the paths. 
+  while read b; do           # Filter the list of base file names. 
+    if [ ! -f "$b.sol" ];    # Pass the base file name to the next step if it doesn't have a .sol file. 
+    then 
+      echo $b; 
+    fi; 
+  done |                     # Pass whatever made it through the filter to the next step
+  tr '\n' ' '                # Replace the line returns with spaces so the list of problems is easier to pass around
+) 
+if [ -n "$problems" ]; then  # Only start the optimization step if there are problems to solve
+  printf "Spawning %d workers for cplex optimization...\n" $num_workers
+  log_base="logs/worker_"$(date +'%m_%d_%H_%M_%S')
+  pids=''
+  printf "Worker pids are: "
+  for ((i=0; i<$num_workers; i++)); do
+    ./cplex_worker.sh --num_workers $num_workers --worker $i --problems "$problems" 1>$log_base"-$i.log" 2>$log_base"-$i.log" &
+    pids[$i]=$!
+    printf "%d " ${pids[$i]}
+  done
+  printf "\n";
+  echo "Workers' cpu usage..."
+  still_running=$num_workers
+  while [ $still_running -gt 0 ]; do
+    still_running=0
+    status_line=""
+    for ((i=0; i<$num_workers; i++)); do
+      if [ $(ps -p ${pids[$i]} | wc -l | awk '{print $1}') -gt 1 ]; then
+        status[$i]=$(cpu_usage ${pids[$i]})
+        still_running=$(($still_running + 1))
+      else
+        status[$i]=done
+      fi
+      status_line="$status_line $i: "${status[$i]}
+    done
+    echo -ne "\r$status_line"
+    sleep 2
+  done
+  printf "\nOptimization done.\n"
+else 
+  printf "No unsolved problem files found."
+fi
 
 
 # Export results with one copy of AMPL

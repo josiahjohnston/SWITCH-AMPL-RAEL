@@ -34,9 +34,14 @@ option substout 1, linelim 1;
 # Options to enable timing of compilation
 # option show_stats 1, times 1, gentimes 1;
 option solver cplexamp;
-option cplex_options (" lpdisplay=1 iisfind=1 mipdisplay=2 presolve=1 prestats=1 timing=1 nodefile=2 treememory=15000 threads=6" );
+option cplex_options (" threads=4 presolve=1 prestats=1 nodefile=2 baropt barobjrange=1e+30 comptol=1e-9 lpdisplay=1 bardisplay=2 timing=1 startalgorithm=4 mipdisplay=4 " );
+# Use the option string below to enable iisfind when you are trying to diagnose infeasibilities
+#option cplex_options (" lpdisplay=1 iisfind=1 mipdisplay=2 presolve=1 prestats=1 timing=1 nodefile=2 treememory=15000 threads=4" );
 option cplex_options > results/cplex_options;
+shell('sed -i -e "s/^.*' & "'\(.*\)'" & ';/\1/" results/cplex_options');
 
+# make SWITCH china have default LP runs
+option relax_integrality  1;
 
 # Include other AMPL code files. 
 model switch.mod;
@@ -44,101 +49,80 @@ include define_params.run;
 data switch.dat;
 data inputs/misc_params.dat;
 
-
-
 #########################
 # Read in data from tab files exported from mysql by get_switch_input_tables.sh
+
+table province_info "inputs/province_info.tab" IN: 
+  PROVINCES <- [province], province_id, regional_grid_company, ccs_distance_km,
+  	present_day_existing_distribution_cost, present_day_max_coincident_demand_mwh_for_distribution, distribution_new_annual_payment_per_mw,
+  	existing_transmission_sunk_annual_payment, bio_gas_capacity_limit_mmbtu_per_hour;
+read table province_info;
+
+table regional_grid_companies "inputs/regional_grid_companies.tab" IN:
+  REGIONAL_GRID_COMPANIES <- [regional_grid_company], load_only_spinning_reserve_requirement, wind_spinning_reserve_requirement,
+    solar_spinning_reserve_requirement, quickstart_requirement_relative_to_spinning_reserve_requirement;
+read table regional_grid_companies;
+
+table transmission_lines "inputs/transmission_lines.tab" IN: 
+  TRANSMISSION_LINES <- [province_start, province_end], transmission_line_id, existing_transfer_capacity_mw, 
+  transmission_length_km, transmission_efficiency, new_transmission_builds_allowed;
+read table transmission_lines;
 
 table study_hours "inputs/study_hours.tab" IN: 
   TIMEPOINTS <- [hour], period, date, hours_in_sample, month_of_year, hour_of_day;
 read table study_hours;
 
-table load_areas "inputs/load_areas.tab" IN: 
-  LOAD_AREAS <- [load_area], load_area_id, balancing_area, rps_compliance_entity, economic_multiplier, 
-  	max_coincident_load_for_local_td, local_td_new_annual_payment_per_mw, local_td_sunk_annual_payment, transmission_sunk_annual_payment,
-  	ccs_distance_km;
-read table load_areas;
+table province_hourly_demand "inputs/province_hourly_demand.tab" IN: 
+  [province, hour], system_load;
+read table province_hourly_demand;
 
-table balancing_areas "inputs/balancing_areas.tab" IN:
-  BALANCING_AREAS <- [balancing_area], load_only_spinning_reserve_requirement, wind_spinning_reserve_requirement, solar_spinning_reserve_requirement, quickstart_requirement_relative_to_spinning_reserve_requirement;
-read table balancing_areas;
-
-table rps_compliance_entity_targets "inputs/rps_compliance_entity_targets.tab" IN: 
-  [rps_compliance_entity, rps_compliance_year], rps_compliance_fraction;
-read table rps_compliance_entity_targets;
-
-table carbon_cap_targets "inputs/carbon_cap_targets.tab" IN: 
-  [year], carbon_emissions_relative_to_base;
-read table carbon_cap_targets;
-
-table transmission_lines "inputs/transmission_lines.tab" IN: 
-  TRANSMISSION_LINES <- [load_area_start, load_area_end], existing_transfer_capacity_mw, transmission_line_id, 
-  transmission_length_km, transmission_efficiency, new_transmission_builds_allowed;
-read table transmission_lines;
-
-table system_load "inputs/system_load.tab" IN: 
-  [load_area, hour], system_load, present_day_system_load;
-read table system_load;
-
-table max_system_loads "inputs/max_system_loads.tab" IN: 
-  [load_area, period], max_system_load;
-read table max_system_loads;
+table max_province_demand "inputs/max_province_demand.tab" IN: 
+  [province, period], max_system_load;
+read table max_province_demand;
 
 table existing_plants "inputs/existing_plants.tab" IN: 
-  EXISTING_PLANTS <- [project_id, load_area, technology], 
-  	ep_plant_name ~ plant_name, ep_eia_id ~ eia_id,
+  EXISTING_PLANTS <- [project_id, province, technology], 
+  	ep_plant_name ~ plant_name, ep_carma_plant_id ~ carma_plant_id,
     ep_capacity_mw ~ capacity_mw, ep_heat_rate ~ heat_rate, ep_cogen_thermal_demand ~ cogen_thermal_demand_mmbtus_per_mwh,
     ep_vintage ~ start_year,  
     ep_overnight_cost ~ overnight_cost, ep_connect_cost_per_mw ~ connect_cost_per_mw, ep_fixed_o_m ~ fixed_o_m, ep_variable_o_m ~ variable_o_m,
     ep_location_id;
 read table existing_plants;
 
-table existing_intermittent_plant_cap_factor "inputs/existing_intermittent_plant_cap_factor.tab" IN: 
-  EP_INTERMITTENT_HOURS <- [project_id, load_area, technology, hour], eip_cap_factor ~ cap_factor;
-read table existing_intermittent_plant_cap_factor;
+table existing_plant_intermittent_capacity_factor "inputs/existing_plant_intermittent_capacity_factor.tab" IN: 
+  EP_INTERMITTENT_HOURS <- [project_id, province, technology, hour], eip_capacity_factor ~ capacity_factor;
+read table existing_plant_intermittent_capacity_factor;
 
 table hydro_monthly_limits "inputs/hydro_monthly_limits.tab" IN: 
-  PROJ_HYDRO_DATES <- [project_id, load_area, technology, date] avg_hydro_output ~ avg_output;
+  PROJ_HYDRO_DATES <- [project_id, province, technology, date] average_hydro_output_mw ~ average_output_mw;
 read table hydro_monthly_limits;
 
-table proposed_projects "inputs/proposed_projects.tab" IN: 
-  PROJECTS <- [project_id, load_area, technology], project_location ~ location_id, ep_project_replacement_id,
-    capacity_limit, capacity_limit_conversion, heat_rate, connect_cost_per_mw, price_and_dollar_year, 
+table new_projects "inputs/new_projects.tab" IN: 
+  PROJECTS <- [project_id, province, technology], location_id, ep_project_replacement_id,
+    capacity_limit, capacity_limit_conversion, heat_rate, cogen_thermal_demand, connect_cost_per_mw, 
     overnight_cost, fixed_o_m, variable_o_m, overnight_cost_change;
-read table proposed_projects;
+read table new_projects;
 
-table cap_factor "inputs/cap_factor.tab" IN: 
-  PROJ_INTERMITTENT_HOURS <- [project_id, load_area, technology, hour], cap_factor;
-read table cap_factor;
+table new_projects_intermittent_capacity_factor "inputs/new_projects_intermittent_capacity_factor.tab" IN: 
+  PROJ_INTERMITTENT_HOURS <- [project_id, province, technology, hour], capacity_factor;
+read table new_projects_intermittent_capacity_factor;
 
 table generator_info "inputs/generator_info.tab" IN:  
 	TECHNOLOGIES <- [technology], technology_id, min_build_year, fuel, construction_time_years,
  	year_1_cost_fraction, year_2_cost_fraction, year_3_cost_fraction, year_4_cost_fraction, year_5_cost_fraction, year_6_cost_fraction,
 	max_age_years, forced_outage_rate, scheduled_outage_rate,
-	can_build_new, ccs, intermittent, resource_limited, baseload, dispatchable, cogen, min_build_capacity, competes_for_space,
-	storage, storage_efficiency, max_store_rate, max_spinning_reserve_fraction_of_capacity, heat_rate_penalty_spinning_reserve;
+	can_build_new, ccs, intermittent, resource_limited, baseload, flexible_baseload, dispatchable, cogen, min_build_capacity, competes_for_space,
+	storage, storage_efficiency, max_store_rate, max_spinning_reserve_fraction_of_capacity, heat_rate_penalty_spinning_reserve, minimum_loading, deep_cycling_penalty;
 read table generator_info;
 
-table fuel_costs "inputs/fuel_costs.tab" IN:
-	[load_area, fuel, year], fuel_price;
-read table fuel_costs;
-
-table biomass_supply_curve_slope "inputs/biomass_supply_curve_slope.tab" IN:
-	LOAD_AREAS_AND_BIO_BREAKPOINTS <- [load_area, breakpoint_id], price_dollars_per_mbtu;
-read table biomass_supply_curve_slope;
-
-table biomass_supply_curve_breakpoint "inputs/biomass_supply_curve_breakpoint.tab" IN:
-	[load_area, breakpoint_id], breakpoint_mbtus_per_year;
-read table biomass_supply_curve_breakpoint;
-
 table fuel_info "inputs/fuel_info.tab" IN:
-	FUELS <- [fuel], rps_fuel_category, biofuel, carbon_content, carbon_sequestered;
+	FUELS <- [fuel], biofuel, carbon_content, carbon_sequestered;
 read table fuel_info;
-let FUELS := FUELS union {"Storage"};
 
-table fuel_qualifies_for_rps "inputs/fuel_qualifies_for_rps.tab" IN:
-	RPS_AREAS_AND_FUEL_CATEGORY <- [rps_compliance_entity, rps_fuel_category], fuel_qualifies_for_rps ~ qualifies;
-read table fuel_qualifies_for_rps; 
+table fuel_prices "inputs/fuel_prices.tab" IN:
+	[province, fuel, year], fuel_price;
+read table fuel_prices;
+
 
 ###################################
 # update some params that can't be easily dealt with elsewhere
@@ -158,12 +142,13 @@ for { t in TECHNOLOGIES } {
 ###################################
 # Change the problem to remove policy constraints that are not in effect
 problem Investment_Cost_Minimization;
-if (enable_rps = 0) then { drop Satisfy_RPS; } 
-if (enable_carbon_cap = 0) then { drop Carbon_Cap; } 
-# Simplify transmission & storage if RPS is not in effect
+
+#if (enable_rps = 0) then { drop Satisfy_RPS; } 
+#if (enable_carbon_cap = 0) then { drop Carbon_Cap; } 
+## Simplify transmission & storage if RPS is not in effect
 redeclare param rps_fuel_category {FUELS} symbolic;
 if (enable_rps = 0) then {
-  let RPS_AREAS_AND_FUEL_CATEGORY := setof { (r, fc) in RPS_AREAS_AND_FUEL_CATEGORY } (r,'na');
+#  let RPS_AREAS_AND_FUEL_CATEGORY := setof { (r, fc) in RPS_AREAS_AND_FUEL_CATEGORY } (r,'na');
   let {f in FUELS} rps_fuel_category[f] := 'na';
 } 
 redeclare param rps_fuel_category {FUELS} symbolic in RPS_FUEL_CATEGORY;

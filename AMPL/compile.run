@@ -20,7 +20,7 @@ for {c in CARBON_COSTS} {
 			printf "\nWriting Investment Cost problem for a carbon cost of %d.\n", carbon_cost;
 			let curtime := time();
 			# Options to print out auxiliary files from ampl of the compiled MIP - see p. 488 of the AMPL book for documentation
-			# option auxfiles cfrsu; write ("m" & problem_basename);  # Uncomment this line to write the problem as text files (for debugging)
+			option auxfiles cfrsu; write ("m" & problem_basename);  # Uncomment this line to write the problem as text files (for debugging)
 			write ("b" & problem_basename);
 			let compile_time := time() - curtime;
 			printf "%d seconds to compile and write the problem file.\n", compile_time;		
@@ -29,8 +29,6 @@ for {c in CARBON_COSTS} {
 		}
 	}
 }
-
-# Compile for present day optimization. 
 
 
 printf "Finished compiling.\n";
