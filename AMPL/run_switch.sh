@@ -26,7 +26,7 @@ function print_help {
 }
 
 # Set the umask to give group read & write permissions to all files & directories made by this script.
-umask 0002
+umask=0002
 
 # Determine if this is being run in a cluster environment
 if [ -z $(which getid) ]; then cluster=0; else cluster=1; fi;
@@ -249,6 +249,6 @@ echo 'include load.run; include export.run;' | ampl 1>$log_base".log"  2>$log_ba
 
 
 # Execute present_day_dispatch with one copy of AMPL
-log_base="logs/ampl_present_day_dispatch_"$(date +'%m_%d_%H_%M_%S')
-printf "Starting AMPL present_day_dispatch. Logging results to $log_base...\n"
-echo 'include load.run; include present_day_dispatch.run;' | ampl 1>$log_base".log"  2>$log_base".error_log" 
+#log_base="logs/ampl_present_day_dispatch_"$(date +'%m_%d_%H_%M_%S')
+#printf "Starting AMPL present_day_dispatch. Logging results to $log_base...\n"
+#echo 'include load.run; include present_day_dispatch.run;' | ampl 1>$log_base".log"  2>$log_base".error_log" 

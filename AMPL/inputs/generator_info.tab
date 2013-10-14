@@ -69,3 +69,4 @@ Hydro_RoR_EP	121	2011	Water	3	0.2	0.4	0.4	0	0	0	30	0.051	0.094	0	0	1	1	0	0	0	0	0
 Hydro_RoR	118	2011	Water	3	0.2	0.4	0.4	0	0	0	30	0.051	0.094	1	0	1	1	0	0	0	0	0	0	0	0	0	0	0	0	0
 Biomass_Steam_Turbine	9	2011	Bio_Solid	2	0.2	0.8	0	0	0	0	20	0.08	0.03	1	0	0	1	1	0	0	0	0	0	0	0	0	0	0	1	0
 DistillateFuelOil_Combustion_Turbine	119	2011	DistillateFuelOil	1	1	0	0	0	0	0	20	0.0413	0.0318	1	0	0	1	0	0	1	0	0	0	0	0	0	0.3	0.087	0	0
+Hydro_NonPumped_New	122	2011	Water	6	0.1	0.2	0.2	0.2	0.2	0.1	40	0.051	0.094	1	0	0	1	0	0	0	0	50	0	0	0	0	0	0	0	0

@@ -1,13 +1,22 @@
-#!/bin/bash
+# Part by part of get_switch_input_tables.sh
+
+## here it begins:
+
+
+
+
+
+
+
 # Date of creation: May 8th/2013
 # SWITCH CHILE!
 # Note: This file was copied and modified from get_switch_input_tables.sh sent by Juan Pablo Carvallo (which was from China model of some time ago)
 # C:\University of California, Berkeley\Spring 2013\RAEL\Switch Chile\Switch_china_files\get_switch_input_tables.sh
 # the rest of the code follows the original .sh file (with the corresponding editions)
-#
-# present_year was forced to be 2013
-# Part by part of get_switch_input_tables.sh
-#
+
+
+
+#!/bin/bash
 # get_switch_input_tables.sh
 # SYNOPSIS
 #		./get_switch_input_tables.sh 
@@ -25,20 +34,14 @@
 #  -h [DB server]
 #  -np | --no-password      Do not prompt for or use a password to connect to the database
 # All arguments are optional.
-#
-
-
 
 # This function assumes that the lines at the top of the file that start with a # and a space or tab 
 # comprise the help message. It prints the matching lines with the prefix removed and stops at the first blank line.
 # Consequently, there needs to be a blank line separating the documentation of this program from this "help" function
-function print_help {
-	last_line=$(( $(egrep '^[ \t]*$' -n -m 1 $0 | sed 's/:.*//') - 1 ))
-	head -n $last_line $0 | sed -e '/^#[ 	]/ !d' -e 's/^#[ 	]//'
-}
-
-# Set the umask to give group read & write permissions to all files & directories made by this script.
-umask 0002
+#function print_help {
+#	last_line=$(( $(egrep '^[ \t]*$' -n -m 1 $0 | sed 's/:.*//') - 1 ))
+#	head -n $last_line $0 | sed -e '/^#[ 	]/ !d' -e 's/^#[ 	]//'
+#}
 
 # Export SWITCH input data from the Switch inputs database into text files that will be read in by AMPL
 
@@ -162,6 +165,10 @@ if [ $($connection_string -t -c "select count(*) from chile.scenarios_switch_chi
 	exit;
 fi
 
+# PATY: ADDED VAR
+ENABLE_RPS=$($connection_string -t -c "select 1;")
+
+
 export TRAINING_SET_ID=$($connection_string -t -c "select training_set_id from chile.scenarios_switch_chile where scenario_id = $SCENARIO_ID;")
 echo $TRAINING_SET_ID #ADDED BY PATY ##################################################
 export DEMAND_SCENARIO_ID=$($connection_string -t -c "select demand_scenario_id from chile.training_sets where training_set_id = $TRAINING_SET_ID;")
@@ -173,8 +180,7 @@ echo $STUDY_END_YEAR #ADDED BY PATY ############################################
 number_of_years_per_period=$($connection_string -t -c "select years_per_period from chile.training_sets where training_set_id=$TRAINING_SET_ID;")
 echo $number_of_years_per_period #ADDED BY PATY ########################################
 # get the present year that will make present day cost optimization possible
-
-# PATY: force present year to 2012
+#present_year=$($connection_string -t -c "select extract(year from now());")
 present_year=$($connection_string -t -c "select 2011;")
 echo $present_year #ADDED BY PATY ########################################
 ###########################
@@ -207,12 +213,13 @@ FROM chile.training_set_timepoints JOIN chile.hours USING (hour_number) \
 WHERE training_set_id=$TRAINING_SET_ID order by 1;" >> study_hours.tab
 
 
+# PATY: New col added: rps_compliance_entity IN ORDER TO MAKE RPS WORK
 echo '	load_area.tab...'
-echo ampl.tab 1 7 > load_area.tab
-echo 'la_id	la_system	ccs_distance_km	present_day_existing_distribution_cost	present_day_max_coincident_demand_mwh_for_distribution	distribution_new_annual_payment_per_mw	existing_transmission_sunk_annual_payment	bio_gas_capacity_limit_mmbtu_per_hour' >> load_area.tab
+echo ampl.tab 1 8 > load_area.tab
+echo 'la_id	la_system	ccs_distance_km	present_day_existing_distribution_cost	present_day_max_coincident_demand_mwh_for_distribution	distribution_new_annual_payment_per_mw	existing_transmission_sunk_annual_payment	bio_gas_capacity_limit_mmbtu_per_hour rps_compliance_entity' >> load_area.tab
 $connection_string -A -t -F  $'\t' -c  "select la_id, la_system, ccs_distance_km, \
 present_day_existing_distribution_cost, present_day_max_coincident_demand_mwh_for_distribution, distribution_new_annual_payment_per_mw, \
-existing_transmission_sunk_annual_payment, bio_gas_capacity_limit_mmbtu_per_hour from chile.load_area;" >> load_area.tab
+existing_transmission_sunk_annual_payment, bio_gas_capacity_limit_mmbtu_per_hour, rps_compliance_entity from chile.load_area;" >> load_area.tab
 
 
 
@@ -229,19 +236,25 @@ solar_spinning_reserve_requirement, quickstart_requirement_relative_to_spinning_
 #$connection_string -A -t -F  $'\t' -c  "select la_start, la_end, transmission_line_id, #existing_transfer_capacity_mw, transmission_length_km, transmission_efficiency, \
 #new_transmission_builds_allowed, dc_line from chile.transmission_lines order by 1,2;" >> #transmission_lines.tab
 
-# PATY: info from the table where tx lines have been aggregated within each set of load area
+# JP: Excluding SIC-SING interconnection, as this hydro scenario is BAU now.
 echo '	transmission_lines.tab...'
 echo ampl.tab 2 6 > transmission_lines.tab
 echo 'la_start	la_end	transmission_line_id	existing_transfer_capacity_mw	transmission_length_km	transmission_efficiency	new_transmission_builds_allowed	dc_line' >> transmission_lines.tab
 $connection_string -A -t -F  $'\t' -c  "select la_start, la_end, transmission_line_id, existing_transfer_capacity_mw, transmission_length_km, transmission_efficiency, \
-new_transmission_builds_allowed, dc_line from chile.transmission_between_la order by 1,2;" >> transmission_lines.tab
+new_transmission_builds_allowed, dc_line from chile.transmission_between_la \
+where transmission_line_id <> 127 and transmission_line_id <> 128 order by 1,2;" >> transmission_lines.tab
 
 # PATY: la_id used to be province (not province_id)
 echo '	la_hourly_demand.tab...'
-echo ampl.tab 2 2 > la_hourly_demand.tab
-echo 'la_id	hour	la_demand_mwh	present_day_system_load' >> la_hourly_demand.tab
-$connection_string -A -t -F  $'\t' -c  "SELECT la_id, hour, la_demand_mwh, present_day_system_load  \
-	FROM chile.la_hourly_demand_mwh_new;"  >> la_hourly_demand.tab
+echo ampl.tab 2 1 > la_hourly_demand.tab
+echo 'la_id	hour	la_demand_mwh' >> la_hourly_demand.tab
+$connection_string -A -t -F  $'\t' -c  "SELECT la_id, to_char(chile.training_set_timepoints.timestamp_cst, 'YYYYMMDDHH24') AS hour, la_demand_mwh  \
+	FROM chile.la_hourly_demand \
+	JOIN chile.training_sets USING (demand_scenario_id) \
+	JOIN chile.training_set_timepoints USING (training_set_id, hour_number) \
+	JOIN chile.load_area USING (la_id) \
+WHERE demand_scenario_id = $DEMAND_SCENARIO_ID \
+AND training_set_id = $TRAINING_SET_ID;"  >> la_hourly_demand.tab
 
 
 #present_day_province_demand_mwh
@@ -250,15 +263,6 @@ echo '	max_la_demand.tab...'
 echo ampl.tab 2 1 > max_la_demand.tab
 echo 'la_id	period	max_la_demand_mwh' >> max_la_demand.tab
 $connection_string -A -t -F  $'\t' -c  "\
-SELECT la_id, $present_year as period, max(la_demand_mwh) as max_la_demand_mwh \
-  FROM chile.la_hourly_demand \
-    JOIN chile.training_sets USING (demand_scenario_id)  \
-	JOIN chile.hours USING (hour_number)  \
-	JOIN chile.load_area USING (la_id) \
-  WHERE training_set_id = $TRAINING_SET_ID \
-  AND year = $present_year  \
-  GROUP BY la_id, period \
-UNION \
 SELECT la_id, period_start as period, max(la_demand_mwh) as max_la_demand_mwh \
   FROM chile.la_hourly_demand \
     JOIN chile.training_sets USING (demand_scenario_id)  \
@@ -316,22 +320,34 @@ FROM chile.existing_plant_intermittent_capacity_factor as t1\
 WHERE training_set_id = $TRAINING_SET_ID \
 AND t1.technology_id <> 15;" >> existing_plant_intermittent_capacity_factor.tab
 
-
-
-
-echo '	hydro_monthly_limits.tab...'
-echo ampl.tab 4 1 > hydro_monthly_limits.tab
-echo 'project_id	la_id	technology	date	average_output_mw' >> hydro_monthly_limits.tab
+# JP: Splitting the hydro monthly limits in two, so they can be handled separately in switch.mod
+echo '	hydro_monthly_limits_ep.tab...'
+echo ampl.tab 4 1 > hydro_monthly_limits_ep.tab
+echo 'project_id	la_id	technology	date	average_output_mw' >> hydro_monthly_limits_ep.tab
 $connection_string -A -t -F  $'\t' -c  "\
 CREATE TEMPORARY TABLE hydro_study_dates_export AS \
   SELECT distinct period, year as projection_year, month_of_year, to_char(chile.hours.timestamp_cst, 'YYYYMMDD') AS date\
   FROM chile.training_set_timepoints \
-    JOIN chile.hours USING (hour_number)\
+  JOIN chile.hours USING (hour_number)\
   WHERE training_set_id = $TRAINING_SET_ID; \
-  SELECT project_id, la_id, technology, date, ROUND(cast(average_output_mw as numeric),1)  AS average_output_mw\
+  SELECT project_id, la_id, technology, date, ROUND(cast(average_output_mw as numeric),1) AS average_output_mw \
   FROM chile.hydro_monthly_limits \
-    JOIN hydro_study_dates_export USING (projection_year, month_of_year)\
-    JOIN chile.existing_plants using (project_id);" >> hydro_monthly_limits.tab
+  JOIN hydro_study_dates_export USING (projection_year, month_of_year) \
+  JOIN chile.existing_plants using (project_id);" >> hydro_monthly_limits_ep.tab
+
+echo '	hydro_monthly_limits_new.tab...'
+echo ampl.tab 4 1 > hydro_monthly_limits_new.tab
+echo 'project_id	la_id	technology	date	average_output_cf' >> hydro_monthly_limits_new.tab
+$connection_string -A -t -F  $'\t' -c  "\
+  CREATE TEMPORARY TABLE hydro_study_dates_export AS \
+  SELECT distinct period, year as projection_year, month_of_year, to_char(chile.hours.timestamp_cst, 'YYYYMMDD') AS date \
+  FROM chile.training_set_timepoints \
+  JOIN chile.hours USING (hour_number)\
+  WHERE training_set_id = $TRAINING_SET_ID; \
+  SELECT hmle.project_id, la_id, technology, date, ROUND(cast(average_output_cf as numeric),3) AS average_output_cf \
+  FROM chile.hydro_monthly_limits_new_hydro_from_flow_data hmle \
+  JOIN hydro_study_dates_export USING (projection_year, month_of_year) \
+  JOIN chile.new_projects_alternative_1 USING (project_id);" >> hydro_monthly_limits_new.tab
 
 # PATY: Use this in the future. (original command)    
 #echo '	new_projects.tab...'
@@ -348,7 +364,7 @@ echo ampl.tab 3 11 > new_projects.tab
 echo 'project_id	la_id	technology	location_id	ep_project_replacement_id	capacity_limit	capacity_limit_conversion	heat_rate	cogen_thermal_demand	connect_cost_per_mw	overnight_cost	fixed_o_m	variable_o_m	overnight_cost_change' >> new_projects.tab
 $connection_string -A -t -F  $'\t' -c  "select project_id, la_id, technology, location_id_num, ep_project_replacement_id, \
 capacity_limit, capacity_limit_conversion, heat_rate, cogen_thermal_demand, connect_cost_per_mw, overnight_cost, fixed_o_m, variable_o_m, overnight_cost_change \
-from chile.new_projects_alternative_1 where technology_id <> 15;" >> new_projects.tab
+from chile.new_projects_alternative_1;" >> new_projects.tab
 
 
 echo '	generator_info.tab...'
@@ -371,10 +387,11 @@ CASE WHEN storage THEN 1 ELSE 0 END, \
 storage_efficiency, max_store_rate, max_spinning_reserve_fraction_of_capacity, heat_rate_penalty_spinning_reserve, \
 minimum_loading, deep_cycling_penalty from chile.generator_info;" >> generator_info.tab
 
+# PATY: col rps_fuel_category added to make rps work.
 echo '	fuel_info.tab...'
-echo ampl.tab 1 3 > fuel_info.tab
-echo 'fuel	biofuel	carbon_content	carbon_sequestered' >> fuel_info.tab
-$connection_string -A -t -F  $'\t' -c  "select fuel, CASE WHEN biofuel THEN 1 ELSE 0 END, carbon_content, carbon_sequestered from chile.fuel_info;" >> fuel_info.tab
+echo ampl.tab 1 4 > fuel_info.tab
+echo 'fuel	rps_fuel_category biofuel	carbon_content	carbon_sequestered' >> fuel_info.tab
+$connection_string -A -t -F  $'\t' -c  "select fuel, rps_fuel_category, CASE WHEN biofuel THEN 1 ELSE 0 END, carbon_content, carbon_sequestered from chile.fuel_info;" >> fuel_info.tab
 
 # JP: Adjut the query due to the "samples" column in the fuel_prices SQL table
 echo '	fuel_prices.tab...'
@@ -384,6 +401,8 @@ $connection_string -A -t -F  $'\t' -c  "select la_id, fuel, projection_year as y
 
 echo '	misc_params.dat...'
 echo "param scenario_id          	:= $SCENARIO_ID;" >  misc_params.dat
+# PATY: line below added to activate rps 
+echo "param enable_rps            := $ENABLE_RPS;"  >> misc_params.dat
 echo "param num_years_per_period	:= $number_of_years_per_period;"  >> misc_params.dat
 echo "param present_year  			:= $present_year;"  >> misc_params.dat
 
@@ -406,6 +425,19 @@ $connection_string -A -t -F  $'\t' -c  "select project_id, t1.la_id, technology,
     JOIN chile.new_projects_intermittent_capacity_factor as t1 USING (hour_number)\
     JOIN chile.new_projects USING (project_id)\
   WHERE training_set_id = $TRAINING_SET_ID;" >> new_projects_intermittent_capacity_factor.tab
+  
+# PATY: NEW TAB FOR RPS  
+echo '	rps_compliance_entity_targets.tab...'
+echo ampl.tab 3 1 > rps_compliance_entity_targets.tab
+echo 'rps_compliance_entity	rps_compliance_type	rps_compliance_year	rps_compliance_fraction' >> rps_compliance_entity_targets.tab
+$connection_string -A -t -F  $'\t' -c "select rps_compliance_entity, rps_compliance_type, rps_compliance_year, rps_compliance_fraction from chile.rps_compliance_entity_targets where enable_rps = $ENABLE_RPS AND rps_compliance_year >= $STUDY_START_YEAR and rps_compliance_year <= $STUDY_END_YEAR;" >> rps_compliance_entity_targets.tab
+
+# PATY: NEW TAB FOR RPS  
+echo '	rps_areas_and_fuel_category.tab...'
+echo ampl.tab 2 1 > rps_areas_and_fuel_category.tab
+echo 'la_id	fuel_category fuel_qualifies_for_rps' >> rps_areas_and_fuel_category.tab
+$connection_string -A -t -F  $'\t' -c "select la_id, fuel_category, fuel_qualifies_for_rps from chile.rps_areas_and_fuel_category;" >> rps_areas_and_fuel_category.tab
+
 
 cd ..
 

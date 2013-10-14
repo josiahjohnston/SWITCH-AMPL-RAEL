@@ -14,11 +14,13 @@ let carbon_cost := 0;
 let CARBON_COSTS := { carbon_cost };
 # PATY: The line below was commented because in switch.mod the carbon section is commented as well.
 # let enable_carbon_cap := 0;
-let enable_rps := 0;
+# PATY: enable_rps used to be 0, I edited it to enable it!
+let enable_rps := 1;
 redeclare param rps_fuel_category {FUELS} symbolic;
-# PATY: The line below was commented because in switch.mod the carbon section is commented as well.
-# let RPS_AREAS_AND_FUEL_CATEGORY := setof{a in LOAD_AREAS} (a,'na');
-let {f in FUELS} rps_fuel_category[f] := 'na';
+# PATY: Uncommented line below. Instead of 'na' I put 'renewable'
+ let RPS_AREAS_AND_FUEL_CATEGORY := setof{a in LOAD_AREAS} (a,'renewable');
+ # PATY:Instead of 'na' I put 'renewable'
+let {f in FUELS} rps_fuel_category[f] := 'renewable';
 redeclare param rps_fuel_category {FUELS} symbolic in RPS_FUEL_CATEGORY;
 redeclare param problem_basename symbolic := results_path & "sol_present_day_dispatch";
 
@@ -43,7 +45,7 @@ let num_years_per_period := 1;
 
 # PATY: The line below was commented because in switch.mod the system_load section is commented as well.
 # update system load to present day system loads
-let {a in LOAD_AREAS, h in TIMEPOINTS} la_demand_mwh[a, h] := present_day_system_load[a, h];
+# let {a in LOAD_AREAS, h in TIMEPOINTS} system_load[a, h] := present_day_system_load[a, h];
 # propagate the data changes downstream - this will update capital costs, discounting, constraints, etc.
 update data;
 # Set default values for all OperateEP and InstallGen variables. A subset of these will be decision variables according to the problem definition in windsun.mod

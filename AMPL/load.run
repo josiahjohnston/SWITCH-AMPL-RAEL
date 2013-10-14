@@ -39,7 +39,7 @@ option substout 1, linelim 1;
 # Options to enable timing of compilation
 # option show_stats 1, times 1, gentimes 1;
 option solver cplexamp;
-option cplex_options (" threads=4 presolve=1 prestats=1 nodefile=2 baropt barobjrange=1e+30 comptol=1e-9 lpdisplay=1 bardisplay=2 timing=1 startalgorithm=4 mipdisplay=4 " );
+option cplex_options (" threads=8 presolve=1 prestats=1 nodefile=2 baropt barobjrange=1e+30 comptol=1e-9 lpdisplay=1 bardisplay=2 timing=1 startalgorithm=4 mipdisplay=4 iisfind=1" );
 # Use the option string below to enable iisfind when you are trying to diagnose infeasibilities
 #option cplex_options (" lpdisplay=1 iisfind=1 mipdisplay=2 presolve=1 prestats=1 timing=1 nodefile=2 treememory=15000 threads=4" );
 option cplex_options > results/cplex_options;
@@ -55,19 +55,32 @@ data switch.dat;
 data inputs/misc_params.dat;
 
 #########################
-# Read in data from tab files exported from mysql by get_switch_input_tables.sh
+# Read in data from tab files exported from postgres by get_switch_input_tablesv5.sh
 
 # PATY: The col regional_grid_company wasn't erased, but for Chile is in blank. la_system is the analogous col.
+# PATY: New col rps_compliance_entity, to make rps work.
 table load_area "inputs/load_area.tab" IN: 
   LOAD_AREAS <- [la_id], la_system, ccs_distance_km,
   	present_day_existing_distribution_cost, present_day_max_coincident_demand_mwh_for_distribution, distribution_new_annual_payment_per_mw,
-  	existing_transmission_sunk_annual_payment, bio_gas_capacity_limit_mmbtu_per_hour;
+  	existing_transmission_sunk_annual_payment, bio_gas_capacity_limit_mmbtu_per_hour, rps_compliance_entity;
 read table load_area;
 
 table regional_grid_companies "inputs/regional_grid_companies.tab" IN:
   LA_SYSTEMS <- [la_system], load_only_spinning_reserve_requirement, wind_spinning_reserve_requirement,
     solar_spinning_reserve_requirement, quickstart_requirement_relative_to_spinning_reserve_requirement;
 read table regional_grid_companies;
+
+# PATY: TABLE ADDED. NOT SURE IF THIS IS CORRECT FOR THAT SET. I NEED TO MAKE THIS PROPERLY.
+table rps_compliance_entity_targets "inputs/rps_compliance_entity_targets.tab" IN: 
+  RPS_TARGETS_ALL <- [rps_compliance_entity, rps_compliance_type, rps_compliance_year], rps_compliance_fraction;
+read table rps_compliance_entity_targets;
+# END PATY TABLE
+
+# PATY: TABLE ADDED.
+table rps_areas_and_fuel_category "inputs/rps_areas_and_fuel_category.tab" IN: 
+  RPS_AREAS_AND_FUEL_CATEGORY <- [la_id, fuel_category], fuel_qualifies_for_rps;
+read table rps_areas_and_fuel_category;
+# END PATY TABLE
 
 table transmission_lines "inputs/transmission_lines.tab" IN: 
   TRANSMISSION_LINES <- [la_start, la_end], transmission_line_id, existing_transfer_capacity_mw, 
@@ -80,7 +93,7 @@ read table study_hours;
 
 
 table la_hourly_demand "inputs/la_hourly_demand.tab" IN: 
-  [la_id, hour], la_demand_mwh, present_day_system_load;
+  [la_id, hour], la_demand_mwh;
 read table la_hourly_demand;
 
 table max_la_demand "inputs/max_la_demand.tab" IN: 
@@ -107,9 +120,14 @@ table existing_plant_intermittent_capacity_factor "inputs/existing_plant_intermi
   EP_INTERMITTENT_HOURS <- [project_id, la_id, technology, hour], eip_capacity_factor ~ capacity_factor;
 read table existing_plant_intermittent_capacity_factor;
 
-table hydro_monthly_limits "inputs/hydro_monthly_limits.tab" IN: 
+# JP: Monthly limits split in existing and new keeping the same name for the existing to minimize switch.mod alterations.
+table hydro_monthly_limits_ep "inputs/hydro_monthly_limits_ep.tab" IN: 
   PROJ_HYDRO_DATES <- [project_id, la_id, technology, date] average_hydro_output_mw ~ average_output_mw;
-read table hydro_monthly_limits;
+read table hydro_monthly_limits_ep;
+
+table hydro_monthly_limits_new "inputs/hydro_monthly_limits_new.tab" IN: 
+  PROJ_HYDRO_DATES_NEW <- [project_id, la_id, technology, date] average_hydro_output_mw_new_cf ~ average_output_cf;
+read table hydro_monthly_limits_new;
 
 # PATY: Commented command just in the meantime JP fixes strings (spaces to _)
 table new_projects "inputs/new_projects.tab" IN: 
@@ -130,8 +148,9 @@ table generator_info "inputs/generator_info.tab" IN:
 	storage, storage_efficiency, max_store_rate, max_spinning_reserve_fraction_of_capacity, heat_rate_penalty_spinning_reserve, minimum_loading, deep_cycling_penalty;
 read table generator_info;
 
+# PATY: added rps_fuel_category
 table fuel_info "inputs/fuel_info.tab" IN:
-	FUELS <- [fuel], biofuel, carbon_content, carbon_sequestered;
+	FUELS <- [fuel], rps_fuel_category, biofuel, carbon_content, carbon_sequestered;
 read table fuel_info;
 
 table fuel_prices "inputs/fuel_prices.tab" IN:
@@ -158,13 +177,16 @@ for { t in TECHNOLOGIES } {
 # Change the problem to remove policy constraints that are not in effect
 problem Investment_Cost_Minimization;
 
-#if (enable_rps = 0) then { drop Satisfy_RPS; } 
-#if (enable_carbon_cap = 0) then { drop Carbon_Cap; } 
+# PATY'S EDIT: two lines below uncommented to make rps work.........
+if (enable_rps = 0) then { drop Satisfy_RPS; } 
+# if (enable_carbon_cap = 0) then { drop Carbon_Cap; } 
 ## Simplify transmission & storage if RPS is not in effect
 redeclare param rps_fuel_category {FUELS} symbolic;
 if (enable_rps = 0) then {
-#  let RPS_AREAS_AND_FUEL_CATEGORY := setof { (r, fc) in RPS_AREAS_AND_FUEL_CATEGORY } (r,'na');
-  let {f in FUELS} rps_fuel_category[f] := 'na';
+
+# Paty: Uncommented line below
+  let RPS_AREAS_AND_FUEL_CATEGORY := setof { (r, fc) in RPS_AREAS_AND_FUEL_CATEGORY } (r,'na'); 
+  let {f in FUELS} rps_fuel_category[f] := 'na'; 
 } 
 redeclare param rps_fuel_category {FUELS} symbolic in RPS_FUEL_CATEGORY;
 
