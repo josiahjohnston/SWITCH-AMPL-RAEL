@@ -1,4 +1,4 @@
-param scenario_id          	:= 1000;
-param enable_rps            :=         1;
+param scenario_id          := 1000;
+param enable_rps            :=     0;
 param num_years_per_period	:=                 4;
 param present_year  			:=      2011;

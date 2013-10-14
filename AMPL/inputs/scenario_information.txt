@@ -1,5 +1,5 @@
 Scenario Information
-        1000 | BAU           |               1 | Business as usual, no nuclear allowed
+        1000 | BAU           |               1 | Business as usual, no nuclear allowed |             0 |      0 |           0 |            0 |                        1
 
 Training Set Information
                1 |                  1 |                 1152 |             2014 |                4 |                 4 | f             |                      1 |           1 |                     2 |          0 | MEDIAN           | For each month, the day with peak load and a representative day with near-median load were selected. The peak day was selected system-wide, while the median was based on total consumption during the day.
