@@ -17,7 +17,7 @@ param compile_time default -1;
 param sol_time default -1;
 param present_day_optimization binary default 0;
 param InstallGen_tab_path            symbolic := results_path & "InstallGen" & carbon_cost & ".tab";
-param InstallStorageEnergyCapacity_tab_path	symbolic := results_path & "InstallStorageEnergyCapacity" & carbon_cost & ".tab";
+param InstallCofire_tab_path            symbolic := results_path & "InstallCofire" & carbon_cost & ".tab";
 param OperateEPDuringPeriod_tab_path symbolic := results_path & "OperateEPDuringPeriod" & carbon_cost & ".tab";
 param InstallTrans_tab_path          symbolic := results_path & "InstallTrans" & carbon_cost & ".tab";
 param InstallLocalTD_tab_path        symbolic := results_path & "InstallLocalTD" & carbon_cost & ".tab";
@@ -115,6 +115,8 @@ param Startup_Carbon_Emissions { (pid, a, t, p, h) in AVAILABLE_HOURS };
 param Startup_Cost_Per_Period {p in PERIODS};
 param Startup_Carbon_Cost_Incurred_Hourly { (pid, a, t, p, h) in AVAILABLE_HOURS };
 param Yearly_Startup_Carbon_Emissions {p in PERIODS};
+
+param ProducePowerCofire { (pid, a, t, p, h) in AVAILABLE_HOURS: can_cofire_biomass[t] };
 
 # params used for reporting reserve margin in dispatch
 param Reserve_Margin_Eligible_Capacity_MW {a in LOAD_AREAS, t in TIMEPOINTS};

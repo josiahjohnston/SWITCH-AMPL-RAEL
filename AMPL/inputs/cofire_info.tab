@@ -1,0 +1,10 @@
+ampl.tab 1 5
+parent_technology	parent_technology_id	heat_rate_cofire	cost_of_plant_one_year_before_operational_cofire	fixed_o_m_cofire_per_period	variable_o_m_cofire
+Coal_IGCC	11	10	990000	20000	6.0822
+Coal_Steam_Turbine	12	10	990000	20000	3.4503
+Coal_Steam_Turbine_EP	18	10	990000	20000	3.4503
+Coal_Steam_Turbine_Cogen_EP	30	10	990000	20000	3.4503
+Coal_IGCC_CCS	38	13.44	990000	20000	9.858
+Coal_Steam_Turbine_CCS	39	13.44	990000	20000	5.5986
+Coal_Steam_Turbine_Cogen	100	10	990000	20000	3.4503
+Coal_Steam_Turbine_Cogen_CCS	117	13.44	990000	20000	5.5986

@@ -1,5 +1,5 @@
-CREATE DATABASE IF NOT EXISTS switch_results_wecc_v2_2;
-USE switch_results_wecc_v2_2;
+CREATE DATABASE IF NOT EXISTS switch_results_wecc_v2_2_cofire;
+USE switch_results_wecc_v2_2_cofire;
 
 
 -- create views that get data from the inputs database
@@ -79,11 +79,9 @@ CREATE TABLE IF NOT EXISTS _generator_and_storage_dispatch (
   INDEX period (period),
   INDEX carbon_cost (carbon_cost),
   INDEX study_hour (study_hour),
-  PRIMARY KEY (scenario_id, carbon_cost, area_id, study_hour, project_id, fuel, fuel_category), 
+  PRIMARY KEY (scenario_id, carbon_cost, area_id, study_hour, project_id, fuel, fuel_category, technology_id), 
   INDEX technology_id (technology_id),
-  FOREIGN KEY (technology_id) REFERENCES technologies(technology_id), 
   INDEX area_id (area_id),
-  FOREIGN KEY (area_id) REFERENCES load_areas(area_id), 
   INDEX proj (project_id)
 ) ROW_FORMAT=FIXED;
 
@@ -105,16 +103,13 @@ CREATE TABLE IF NOT EXISTS _gen_cap (
   cogen BOOLEAN,
   fuel VARCHAR(64) NOT NULL,
   capacity DOUBLE,
-  storage_energy_capacity DOUBLE,
   capital_cost DOUBLE,
   fixed_o_m_cost DOUBLE,
   INDEX scenario_id (scenario_id),
   INDEX carbon_cost (carbon_cost),
   INDEX period (period),
   INDEX area_id (area_id),
-  FOREIGN KEY (area_id) REFERENCES load_areas(area_id), 
   INDEX technology_id (technology_id),
-  FOREIGN KEY (technology_id) REFERENCES technologies(technology_id), 
   INDEX site (project_id),
   PRIMARY KEY (scenario_id, carbon_cost, period, area_id, technology_id, project_id)
 )  ROW_FORMAT=FIXED;
@@ -129,7 +124,6 @@ CREATE TABLE IF NOT EXISTS _gen_cap_summary_tech (
   period year,
   technology_id tinyint unsigned NOT NULL,
   capacity double NOT NULL default 0,
-  storage_energy_capacity double NOT NULL default 0,
   capital_cost double NOT NULL default 0,
   o_m_cost_total double NOT NULL default 0,
   fuel_cost double NOT NULL default 0,
@@ -151,7 +145,6 @@ CREATE TABLE IF NOT EXISTS _gen_cap_summary_tech_la (
   area_id smallint NOT NULL, 
   technology_id tinyint unsigned NOT NULL,
   capacity double NOT NULL default 0,
-  storage_energy_capacity NOT NULL default 0,
   capital_cost double NOT NULL default 0,
   fixed_o_m_cost double NOT NULL default 0,
   variable_o_m_cost double NOT NULL default 0,
@@ -161,8 +154,6 @@ CREATE TABLE IF NOT EXISTS _gen_cap_summary_tech_la (
   INDEX carbon_cost (carbon_cost),
   INDEX period (period),
   INDEX area_id (area_id),
-  FOREIGN KEY (area_id) REFERENCES load_areas(area_id), 
-  FOREIGN KEY (technology_id) REFERENCES technologies(technology_id),
   INDEX technology_id (technology_id),
   PRIMARY KEY (scenario_id, carbon_cost, period, area_id, technology_id)
 ) ROW_FORMAT=FIXED;
@@ -178,7 +169,6 @@ CREATE TABLE IF NOT EXISTS gen_cap_summary_fuel (
   period year,
   fuel VARCHAR(64) NOT NULL,
   capacity double NOT NULL default 0,
-  storage_energy_capacity double NOT NULL default 0,
   capital_cost double NOT NULL default 0,
   o_m_cost_total double NOT NULL default 0,
   fuel_cost double NOT NULL default 0,
@@ -197,7 +187,6 @@ CREATE TABLE IF NOT EXISTS _gen_cap_summary_fuel_la (
   area_id smallint NOT NULL, 
   fuel VARCHAR(64) NOT NULL,
   capacity double NOT NULL default 0,
-  storage_energy_capacity double NOT NULL default 0,
   capital_cost double NOT NULL default 0,
   fixed_o_m_cost double NOT NULL default 0,
   variable_o_m_cost double NOT NULL default 0,
@@ -207,8 +196,6 @@ CREATE TABLE IF NOT EXISTS _gen_cap_summary_fuel_la (
   INDEX carbon_cost (carbon_cost),
   INDEX period (period),
   INDEX area_id (area_id),
-  FOREIGN KEY (area_id) REFERENCES load_areas(area_id), 
-  FOREIGN KEY (fuel) REFERENCES technologies(fuel),
   INDEX fuel (fuel),
   PRIMARY KEY (scenario_id, carbon_cost, period, area_id, fuel)
 ) ROW_FORMAT=FIXED;
@@ -257,8 +244,6 @@ CREATE TABLE IF NOT EXISTS _gen_hourly_summary_tech_la (
   INDEX study_hour (study_hour),
   INDEX technology_id (technology_id),
   INDEX area_id (area_id),
-  FOREIGN KEY (area_id) REFERENCES load_areas(area_id), 
-  FOREIGN KEY (technology_id) REFERENCES technologies(technology_id),
   PRIMARY KEY (scenario_id, carbon_cost, study_hour, area_id, technology_id, fuel)
 ) ROW_FORMAT=FIXED;
 CREATE OR REPLACE VIEW gen_hourly_summary_tech_la as
@@ -294,7 +279,6 @@ CREATE TABLE IF NOT EXISTS _gen_hourly_summary_tech (
   INDEX period (period),
   INDEX study_hour (study_hour),
   INDEX technology_id (technology_id),
-  FOREIGN KEY (technology_id) REFERENCES technologies(technology_id),
   PRIMARY KEY (scenario_id, carbon_cost, study_hour, technology_id)
 ) ROW_FORMAT=FIXED;
 CREATE OR REPLACE VIEW gen_hourly_summary_tech as
@@ -324,14 +308,12 @@ CREATE TABLE IF NOT EXISTS _gen_summary_tech_la (
   INDEX carbon_cost (carbon_cost),
   INDEX period (period),
   INDEX area_id (area_id),
-  FOREIGN KEY (area_id) REFERENCES load_areas(area_id), 
-  FOREIGN KEY (technology_id) REFERENCES technologies(technology_id),
   INDEX technology_id (technology_id),
   PRIMARY KEY (scenario_id, carbon_cost, period, area_id, technology_id)
 ) ROW_FORMAT=FIXED;
 CREATE OR REPLACE VIEW gen_summary_tech_la as
   SELECT 	scenario_id, carbon_cost, period, load_area, technology,
-  			avg_power, avg_co2_tons, avg_spinning_reserve, avg_spinning_co2_tons, avg_quickstart_capacity, avg_total_operating_reserve, avg_deep_cycling_amount, avg_deep_cycling_co2_tons, avg_mw_started_up, avg_startup_co2_tons, avg_total_co2_tons
+  			avg_power, avg_co2_tons, avg_spinning_reserve, avg_spinning_co2_tons, avg_quickstart_capacity, avg_total_operating_reserve, avg_deep_cycling_amount, avg_deep_cycling_co2_tons, avg_mw_started_up, avg_startup_co2_tons
     FROM _gen_summary_tech_la join load_areas using(area_id) join technologies using (technology_id);
 
 CREATE TABLE IF NOT EXISTS _gen_summary_tech (
@@ -357,7 +339,7 @@ CREATE TABLE IF NOT EXISTS _gen_summary_tech (
 ) ROW_FORMAT=FIXED;
 CREATE OR REPLACE VIEW gen_summary_tech as
   SELECT 	scenario_id, carbon_cost, period, technology,
-  			avg_power, avg_co2_tons, avg_spinning_reserve, avg_spinning_co2_tons, avg_quickstart_capacity, avg_total_operating_reserve, avg_deep_cycling_amount, avg_deep_cycling_co2_tons, avg_mw_started_up, avg_startup_co2_tons, avg_total_co2_tons
+  			avg_power, avg_co2_tons, avg_spinning_reserve, avg_spinning_co2_tons, avg_quickstart_capacity, avg_total_operating_reserve, avg_deep_cycling_amount, avg_deep_cycling_co2_tons, avg_mw_started_up, avg_startup_co2_tons
     FROM _gen_summary_tech join technologies using (technology_id);
 
 
@@ -390,8 +372,6 @@ CREATE TABLE IF NOT EXISTS _gen_hourly_summary_fuel_la (
   INDEX study_hour (study_hour),
   INDEX fuel (fuel),
   INDEX area_id (area_id),
-  FOREIGN KEY (area_id) REFERENCES load_areas(area_id), 
-  FOREIGN KEY (fuel) REFERENCES technologies(fuel),
   PRIMARY KEY (scenario_id, carbon_cost, study_hour, area_id, fuel)
 ) ROW_FORMAT=FIXED;
 CREATE OR REPLACE VIEW gen_hourly_summary_fuel_la as
@@ -426,7 +406,6 @@ CREATE TABLE IF NOT EXISTS _gen_hourly_summary_fuel (
   INDEX period (period),
   INDEX study_hour (study_hour),
   INDEX technology_id (fuel),
-  FOREIGN KEY (fuel) REFERENCES technologies(fuel),
   PRIMARY KEY (scenario_id, carbon_cost, study_hour, fuel)
 ) ROW_FORMAT=FIXED;
 CREATE OR REPLACE VIEW gen_hourly_summary_fuel as
@@ -447,7 +426,7 @@ CREATE TABLE IF NOT EXISTS _gen_summary_fuel_la (
   avg_spinning_co2_tons double,
   avg_quickstart_capacity double,
   avg_total_operating_reserve double,
-  avg_deep_cycling_amount,
+  avg_deep_cycling_amount double,
   avg_deep_cycling_co2_tons double,
   avg_mw_started_up double,
   avg_startup_co2_tons double,
@@ -456,8 +435,6 @@ CREATE TABLE IF NOT EXISTS _gen_summary_fuel_la (
   INDEX carbon_cost (carbon_cost),
   INDEX period (period),
   INDEX area_id (area_id),
-  FOREIGN KEY (area_id) REFERENCES load_areas(area_id), 
-  FOREIGN KEY (fuel) REFERENCES technologies(fuel),
   INDEX fuel (fuel),
   PRIMARY KEY (scenario_id, carbon_cost, period, area_id, fuel)
 ) ROW_FORMAT=FIXED;
@@ -501,7 +478,6 @@ CREATE TABLE IF NOT EXISTS _local_td_cap (
   INDEX carbon_cost (carbon_cost),
   INDEX period (period),
   INDEX area_id (area_id),
-  FOREIGN KEY (area_id) REFERENCES load_areas(area_id), 
   PRIMARY KEY (scenario_id, carbon_cost, period, area_id, new)
 );
 CREATE OR REPLACE VIEW local_td_cap as
@@ -571,7 +547,7 @@ CREATE TABLE _rps_reduced_cost (
   carbon_cost smallint,
   period year,
   rps_compliance_entity varchar(20),
-  rps_compilance_type varchar(20),
+  rps_compliance_type varchar(20),
   rps_reduced_cost double DEFAULT NULL,
   PRIMARY KEY (scenario_id,carbon_cost,period,rps_compliance_entity),
   KEY scenario_id (scenario_id),
@@ -640,7 +616,6 @@ CREATE TABLE IF NOT EXISTS _existing_trans_cost_and_rps_reduced_cost (
   INDEX carbon_cost (carbon_cost),
   INDEX period (period),
   INDEX area_id (area_id),
-  FOREIGN KEY (area_id) REFERENCES load_areas(area_id), 
   PRIMARY KEY (scenario_id, carbon_cost, period, area_id)
 );
 
@@ -854,8 +829,7 @@ CREATE TABLE IF NOT EXISTS carbon_intensity_of_electricity (
   area_id smallint NOT NULL, 
   total_annual_emissions double,
   carbon_intensity double,
-  PRIMARY KEY (scenario_id, carbon_cost, period, area_id),
-  FOREIGN KEY (area_id) REFERENCES load_areas(area_id)
+  PRIMARY KEY (scenario_id, carbon_cost, period, area_id)
 );
 
 CREATE TABLE IF NOT EXISTS fuel_categories (
@@ -870,9 +844,7 @@ CREATE TABLE IF NOT EXISTS fuel_category_definitions (
   period year NOT NULL,
   technology_id tinyint unsigned NOT NULL, 
   fuel VARCHAR(64) NOT NULL,
-  PRIMARY KEY (fuel_category_id, scenario_id, period, technology_id, fuel),
-  FOREIGN KEY (fuel_category_id) REFERENCES fuel_categories(fuel_category_id),
-  FOREIGN KEY (technology_id) REFERENCES technologies(technology_id)
+  PRIMARY KEY (fuel_category_id, scenario_id, period, technology_id, fuel)
 ) ROW_FORMAT=FIXED;
 
 
@@ -895,8 +867,6 @@ CREATE TABLE IF NOT EXISTS _gen_hourly_summary_fc_la (
   INDEX study_date (study_date),
   INDEX area_id (area_id),
   INDEX (scenario_id, carbon_cost, study_hour, area_id, fuel_category_id, storage, power),
-  FOREIGN KEY (area_id) REFERENCES load_areas(area_id), 
-  FOREIGN KEY (fuel_category_id) REFERENCES fuel_categories(fuel_category_id),
   PRIMARY KEY (scenario_id, carbon_cost, study_hour, area_id, fuel_category_id, storage)
 ) ROW_FORMAT=FIXED;
 
@@ -914,8 +884,6 @@ CREATE TABLE IF NOT EXISTS hourly_la_emission_stocks (
   gross_power double DEFAULT 0,
   net_power double NOT NULL default 0,
   INDEX (scenario_id, carbon_cost, study_date, area_id, fuel_category_id, iteration),
-  FOREIGN KEY (area_id) REFERENCES load_areas(area_id), 
-  FOREIGN KEY (fuel_category_id) REFERENCES fuel_categories(fuel_category_id),
   PRIMARY KEY (scenario_id, carbon_cost, study_hour, area_id, fuel_category_id, iteration)
 );
 
@@ -938,8 +906,6 @@ CREATE TABLE IF NOT EXISTS daily_storage_emission_stocks (
   emissions double default 0,
   total_power_released double default 0,
   total_power_stored double default 0,
-  FOREIGN KEY (area_id) REFERENCES load_areas(area_id), 
-  FOREIGN KEY (fuel_category_id) REFERENCES fuel_categories(fuel_category_id),
   PRIMARY KEY (scenario_id, carbon_cost, study_date, area_id, fuel_category_id, iteration)
 );
 
@@ -1399,8 +1365,6 @@ CREATE TABLE IF NOT EXISTS _dispatch_extra_cap (
   updated_capacity double,
   capital_cost double,
   fixed_o_m_cost double,
---  FOREIGN KEY (area_id) REFERENCES load_areas(area_id), 
---  FOREIGN KEY (technology_id) REFERENCES technologies(technology_id), 
   PRIMARY KEY (scenario_id, carbon_cost, period, area_id, technology_id, project_id, test_set_id)
 );
 

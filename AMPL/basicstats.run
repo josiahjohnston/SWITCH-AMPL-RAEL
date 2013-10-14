@@ -56,42 +56,97 @@ let RELEVANT_PROJ_VINT_HOURS := { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t 
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: dispatchable[t] }
   Power_Produced[pid, a, t, p, h] := DispatchGen[pid, a, t, p, h];
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: flexible_baseload[t] }
-  Power_Produced[pid, a, t, p, h] := DispatchFlexibleBaseload[pid, a, t, p, date[h]];
+  Power_Produced[pid, a, t, p, h] := 
+    DispatchFlexibleBaseload[pid, a, t, p, date[h]]
+  	+ (if can_cofire_biomass[t] 
+  	   then DispatchFlexibleBaseloadCofire[pid, a, t, p, date[h]] 
+  	   else 0
+  	  );
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: intermittent[t] }
   Power_Produced[pid, a, t, p, h] := Installed_To_Date[pid, a, t, p] * cap_factor[pid, a, t, h] * gen_availability[t];
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: baseload[t] }
   Power_Produced[pid, a, t, p, h] := Installed_To_Date[pid, a, t, p] * gen_availability[t];
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: fuel[t] in BIO_SOLID_FUELS}
   Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := Power_Produced[pid, a, t, p, h] * heat_rate[pid, a, t] * Biomass_Solid_Fuel_Cost[a, p];
-let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: fuel[t] not in BIO_SOLID_FUELS and fuel[t] <> 'Gas' and fuel[t] <> 'Gas_CCS' }
-  Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := Power_Produced[pid, a, t, p, h] * heat_rate[pid, a, t] * fuel_price_in_period[pid, a, t, p];
+let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: 
+        fuel[t] not in BIO_SOLID_FUELS and fuel[t] <> 'Gas' and fuel[t] <> 'Gas_CCS' }
+  Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := 
+  if can_cofire_biomass[t] 
+  then (
+    (Power_Produced[pid, a, t, p, h] 
+     - (if flexible_baseload[t] 
+        then DispatchFlexibleBaseloadCofire[pid, a, t, p, date[h]] 
+        else Installed_Cofire_To_Date[pid, a, t, p] * gen_availability[t] )
+    )
+  * heat_rate[pid, a, t] * fuel_price_in_period[pid, a, t, p] )
+  else
+  Power_Produced[pid, a, t, p, h] * heat_rate[pid, a, t] * fuel_price_in_period[pid, a, t, p];
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: t = 'Compressed_Air_Energy_Storage' }
   Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := Power_Produced[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) * heat_rate[pid, a, t] * ( NG_Wellhead_Price_in_Period[p] + ng_regional_price_adder[nems_fuel_region[a], p] );
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: ( fuel[t] = 'Gas' or fuel[t] = 'Gas_CCS' ) and t <> 'Compressed_Air_Energy_Storage' }
   Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := Power_Produced[pid, a, t, p, h] * heat_rate[pid, a, t] * ( NG_Wellhead_Price_in_Period[p] + ng_regional_price_adder[nems_fuel_region[a], p] );
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: t <> 'Compressed_Air_Energy_Storage' }
-  Carbon_Emissions[pid, a, t, p, h] :=  Power_Produced[pid, a, t, p, h] * heat_rate[pid, a, t] * carbon_content[fuel[t]];
+  Carbon_Emissions[pid, a, t, p, h] :=  
+  if can_cofire_biomass[t] 
+  then (
+    (Power_Produced[pid, a, t, p, h] 
+     - (if flexible_baseload[t] 
+        then DispatchFlexibleBaseloadCofire[pid, a, t, p, date[h]] 
+        else Installed_Cofire_To_Date[pid, a, t, p] * gen_availability[t] )
+    )
+  * heat_rate[pid, a, t] * carbon_content[fuel[t]] )
+  else
+  Power_Produced[pid, a, t, p, h] * heat_rate[pid, a, t] * carbon_content[fuel[t]];
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: t = 'Compressed_Air_Energy_Storage' }
   Carbon_Emissions[pid, a, t, p, h] :=  Power_Produced[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) * heat_rate[pid, a, t] * carbon_content[fuel[t]];
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS }
   Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] := Carbon_Emissions[pid, a, t, p, h] * carbon_cost_by_period[p];
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: t <> 'Compressed_Air_Energy_Storage' }
-  Variable_Cost_Incurred_Hourly[pid, a, t, p, h] := Power_Produced[pid, a, t, p, h] * variable_o_m[t];
+  Variable_Cost_Incurred_Hourly[pid, a, t, p, h] := 
+  if can_cofire_biomass[t] 
+  then (
+    (Power_Produced[pid, a, t, p, h] 
+     - (if flexible_baseload[t] 
+        then DispatchFlexibleBaseloadCofire[pid, a, t, p, date[h]] 
+        else Installed_Cofire_To_Date[pid, a, t, p] * gen_availability[t] )
+    )
+    * variable_o_m[t] )
+  else 
+  Power_Produced[pid, a, t, p, h] * variable_o_m[t];
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: t = 'Compressed_Air_Energy_Storage' }
   Variable_Cost_Incurred_Hourly[pid, a, t, p, h] := Power_Produced[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) * variable_o_m[t];
 
 let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }
-  EP_Carbon_Emissions[pid, a, t, p, h] := ProducePowerEP[pid, a, t, p, h] * ep_heat_rate[pid, a, t] * carbon_content[fuel[t]];
+  EP_Carbon_Emissions[pid, a, t, p, h] := if can_cofire_biomass[t] then
+  ( (ProducePowerEP[pid, a, t, p, h] - (if flexible_baseload[t] then DispatchFlexibleBaseloadCofire[pid, a, t, p, date[h]] else Installed_Cofire_To_Date[pid, a, t, p] * gen_availability[t] ) )
+  * ep_heat_rate[pid, a, t] * carbon_content[fuel[t]] )
+      else ProducePowerEP[pid, a, t, p, h] * ep_heat_rate[pid, a, t] * carbon_content[fuel[t]];
 let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }
   EP_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] := EP_Carbon_Emissions[pid, a, t, p, h] * carbon_cost_by_period[p];
 let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: fuel[t] in BIO_SOLID_FUELS }
   EP_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := ProducePowerEP[pid, a, t, p, h] * ep_heat_rate[pid, a, t] * Biomass_Solid_Fuel_Cost[a, p];
 let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: fuel[t] not in BIO_SOLID_FUELS and fuel[t] <> 'Gas' and fuel[t] <> 'Gas_CCS' }
-  EP_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := ProducePowerEP[pid, a, t, p, h] * ep_heat_rate[pid, a, t] * fuel_price_in_period[pid, a, t, p];
+  EP_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := if can_cofire_biomass[t] then
+  ( (ProducePowerEP[pid, a, t, p, h] - (if flexible_baseload[t] then DispatchFlexibleBaseloadCofire[pid, a, t, p, date[h]] else Installed_Cofire_To_Date[pid, a, t, p] * gen_availability[t] ) )
+  * ep_heat_rate[pid, a, t] * fuel_price_in_period[pid, a, t, p] )
+  else
+  ProducePowerEP[pid, a, t, p, h] * ep_heat_rate[pid, a, t] * fuel_price_in_period[pid, a, t, p];
 let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: fuel[t] = 'Gas' or fuel[t] = 'Gas_CCS' }
   EP_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := ProducePowerEP[pid, a, t, p, h] * ep_heat_rate[pid, a, t] * ( NG_Wellhead_Price_in_Period[p] + ng_regional_price_adder[nems_fuel_region[a], p] ) ;
 let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }
-  EP_Variable_Cost_Incurred_Hourly[pid, a, t, p, h] := ProducePowerEP[pid, a, t, p, h] * ep_variable_o_m[pid, a, t];
+  EP_Variable_Cost_Incurred_Hourly[pid, a, t, p, h] := if can_cofire_biomass[t] then
+  ( (ProducePowerEP[pid, a, t, p, h] - (if flexible_baseload[t] then DispatchFlexibleBaseloadCofire[pid, a, t, p, date[h]] else Installed_Cofire_To_Date[pid, a, t, p] * gen_availability[t] ) )
+  * ep_variable_o_m[pid, a, t] )
+  else
+  ProducePowerEP[pid, a, t, p, h] * ep_variable_o_m[pid, a, t];
+
+# Define Power Produced by all biomass cofiring separately
+# This is reported separately by the printout of basicstats
+let {(pid, a, t, p, h) in AVAILABLE_HOURS: can_cofire_biomass[t] } ProducePowerCofire[pid, a, t, p, h] := 0;
+let { (pid, a, t, p, h) in AVAILABLE_HOURS: can_cofire_biomass[t] } ProducePowerCofire[pid, a, t, p, h] := 
+  if flexible_baseload[t] then DispatchFlexibleBaseloadCofire[pid, a, t, p, date[h]]
+  else Installed_Cofire_To_Date[pid, a, t, p] * gen_availability[t];
+
 
 # add back pid to pumped hydro dispatch
 let { (pid, a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS_BY_PID }
@@ -261,8 +316,6 @@ let { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t = 'Compressed_Air_Energy_Sto
 let { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t = 'Compressed_Air_Energy_Storage'} 		
 	Storage_Quickstart_Capacity_Provided[pid, a, t, p, h] := 
 	caes_storage_to_ng_ratio[t] * Provide_Quickstart_Capacity[pid, a, t, p, h];
-	
-
 
 # calculate the fuel and carbon costs incurred for thermal spinning reserves
 let { (pid, a, t, p, h) in AVAILABLE_HOURS } Thermal_Spinning_Reserve_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := 0;  
@@ -295,19 +348,29 @@ let { (pid, a, t, p, h) in AVAILABLE_HOURS} Deep_Cycling_Carbon_Cost_Incurred_Ho
 
 # flexible baseload plants
 let { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] } Amount_Deep_Cycled[pid, a, t, p, h]  :=
-  Deep_Cycle_Amount[pid, a, t, p, date[h]];
+  Deep_Cycle_Amount[pid, a, t, p, date[h]]
+  + (if can_cofire_biomass[t] then Deep_Cycle_Cofire_Amount[pid, a, t, p, date[h]]);
 
 # intermediate generation
 let { (pid, a, t, p, h) in AVAILABLE_HOURS: t in INTERMEDIATE_TECHNOLOGIES } Amount_Deep_Cycled[pid, a, t, p, h]  :=
   Commit_Intermediate_Gen[pid, a, t, p, h] - ( ( if can_build_new[t] then DispatchGen[pid, a, t, p, h] else ProducePowerEP[pid, a, t, p, h] ) + Provide_Spinning_Reserve[pid, a, t, p, h] ) ;
   
 let { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] or t in INTERMEDIATE_TECHNOLOGIES } Deep_Cycling_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h]  :=
+  if can_cofire_biomass[t] then (( Amount_Deep_Cycled[pid, a, t, p, h] - Deep_Cycle_Cofire_Amount[pid, a, t, p, date[h]] )
+	* deep_cycling_penalty[t] * ( if can_build_new[t] then heat_rate[pid, a, t] else ep_heat_rate[pid, a, t] )
+    * fuel_price_in_period[pid, a, t, p] )
+  else
   Amount_Deep_Cycled[pid, a, t, p, h]
 	    * deep_cycling_penalty[t]
 	    * ( if can_build_new[t] then heat_rate[pid, a, t] else ep_heat_rate[pid, a, t] )
 	    * ( if ( fuel[t] = 'Gas' or fuel[t] = 'Gas_CCS' ) then ( NG_Wellhead_Price_in_Period[p] + ng_regional_price_adder[nems_fuel_region[a], p] ) else fuel_price_in_period[pid, a, t, p] ) ;
 
 let { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] or t in INTERMEDIATE_TECHNOLOGIES } Deep_Cycling_Carbon_Emissions[pid, a, t, p, h]  :=
+	if can_cofire_biomass[t] then
+	( ( Amount_Deep_Cycled[pid, a, t, p, h] - Deep_Cycle_Cofire_Amount[pid, a, t, p, date[h]] )
+	* deep_cycling_penalty[t] * ( if can_build_new[t] then heat_rate[pid, a, t] else ep_heat_rate[pid, a, t] )
+    *  carbon_content[fuel[t]] )
+	else
   Amount_Deep_Cycled[pid, a, t, p, h] * deep_cycling_penalty[t] * ( if can_build_new[t] then heat_rate[pid, a, t] else ep_heat_rate[pid, a, t] ) * carbon_content[fuel[t]];
 
 let { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] or t in INTERMEDIATE_TECHNOLOGIES } Deep_Cycling_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h]  :=
@@ -596,6 +659,9 @@ for {p in PERIODS} {
 	  )
 	  / Gross_Power_by_Period[p]
 	;
+	
+	# All produced power above should sum to 100%. This statistic is for the cofiring portion among all technologies as a share of 100%.
+	printf "Biomass Cofiring (Total%)= %.0f \n", 100 * ( sum { (pid, a, t, p, h) in AVAILABLE_HOURS: can_cofire_biomass[t] } ProducePowerCofire[pid, a, t, p, h] * hours_in_sample[h] ) / Gross_Power_by_Period[p];
 	
 	printf "\n   Transmission Losses=%2d\%\n  Distribution Losses=%2d\%\n  Storage Losses=%2d\%\n   Spilled=%2d\%\n", 
 		100 * Transmission_Losses_by_Period[p] / Gross_Power_by_Period[p], 

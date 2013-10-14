@@ -213,7 +213,27 @@ param bio_fuel_limit_by_load_area { (f, a, p) in BIO_FUELS_LOAD_AREAS }
 	= 	( if f = 'Bio_Gas' then bio_gas_capacity_limit_mmbtu_per_hour[a]
 		else if f = 'Bio_Solid' then biomass_maximum_mmbtu_per_hour[a, p] )
 		* hours_in_period[p];
-		  
+
+# subset of technologies that can cofire biomass is called COFIRE_TECHNOLOGIES. Info in cofire_info.tab.
+set COFIRE_TECHNOLOGIES in TECHNOLOGIES;
+param parent_technology_id {COFIRE_TECHNOLOGIES} >= 0;
+check {t in COFIRE_TECHNOLOGIES}: parent_technology_id[t] = technology_id[t];
+
+# cofire_scenario_id determines which cofiring cost and heat parameters to use
+# cofire_scenario_id = 0 disables cofire. >= 0 enables cofiring.
+param cofire_scenario_id default 0;
+
+# if a plant can cofire biomass (binary parameter). by default we disable this option.
+# if cofire_scenario_id = 0, tweak_problem.run will disable cofiring by setting this parameter = 0 
+param can_cofire_biomass {TECHNOLOGIES} binary default 0;
+# create other biomass cofiring parameters (held in cofire_info.tab)
+param heat_rate_cofire {COFIRE_TECHNOLOGIES} >= 0;
+param cost_of_plant_one_year_before_operational_cofire {COFIRE_TECHNOLOGIES}  >= 0;
+param fixed_o_m_cofire_per_period {COFIRE_TECHNOLOGIES} >= 0;
+param variable_o_m_cofire {COFIRE_TECHNOLOGIES} >= 0;
+# carbon_content_bio_ccs is defined in load.run, derived from carbon_content[fuel['Bio_Solid_CCS']]
+param carbon_content_bio_ccs;
+
 # construction lead time (years)
 param construction_time_years {TECHNOLOGIES} >= 0;
 
@@ -539,6 +559,40 @@ set AVAILABLE_DATES := setof { (pid, a, t, p, h) in AVAILABLE_HOURS, d in DATES:
 set PROJECT_AVAILABLE_DATES := { (pid, a, t, p, d) in AVAILABLE_DATES: can_build_new[t] };
 set EP_AVAILABLE_DATES := { (pid, a, t, p, d) in AVAILABLE_DATES: not can_build_new[t] };
 
+# Create set just for InstallCofire, AVAILABLE_COFIRE_VINTAGES, and set COFIRE_VINTAGE_INSTALLED_PERIODS, to create Installed_Cofire_To_Date 
+# The elements of this set are: 
+#        ( pid, a, t, turbine_online_year, cofire_online_year).
+# The vintage of a cofire boiler retrofit is set by turbine_online_year, cofire_online_year, 
+# meaning that each cofire retrofit is tied to a specific vintage of generator, regardless of 
+# when the retrofit gets installed. 
+set AVAILABLE_COFIRE_VINTAGES = 
+  { (pid, a, t, turbine_online_year, turbine_operating_period) in PROJECT_VINTAGE_INSTALLED_PERIODS: 
+    can_cofire_biomass[t] 
+	} union 
+	setof { (pid, a, t, turbine_operating_period) in EP_PERIODS, cofire_online_year in PERIODS: 
+    cofire_online_year = turbine_operating_period and 
+    can_cofire_biomass[t] 
+  } (pid, a, t, ep_vintage[pid, a, t], cofire_online_year);
+
+# The elements of this set are: 
+#        ( pid, a, t, turbine_online_year, cofire_online_year, cofire_operating_period).
+set COFIRE_VINTAGE_INSTALLED_PERIODS = 
+  { (pid, a, t, turbine_online_year, cofire_online_year) in AVAILABLE_COFIRE_VINTAGES, 
+    cofire_operating_period in PERIODS: 
+      can_build_new[t] and 
+      cofire_online_year      <= cofire_operating_period and 
+      cofire_operating_period < project_end_year[pid, a, t, turbine_online_year]
+  }	union 
+  setof { (pid, a, t, turbine_operating_period) in EP_PERIODS, 
+    cofire_online_year in PERIODS, 
+    # Pull cofire_operating_period from EP_PERIODS to ensure the cofire boiler will not be
+    # operated after the plant is retired. 
+    (pid, a, t, cofire_operating_period) in EP_PERIODS: 
+    can_cofire_biomass[t] and 
+    cofire_online_year = turbine_operating_period and
+    turbine_operating_period <= cofire_operating_period 
+  } (pid, a, t, ep_vintage[pid, a, t], cofire_online_year, cofire_operating_period);
+
 
 ##################################################################
 # RPS goals for each load area 
@@ -700,7 +754,7 @@ param storage_energy_capacity_vintage_overnight_costs { (pid, a, t, p) in PROJEC
 # NOTE: Bielicki's y-axis is wrong... it says tonnes when it's really ktonnes
 # this is corroborated by a document found in switch_input_data/CCS called
 # 'Using Natural Gas Transmission Pipeline Costs to Estimate Hydrogen Pipeline Costs' by Nathan Parker
-# this source uses similar pipline data to Bielicki but differes in costs by 10^3 (hence Bielicki's error)
+# this source uses similar pipline data to Bielicki but differs in costs by 10^3 (hence Bielicki's error)
 
 # we'll assume the the pipeline has to be sized for maximum carbon capacity (i.e. no local carbon storage)
 # the kt of carbon generated per year is given on the last line
@@ -760,10 +814,46 @@ param storage_energy_capacity_annual_payment { (pid, a, t, p) in PROJECT_VINTAGE
   discount_rate / ( 1 - (1 + discount_rate) ^ ( -1 * plant_lifetime_years[pid, a, t] ) );
   
   
+# annual payment for cofire. Only one year for construction (see B+V). $ / MW.
+# Do not add connection cost or ccs pipeline cost, as they are already included in the plant.
+# Number of years should be based on when the plant closes: this necessitates using AVAILABLE_COFIRE_VINTAGES and turbine_online_year
+# Number of years: turbine_online_year + max_age_years - p
+param capital_cost_annual_payment_cofire {(pid, a, t, turbine_online_year, p) in AVAILABLE_COFIRE_VINTAGES} = 
+  cost_of_plant_one_year_before_operational_cofire[t] * economic_multiplier[a] *
+  discount_rate / (
+    1 - (1 + discount_rate) ^ (
+      -1 * ( if can_build_new[t] 
+             then (turbine_online_year + max_age_years[t] - p) 
+             else (ep_end_year[pid, a, t] - p)
+            ) 
+    )
+  );
+
 # Convert annual payments made in each period the plant is operational to a lump-sum in the first year of the period and then discount back to the base year
 param capital_cost {(pid, a, t, online_yr) in PROJECT_VINTAGES} = 
   sum {p in PERIODS: online_yr <= p < project_end_year[pid, a, t, online_yr]}
   	capital_cost_annual_payment[pid, a, t, online_yr] * discount_to_base_year[p];
+
+# Create separate capital_cost parameter for cofiring (defined as constant by B+V each year)
+param capital_cost_cofire {(pid, a, t, turbine_online_year, p) in AVAILABLE_COFIRE_VINTAGES} = 
+  sum { p_extra in PERIODS: 
+          p_extra = p and 
+          turbine_online_year <= p_extra and 
+          p_extra < (if can_build_new[t] 
+                     then project_end_year[pid, a, t, turbine_online_year] 
+                     else ep_end_year[pid, a, t] ) 
+      }
+    capital_cost_annual_payment_cofire[pid, a, t, turbine_online_year, p] * discount_to_base_year[p];
+
+# Also, create separate fixed_o_m_discounted parameter for cofiring (defined as constant by B+V each year)
+# No variable O+M for cofiring (per B+V)
+param fixed_o_m_cofire_discounted { (pid, a, t, online_yr) in AVAILABLE_VINTAGES: can_cofire_biomass[t] } = 
+  sum {p in PERIODS: online_yr <= p and
+         p < (if can_build_new[t] 
+              then project_end_year[pid, a, t, online_yr] 
+              else ep_end_year[pid, a, t] )
+      } 
+    fixed_o_m_cofire_per_period[t] * economic_multiplier[a] * discount_to_base_year[p];
 
 # discount capital costs to a lump-sum value at the start of the study.
 param ep_capital_cost { (pid, a, t, p) in EP_PERIODS } =
@@ -802,6 +892,11 @@ param variable_o_m_cost_hourly { (pid, a, t, p, h) in AVAILABLE_HOURS } =
 	( if can_build_new[t] then variable_o_m[t] * economic_multiplier[a] else ep_variable_o_m[pid, a, t] )
 	* ( hours_in_sample[h] / num_years_per_period ) * discount_to_base_year[p];
 
+# similar parameter for cofiring (per MWh)
+param variable_o_m_hourly_cofire { (pid, a, t, p, h) in AVAILABLE_HOURS: can_cofire_biomass[t] } =
+	variable_o_m_cofire[t] * economic_multiplier[a]
+	* ( hours_in_sample[h] / num_years_per_period ) * discount_to_base_year[p];
+
 # same for the fuel cost per MWh
 # fuel_price_in_period is 0 for bio solid and natural gas fuels as all bio solid and NG fuel costs are calculated via their respective supply curves
 param fuel_cost_hourly { (pid, a, t, p, h) in AVAILABLE_HOURS } =
@@ -815,12 +910,33 @@ param carbon_cost_per_mwh_hourly { (pid, a, t, p, h) in AVAILABLE_HOURS } =
 	* carbon_content[fuel[t]] * carbon_cost_by_period[p]
 	* ( hours_in_sample[h] / num_years_per_period ) * discount_to_base_year[p];
 
+# carbon cost per MWh for biomass cofiring
+# This is currently only partially implemented because it is only defined for CCS technologies, rather than all biomass cofiring. 
+# It is adequate for the current scenarios that have 0 emissions from non-CCS biomass, but will break down for non-zero emission scenarios. Including LCA of biomass (at least direct land use impacts), or considering non-CO2 emissions would make biomass have positive emissions. 
+param carbon_cost_per_mwh_hourly_cofire { (pid, a, t, p, h) in AVAILABLE_HOURS: can_cofire_biomass[t] and ccs[t] } = 
+	heat_rate_cofire[t] 
+	* carbon_content_bio_ccs * carbon_cost_by_period[p]
+	* ( hours_in_sample[h] / num_years_per_period ) * discount_to_base_year[p];
+
 # now tally all variable costs ($/MWh costs) by period for generators that aren't dispached hourly (i.e. intermittent and baseload)
 # variable_cost is inclusive of variable o & m, fuel and carbon
 param variable_cost { (pid, a, t, online_yr) in PROJECT_VINTAGES: intermittent[t] or baseload[t] } = 
   sum { p in PERIODS, h in TIMEPOINTS: online_yr <= p < project_end_year[pid, a, t, online_yr] and period[h] = p }
 	( ( if baseload[t] then 1 else if intermittent [t] then cap_factor[pid, a, t, h] ) * gen_availability[t]
 	* ( variable_o_m_cost_hourly[pid, a, t, p, h] + fuel_cost_hourly[pid, a, t, p, h] + carbon_cost_per_mwh_hourly[pid, a, t, p, h] ) );
+
+# Similar variable for baseload biomass cofiring. For now, only carbon costs.
+# B+V lists no variable costs for cofiring. Still, cofire_info implements independent var 0+M costs by parent technology.
+param variable_cost_cofire { (pid, a, t, online_yr) in AVAILABLE_VINTAGES: 
+                              can_cofire_biomass[t] and baseload[t]} = 
+  sum { p in PERIODS, h in TIMEPOINTS: 
+        online_yr <= p and 
+        p < (if can_build_new[t] then project_end_year[pid, a, t, online_yr] else ep_end_year[pid, a, t] ) 
+        and period[h] = p }
+	gen_availability[t] 
+	* ( (if ccs[t] then carbon_cost_per_mwh_hourly_cofire[pid, a, t, p, h])
+	    + variable_o_m_hourly_cofire[pid, a, t, p, h] 
+	  );
 
 
 #######################################
@@ -878,6 +994,8 @@ param duration_requirement_for_operating_reserves_hours := 1;
 
 # fraction of flexible baseload generator capacity that must run in baseload mode
 param minimum_loading {TECHNOLOGIES} >= 0;
+check {t in TECHNOLOGIES: flexible_baseload[t]}: 
+  minimum_loading[t] <= gen_availability[t];
 
 # cycling penalty incurred by flexible baseload plants when below full load
 param deep_cycling_penalty {TECHNOLOGIES} >= 0;
@@ -1097,7 +1215,28 @@ var DispatchFlexibleBaseload { (pid, a, t, p, d) in AVAILABLE_DATES: flexible_ba
 # CCGT capacity committed and online in each hour
 var Commit_Intermediate_Gen { (pid, a, t, p, h) in AVAILABLE_HOURS: t in INTERMEDIATE_TECHNOLOGIES } >= 0;
 
-  
+# Capacity and Dispatch Decisions for Cofiring
+# If cofiring (aka a biomass boiler) is added to a baseload coal plant, then it permanently displaces a fixed amount of coal. The baseload plant operator cannot make daily decisions about how much coal to displace with biomass. 
+# Technology definitions (ex: gen_availability) assumed same as parent technology
+# Use set AVAILABLE_COFIRE_VINTAGES for InstallCofire, and COFIRE_VINTAGE_INSTALLED_PERIODS for the summation in Installed_Cofire_To_Date 
+
+var DispatchFlexibleBaseloadCofire { (pid, a, t, p, d) in AVAILABLE_DATES: can_cofire_biomass[t] and flexible_baseload[t] } >= 0;
+var InstallCofire { (pid, a, t, turbine_online_year, p) in AVAILABLE_COFIRE_VINTAGES } >= 0;
+var Installed_Cofire_To_Date { (pid, a, t, cofire_operating_period) in AVAILABLE_VINTAGES: can_cofire_biomass[t] } =
+	sum { (pid, a, t, turbine_online_year, cofire_online_year, cofire_operating_period) in COFIRE_VINTAGE_INSTALLED_PERIODS }
+	  InstallCofire[pid, a, t, turbine_online_year, cofire_online_year];
+
+# For baseload, define difference between Installed_To_Date and Installed_Cofire_To_Date as the new Coal_Portion_Baseload_Cofire (cannot limit through constraints)
+# Created by a sum of difference between InstallGen (new) or ep_capacity_mw (EPs) and InstallCofire
+# Carry Coal_Portion_Baseload_Cofire throughout the model to correctly describe energy produced by baseload coal that can cofire biomass
+var Coal_Portion_Baseload_Cofire { (pid, a, t, p) in AVAILABLE_VINTAGES: can_cofire_biomass[t] and baseload[t]} =
+	(if can_build_new[t] 
+	 then Installed_To_Date[pid, a, t, p]  
+	 else ep_capacity_mw[pid, a, t] 
+	)
+  - Installed_Cofire_To_Date[pid, a, t, p]
+	;
+
 # binary constraint that restricts small plants of certain types of generators from being built
 # this quantity is one when there is there is not a constraint on how small plants can be
 # and is zero when there is a constraint
@@ -1120,6 +1259,14 @@ var Deep_Cycle_Amount { (pid, a, t, p, d) in AVAILABLE_DATES: flexible_baseload[
  else ( OperateEPDuringPeriod[pid, a, t, p] * ep_capacity_mw[pid, a, t] * gen_availability[t]
 		- DispatchFlexibleBaseload[pid, a, t, p, d] );
 
+# derived variable for Deep Cycling for Cofiring as well.
+# Deep cycling (aka running below full output) incurs a heat rate penalty - you have to burn more fuel. 
+# This implementation allocates the heat requirement to coal and biomass proportionally to their energy contributions instead
+# of deciding what to burn to generate the heat. It's not a big deal as long as deep cycling fuel requirements remain low.
+var Deep_Cycle_Cofire_Amount { (pid, a, t, p, d) in AVAILABLE_DATES: flexible_baseload[t] and can_cofire_biomass[t] } = 
+ Installed_Cofire_To_Date[pid, a, t, p] * gen_availability[t]
+	    - DispatchFlexibleBaseloadCofire[pid, a, t, p, d] ;
+
 # Startup variables
 # how much peaker and CCGT capacity was started up since the previous hour
 # variable has to be non-negative as a penalty is only applied when ramping up
@@ -1129,17 +1276,44 @@ var Startup_MW_from_Last_Hour { (pid, a, t, p, h) in AVAILABLE_HOURS: t in PEAKE
 # as a function of the installed biomass generation capacity.
 # this corresponds via the objective function to a price level on the biomass solid supply curve
 # if this variable is changed, check subject to Maximum_Resource_Bio below - it may need to be changed as well
-var ConsumeBioSolid {a in LOAD_AREAS, p in PERIODS: num_bio_breakpoints[a, p] > 0 } = 
-	# the hourly MWh output of biomass solid projects in baseload mode is below
+var ConsumeBioSolid {a in LOAD_AREAS, p in PERIODS: num_bio_breakpoints[a, p] > 0} = 
+	# sum both baseload and flexible baseload bio projects
+	# the hourly MWh output of biomass solid projects in baseload mode is below	
 		(
-		( sum { (pid, a, t, p) in PROJECT_VINTAGES: fuel[t] in BIO_SOLID_FUELS } 
+		( sum { (pid, a, t, p) in PROJECT_VINTAGES: baseload[t] and fuel[t] in BIO_SOLID_FUELS } 
 			( Installed_To_Date[pid, a, t, p] * gen_availability[t]
 			* ( heat_rate[pid, a, t] + cogen_thermal_demand[pid, a, t] ) ) )
-		+ ( sum { (pid, a, t, p) in EP_PERIODS: fuel[t] in BIO_SOLID_FUELS } 
+		+ ( sum { (pid, a, t, p) in EP_PERIODS: baseload[t] and fuel[t] in BIO_SOLID_FUELS } 
 			( OperateEPDuringPeriod[pid, a, t, p] * ep_capacity_mw[pid, a, t] * gen_availability[t]
 			* ( ep_heat_rate[pid, a, t] + ep_cogen_thermal_demand[pid, a, t] ) ) )
+		# add consumed bio from cofired baseload plants (just cogen)
+		# separate cogen demands whether new or EP
+		+ ( sum { (pid, a, t, p) in AVAILABLE_VINTAGES: baseload[t] and can_cofire_biomass[t] } 
+			( Installed_Cofire_To_Date[pid, a, t, p] * gen_availability[t] ) *
+			if can_build_new[t]
+			then ( heat_rate_cofire[t] + cogen_thermal_demand[pid, a, t] ) 
+			else ( heat_rate_cofire[t] + ep_cogen_thermal_demand[pid, a ,t] )
+			)
 		# multiply by the number of hours in each period to get the total fuel consumed
-		) * hours_in_period[p];
+		) * hours_in_period[p]
+	# now add output of flexible baseload capacity 
+	# Sum hourly (date[h]) for DispatchFleixbleBaseload
+		+ (sum { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] and fuel[t] in BIO_SOLID_FUELS }
+			(DispatchFlexibleBaseload[pid, a, t, p, date[h]] * 
+			( if can_build_new[t] then heat_rate[pid, a, t] else ep_heat_rate[pid, a, t] ) * hours_in_sample[h] ) )
+	# Sum dispatch from cofiring plants
+	+ (sum { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] and can_cofire_biomass[t]}
+			(DispatchFlexibleBaseloadCofire[pid, a, t, p, date[h]] * 
+			heat_rate_cofire[t] * hours_in_sample[h] ) )
+	# sum fuel consumed from deep cycling
+		+ ( sum { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] and fuel[t] in BIO_SOLID_FUELS}
+	   		(Deep_Cycle_Amount[pid, a, t, p, date[h]] * deep_cycling_penalty[t] * 
+	   		( if can_build_new[t] then heat_rate[pid, a, t] else ep_heat_rate[pid, a, t] ) * hours_in_sample[h]))
+	# sum fuel consumed from biomass cofiring (using Deep_Cycle_Cofire_Amount, and defined heat rate)
+		+  ( sum { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] and can_cofire_biomass[t]}
+	   		(Deep_Cycle_Cofire_Amount[pid, a, t, p, date[h]] * deep_cycling_penalty[t] * 
+	   		heat_rate_cofire[t] * hours_in_sample[h]))
+		;
 
 # the load in MW drawn from grid from storing electrons in new storage plants
 var StoreEnergy {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t]} >= 0;
@@ -1292,10 +1466,32 @@ minimize Power_Cost:
         InstallGen[pid, a, t, p] * ( capital_cost[pid, a, t, p] + fixed_o_m_discounted[pid, a, t, p] ) )
     + ( sum { (pid, a, t, p) in PROJECT_VINTAGES: storage[t] } 
         InstallStorageEnergyCapacity[pid, a, t, p] *  storage_energy_capacity_capital_cost[pid, a, t, p] )    
+  # Capital and Fixed O+M for Biomass Cofiring (Feedstock and Cycling accounted for by ConsumeBioSolid)
+  + ( sum { (pid, a, t, turbine_online_year, p) in AVAILABLE_COFIRE_VINTAGES} 
+    	InstallCofire[pid, a, t, turbine_online_year, p] 
+    	* ( capital_cost_cofire[pid, a, t, turbine_online_year, p] +  fixed_o_m_cofire_discounted[pid, a, t, p] ) 
+    )
+	# Variable and Carbon costs from CCS biomass cofiring (operation and deep cycling)
+	+ ( sum { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] and can_cofire_biomass[t]}
+		  DispatchFlexibleBaseloadCofire[pid, a, t, p, date[h]] *
+		  ( (if ccs[t] then carbon_cost_per_mwh_hourly_cofire[pid, a, t, p, h]) + variable_o_m_hourly_cofire[pid, a, t, p, h])
+		) 
+	+ ( sum { (pid, a, t, turbine_online_year, p) in AVAILABLE_COFIRE_VINTAGES: baseload[t]} 
+  		( InstallCofire[pid, a, t, turbine_online_year, p] * variable_cost_cofire[pid, a, t, p] ) 
+  	)
+	+ ( sum { (pid, a, t, p, h) in AVAILABLE_HOURS: ccs[t] and flexible_baseload[t] and can_cofire_biomass[t]}
+	   	(Deep_Cycle_Cofire_Amount[pid, a, t, p, date[h]] * deep_cycling_penalty[t] * 
+	   	carbon_cost_per_mwh_hourly_cofire[pid, a, t, p, h] ) 
+	  )
 	# Variable, fuel, and carbon costs for intermittent and baseload generators
 	# Bio_solid fuel cost isn't included here - it's in the bio supply curve
-    + ( sum { (pid, a, t, p) in PROJECT_VINTAGES: intermittent[t] or baseload[t] } 
+	# Baseload coal with cofiring has different fuel and carbon costs, so need to include them below
+	# Gen availability is taken into account in the calculation of variable_cost, so it's not needed in these next few lines. 
+    + ( sum { (pid, a, t, p) in PROJECT_VINTAGES: intermittent[t] or (baseload[t] and not can_cofire_biomass[t])} 
         InstallGen[pid, a, t, p] * variable_cost[pid, a, t, p] )
+    # Variable costs for (new ) baseload coal plants with cofiring
+    + ( sum { (pid, a, t, p) in AVAILABLE_VINTAGES: baseload[t] and can_cofire_biomass[t] and can_build_new[t] } 
+        Coal_Portion_Baseload_Cofire[pid, a, t, p] * variable_cost[pid, a, t, p])
 	# BioSolid fuel costs - ConsumeBioSolid is the MMbtu of biomass consumed per period per load area
 	# this is annualized because costs in the objective function are annualized for proper discounting
 	+ ( sum { a in LOAD_AREAS, p in PERIODS: num_bio_breakpoints[a, p] > 0 } 
@@ -1358,8 +1554,15 @@ minimize Power_Cost:
 		( if ( intermittent[t] or hydro[t] ) then 1 else OperateEPDuringPeriod[pid, a, t, p] ) * ep_capacity_mw[pid, a, t] * ep_fixed_o_m_by_period[pid, a, t, p] )
 	# Calculate variable, fuel, and carbon costs for all existing plants
 	# Bio_solid fuel cost isn't included here - it's in the bio supply curve
-	+ ( sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS}
-		ProducePowerEP[pid, a, t, p, h] * ( variable_o_m_cost_hourly[pid, a, t, p, h] + fuel_cost_hourly[pid, a, t, p, h] + carbon_cost_per_mwh_hourly[pid, a, t, p, h] ) )
+	+ ( sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS }
+		( if can_cofire_biomass[t]
+		  then ( if flexible_baseload[t] 
+             then DispatchFlexibleBaseload[pid, a, t, p, date[h]]
+             else Coal_Portion_Baseload_Cofire[pid, a, t, p] * gen_availability[t] 
+      )
+		  else ProducePowerEP[pid, a, t, p, h] 
+		)
+		* ( variable_o_m_cost_hourly[pid, a, t, p, h] + fuel_cost_hourly[pid, a, t, p, h] + carbon_cost_per_mwh_hourly[pid, a, t, p, h] ) )
 	# variable costs for releasing energy from pumped hydro storage - currently zero because the variable O&M value is zero
 	# decision variables are on the load area level - this shares them out by plant (pid) in case plants have different variable costs within a load area
 	+ ( sum {(pid, a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS_BY_PID}
@@ -1455,22 +1658,50 @@ subject to Carbon_Cap {p in PERIODS}:
 	  + Provide_Spinning_Reserve[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) * heat_rate_spinning_reserve[pid, a, t] )
 	  * carbon_content[fuel[t]] * hours_in_sample[h] )
 	# Carbon emissions from new baseload plants
-	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t]}
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t] and not can_cofire_biomass[t]}
 		Installed_To_Date[pid, a, t, p] * gen_availability[t] * heat_rate[pid, a, t] * carbon_content[fuel[t]] * hours_in_sample[h] )
 	# Carbon emissions from new flexible baseload plants
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: flexible_baseload[t] } (
 	   DispatchFlexibleBaseload[pid, a, t, p, date[h]] * heat_rate[pid, a, t] * carbon_content[fuel[t]] * hours_in_sample[h] ) )
-	# Carbon emissions from existing plants
-	+ ( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS } (
-	ProducePowerEP[pid, a, t, p, h] * ep_heat_rate[pid, a, t]
-	+ ( ( if dispatchable[t] then Provide_Spinning_Reserve[pid, a, t, p, h] else 0 ) * heat_rate_spinning_reserve[pid, a, t] )
-	) * carbon_content[fuel[t]] * hours_in_sample[h] )
+	# Carbon emissions from existing plants. If you add biomass flexible or intermediate generators, you'll need to update the if-statement logic below. 
+  + ( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: not (baseload[t] and can_cofire_biomass[t]) } ( 
+      ( 
+        ( if can_cofire_biomass[t] 
+          then ( DispatchFlexibleBaseload[pid, a, t, p, date[h]] * ep_heat_rate[pid, a, t] ) 
+          else ( ProducePowerEP[pid, a, t, p, h] * ep_heat_rate[pid, a, t] ) 
+        )
+        + ( ( if dispatchable[t] 
+              then Provide_Spinning_Reserve[pid, a, t, p, h] 
+              else 0 
+            ) * heat_rate_spinning_reserve[pid, a, t] )
+      ) # Total fuel burnt
+      * carbon_content[fuel[t]] * hours_in_sample[h] 
+    ) )
 	# Carbon emissions from heat rate degradation of flexible baseload plants operating below full load
 	+ ( sum { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] } (
 	    Deep_Cycle_Amount[pid, a, t, p, date[h]] * deep_cycling_penalty[t] 
 	    * ( if can_build_new[t] then heat_rate[pid, a, t] else ep_heat_rate[pid, a, t] )
 	    * carbon_content[fuel[t]] * hours_in_sample[h] )
 	    )
+	# carbon emissions (negative) from CCS biomass cofiring. 
+	+ (sum { (pid, a, t, p, h) in AVAILABLE_HOURS: ccs[t] and flexible_baseload[t] and can_cofire_biomass[t]}
+		  ( DispatchFlexibleBaseloadCofire[pid, a, t, p, date[h]]  
+		    * heat_rate_cofire[t] * hours_in_sample[h] * carbon_content_bio_ccs 
+		  )
+		)
+	# updated carbon emissions from baseload coal plants after netting cofiring portion. Excluded from baseload new and EPs (above).
+	+ ( sum {(pid, a, t, p, h) in AVAILABLE_HOURS: baseload[t] and can_cofire_biomass[t]}
+		Coal_Portion_Baseload_Cofire[pid, a, t, p] * gen_availability[t] * carbon_content[fuel[t]] * hours_in_sample[h] *
+		(if can_build_new[t]
+		then heat_rate[pid, a, t] else ep_heat_rate[pid, a, t]) )
+	# Baseload carbon emissions (negative) from CCS biomass cofiring.
+	+   ( sum { (pid, a, t, p, h) in AVAILABLE_HOURS: ccs[t] and baseload[t] and can_cofire_biomass[t]} 
+		( Installed_Cofire_To_Date[pid, a, t, p] * gen_availability[t]
+		* heat_rate_cofire[t] * hours_in_sample[h] * carbon_content_bio_ccs) )
+	# carbon emissions from deep cycling of flexible baseload biomass cofiring
+	+ ( sum { (pid, a, t, p, h) in AVAILABLE_HOURS: ccs[t] and flexible_baseload[t] and can_cofire_biomass[t]}
+	   	(Deep_Cycle_Cofire_Amount[pid, a, t, p, date[h]] * deep_cycling_penalty[t] * 
+	   	heat_rate_cofire[t] * hours_in_sample[h] * carbon_content_bio_ccs ) )
 	# carbon emissions from keeping intermediate plants below full load
 	 + ( sum { (pid, a, t, p, h) in AVAILABLE_HOURS: t in INTERMEDIATE_TECHNOLOGIES } (
 	 	( Commit_Intermediate_Gen[pid, a, t, p, h] - ( ( if can_build_new[t] then DispatchGen[pid, a, t, p, h] else ProducePowerEP[pid, a, t, p, h] ) + Provide_Spinning_Reserve[pid, a, t, p, h] ) )
@@ -1508,6 +1739,10 @@ subject to Conservation_Of_Energy_NonDistributed {a in LOAD_AREAS, h in TIMEPOIN
 	# power produced from new non-battery-storage projects  
 	  ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t] } DispatchGen[pid, a, t, p, h] )
 	+ ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: flexible_baseload[t] } DispatchFlexibleBaseload[pid, a, t, p, date[h]] )
+ 	# power from the cofiring portion of new flexible baseload
+ 	+ ( sum { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] and can_cofire_biomass[t] and can_build_new[t] } 
+ 	    DispatchFlexibleBaseloadCofire[pid, a, t, p, date[h]] 
+ 	  )
 	+ ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: intermittent[t] and t not in SOLAR_DIST_PV_TECHNOLOGIES }
 		Installed_To_Date[pid, a, t, p] * cap_factor[pid, a, t, h] * gen_availability[t] )
 	+ ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t] }
@@ -1546,6 +1781,11 @@ subject to Conservation_of_REC {r in RPS_AREAS, h in TIMEPOINTS}:
 		DispatchTrans[a2, a, fc, p, h] )
 	- ( sum { (a, a1, fc, p, h) in TRANSMISSION_LINE_HOURS: rps_compliance_entity[a] = r and fc = 'renewable' }
 		DispatchTrans[a, a1, fc, p, h] )
+	# Generated RECs from cofiring
+	# Doublecheck if there are any cofiring projects that don't qualify for RECs (for now, don't use tech_qualifies because coal portion does not). 
+	# Nope. Every RPS that I know of explicitly dissallows biomass that is cofired with coal. 
+#	+ ( sum { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] and can_cofire_biomass[t] } DispatchFlexibleBaseloadCofire[pid, a, t, p, date[h]] )
+# 	+ ( sum { (pid, a, t, p, h) in AVAILABLE_HOURS: baseload[t] and can_cofire_biomass[t]} Installed_Cofire_To_Date[pid, a, t, p] * gen_availability[t] ) 
 	;
 
 
@@ -1576,7 +1816,10 @@ subject to Conservation_Of_Energy_NonDistributed_Reserve {a in LOAD_AREAS, h in 
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: intermittent[t] and t not in SOLAR_DIST_PV_TECHNOLOGIES} 
 		Installed_To_Date[pid, a, t, p] * cap_factor[pid, a, t, h] )
   # new baseload plants
-	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t] or flexible_baseload[t] } 
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t] } 
+		Installed_To_Date[pid, a, t, p] * ( 1 - scheduled_outage_rate[t] ) )
+  # new flexible baseload
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: flexible_baseload[t] } 
 		Installed_To_Date[pid, a, t, p] * ( 1 - scheduled_outage_rate[t] ) )
   # new battery storage projects
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t = 'Battery_Storage' }
@@ -1678,11 +1921,62 @@ subject to Power_From_New_Flexible_Baseload_Plants
 ;
 
 # flexible baseload plants must produce at least a pre-specified fraction of their capacity each day/hour
-subject to Minimum_Loading_New_Flexible_Baseload_Plants { (pid, a, t, p, d) in PROJECT_AVAILABLE_DATES: flexible_baseload[t] }:
+subject to Minimum_Loading_New_Flexible_Baseload_Plants 
+  { (pid, a, t, p, d) in PROJECT_AVAILABLE_DATES: flexible_baseload[t] and not can_cofire_biomass[t]}:
 	DispatchFlexibleBaseload[pid, a, t, p, d]
 	  >= 
 	minimum_loading[t] * Installed_To_Date[pid, a, t, p]
 ;
+
+# Constraints on Biomass Cofire
+
+# Dispatch can't exceed 15% of installed coal
+# Also can't exceed Installed_Cofire_To_Date (constrained by Cofire_Capacity_Ratio)
+subject to Maximum_Cofire_Dispatch 
+	{ (pid, a, t, p, d) in AVAILABLE_DATES: can_cofire_biomass[t] and flexible_baseload[t] }:
+	DispatchFlexibleBaseloadCofire [pid, a, t, p, d] 
+	<= 
+	Installed_Cofire_To_Date[pid, a, t, p] * gen_availability[t]
+;
+
+# Cofiring retrofit capacity can't exceed 15% of the generator/vintage capacity that is being retrofit (both flexible and baseload)
+subject to Cofire_Capacity_Ratio { (pid, a, t, turbine_online_year, new_cofire_online_year) in AVAILABLE_COFIRE_VINTAGES }:
+	sum { (pid, a, t, turbine_online_year, old_cofire_online_year, new_cofire_online_year) in COFIRE_VINTAGE_INSTALLED_PERIODS:
+	      old_cofire_online_year <= new_cofire_online_year }
+	  InstallCofire[pid, a, t, turbine_online_year, old_cofire_online_year] 
+	<= 
+	.15 * 
+	( if can_build_new[t] then 
+	InstallGen[pid, a, t, turbine_online_year]
+	else 
+	OperateEPDuringPeriod[pid, a, t, new_cofire_online_year] * ep_capacity_mw[pid, a, t] )
+;
+
+
+# Don't exceed installed capacity for both coal and bio dispatch (flexible baseload)
+subject to Limit_Coal_and_Cofire_Dispatch { (pid, a, t, p, d) in AVAILABLE_DATES: can_cofire_biomass[t] and flexible_baseload[t] }:
+	DispatchFlexibleBaseload[pid, a, t, p, d] + DispatchFlexibleBaseloadCofire[pid, a, t, p, d]
+	<= 
+	 ( if can_build_new[t] 
+	   then Installed_To_Date[pid, a, t, p] 
+	   else OperateEPDuringPeriod[pid, a, t, p] * ep_capacity_mw[pid, a, t] 
+	 ) * gen_availability[t]
+;
+
+subject to Minimum_Loading_Flexible_Baseload_Plants_Cofire 
+  { (pid, a, t, p, d) in AVAILABLE_DATES: flexible_baseload[t] and can_cofire_biomass[t]}:
+	DispatchFlexibleBaseload[pid, a, t, p, d] + DispatchFlexibleBaseloadCofire[pid, a, t, p, d]
+	  >= 
+	minimum_loading[t] 
+	* (if can_build_new[t] 
+	   then Installed_To_Date[pid, a, t, p]
+	   else OperateEPDuringPeriod[pid, a, t, p] * ep_capacity_mw[pid, a, t]
+	  )
+;
+
+
+# Don't exceed installed capacity for both coal and bio dispatch for baseload is redundant
+# General dispatch constraint on cofiring capacity (flexible baseload) is redundant based on installed capacity and dispatch constraints above
 
 # intermediate plants; can't have more intermediate capacity online that the total capacity installed
 subject to Maximum_Intermediate_Capacity_Online { (pid, a, t, p, h) in AVAILABLE_HOURS: t in INTERMEDIATE_TECHNOLOGIES }:
@@ -1731,20 +2025,33 @@ subject to EP_Power_and_Operating_Reserve_From_Dispatchable_Plants { (pid, a, t,
 subject to EP_Power_From_Intermittent_Plants { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: intermittent[t] }: 
 	ProducePowerEP[pid, a, t, p, h] = ep_capacity_mw[pid, a, t] * eip_cap_factor[pid, a, t, h] * gen_availability[t];
 
+# Need to constrain amount of Baseload Coal and Cofiring for EPs due to OperateEPDuringPeriod decision
+# If you install a cofiring retrofit on an existing plant, then you can't shutdown that plant early. 
+# This is consistent with us disallowing new plants from being retired early. 
+subject to EP_Power_From_Baseload_Biomass_Cofiring { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: baseload[t] and can_cofire_biomass[t] }:
+	(Coal_Portion_Baseload_Cofire[pid, a, t, p] + Installed_Cofire_To_Date[pid, a , t, p]) 
+	<= OperateEPDuringPeriod[pid, a, t, p] * ep_capacity_mw[pid, a, t] ;
+
 # existing baseload plants are operational if OperateEPDuringPeriod is 1.
 subject to EP_Power_From_Baseload_Plants { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: baseload[t] }: 
-    ProducePowerEP[pid, a, t, p, h] = OperateEPDuringPeriod[pid, a, t, p] * ep_capacity_mw[pid, a, t] * gen_availability[t];
+  ProducePowerEP[pid, a, t, p, h] = 
+  OperateEPDuringPeriod[pid, a, t, p] * ep_capacity_mw[pid, a, t] * gen_availability[t];
 
 # existing flexible baseload plants produce am amount equal DispatchFlexibleBaseload, which is constrained below
 subject to EP_Power_From_Flexible_Baseload_Plants { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: flexible_baseload[t] }: 
-    ProducePowerEP[pid, a, t, p, h] = DispatchFlexibleBaseload[pid, a, t, p, date[h]];
+  ProducePowerEP[pid, a, t, p, h] = 
+    DispatchFlexibleBaseload[pid, a, t, p, date[h]]
+    + (if can_cofire_biomass[t] then DispatchFlexibleBaseloadCofire[pid, a, t, p, date[h]] );
 
 subject to Maximum_Loading_Existing_Flexible_Baseload_Plants { (pid, a, t, p, d) in EP_AVAILABLE_DATES: flexible_baseload[t] }: 
-    DispatchFlexibleBaseload[pid, a, t, p, d] 
-    <=  OperateEPDuringPeriod[pid, a, t, p] * ep_capacity_mw[pid, a, t] * gen_availability[t];
+   DispatchFlexibleBaseload[pid, a, t, p, d]
+		+ (if can_cofire_biomass[t] then DispatchFlexibleBaseloadCofire[pid, a, t, p, d] else 0 )
+     <=  OperateEPDuringPeriod[pid, a, t, p] * ep_capacity_mw[pid, a, t] * gen_availability[t];
 
-subject to Minimum_Loading_Existing_Flexible_Baseload_Plants { (pid, a, t, p, d) in EP_AVAILABLE_DATES: flexible_baseload[t] }:
-	DispatchFlexibleBaseload[pid, a, t, p, d]
+# The corresponding constraint for flexible baseload that can cofire biomass is written above as Minimum_Loading_Flexible_Baseload_Plants_Cofire
+subject to Minimum_Loading_Existing_Flexible_Baseload_Plants 
+  { (pid, a, t, p, d) in EP_AVAILABLE_DATES: flexible_baseload[t] and not can_cofire_biomass[t]}:
+		DispatchFlexibleBaseload[pid, a, t, p, d]
 	>= minimum_loading[t] * OperateEPDuringPeriod[pid, a, t, p] * ep_capacity_mw[pid, a, t]
 ;
 
@@ -1788,19 +2095,20 @@ subject to Maximum_Resource_Central_Station_Solar { (l, a) in CENTRAL_STATION_SO
 		Installed_To_Date[pid, a, t, p] / capacity_limit_conversion[pid, a, t] )
 		<= central_station_solar_capacity_limit[l, a];
 
-# for Bio_Solid and Bio_Gas, bio_fuel_limit_by_load_area is in MMBtu/period
+# for Bio_Gas and Bio_Solid, bio_fuel_limit_by_load_area is in MMBtu/period
 # which is then converted into MWh via the heat_rate rate and cogen_thermal_demand
 # cogen_thermal_demand is zero for non-cogen plants
 # Bio_Liquid isn't included here because it only has replacements of existing cogen plants,
 # so their installation constraint is Maximum_Resource_EP_Cogen_Replacement
-# also, we need both CCS and non CCS bio fuels to be constrained together here (they're the same fuel really), hence the fuel matching with f = sub(fuel[t],'_CCS', '')
+# At this point, Bio_Solid isn't covered here, as its supply chain has a "soft cap" in pricing
+# We need both CCS and non CCS bio fuels to be constrained together here
 # if this constraint is changed, check var ConsumeBioSolid above - it may need to be changed as well
-subject to Maximum_Resource_Bio { (f, a, p) in BIO_FUELS_LOAD_AREAS: bio_fuel_limit_by_load_area[f, a, p] > 0 }:
-	(
-	( sum { (pid, a, t, p) in PROJECT_VINTAGES: f = sub(fuel[t],'_CCS', '') } 
+subject to Maximum_Resource_Biogas { (f, a, p) in BIO_FUELS_LOAD_AREAS: bio_fuel_limit_by_load_area[f, a, p] > 0 and f='Bio_Gas' }:
+		( 
+		( sum { (pid, a, t, p) in PROJECT_VINTAGES: fuel[t] = 'Bio_Gas_CCS' or fuel[t] = 'Bio_Gas' } 
 		( Installed_To_Date[pid, a, t, p] * gen_availability[t]
 		* ( heat_rate[pid, a, t] + cogen_thermal_demand[pid, a, t] ) ) )
-	+ ( sum { (pid, a, t, p) in EP_PERIODS: f = sub(fuel[t],'_CCS', '') } 
+	+ ( sum { (pid, a, t, p) in EP_PERIODS: fuel[t] = 'Bio_Gas_CCS' or fuel[t] = 'Bio_Gas' } 
 		( OperateEPDuringPeriod[pid, a, t, p] * ep_capacity_mw[pid, a, t] * gen_availability[t]
 		* ( ep_heat_rate[pid, a, t] + ep_cogen_thermal_demand[pid, a, t] ) ) )
 		) * hours_in_period[p]
@@ -2031,7 +2339,7 @@ problem Investment_Cost_Minimization:
   # Investment Decisions
 	InstallGen, InstallStorageEnergyCapacity, BuildGenOrNot, InstallTrans, InstallLocalTD,
   # Installation Constraints
-	Maximum_Resource_Central_Station_Solar, Maximum_Resource_Bio, Maximum_Resource_Single_Location, Maximum_Resource_EP_Cogen_Replacement,
+	Maximum_Resource_Central_Station_Solar, Maximum_Resource_Biogas, Maximum_Resource_Single_Location, Maximum_Resource_EP_Cogen_Replacement,
 	Minimum_GenSize, BuildGenOrNot_Constraint, SymetricalTrans, Minimum_Local_TD_No_DR, Minimum_Local_TD_DR,
   # Dispatch Decisions
 	DispatchGen, DispatchFlexibleBaseload, Deep_Cycle_Amount, Commit_Intermediate_Gen, Startup_MW_from_Last_Hour, OperateEPDuringPeriod, ProducePowerEP, ConsumeBioSolid, ConsumeNaturalGas, ConsumeNaturalGasRegional,
@@ -2050,6 +2358,13 @@ problem Investment_Cost_Minimization:
 	Maximum_Store_Pumped_Hydro, Pumped_Hydro_Energy_Balance,
 	CAES_Combined_Dispatch, CAES_Combined_Operating_Reserve, Maximum_Store_Rate, Maximum_Release_and_Operating_Reserve_Storage_Rate, Maximum_Release_and_Operating_Reserve_Storage_Energy,
 	Max_Energy_in_Storage, Storage_Projects_Hourly_Energy_Tracking,
+  # Biomass cofiring constraints and variables
+	Installed_Cofire_To_Date, InstallCofire, DispatchFlexibleBaseloadCofire, Coal_Portion_Baseload_Cofire,
+	Maximum_Cofire_Dispatch, 
+	Cofire_Capacity_Ratio,
+	Limit_Coal_and_Cofire_Dispatch, 
+	Minimum_Loading_Flexible_Baseload_Plants_Cofire,
+	EP_Power_From_Baseload_Biomass_Cofiring,
   # Contigency Planning Constraints
 	Satisfy_Load_Reserve, 
 	Conservation_Of_Energy_NonDistributed_Reserve, ConsumeNonDistributedPower_Reserve,
@@ -2089,6 +2404,13 @@ problem Present_Day_Cost_Minimization:
 	Maximum_Dispatch_and_Operating_Reserve_Hydro, Average_Hydro_Output, Minimum_Dispatch_Hydro,
 	Max_Operating_Reserve_Hydro,
 	Maximum_Store_Pumped_Hydro, Pumped_Hydro_Energy_Balance,
+# Do not include biomass cofiring constraints and variables, since they can only be built as part of EPs after the present day
+# 	InstallCofire, Installed_Cofire_To_Date, DispatchFlexibleBaseloadCofire, Coal_Portion_Baseload_Cofire,
+#	Maximum_Cofire_Dispatch, 
+#	Cofire_Capacity_Ratio,
+#	Limit_Coal_and_Cofire_Dispatch, 
+#	Minimum_Loading_Flexible_Baseload_Plants_Cofire,
+# 	EP_Power_From_Baseload_Biomass_Cofiring,
   # Operating Reserve Variables
     Spinning_Reserve_Requirement, Quickstart_Reserve_Requirement,
   # Operating Reserve Constraints

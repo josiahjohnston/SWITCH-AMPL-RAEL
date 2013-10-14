@@ -323,7 +323,6 @@ create table generator_costs_5yearly (
 	overnight_cost float,
 	fixed_o_m float,
 	var_o_m float,
-	storage_energy_capacity_cost_per_mwh float,
 	PRIMARY KEY (gen_costs_scenario_id, technology, year)
 );
 
@@ -374,12 +373,11 @@ create table generator_costs_yearly (
 	overnight_cost float,
 	fixed_o_m float,
 	var_o_m float,
-	storage_energy_capacity_cost_per_mwh float,
 	PRIMARY KEY (gen_costs_scenario_id, technology, year)
 );
 
 -- insert technology-year combinations in yearly gen costs table
-insert ignore into generator_costs_yearly (technology, gen_costs_scenario_id, year)
+insert into generator_costs_yearly (technology, gen_costs_scenario_id, year)
 select 	distinct(technology),
 		gen_costs_scenario_id,
 	   	2010_to_2050.year
@@ -389,8 +387,7 @@ from	generator_costs_5yearly, 2010_to_2050;
 update generator_costs_yearly, generator_costs_5yearly
 set generator_costs_yearly.overnight_cost = generator_costs_5yearly.overnight_cost,
 	generator_costs_yearly.fixed_o_m = generator_costs_5yearly.fixed_o_m,
-	generator_costs_yearly.var_o_m = generator_costs_5yearly.var_o_m,
-	generator_costs_yearly.storage_energy_capacity_cost_per_mwh = generator_costs_5yearly.storage_energy_capacity_cost_per_mwh
+	generator_costs_yearly.var_o_m = generator_costs_5yearly.var_o_m
 where 	generator_costs_yearly.technology = generator_costs_5yearly.technology
 and		generator_costs_yearly.year = generator_costs_5yearly.year
 and		generator_costs_yearly.gen_costs_scenario_id = generator_costs_5yearly.gen_costs_scenario_id;
@@ -435,8 +432,6 @@ fixed_o_m_cost_difference_from_previous_available_year decimal,
 fixed_o_m_cost_yearly_difference_from_previous_available_year decimal,
 var_o_m_cost_difference_from_previous_available_year decimal,
 var_o_m_cost_yearly_difference_from_previous_available_year decimal,
-storage_energy_cost_difference_from_previous_available_year decimal,
-st_en_cost_yearly_difference_from_previous_available_year decimal,
 UNIQUE INDEX (technology, year)
 );
 
@@ -453,21 +448,20 @@ where generator_costs_temp_calculation_table.year_id = year_id_table.year_id + 1
 
 -- calculate the total difference in cost between consecutive years with cost data
 update generator_costs_temp_calculation_table join
-			(	select year, overnight_cost, fixed_o_m, var_o_m, storage_energy_capacity_cost_per_mwh
+			(	select year, overnight_cost, fixed_o_m, var_o_m
 				from generator_costs_5yearly
 				where	technology=@current_technology
 				and		gen_costs_scenario_id = @current_gen_costs_scenario_id) as current_year_table
         using (year) join
-			(	select year, overnight_cost, fixed_o_m, var_o_m, storage_energy_capacity_cost_per_mwh
+			(	select year, overnight_cost, fixed_o_m, var_o_m
           from generator_costs_5yearly
 				where	technology=@current_technology 
 				and		gen_costs_scenario_id = @current_gen_costs_scenario_id) as previous_year_table
         on ( previous_year_table.year = generator_costs_temp_calculation_table.previous_year_with_cost_data )
 set overnight_cost_difference_from_previous_available_year = current_year_table.overnight_cost - previous_year_table.overnight_cost,
 	fixed_o_m_cost_difference_from_previous_available_year = current_year_table.fixed_o_m - previous_year_table.fixed_o_m,
-	var_o_m_cost_difference_from_previous_available_year = current_year_table.var_o_m - previous_year_table.var_o_m,
-	storage_energy_cost_difference_from_previous_available_year = current_year_table.storage_energy_capacity_cost_per_mwh - previous_year_table.storage_energy_capacity_cost_per_mwh
-	;
+	var_o_m_cost_difference_from_previous_available_year = current_year_table.var_o_m - previous_year_table.var_o_m
+;
 
 -- calculate the yearly difference in cost between consecutive years with cost data
 update generator_costs_temp_calculation_table
@@ -476,10 +470,7 @@ set 	overnight_cost_yearly_difference_from_previous_available_year =
 		fixed_o_m_cost_yearly_difference_from_previous_available_year =
 		fixed_o_m_cost_difference_from_previous_available_year / ( year - previous_year_with_cost_data ),
 		var_o_m_cost_yearly_difference_from_previous_available_year =
-		var_o_m_cost_difference_from_previous_available_year / ( year - previous_year_with_cost_data ),
-		st_en_cost_yearly_difference_from_previous_available_year =
-		storage_energy_cost_difference_from_previous_available_year / ( year - previous_year_with_cost_data );
-
+		var_o_m_cost_difference_from_previous_available_year / ( year - previous_year_with_cost_data );
 
 -- now we will iterate over years
 drop table if exists years_for_loop;
@@ -497,8 +488,7 @@ update 	generator_costs_yearly join
 		where gen_costs_scenario_id = @current_gen_costs_scenario_id and @current_year > previous_year_with_cost_data and @current_year < year ) as cost_data_table using(technology)
 set generator_costs_yearly.overnight_cost = cost_data_table.overnight_cost - (cost_data_table.year - @current_year ) * overnight_cost_yearly_difference_from_previous_available_year,
 	generator_costs_yearly.fixed_o_m = cost_data_table.fixed_o_m - (cost_data_table.year - @current_year ) * fixed_o_m_cost_yearly_difference_from_previous_available_year,
-	generator_costs_yearly.var_o_m = cost_data_table.var_o_m - (cost_data_table.year - @current_year ) * var_o_m_cost_yearly_difference_from_previous_available_year,
-	generator_costs_yearly.storage_energy_capacity_cost_per_mwh = cost_data_table.storage_energy_capacity_cost_per_mwh - (cost_data_table.year - @current_year ) * st_en_cost_yearly_difference_from_previous_available_year
+	generator_costs_yearly.var_o_m = cost_data_table.var_o_m - (cost_data_table.year - @current_year ) * var_o_m_cost_yearly_difference_from_previous_available_year
 where 	generator_costs_yearly.year = @current_year
 and		generator_costs_yearly.technology = @current_technology
 and		generator_costs_yearly.gen_costs_scenario_id=@current_gen_costs_scenario_id;

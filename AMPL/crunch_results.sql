@@ -168,7 +168,7 @@ insert into gen_summary_fuel ( scenario_id, carbon_cost, period, fuel,
 -- capacity each period by load area
 insert into _gen_cap_summary_tech_la (scenario_id, carbon_cost, period, area_id, technology_id, capacity, capital_cost, fixed_o_m_cost)
   select 	scenario_id, carbon_cost, period, area_id, technology_id,
-  			sum(capacity) as capacity, sum(storage_energy_capacity) as storage_energy_capacity, sum(capital_cost) as capital_cost, sum(fixed_o_m_cost) as fixed_o_m_cost
+  			sum(capacity) as capacity, sum(capital_cost) as capital_cost, sum(fixed_o_m_cost) as fixed_o_m_cost
 	from _gen_cap 
     where scenario_id = @scenario_id
     group by 1, 2, 3, 4, 5
@@ -199,7 +199,7 @@ and 	s.technology_id 	= t.technology_id;
 -- carbon_cost column includes carbon costs incurred for power, spinning reserves, deep cycling, and startup
 insert into _gen_cap_summary_tech
   select scenario_id, carbon_cost, period, technology_id,
-    sum(capacity) as capacity, sum(storage_energy_capacity) as storage_energy_capacity, sum(capital_cost), sum(fixed_o_m_cost + variable_o_m_cost) as o_m_cost_total, sum(fuel_cost), sum(carbon_cost_total)
+    sum(capacity) as capacity, sum(capital_cost), sum(fixed_o_m_cost + variable_o_m_cost) as o_m_cost_total, sum(fuel_cost), sum(carbon_cost_total)
     from _gen_cap_summary_tech_la join technologies using (technology_id)
     where scenario_id = @scenario_id
     group by 1, 2, 3, 4
@@ -209,7 +209,7 @@ insert into _gen_cap_summary_tech
 -- now aggregated on a fuel basis
 insert into _gen_cap_summary_fuel_la 
   select 	scenario_id, carbon_cost, period, area_id, fuel,
-  			sum(capacity) as capacity, sum(storage_energy_capacity) as storage_energy_capacity, sum(capital_cost) as capital_cost, sum(fixed_o_m_cost) as fixed_o_m_cost,
+  			sum(capacity) as capacity, sum(capital_cost) as capital_cost, sum(fixed_o_m_cost) as fixed_o_m_cost,
   			sum(variable_o_m_cost) as variable_o_m_cost, sum(fuel_cost) as fuel_cost, sum(carbon_cost_total) as carbon_cost_total
 	from _gen_cap_summary_tech_la join technologies using (technology_id)
     where scenario_id = @scenario_id
@@ -219,7 +219,7 @@ insert into _gen_cap_summary_fuel_la
 -- capacity each period
 insert into gen_cap_summary_fuel
   select scenario_id, carbon_cost, period, fuel,
-    sum(capacity) as capacity, sum(storage_energy_capacity) as storage_energy_capacity, sum(capital_cost), sum(fixed_o_m_cost + variable_o_m_cost) as o_m_cost_total, sum(fuel_cost), sum(carbon_cost_total)
+    sum(capacity) as capacity, sum(capital_cost), sum(fixed_o_m_cost + variable_o_m_cost) as o_m_cost_total, sum(fuel_cost), sum(carbon_cost_total)
     from _gen_cap_summary_fuel_la
     where scenario_id = @scenario_id
     group by 1, 2, 3, 4

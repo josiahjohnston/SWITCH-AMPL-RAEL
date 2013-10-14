@@ -26,3 +26,7 @@ if (enable_carbon_cap = 0) then {
 if (enforce_ca_dg_mandate = 0) then { 
   drop Meet_California_Distributed_Generation_Mandate; 
 } 
+
+if (card(COFIRE_TECHNOLOGIES) = 0 ) then {
+  let {t in COFIRE_TECHNOLOGIES} can_cofire_biomass[t] := 0;
+}

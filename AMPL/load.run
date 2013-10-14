@@ -131,6 +131,14 @@ table generator_info "inputs/generator_info.tab" IN:
 	storage, storage_efficiency, max_store_rate, max_spinning_reserve_fraction_of_capacity, heat_rate_penalty_spinning_reserve, minimum_loading, deep_cycling_penalty, startup_mmbtu_per_mw, startup_nonfuel_cost_dollars_per_mw ~ startup_cost_dollars_per_mw;
 read table generator_info;
 
+table cofire_info "inputs/cofire_info.tab" IN:  
+	COFIRE_TECHNOLOGIES <- [parent_technology], parent_technology_id, heat_rate_cofire, cost_of_plant_one_year_before_operational_cofire,
+	fixed_o_m_cofire_per_period, variable_o_m_cofire
+;
+read table cofire_info;
+let {t in COFIRE_TECHNOLOGIES} can_cofire_biomass[t] := 1
+;
+
 table cap_factor "inputs/cap_factor.tab" IN: 
   PROJ_INTERMITTENT_HOURS <- [project_id, load_area, technology, hour], cap_factor;
 # Alternate tables that specify cap factors by historical hour and a mapping to future hour
@@ -182,6 +190,9 @@ table fuel_info "inputs/fuel_info.tab" IN:
 	FUELS <- [fuel], rps_fuel_category, biofuel, carbon_content, carbon_sequestered;
 read table fuel_info;
 let FUELS := FUELS union {"Storage"};
+if (card(COFIRE_TECHNOLOGIES) > 0) then {
+  let carbon_content_bio_ccs := carbon_content['Bio_Solid_CCS'];
+}
 
 table carbon_cost_by_period_table "inputs/carbon_cost_by_period.tab" IN:
   [p], carbon_cost_by_period;

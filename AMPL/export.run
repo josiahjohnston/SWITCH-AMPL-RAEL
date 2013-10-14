@@ -133,7 +133,72 @@ for {c in CARBON_COSTS} {
         0,
         0
         >> (outfile);
-              
+      
+      # Biomass Cofiring Dispatch Decisions
+      # Power Produced already defined above for parent technology
+      # Name as 'Biomass_Cofiring,' fuel as 'Bio_Solid_CCS' or 'Bio_Solid,'
+      # Define Carbon_Emissions, Fuel_Cost, Carbon_Cost, Variable_Cost, Deep_Cycling values, since they are NOT included for parent technology
+      # technology_id = 120
+      printf {(pid, a, t, p, h) in AVAILABLE_HOURS: t <> 'Battery_Storage' and can_cofire_biomass[t] and ( Installed_Cofire_To_Date[pid, a, t, p] ) > 0.001 } 
+        "%s	%d	%d	%d	%d	%s	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	 %.2f	 %.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
+        scenario_id, carbon_cost, p, pid, load_area_id[a], a, balancing_area[a],
+        (if present_day_optimization then present_day_date[h] else date[h]),
+        (if present_day_optimization then present_day_timepoint[h] else h),
+        #new technology_id is 120 for cofiring
+        120,
+        'Biomass_Cofiring', 
+        1, baseload[t], 0, 0, 
+        (if ccs[t] then 'Bio_Solid_CCS' else 'Bio_Solid'), 
+        rps_fuel_category['Bio_Solid'],
+        hours_in_sample[h],
+        #Power
+        ProducePowerCofire[pid, a, t, p, h], 
+        #Carbon emissions
+        (if ccs[t] then
+  			(if flexible_baseload[t] then DispatchFlexibleBaseloadCofire[pid, a, t, p, date[h]] * heat_rate_cofire[t] * carbon_content_bio_ccs
+  			else Installed_Cofire_To_Date[pid, a, t, p] * gen_availability[t] * heat_rate_cofire[t] * carbon_content_bio_ccs) ),
+        heat_rate_cofire[t],
+        #Hourly fuel cost
+        (if flexible_baseload[t] then DispatchFlexibleBaseloadCofire[pid, a, t, p, date[h]] * heat_rate_cofire[t] * Biomass_Solid_Fuel_Cost[a, p]
+  			else Installed_Cofire_To_Date[pid, a, t, p] * gen_availability[t] * heat_rate_cofire[t] * Biomass_Solid_Fuel_Cost[a, p]),
+        #Hourly Carbon costs
+        (if ccs[t] then
+  			(if flexible_baseload[t] then DispatchFlexibleBaseloadCofire[pid, a, t, p, date[h]] * heat_rate_cofire[t] * carbon_content_bio_ccs
+  			else Installed_Cofire_To_Date[pid, a, t, p] * gen_availability[t] * heat_rate_cofire[t] * carbon_content_bio_ccs) )
+  			* carbon_cost_by_period[p],
+        #Hourly variable cost
+        (if flexible_baseload[t] then DispatchFlexibleBaseloadCofire[pid, a, t, p, date[h]] else Installed_Cofire_To_Date[pid, a, t, p] * gen_availability[t] )
+  			* variable_o_m_cofire[t],
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        if flexible_baseload[t] then Deep_Cycle_Cofire_Amount[pid, a, t, p, date[h]] else 0,
+        #Deep Cycling fuel cost
+        if flexible_baseload[t] then 
+    		Deep_Cycle_Cofire_Amount[pid, a, t, p, date[h]] * deep_cycling_penalty[t] * heat_rate_cofire[t] * Biomass_Solid_Fuel_Cost[a, p]
+        	else 0,
+        #Deep Cycling carbon cost
+        if ccs[t] and flexible_baseload[t] then 
+    		Deep_Cycle_Cofire_Amount[pid, a, t, p, date[h]] * deep_cycling_penalty[t] * heat_rate_cofire[t] * carbon_content_bio_ccs
+        	* carbon_cost_by_period[p]
+        	else 0
+        ,
+        #Deep cycling carbon emissions
+        if ccs[t] and flexible_baseload[t] then 
+    		Deep_Cycle_Cofire_Amount[pid, a, t, p, date[h]] * deep_cycling_penalty[t] * heat_rate_cofire[t] * carbon_content_bio_ccs
+        	else 0
+        ,
+        0,
+        0,
+        0,
+        0,
+        0
+        >> (outfile);
+     
+     
       close (outfile);
       
       
@@ -143,15 +208,14 @@ for {c in CARBON_COSTS} {
       
       let output_section := 'generation_capacity';
       let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
-      printf "scenario_id	carbon_cost	period	project_id	load_area_id	load_area	technology_id	technology	site	new	baseload	cogen	fuel	capacity	storage_energy_capacity	capital_cost	fixed_o_m_cost\n"
+      printf "scenario_id	carbon_cost	period	project_id	load_area_id	load_area	technology_id	technology	site	new	baseload	cogen	fuel	capacity	capital_cost	fixed_o_m_cost\n"
         > (outfile);
       
       # New Plants, inclusive of new storage projects
       printf {(pid, a, t, p) in PROJECT_VINTAGES: Installed_To_Date[pid, a, t, p]  > 0.001}
-        "%s	%d	%d	%d	%d	%s	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%.2f	%.2f\n",
+        "%s	%d	%d	%d	%d	%s	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%.2f\n",
         scenario_id, carbon_cost, p, pid, load_area_id[a], a, technology_id[t], t, location_id[pid, a, t], 1, baseload[t], cogen[t], fuel[t],
         Installed_To_Date[pid, a, t, p],
-        if storage[t] then Storage_Energy_Capacity_Installed_To_Date[pid, a, t, p] else 0,
         Capital_Payments_by_Plant_and_Period[pid, a, t, p],
         Fixed_OM_by_Plant_and_Period[pid, a, t, p]
         >> (outfile);
@@ -160,15 +224,38 @@ for {c in CARBON_COSTS} {
       # note: they're only counted as "capacity" if they are operable during this period
       # existing intermittent plants generally have low operational costs and are therefore kept running
       printf {(pid, a, t, p) in EP_PERIODS}
-        "%s	%d	%d	%d	%d	%s	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%.2f	%.2f\n",
+        "%s	%d	%d	%d	%d	%s	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%.2f\n",
         scenario_id, carbon_cost, p, pid, load_area_id[a], a, technology_id[t], t,
         ep_plant_name[pid, a, t], 0, baseload[t], cogen[t], fuel[t],
-        ( if ( intermittent[t] or hydro[t] ) then 1 else OperateEPDuringPeriod[pid, a, t, p] ) * ep_capacity_mw[pid, a, t], 0, 
+        ( if ( intermittent[t] or hydro[t] ) then 1 else OperateEPDuringPeriod[pid, a, t, p] ) * ep_capacity_mw[pid, a, t],
         EP_Capital_Payments_by_Plant_and_Period[pid, a, t, p], 
         EP_Fixed_OM_by_Plant_and_Period[pid, a, t, p]
         >> (outfile);
+
+	  # Cofiring retrofits (all are new)
+	  # Define technology as Biomass_Cofiring, fuel as Bio_Solid or Bio_Solid_CCS
+	  # Capital and Fixed_O+M payments are not included in parent technology, so define them here
+	  # DECIDE: new technology_id for biomass_cofiring?
+      printf {(pid, a, t, p) in AVAILABLE_VINTAGES: can_cofire_biomass[t] and Installed_Cofire_To_Date[pid, a, t, p]  > 0.001}
+        "%s	%d	%d	%d	%d	%s	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%.2f\n",
+        scenario_id, carbon_cost, p, pid, load_area_id[a], a,
+        #new technology_id is 120 for cofiring
+        120,
+        'Biomass_Cofiring',
+        if can_build_new[t] then location_id[pid, a, t]
+        	else ep_plant_name[pid, a, t],
+        1, baseload[t], cogen[t], 
+        (if ccs[t] then 'Bio_Solid_CCS' else 'Bio_Solid'),
+        Installed_Cofire_To_Date[pid, a, t, p],
+        sum { (pid, a, t, turbine_online_year, p_extra, p_sum) in COFIRE_VINTAGE_INSTALLED_PERIODS: p_sum = p } (
+			InstallCofire[pid, a, t, turbine_online_year, p_extra] * capital_cost_annual_payment_cofire[pid, a, t, turbine_online_year, p_extra] * num_years_per_period),
+        sum { (pid, a, t, turbine_online_year, p_extra, p_sum) in COFIRE_VINTAGE_INSTALLED_PERIODS: p_sum = p } (
+			InstallCofire[pid, a, t, turbine_online_year, p_extra] * fixed_o_m_cofire_per_period[t] * num_years_per_period )
+        >> (outfile);
       
       close (outfile);
+      
+
       
       ########################
       # store all trans capacity between zones
@@ -355,6 +442,15 @@ for {c in CARBON_COSTS} {
         >> (InstallGen_tab_path);
       close (InstallGen_tab_path);
       
+       # Added Cofire Capacity
+      printf "ampl.tab 4 1\npid	a	t	turbine_online_year	p	InstallCofire\n"
+        > (InstallCofire_tab_path);
+      printf {(pid, a, t, turbine_online_year, p) in AVAILABLE_COFIRE_VINTAGES} 
+        "%d	%s	%s	%d	%d	%.2f\n",
+        pid, a, t, turbine_online_year, p, InstallCofire[pid, a, t, turbine_online_year, p]
+        >> (InstallCofire_tab_path);
+      close (InstallCofire_tab_path);
+      
       # Whether to operate existing plants in each future period
       printf "ampl.tab 4 1\npid	a	t	p	OperateEPDuringPeriod\n"
         > (OperateEPDuringPeriod_tab_path);
@@ -381,16 +477,6 @@ for {c in CARBON_COSTS} {
         a, p, InstallLocalTD[a, p]
         >> (InstallLocalTD_tab_path);
       close (InstallLocalTD_tab_path);
-      
-      # Installed storage energy capacity
-      printf "ampl.tab 4 1\npid	a	t	p	InstallStorageEnergyCapacity\n"
-        > (InstallStorageEnergyCapacity_tab_path);
-      printf {(pid, a, t, p) in PROJECT_VINTAGES } 
-        "%d	%s	%s	%d	%.2f\n",
-        pid, a, t, p, if storage[t] then InstallStorageEnergyCapacity[pid, a, t, p] else 0
-        >> (InstallStorageEnergyCapacity_tab_path);
-      close (InstallStorageEnergyCapacity_tab_path);
-      
       
       # Reduced cost of meeting a carbon cap
       if (enable_carbon_cap = 1) then { 

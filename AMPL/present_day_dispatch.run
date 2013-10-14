@@ -20,7 +20,6 @@ redeclare param problem_basename symbolic := results_path & "sol_present_day_dis
 # Change file names of exported results. 
 let { f in RESULT_FILES} result_file_path_templates[f] := 'present_' & result_file_path_templates[f];
 redeclare param InstallGen_tab_path            symbolic := results_path & "present_InstallGen" & carbon_cost & ".tab";
-redeclare param InstallStorageEnergyCapacity_tab_path            symbolic := results_path & "present_InstallStorageEnergyCapacity" & carbon_cost & ".tab";
 redeclare param OperateEPDuringPeriod_tab_path symbolic := results_path & "present_OperateEPDuringPeriod" & carbon_cost & ".tab";
 redeclare param InstallTrans_tab_path          symbolic := results_path & "present_InstallTrans" & carbon_cost & ".tab";
 redeclare param InstallLocalTD_tab_path        symbolic := results_path & "present_InstallLocalTD" & carbon_cost & ".tab";

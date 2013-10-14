@@ -148,29 +148,30 @@ INTERMITTENT_PROJECTS_SELECTION="(( avg_cap_factor_percentile_by_intermittent_te
 
 read SCENARIO_ID < scenario_id.txt
 # Make sure this scenario id is valid.
-if [ $(mysql $connection_string --column-names=false -e "select count(*) from scenarios_v3 where scenario_id=$SCENARIO_ID;") -eq 0 ]; then 
+if [ $(mysql $connection_string --column-names=false -e "select count(*) from scenarios_v3_cofiring where scenario_id=$SCENARIO_ID;") -eq 0 ]; then 
 	echo "ERROR! This scenario id ($SCENARIO_ID) is not in the database. Exiting."
 	exit 0;
 fi
 
-export REGIONAL_MULTIPLIER_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select regional_cost_multiplier_scenario_id from scenarios_v3 where scenario_id=$SCENARIO_ID;")
-export REGIONAL_FUEL_COST_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select regional_fuel_cost_scenario_id from scenarios_v3 where scenario_id=$SCENARIO_ID;")
-export GEN_COSTS_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select gen_costs_scenario_id from scenarios_v3 where scenario_id=$SCENARIO_ID;")
-export GEN_INFO_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select gen_info_scenario_id from scenarios_v3 where scenario_id=$SCENARIO_ID;")
-export CARBON_CAP_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select carbon_cap_scenario_id from scenarios_v3 where scenario_id=$SCENARIO_ID;")
-export SCENARIO_NAME=$(mysql $connection_string --column-names=false -e "select scenario_name from scenarios_v3 where scenario_id=$SCENARIO_ID;")
-export TRAINING_SET_ID=$(mysql $connection_string --column-names=false -e "select training_set_id from scenarios_v3 where scenario_id = $SCENARIO_ID;")
+export REGIONAL_MULTIPLIER_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select regional_cost_multiplier_scenario_id from scenarios_v3_cofiring where scenario_id=$SCENARIO_ID;")
+export REGIONAL_FUEL_COST_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select regional_fuel_cost_scenario_id from scenarios_v3_cofiring where scenario_id=$SCENARIO_ID;")
+export GEN_COSTS_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select gen_costs_scenario_id from scenarios_v3_cofiring where scenario_id=$SCENARIO_ID;")
+export GEN_INFO_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select gen_info_scenario_id from scenarios_v3_cofiring where scenario_id=$SCENARIO_ID;")
+export CARBON_CAP_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select carbon_cap_scenario_id from scenarios_v3_cofiring where scenario_id=$SCENARIO_ID;")
+export SCENARIO_NAME=$(mysql $connection_string --column-names=false -e "select scenario_name from scenarios_v3_cofiring where scenario_id=$SCENARIO_ID;")
+export TRAINING_SET_ID=$(mysql $connection_string --column-names=false -e "select training_set_id from scenarios_v3_cofiring where scenario_id = $SCENARIO_ID;")
 export LOAD_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select load_scenario_id from training_sets where training_set_id = $TRAINING_SET_ID;")
-export ENABLE_RPS=$(mysql $connection_string --column-names=false -e "select enable_rps from scenarios_v3 where scenario_id=$SCENARIO_ID;")
-export ENABLE_CARBON_CAP=$(mysql $connection_string --column-names=false -e "select if(carbon_cap_scenario_id>0,1,0) from scenarios_v3 where scenario_id=$SCENARIO_ID;")
-export NEMS_FUEL_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select nems_fuel_scenario_id from scenarios_v3 where scenario_id=$SCENARIO_ID;")
-export DR_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select dr_scenario_id from scenarios_v3 where scenario_id=$SCENARIO_ID;")
-export EV_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select ev_scenario_id from scenarios_v3 where scenario_id=$SCENARIO_ID;")
-export ENFORCE_CA_DG_MANDATE=$(mysql $connection_string --column-names=false -e "select enforce_ca_dg_mandate from scenarios_v3 where scenario_id=$SCENARIO_ID;")
-export LINEARIZE_OPTIMIZATION=$(mysql $connection_string --column-names=false -e "select linearize_optimization from scenarios_v3 where scenario_id=$SCENARIO_ID;")
+export ENABLE_RPS=$(mysql $connection_string --column-names=false -e "select enable_rps from scenarios_v3_cofiring where scenario_id=$SCENARIO_ID;")
+export ENABLE_CARBON_CAP=$(mysql $connection_string --column-names=false -e "select if(carbon_cap_scenario_id>0,1,0) from scenarios_v3_cofiring where scenario_id=$SCENARIO_ID;")
+export NEMS_FUEL_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select nems_fuel_scenario_id from scenarios_v3_cofiring where scenario_id=$SCENARIO_ID;")
+export DR_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select dr_scenario_id from scenarios_v3_cofiring where scenario_id=$SCENARIO_ID;")
+export EV_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select ev_scenario_id from scenarios_v3_cofiring where scenario_id=$SCENARIO_ID;")
+export ENFORCE_CA_DG_MANDATE=$(mysql $connection_string --column-names=false -e "select enforce_ca_dg_mandate from scenarios_v3_cofiring where scenario_id=$SCENARIO_ID;")
+export LINEARIZE_OPTIMIZATION=$(mysql $connection_string --column-names=false -e "select linearize_optimization from scenarios_v3_cofiring where scenario_id=$SCENARIO_ID;")
 export STUDY_START_YEAR=$(mysql $connection_string --column-names=false -e "select study_start_year from training_sets where training_set_id=$TRAINING_SET_ID;")
 export STUDY_END_YEAR=$(mysql $connection_string --column-names=false -e "select study_start_year + years_per_period*number_of_periods from training_sets where training_set_id=$TRAINING_SET_ID;")
-export transmission_capital_cost_per_mw_km=$(mysql $connection_string --column-names=false -e "select transmission_capital_cost_per_mw_km from scenarios_v3 where scenario_id = $SCENARIO_ID;")
+export transmission_capital_cost_per_mw_km=$(mysql $connection_string --column-names=false -e "select transmission_capital_cost_per_mw_km from scenarios_v3_cofiring where scenario_id = $SCENARIO_ID;")
+export COFIRE_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select cofire_scenario_id from scenarios_v3_cofiring where scenario_id=$SCENARIO_ID;")
 number_of_years_per_period=$(mysql $connection_string --column-names=false -e "select years_per_period from training_sets where training_set_id=$TRAINING_SET_ID;")
 
 # Find the minimum historical year used for this training set. 
@@ -206,7 +207,7 @@ cd $write_to_path
 
 echo 'Exporting Scenario Information'
 echo 'Scenario Information' > scenario_information.txt
-mysql $connection_string -e "select * from scenarios_v3 where scenario_id = $SCENARIO_ID;" >> scenario_information.txt
+mysql $connection_string -e "select * from scenarios_v3_cofiring where scenario_id = $SCENARIO_ID;" >> scenario_information.txt
 echo 'Training Set Information' >> scenario_information.txt
 mysql $connection_string -e "select * from training_sets where training_set_id=$TRAINING_SET_ID;" >> scenario_information.txt
 
@@ -412,6 +413,16 @@ echo "param enforce_ca_dg_mandate := $ENFORCE_CA_DG_MANDATE;"  >> misc_params.da
 echo "param transmission_capital_cost_per_mw_km := $transmission_capital_cost_per_mw_km;"  >> misc_params.dat
 echo "param num_years_per_period  := $number_of_years_per_period;"  >> misc_params.dat
 echo "param present_year  := $present_year;"  >> misc_params.dat
+echo "param cofire_scenario_id := $COFIRE_SCENARIO_ID;"  >> misc_params.dat
+
+echo '	cofire_info.tab...'
+if [ $COFIRE_SCENARIO_ID -eq 0 ]; then
+	echo ampl.tab 1 5 > cofire_info.tab
+	echo parent_technology	parent_technology_id	heat_rate_cofire	cost_of_plant_one_year_before_operational_cofire	fixed_o_m_cofire_per_period	variable_o_m_cofire >> cofire_info.tab
+else
+	echo ampl.tab 1 5 > cofire_info.tab
+	mysql $connection_string -e "select parent_technology, parent_technology_id, heat_rate_cofire, cost_of_plant_one_year_before_operational_cofire, fixed_o_m_cofire_per_period, variable_o_m_cofire from cofire_info WHERE cofire_scenario_id=$COFIRE_SCENARIO_ID;"  >> cofire_info.tab
+fi;
 
 echo '	misc_options.run...'
 echo "option relax_integrality  $LINEARIZE_OPTIMIZATION;"  > misc_options.run
