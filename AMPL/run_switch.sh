@@ -1,27 +1,24 @@
 #!/bin/bash
-# run_switch.sh
-# SYNOPSIS
-# 	./run_switch.sh --num_workers 5
-# DESCRIPTION
-# 	If run on a cluster, starts SWITCH using the qsub job submission tool.
-# 	If run on a workstation or server, starts SWITCH using the bash command line. 
-# This tool attempts to auto-detect the computational environment. If it can find the "getid" tool used on the citris cluster, then it will assume a cluster environment. Otherwise, it will assume a workstation environment.
-# 
-# INPUTS
-# 	--num_workers X          The cplex part of the optimization workload will be spread between X simultaneous processes, where each process is working on a different carbon cost scenario. 
-# 	--help                   Print this usage information
-#		--threads_per_cplex X    Allow CPLEX to use up to X threads for its parallel mode. This will increase the memory requirements by a factor of X.
-# OPTIONAL INPUTS FOR A CLUSTER ENVIRONMENT
-# 	--email foo@berkeley.edu Send emails on the job progress to this email
-# 	--jobname foo_bar        Give the job this name
-# 	--runtime 10             Request 10 hours of runtime for the optimization step. Whole numbers only. 
 
-# This function assumes that the lines at the top of the file that start with a # and a space or tab 
-# comprise the help message. It prints the matching lines with the prefix removed and stops at the first blank line.
-# Consequently, there needs to be a blank line separating the documentation of this program from this "help" function
 function print_help {
-	last_line=$(( $(egrep '^[ \t]*$' -n -m 1 $0 | sed 's/:.*//') - 1 ))
-	head -n $last_line $0 | sed -e '/^#[ 	]/ !d' -e 's/^#[ 	]//'
+  echo $0 # The name of this file. 
+  cat <<END_HELP
+SYNOPSIS
+./run_switch.sh --num_workers 5
+DESCRIPTION
+If run on a cluster, starts SWITCH using the qsub job submission tool.
+If run on a workstation or server, starts SWITCH using the bash command line. 
+This tool attempts to auto-detect the computational environment. If it can find the "getid" tool used on the citris cluster, then it will assume a cluster environment. Otherwise, it will assume a w
+
+INPUTS
+  --num_workers X          The cplex part of the optimization workload will be spread between X simultaneous processes, where each process is working on a different carbon cost scenario. 
+  --help                   Print this usage information
+  --threads_per_cplex X    Allow CPLEX to use up to X threads for the barrier method. This may increase memory requirements.
+OPTIONAL INPUTS FOR A CLUSTER ENVIRONMENT
+  --email foo@berkeley.edu Send emails on the job progress to this email
+  --jobname foo_bar        Give the job this name
+  --runtime 10             Request 10 hours of runtime for the optimization step. Whole numbers only. 
+END_HELP
 }
 
 # Set the umask to give group read & write permissions to all files & directories made by this script.

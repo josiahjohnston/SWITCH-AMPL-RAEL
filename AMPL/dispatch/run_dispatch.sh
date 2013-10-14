@@ -1,8 +1,8 @@
 #!/bin/bash
 
 function print_help {
+  echo $0 # The name of this file. 
   cat <<END_HELP
-run_dispatch.sh
 SYNOPSIS
 	./run_dispatch.sh
 DESCRIPTION
