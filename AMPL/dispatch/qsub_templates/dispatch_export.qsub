@@ -1,37 +1,23 @@
-echo $(date) >>logs/export.log
-echo $(date) >>logs/export.err
-
-job_path=$(mktemp -p tmp ampl_export-XXX);
-prob_num=0
-for d in $(ls -1d test_set_*); do
-  worker=$(( $prob_num % $NUM_WORKERS ));
-  echo "\
-    echo \"\$(date)\" >>logs/export-${worker}.log; \
-    echo \"\$(date)\" >>logs/export-${worker}.err; \
-    echo \"\
-      cd $d; \
-      include dispatch_problem.run; \
-      suffix iis symbolic OUT; \
-      for {c in CARBON_COSTS} { \
-        let carbon_cost := c; \
-        include dispatch_load_grid.run; \
-        include dispatch_load_sols_for_export.run; \
-        include dispatch_export.run; \
-      } \
-    \" | ampl 1>>logs/export-${worker}.log 2>>logs/export-${worker}.err"
-  prob_num=$(($prob_num+1))
-done > $job_path
-
-# Make all of the workers quit the ampl license process. The mpirun/execute_jobs.pl processes won't exiting as long as ampl_lic is still running. Repeating the 
-# exit command NUM_WORKERS times at the end of the job file will force it to be run on every worker node. This worked because workers select jobs based on 
-# num_jobs % num_workers == worker_id (ex if there are two workers, one will take the odd numbers jobs and the other will take the evens). 
 for ((worker=0; worker<$NUM_WORKERS; worker++)); do
-  echo "echo 'this worker on '\$(hostname)' finished its last job at '\$(date); ampl_lic return ampl; ampl_lic stop;" >> $job_path
+  prob_num=0
+  echo $(date) >>logs/export-${worker}.log
+  echo $(date) >>logs/export-${worker}.err
+  probs_path=tmp/export-${worker}
+  for d in $(ls -1d test_set_*); do
+    if [ $(( $prob_num % $NUM_WORKERS )) -eq $worker ]; then
+      echo "\
+cd $d; \
+include dispatch_problem.run; \
+for {c in CARBON_COSTS} { \
+  let carbon_cost := c; \
+  include dispatch_load_grid.run; \
+  include dispatch_export.run; \
+} \
+cd ..; \
+reset; ";
+    fi
+  prob_num=$(($prob_num+1))
+  done > $probs_path
+  ampl <$probs_path 1>>logs/export-${worker}.log 2>>logs/export-${worker}.err &
 done
-
-echo "export job_path is $job_path"
-
-# This will need to be tweaked to work with different clusters; hopper uses aprun or something like that.
-mpirun -v -np $NUM_WORKERS ./execute_jobs.pl $job_path;
-
-# rm $job_path
+wait

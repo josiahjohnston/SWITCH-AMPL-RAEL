@@ -1,21 +1,22 @@
-ampl.tab 1 4
-fuel	rps_fuel_category	biofuel	carbon_content	carbon_sequestered
-Gas	fossilish	0	0.05306	0
-DistillateFuelOil	fossilish	0	0.07315	0
-ResidualFuelOil	fossilish	0	0.0788	0
-Wind	renewable	0	0	0
-Solar	renewable	0	0	0
-Bio_Solid	renewable	1	0	0
-Bio_Liquid	renewable	1	0	0
-Bio_Gas	renewable	1	0	0
-Coal	fossilish	0	0.09552	0
-Uranium	fossilish	0	0	0
-Geothermal	renewable	0	0	0
-Water	fossilish	0	0	0
-Gas_CCS	fossilish	0	0.007959	0.045101
-DistillateFuelOil_CCS	fossilish	0	0.0109725	0.0621775
-ResidualFuelOil_CCS	fossilish	0	0.01182	0.06698
-Bio_Solid_CCS	renewable	1	-0.0801933	0.0801933
-Bio_Liquid_CCS	renewable	1	-0.0654075	0.0654075
-Bio_Gas_CCS	renewable	1	-0.045101	0.045101
-Coal_CCS	fossilish	0	0.014328	0.081192
+ampl.tab 1 3
+fuel	biofuel	carbon_content	carbon_sequestered
+Gas	0	0.05306	0
+DistillateFuelOil	0	0.07315	0
+ResidualFuelOil	0	0.0788	0
+Wind	0	0	0
+Solar	0	0	0
+Bio_Solid	1	0	0
+Bio_Liquid	1	0	0
+Bio_Gas	1	0	0
+Coal	0	0.09552	0
+Uranium	0	0	0
+Geothermal	0	0	0
+Water	0	0	0
+Storage	0	0	0
+Gas_CCS	0	0.007959	0.045101
+DistillateFuelOil_CCS	0	0.0109725	0.0621775
+ResidualFuelOil_CCS	0	0.01182	0.06698
+Bio_Solid_CCS	1	-0.08019325	0.08019325
+Bio_Liquid_CCS	1	-0.0654075	0.0654075
+Bio_Gas_CCS	1	-0.090202	0.090202
+Coal_CCS	0	0.014328	0.081192

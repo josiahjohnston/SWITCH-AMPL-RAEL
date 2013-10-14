@@ -14,14 +14,13 @@ for {c in CARBON_COSTS} {
 	if (ord(c) mod num_workers = worker_id )
 	then {
 		let carbon_cost := c;
-		let {p in PERIODS} carbon_cost_by_period[p] := c;
     
     # Only compile this problem if neither the solution nor problem file exists. 
 		if ( (file_exists(solution_path) ==  0) and (file_exists(problem_path) == 0)) then {
 			printf "\nWriting Investment Cost problem for a carbon cost of %d.\n", carbon_cost;
 			let curtime := time();
 			# Options to print out auxiliary files from ampl of the compiled MIP - see p. 488 of the AMPL book for documentation
-			# option auxfiles cfrsu; write ("m" & problem_basename);  # Uncomment this line to write the problem as text files (for debugging)
+			option auxfiles cfrsu; write ("m" & problem_basename);  # Uncomment this line to write the problem as text files (for debugging)
 			write ("b" & problem_basename);
 			let compile_time := time() - curtime;
 			printf "%d seconds to compile and write the problem file.\n", compile_time;		

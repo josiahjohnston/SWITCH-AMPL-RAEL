@@ -1,34 +1,23 @@
-trap "ampl_lic stop;" EXIT INT TERM
-
-echo $(date)" Starting job." >>logs/compile.log
-echo $(date)" Starting job." >>logs/compile.err
-
-job_path=$(mktemp -p tmp ampl_compile-XXX);
-prob_num=0
-for d in $(ls -1d test_set_*); do
-  worker=$(( $prob_num % $NUM_WORKERS ));
-  echo "\
-    echo \"\$(date)\" >>logs/compile-${worker}.log; \
-    echo \"\$(date)\" >>logs/compile-${worker}.err; \
-    echo \"\
-      cd $d; \
-      include dispatch_problem.run; \
-      for {c in CARBON_COSTS} { \
-        let carbon_cost := c; \
-        include dispatch_load_grid.run; \
-        include dispatch_compile.run; \
-      } \
-    \" | ampl 1>>logs/compile-${worker}.log 2>>logs/compile-${worker}.err;"
-  prob_num=$(($prob_num+1))
-done > $job_path
-
 for ((worker=0; worker<$NUM_WORKERS; worker++)); do
-  echo "echo 'this worker finished last job at '\$(date); ampl_lic return ampl; ampl_lic stop;" >> $job_path
+  prob_num=0
+  echo $(date) >>logs/compile-${worker}.log
+  echo $(date) >>logs/compile-${worker}.err
+  probs_path=tmp/compile-${worker}
+  for d in $(ls -1d test_set_*); do
+    if [ $(( $prob_num % $NUM_WORKERS )) -eq $worker ]; then
+      echo "\
+cd $d; \
+include dispatch_problem.run; \
+for {c in CARBON_COSTS} { \
+  let carbon_cost := c; \
+  include dispatch_load_grid.run; \
+  include dispatch_compile.run; \
+} \
+cd ..; \
+reset; ";
+    fi
+  prob_num=$(($prob_num+1))
+  done > $probs_path
+  ampl <$probs_path 1>>logs/compile-${worker}.log 2>>logs/compile-${worker}.err &
 done
-
-echo "compile job_path is $job_path"
-
-# This will need to be tweaked to work with different clusters; hopper uses aprun or something like that.
-mpirun -v -np $NUM_WORKERS ./execute_jobs.pl $job_path;
-
-# rm $job_path
+wait

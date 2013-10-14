@@ -1,29 +1,13 @@
 include load.run;
-let enable_rps := 0;
-
-# Update the cplex_options to search for infeasibilities.
-shell('cplex_options=$(cat results/cplex_options); \
-if [ $(echo "$cplex_options" | grep iisfind | wc -l) -eq 0 ]; then \
-  cplex_options="$cplex_options iisfind=1"; \
-else \
-  cplex_options=$(echo $cplex_options | sed -e "s/iisfind=./iisfind=1/"); \
-fi \
-cplex_options=$(echo $cplex_options | sed -e "s/baropt//"); \
-echo "option cplex_options (''$cplex_options'');" > cplex_options.run; \
-echo "$cplex_options" > results/cplex_options ');
-include cplex_options.run;
-
 
 set PROJECT_VINTAGES_ALL dimen 4;
 set PROJ_MIN_BUILD_VINTAGES_ALL dimen 4;
 set EP_PERIODS_ALL dimen 4;
 set TRANSMISSION_LINE_VINTAGES_ALL dimen 3;
-set LOCAL_TD_VINTAGES_ALL dimen 2;
+set LocalTD_VINTAGES_ALL dimen 2;
 param InstallGen_Init {PROJECT_VINTAGES_ALL};
-param InstallStorageEnergyCapacity_Init {PROJECT_VINTAGES_ALL: storage[t]};
 param OperateEPDuringPeriod_Init {EP_PERIODS_ALL} >= 0, <= 1, integer;
 param InstallTrans_Init {TRANSMISSION_LINE_VINTAGES_ALL} >= 0;
-param InstallLocalTD_Init {LOCAL_TD_VINTAGES_ALL} >= 0;
 param hours_per_period {p in PERIODS} = sum {h in TIMEPOINTS: period[h] = p } hours_in_sample[h];
 param dispatch_hours_in_sample {p in PERIODS} = (sum {h in TIMEPOINTS: period[h] = p } hours_in_sample[h] ) / card( {h in TIMEPOINTS: period[h] = p } );
 param test_set_id;
@@ -38,95 +22,76 @@ problem Dispatch_Only:
 
 # Satisfy Load and Power Consumption
   Satisfy_Load,
-  Conservation_Of_Energy_NonDistributed, ConsumeNonDistributedPower,  
-  
-# Installation Constraints
-  Minimum_Local_TD_No_DR, Minimum_Local_TD_DR,
-  
-# Dispatch Decisions
-  DispatchGen, DispatchFlexibleBaseload, Deep_Cycle_Amount, Commit_Intermediate_Gen, Startup_MW_from_Last_Hour, ProducePowerEP, ConsumeBioSolid, ConsumeNaturalGas, ConsumeNaturalGasRegional,
-  DispatchTrans,
-  StoreEnergy, ReleaseEnergy,
-  DispatchHydro, Dispatch_Pumped_Hydro_Storage, Store_Pumped_Hydro,
-  Provide_Spinning_Reserve, Provide_Quickstart_Capacity, Storage_Operating_Reserve, Hydro_Operating_Reserve, Pumped_Hydro_Storage_Operating_Reserve,
-# Dispatch Constraints
-	Power_and_Operating_Reserve_From_Dispatchable_Plants, Maximum_Intermediate_Capacity_Online, Maximum_Dispatch_Intermediate_Gen, Minimum_Loading_Intermediate_Gen,
-    Intermediate_Gen_Startup, Peaker_Plant_Startup, Power_From_New_Flexible_Baseload_Plants, Minimum_Loading_New_Flexible_Baseload_Plants,
-    EP_Operational_Continuity, EP_Power_and_Operating_Reserve_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Hydro_Plants, 
-	EP_Power_From_Baseload_Plants, EP_Power_From_Flexible_Baseload_Plants, Maximum_Loading_Existing_Flexible_Baseload_Plants, Minimum_Loading_Existing_Flexible_Baseload_Plants, Spinning_Reserve_as_Fraction_of_Dispatch,
-	Maximum_DispatchTrans, 
-	Mexican_Export_Limit, 
-  Maximum_Dispatch_and_Operating_Reserve_Hydro, Minimum_Dispatch_Hydro, Average_Hydro_Output, Max_Operating_Reserve_Hydro,
-  Maximum_Store_Pumped_Hydro, Pumped_Hydro_Energy_Balance,
-  CAES_Combined_Dispatch, CAES_Combined_Operating_Reserve, Maximum_Store_Rate, Maximum_Release_and_Operating_Reserve_Storage_Rate, Storage_Projects_Energy_Balance,
-# Operating Reserve Variables
-  Spinning_Reserve_Requirement, Quickstart_Reserve_Requirement, 
-# Operating Reserve Constraints
-  Satisfy_Spinning_Reserve_Requirement, Satisfy_Quickstart_Reserve_Requirement,
-# Demand response
-  Shift_Res_Comm_Load, Meet_Shifted_Load, Shift_EV_Load, Charge_EVs, Maximum_Res_Comm_Load_That_Can_Be_Shifted_from_Hour, Maximum_Res_Comm_Load_That_Can_Be_Shifted_to_Hour, Res_Comm_Demand_Response_Energy_Balance, Maximum_EV_Load_That_Can_Be_Shifted_from_Hour, Maximum_EV_Load_That_Can_Be_Shifted_to_Hour, EV_Charging_Energy_Balance
-;
-
-problem Dispatch_peakers_and_storage:
-# Objective function 
-  Power_Cost, 
-
-# Satisfy Load and Power Consumption
-  Satisfy_Load,
-  Conservation_Of_Energy_NonDistributed, ConsumeNonDistributedPower,
-# Installation Constraints
-  Minimum_Local_TD_No_DR, Minimum_Local_TD_DR,
+  Conservation_Of_Energy_NonDistributed, Conservation_Of_Energy_Distributed,
+  ConsumeNonDistributedPower, ConsumeDistributedPower, 
   
 # Dispatch can install more peakers or local T&D only if the investments generate infeasibilities.
   Increase_Gen_Only,  
+
+# Dispatch Decisions
+  DispatchGen, DispatchFlexibleBaseload, ProducePowerEP, ConsumeBioSolid, DispatchTransFromXToY, StoreEnergy, ReleaseEnergy,
+  DispatchHydro, Dispatch_Pumped_Hydro_Storage, Store_Pumped_Hydro,
+  Provide_Spinning_Reserve, Provide_Quickstart_Capacity, Storage_Operating_Reserve, Hydro_Operating_Reserve, Pumped_Hydro_Storage_Operating_Reserve,
+# Dispatch Constraints
+  Power_and_Operating_Reserve_From_Dispatchable_Plants, Power_From_New_Flexible_Baseload_Plants, Minimum_Loading_New_Flexible_Baseload_Plants, Spinning_Reserve_as_Fraction_of_Dispatch,
+  EP_Operational_Continuity, EP_Power_and_Operating_Reserve_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Baseload_Plants, EP_Power_From_Flexible_Baseload_Plants, Maximum_Loading_Existing_Flexible_Baseload_Plants, Minimum_Loading_Existing_Flexible_Baseload_Plants, EP_Power_From_Hydro_Plants, 
+  Maximum_DispatchTransFromXToY, 
+  Maximum_Dispatch_and_Operating_Reserve_Hydro, Minimum_Dispatch_Hydro, Average_Hydro_Output, Max_Operating_Reserve_Hydro,
+  Maximum_Store_Pumped_Hydro, Conservation_Of_Stored_Pumped_Hydro_Electrons_by_Fuel_Category, Pumped_Hydro_Energy_Balance,
+  CAES_Combined_Dispatch, CAES_Combined_Operating_Reserve, Maximum_Store_Rate, Maximum_Release_and_Operating_Reserve_Storage_Rate, Storage_Projects_Energy_Balance_by_Fuel_Category, Storage_Projects_Energy_Balance,     Spinning_Reserve_Requirement, Quickstart_Reserve_Requirement,
+# Deep Cycling
+  Deep_Cycle_Amount,
+# Operating Reserve Constraints
+  Spinning_Reserve_Requirement_in_Balancing_Area_in_Hour, Quickstart_Reserve_Requirement_in_Balancing_Area_in_Hour, Satisfy_Spinning_Reserve_Requirement,
+  Satisfy_Quickstart_Reserve_Requirement
+;
+
+problem Dispatch_peakers_and_storage:
+# Objective function
+  Power_Cost,
+  
+# Satisfy Load and Power Consumption
+  Satisfy_Load,
+  Conservation_Of_Energy_NonDistributed, Conservation_Of_Energy_Distributed,
+  ConsumeNonDistributedPower, ConsumeDistributedPower, 
+   
+# Dispatch can install more peakers or local T&D only if the investments generate infeasibilities.
+  Increase_Gen_Only,
 
 # Allow installation of Gas peakers and storage technologies.
   {(pid, a, t, p) in PROJECT_VINTAGES: t='Gas_Combustion_Turbine' or storage[t] } InstallGen[pid, a, t, p],
   
 # Dispatch Decisions
-  DispatchGen, DispatchFlexibleBaseload, Deep_Cycle_Amount, Commit_Intermediate_Gen, Startup_MW_from_Last_Hour, ProducePowerEP, ConsumeBioSolid, ConsumeNaturalGas, ConsumeNaturalGasRegional,
-  DispatchTrans,
-  StoreEnergy, ReleaseEnergy,
+  DispatchGen, DispatchFlexibleBaseload, ProducePowerEP, ConsumeBioSolid, DispatchTransFromXToY, StoreEnergy, ReleaseEnergy,
   DispatchHydro, Dispatch_Pumped_Hydro_Storage, Store_Pumped_Hydro,
   Provide_Spinning_Reserve, Provide_Quickstart_Capacity, Storage_Operating_Reserve, Hydro_Operating_Reserve, Pumped_Hydro_Storage_Operating_Reserve,
 # Dispatch Constraints
-	Power_and_Operating_Reserve_From_Dispatchable_Plants, Maximum_Intermediate_Capacity_Online, Maximum_Dispatch_Intermediate_Gen, Minimum_Loading_Intermediate_Gen,
-    Intermediate_Gen_Startup, Peaker_Plant_Startup, Power_From_New_Flexible_Baseload_Plants, Minimum_Loading_New_Flexible_Baseload_Plants,
-    EP_Operational_Continuity, EP_Power_and_Operating_Reserve_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Hydro_Plants, 
-	EP_Power_From_Baseload_Plants, EP_Power_From_Flexible_Baseload_Plants, Maximum_Loading_Existing_Flexible_Baseload_Plants, Minimum_Loading_Existing_Flexible_Baseload_Plants, Spinning_Reserve_as_Fraction_of_Dispatch,
-	Maximum_DispatchTrans, 
-	Mexican_Export_Limit, 
+  Power_and_Operating_Reserve_From_Dispatchable_Plants, Power_From_New_Flexible_Baseload_Plants, Minimum_Loading_New_Flexible_Baseload_Plants, Spinning_Reserve_as_Fraction_of_Dispatch,
+  EP_Operational_Continuity, EP_Power_and_Operating_Reserve_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Baseload_Plants, EP_Power_From_Flexible_Baseload_Plants, Maximum_Loading_Existing_Flexible_Baseload_Plants, Minimum_Loading_Existing_Flexible_Baseload_Plants, EP_Power_From_Hydro_Plants,
+  Maximum_DispatchTransFromXToY,
   Maximum_Dispatch_and_Operating_Reserve_Hydro, Minimum_Dispatch_Hydro, Average_Hydro_Output, Max_Operating_Reserve_Hydro,
-  Maximum_Store_Pumped_Hydro, Pumped_Hydro_Energy_Balance,
-  CAES_Combined_Dispatch, CAES_Combined_Operating_Reserve, Maximum_Store_Rate, Maximum_Release_and_Operating_Reserve_Storage_Rate, Storage_Projects_Energy_Balance,
-# Operating Reserve Variables
-  Spinning_Reserve_Requirement, Quickstart_Reserve_Requirement, 
+  Maximum_Store_Pumped_Hydro, Conservation_Of_Stored_Pumped_Hydro_Electrons_by_Fuel_Category, Pumped_Hydro_Energy_Balance,
+  CAES_Combined_Dispatch, CAES_Combined_Operating_Reserve, Maximum_Store_Rate, Maximum_Release_and_Operating_Reserve_Storage_Rate, Storage_Projects_Energy_Balance_by_Fuel_Category, Storage_Projects_Energy_Balance,     Spinning_Reserve_Requirement, Quickstart_Reserve_Requirement,
+# Deep Cycling
+  Deep_Cycle_Amount,
 # Operating Reserve Constraints
-  Satisfy_Spinning_Reserve_Requirement, Satisfy_Quickstart_Reserve_Requirement,
-# Demand response
-  Shift_Res_Comm_Load, Meet_Shifted_Load, Shift_EV_Load, Charge_EVs, Maximum_Res_Comm_Load_That_Can_Be_Shifted_from_Hour, Maximum_Res_Comm_Load_That_Can_Be_Shifted_to_Hour, Res_Comm_Demand_Response_Energy_Balance, Maximum_EV_Load_That_Can_Be_Shifted_from_Hour, Maximum_EV_Load_That_Can_Be_Shifted_to_Hour, EV_Charging_Energy_Balance
+  Spinning_Reserve_Requirement_in_Balancing_Area_in_Hour, Quickstart_Reserve_Requirement_in_Balancing_Area_in_Hour, Satisfy_Spinning_Reserve_Requirement,
+  Satisfy_Quickstart_Reserve_Requirement
 ;
 
 
 table TableInstallGen IN "inputs/InstallGen.tab": 
   PROJECT_VINTAGES_ALL <- [ pid, a, t, p ], InstallGen_Init ~ InstallGen;
-table TableInstallStorageEnergyCapacity IN "inputs/InstallStorageEnergyCapacity.tab": 
-  PROJECT_VINTAGES_ALL <- [ pid, a, t, p ], InstallStorageEnergyCapacity_Init ~ InstallStorageEnergyCapacity;
 table TableOperateEPDuringPeriod IN "inputs/OperateEPDuringPeriod.tab": 
   EP_PERIODS_ALL <- [pid, a, t, p], OperateEPDuringPeriod_Init ~ OperateEPDuringPeriod;
 table TableInstallTrans IN "inputs/InstallTrans.tab":
   TRANSMISSION_LINE_VINTAGES_ALL <- [a1, a2, p], InstallTrans_Init ~ InstallTrans;
-table TableInstallLocalTD IN "inputs/InstallLocalTD.tab":
-  LOCAL_TD_VINTAGES_ALL <- [a, p], InstallLocalTD_Init ~ InstallLocalTD;
 
 param cost_problem_file symbolic := results_path & "sol" & carbon_cost & "dispatch";
-param cost_problem_file_path symbolic := cost_problem_file & ".nl";
 param cost_solution_file symbolic := cost_problem_file & ".sol";
 param peaker_problem_file symbolic := results_path & "sol" & carbon_cost & "dispatch_and_peakers";
-param peaker_problem_file_path symbolic := peaker_problem_file & ".nl";
 param peaker_solution_file symbolic := peaker_problem_file & ".sol";
 param infeasible_path symbolic;
 param week_num;
 
 problem Dispatch_Only;
-include tweak_problem.run;

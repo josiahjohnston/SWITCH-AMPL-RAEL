@@ -16,13 +16,6 @@ function print_help {
 	head -n $last_line $0 | sed -e '/^#[ 	]/ !d' -e 's/^#[ 	]//'
 }
 
-function is_process_running {
-  pid=$1
-  ps -p $pid | wc -l | awk '{print $1-1}'
-}
-
-# Set the umask to give group read & write permissions to all files & directories made by this script.
-umask 0002
 
 # Default values
 runtime_path='results/run_times.txt'
@@ -48,10 +41,8 @@ done
 # Determine if this is being run in a cluster environment
 if [ -z $(which getid) ]; then cluster=0; else cluster=1; fi;
 
-# Determine the worker id of this process in a cluster environment if it wasn't passed in as a command-line argument
+# Determine the worker id of this process
 if [ -z "$worker_id" ] && [ "$cluster" == 1 ]; then worker_id=$(getid | awk '{print $1}'); fi
-# Hack.. If that didn't work, assume this process is the only worker. 
-if [ -z "$worker_id" ]; then worker_id=0; num_workers=1; fi
 
 # Basic error checking
 if [ -z "$worker_id" ]; then echo "ERROR! worker_id is unspecified."; exit; fi
@@ -74,38 +65,7 @@ for base_name in $problems; do
   # Otherwise, solve this problem
   carbon_cost=$(echo "$base_name" | sed -e 's_^.*[^0-9]\([0-9][0-9]*\)[^/]*$_\1_')
   log_base="logs/cplex_optimization_"$carbon_cost"_"$(date +'%m_%d_%H_%M_%S')
-  printf "About to run cplex. \n\tLogs are ${log_base}...\n\tcommand is: cplexamp $base_name -AMPL \"$cplex_options\"\n"
-  # Record the date & hostname of the computer this is being run on
-  hostname >$log_base".log"
-  date >>$log_base".log"
-  cat $log_base".log" >$log_base".error_log"
-  start_time=$(date +%s);
-  cplexamp $base_name -AMPL "$cplex_options" 1>> $log_base".log" 2>> $log_base".error_log" &
-  cplex_pid=$! ;
-  ps_headers="$(ps -o vsize,rssize,%mem,%cpu,time,comm -p $cplex_pid | head -1)"
-  echo "realtime elapsed_wall_time elapsed_cpu_time recent_cpu_usage $ps_headers" > $log_base".profile";
-  ps_output="$(ps -o vsize,rssize,%mem,%cpu,time,comm -p $cplex_pid | tail -1)"
-  realtime=$(date +%s);
-  starttime=$realtime
-  elapsedtime=$(($realtime-$starttime))
-  last_elapsedtime=$elapsedtime
-  cputime=$(echo $ps_output | awk '{print $5}' | sed -e 's/-/*24*3600 + /' -e 's/:/*3600 + /' -e 's/:/*60 + /' | bc )
-  last_cputime=$cputime
-  cpuusage=0
-  while [ $( is_process_running $cplex_pid ) -eq 1 ]; do
-    printf "%8d %d %d %.2f %s\n" $realtime $elapsedtime $cputime $cpuusage "$ps_output" >> $log_base".profile";
-    sleep 30;
-    ps_output="$(ps -o vsize,rssize,%mem,%cpu,time,comm -p $cplex_pid | tail -1)"
-    last_elapsedtime=$elapsedtime
-    last_cputime=$cputime
-    realtime=$(date +%s);
-    elapsedtime=$(($realtime-$starttime))
-    cputime=$(echo $ps_output | awk '{print $5}' | sed -e 's/-/*24*3600 + /' -e 's/:/*3600 + /' -e 's/:/*60 + /' | bc )
-    cpuusage=$(echo "scale=2; ($cputime - $last_cputime)/($elapsedtime - $last_elapsedtime); " | bc)
-  done;
-  end_time=$(date +%s);
-  runtime=$(($end_time - $start_time))
-
-
+  printf "About to run cplex. \n\tLogs are ${log_base}_cplex...\n\tcommand is: cplexamp $base_name -AMPL \"$cplex_options\"\n"
+  runtime=$((time -p cplexamp $base_name -AMPL "$cplex_options" 1>>$log_base"_cplex.log" 2>>$log_base"_cplex.error_log" )2>&1 | grep real | awk '{print $2}')
   printf "$scenario_id\t$carbon_cost\tcplex_optimize\t"$(date +'%s')"\t$runtime\n" >> "$runtime_path"
 done

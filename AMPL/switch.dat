@@ -6,7 +6,7 @@ set CARBON_COSTS := 0;
 param: 
 RESULT_FILES:                        result_file_path_templates :=
 generator_and_storage_dispatch				'generator_and_storage_dispatch_%d.txt'
-system_load									'system_load_%d.txt'
+la_demand_mwh								'la_demand_mwh_%d.txt'
 transmission_dispatch						'transmission_dispatch_%d.txt'
 generation_capacity							'gen_cap_%d.txt'
 transmission_capacity						'trans_cap_%d.txt'
