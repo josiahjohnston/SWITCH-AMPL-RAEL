@@ -1,0 +1,5 @@
+ampl.tab 1 4
+la_system	load_only_spinning_reserve_requirement	wind_spinning_reserve_requirement	solar_spinning_reserve_requirement	quickstart_requirement_relative_to_spinning_reserve_requirement
+SIC	0.03	0.05	0.05	1
+SIC2	0.03	0.05	0.05	1
+SING	0.03	0.05	0.05	1
