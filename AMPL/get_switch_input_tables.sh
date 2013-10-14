@@ -169,34 +169,26 @@ fi
 
 # PATY: New id (oct/2/2013) #############################################################
 export CARBON_CAP_ID=$($connection_string -t -c "select carbon_cap_id from chile.scenarios_switch_chile where scenario_id = $SCENARIO_ID;")
-echo $CARBON_CAP_ID
 
 # PATY: ADDED VAR
 ENABLE_CARBON_CAP=$($connection_string -t -c "select case when $CARBON_CAP_ID=0 then 0 else 1 end;")
-echo $ENABLE_CARBON_CAP
 
 export RPS_ID=$($connection_string -t -c "select rps_id from chile.scenarios_switch_chile where scenario_id = $SCENARIO_ID;")
-echo $RPS_ID
 
 # PATY: ADDED VAR
 ENABLE_RPS=$($connection_string -t -c "select case when $RPS_ID=0 then 0 else 1 end;")
-echo $ENABLE_RPS
 
 export SIC_SING_ID=$($connection_string -t -c "select sic_sing_id from chile.scenarios_switch_chile where scenario_id = $SCENARIO_ID;")
-echo $SIC_SING_ID
 
 export FUEL_COST_ID=$($connection_string -t -c "select fuel_cost_id from chile.scenarios_switch_chile where scenario_id = $SCENARIO_ID;")
-echo $FUEL_COST_ID
 
 export NEW_PROJECT_PORTFOLIO_ID=$($connection_string -t -c "select new_project_portfolio_id from chile.scenarios_switch_chile where scenario_id = $SCENARIO_ID;")
-echo $NEW_PROJECT_PORTFOLIO_ID
+
 # PATY: End of new ids ################################################################
 
 export TRAINING_SET_ID=$($connection_string -t -c "select training_set_id from chile.scenarios_switch_chile where scenario_id = $SCENARIO_ID;")
-echo $TRAINING_SET_ID
 
 export DEMAND_SCENARIO_ID=$($connection_string -t -c "select demand_scenario_id from chile.training_sets where training_set_id = $TRAINING_SET_ID;")
-echo $DEMAND_SCENARIO_ID
 
 export STUDY_START_YEAR=$($connection_string -t -c "select study_start_year from chile.training_sets where training_set_id=$TRAINING_SET_ID;")
 echo $STUDY_START_YEAR
@@ -255,15 +247,22 @@ echo 'la_system	load_only_spinning_reserve_requirement	wind_spinning_reserve_req
 $connection_string -A -t -F  $'\t' -c  "select la_system, load_only_spinning_reserve_requirement, wind_spinning_reserve_requirement, \
 solar_spinning_reserve_requirement, quickstart_requirement_relative_to_spinning_reserve_requirement from chile.regional_grid_companies;" >> regional_grid_companies.tab
 
+# JP: This was added to allow carbon cap
+echo '	carbon_cap_targets.tab...'
+echo ampl.tab 1 1 > carbon_cap_targets.tab
+echo 'year carbon_emissions_relative_to_base' >> carbon_cap_targets.tab
+$connection_string -A -t -F  $'\t' -c  "select year, carbon_emissions_relative_to_base from chile.carbon_cap_targets_v2 \
+where year >= $STUDY_START_YEAR and year <= $STUDY_END_YEAR \
+and carbon_cap_id=$CARBON_CAP_ID AND $ENABLE_CARBON_CAP = 1;" >> carbon_cap_targets.tab
 
 
-# JP
+#JP:
 echo '	transmission_lines.tab...'
 echo ampl.tab 2 6 > transmission_lines.tab
 echo 'la_start	la_end	transmission_line_id	existing_transfer_capacity_mw	transmission_length_km	transmission_efficiency	new_transmission_builds_allowed	dc_line' >> transmission_lines.tab
 $connection_string -A -t -F  $'\t' -c  "select la_start, la_end, transmission_line_id, existing_transfer_capacity_mw, transmission_length_km, transmission_efficiency, \
 new_transmission_builds_allowed, dc_line from chile.transmission_between_la \
-where case when $SIC_SING_ID=0 then transmission_line_id <> 127 and transmission_line_id <> 128 else transmission_line_id>0 end order by 1,2;" >> transmission_lines.tab
+where case when $SIC_SING_ID = 0 then transmission_line_id <> 127 and transmission_line_id <> 128 else transmission_line_id>0 end order by 1,2;" >> transmission_lines.tab
 
 # PATY: la_id used to be province (not province_id)
 echo '	la_hourly_demand.tab...'
@@ -396,8 +395,7 @@ echo '	misc_params.dat...'
 echo "param scenario_id          := $SCENARIO_ID;" >  misc_params.dat
 # PATY: line below added to activate rps 
 echo "param enable_rps            := $ENABLE_RPS;"  >> misc_params.dat
-# PATY: new enable_carbon_cap param. Oct/3/2013
-# echo "param enable_carbon_cap     := $ENABLE_CARBON_CAP;"  >> misc_params.dat
+echo "param enable_carbon_cap            := $ENABLE_CARBON_CAP;"  >> misc_params.dat
 echo "param num_years_per_period	:= $number_of_years_per_period;"  >> misc_params.dat
 echo "param present_year  			:= $present_year;"  >> misc_params.dat
 

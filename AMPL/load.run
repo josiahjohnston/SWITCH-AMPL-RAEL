@@ -82,6 +82,10 @@ table rps_areas_and_fuel_category "inputs/rps_areas_and_fuel_category.tab" IN:
 read table rps_areas_and_fuel_category;
 # END PATY TABLE
 
+table carbon_cap_targets "inputs/carbon_cap_targets.tab" IN: 
+  [year], carbon_emissions_relative_to_base;
+read table carbon_cap_targets;
+
 table transmission_lines "inputs/transmission_lines.tab" IN: 
   TRANSMISSION_LINES <- [la_start, la_end], transmission_line_id, existing_transfer_capacity_mw, 
   transmission_length_km, transmission_efficiency, new_transmission_builds_allowed;
@@ -179,7 +183,7 @@ problem Investment_Cost_Minimization;
 
 # PATY'S EDIT: two lines below uncommented to make rps work.........
 if (enable_rps = 0) then { drop Satisfy_RPS; } 
-# if (enable_carbon_cap = 0) then { drop Carbon_Cap; } 
+if (enable_carbon_cap = 0) then { drop Carbon_Cap; } 
 ## Simplify transmission & storage if RPS is not in effect
 redeclare param rps_fuel_category {FUELS} symbolic;
 if (enable_rps = 0) then {

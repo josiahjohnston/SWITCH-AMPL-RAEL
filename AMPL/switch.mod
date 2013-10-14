@@ -561,22 +561,26 @@ param able_to_meet_rps { (r, c, p) in RPS_TARGETS } binary =
 #### Carbon Cost
 ## cost of carbon emissions ($/ton), e.g., from a carbon tax
 ## can also be set negative to drive renewables out of the system
-param carbon_cost default 50;
+param carbon_cost default 0;
 #
 ## set and parameters used to make carbon cost curves
 set CARBON_COSTS ordered;
 #
 #### Carbon Cap
 ## does this scenario include a cap on carbon emissions?
-#param enable_carbon_cap >= 0, <= 1 default 1;
+param enable_carbon_cap >= 0, <= 1 default 1;
 #
 ## the base (1990) carbon emissions in tCO2/Yr
-#param base_carbon_emissions = 24000000;
+## for Chile, there's no mandate. We aim to a 2 tpc goal, however, for the whole country. Chile's electricity sector is responsible roughly for a third of that.
+## Chile had 10560000 tons of CO2 coming from the electricity sector in 1990, which corresponds to 0.8 tpc. In 2008, Chile had 1.7 tpc emitted from its electricity sector. 
+## Under the assumption it's still about a third, we would need to limit it to 0.67 tpc to proportionally achieve the 2 tpc mark 
+##(though maybe more would be required since transportation will probably have less levearge in reducing theirs)
+param base_carbon_emissions = 10560000;
 ## the fraction of emissions relative to the base year of 1990 that should be allowed in a given year
-#param carbon_emissions_relative_to_base {YEARS};
+param carbon_emissions_relative_to_base {YEARS};
 ## add up all the targets for each period to get the total cap level in each period
-#param carbon_cap {p in PERIODS} = base_carbon_emissions *
-#		( sum{ y in YEARS: y >= p and y < p + num_years_per_period } carbon_emissions_relative_to_base[y] );
+param carbon_cap {p in PERIODS} = base_carbon_emissions *
+		( sum{ y in YEARS: y >= p and y < p + num_years_per_period } carbon_emissions_relative_to_base[y] );
 
 ##############################################
 	
@@ -1252,42 +1256,42 @@ subject to Satisfy_RPS { (r, c, p) in RPS_TARGETS: able_to_meet_rps[r, c, p] }:
 
 ## Carbon Cap constraint
 ## load.run will drop this constraint if enable_carbon_cap is 0
-#subject to Carbon_Cap {p in PERIODS}:
-#	# Carbon emissions from new dispatchable plants except for CAES - none from intermittent plants
-#	  ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t] and t <> 'Compressed_Air_Energy_Storage' } (
-#	  DispatchGen[pid, a, t, p, h] * heat_rate[pid, a, t]
-#	  + Provide_Spinning_Reserve[pid, a, t, p, h] * heat_rate_spinning_reserve[pid, a, t] )
-#	  * carbon_content[fuel[t]] * hours_in_sample[h] )
-#	# Carbon emissions from CAES; the total power from CAES is DispatchGen + ReleaseEnergy, which simplifes to 
-#	# DispatchGen * ( 1 + caes_storage_to_ng_ratio ), and the total spinning reserve simplifies to
-#	# ProvideSpinningReserve * ( 1 + caes_storage_to_ng_ratio )
-#	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t = 'Compressed_Air_Energy_Storage' } (
-#	  DispatchGen[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) * heat_rate[pid, a, t]
-#	  + Provide_Spinning_Reserve[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) * heat_rate_spinning_reserve[pid, a, t] )
-#	  * carbon_content[fuel[t]] * hours_in_sample[h] )
-#	# Carbon emissions from new baseload plants
-#	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t]}
-#		(sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] ) * gen_availability[t] * heat_rate[pid, a, t] * carbon_content[fuel[t]] * hours_in_sample[h] )
-#	# Carbon emissions from new flexible baseload plants
-#	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: flexible_baseload[t] } (
-#	   DispatchFlexibleBaseload[pid, a, t, p, date[h]] * heat_rate[pid, a, t] * carbon_content[fuel[t]] * hours_in_sample[h] ) )
-#	# Carbon emissions from existing plants
-#	+ ( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS } (
-#	ProducePowerEP[pid, a, t, p, h] * ep_heat_rate[pid, a, t]
-#	+ ( ( if dispatchable[t] then Provide_Spinning_Reserve[pid, a, t, p, h] else 0 ) * heat_rate_spinning_reserve[pid, a, t] )
-#	) * carbon_content[fuel[t]] * hours_in_sample[h] )
-#	# Carbon emissions from heat rate degradation of flexible baseload plants operating below full load
-#	+ ( sum { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] } (
-#	    ( if can_build_new[t]
-# then ( (sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] ) * #gen_availability[t]
-#	    - DispatchFlexibleBaseload[pid, a, t, p, date[h]] )
-# else ( OperateEPDuringPeriod[pid, a, t, p] * ep_capacity_mw[pid, a, t] * gen_availability[t]
-#		- DispatchFlexibleBaseload[pid, a, t, p, date[h]] ) ) * deep_cycling_penalty[t] 
-#	    * ( if can_build_new[t] then heat_rate[pid, a, t] else ep_heat_rate[pid, a, t] )
-#	    * carbon_content[fuel[t]] * hours_in_sample[h] )
-#	    )
-#  	<= carbon_cap[p];
-#
+subject to Carbon_Cap {p in PERIODS}:
+	# Carbon emissions from new dispatchable plants except for CAES - none from intermittent plants
+	  ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t] and t <> 'Compressed_Air_Energy_Storage' } (
+	  DispatchGen[pid, a, t, p, h] * heat_rate[pid, a, t]
+	  + Provide_Spinning_Reserve[pid, a, t, p, h] * heat_rate_spinning_reserve[pid, a, t] )
+	  * carbon_content[fuel[t]] * hours_in_sample[h] )
+	# Carbon emissions from CAES; the total power from CAES is DispatchGen + ReleaseEnergy, which simplifes to 
+	# DispatchGen * ( 1 + caes_storage_to_ng_ratio ), and the total spinning reserve simplifies to
+	# ProvideSpinningReserve * ( 1 + caes_storage_to_ng_ratio )
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t = 'Compressed_Air_Energy_Storage' } (
+	  DispatchGen[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) * heat_rate[pid, a, t]
+	  + Provide_Spinning_Reserve[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) * heat_rate_spinning_reserve[pid, a, t] )
+	  * carbon_content[fuel[t]] * hours_in_sample[h] )
+	# Carbon emissions from new baseload plants
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t]}
+		(sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] ) * gen_availability[t] * heat_rate[pid, a, t] * carbon_content[fuel[t]] * hours_in_sample[h] )
+	# Carbon emissions from new flexible baseload plants
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: flexible_baseload[t] } (
+	   DispatchFlexibleBaseload[pid, a, t, p, date[h]] * heat_rate[pid, a, t] * carbon_content[fuel[t]] * hours_in_sample[h] ) )
+	# Carbon emissions from existing plants
+	+ ( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS } (
+	ProducePowerEP[pid, a, t, p, h] * ep_heat_rate[pid, a, t]
+	+ ( ( if dispatchable[t] then Provide_Spinning_Reserve[pid, a, t, p, h] else 0 ) * heat_rate_spinning_reserve[pid, a, t] )
+	) * carbon_content[fuel[t]] * hours_in_sample[h] )
+	# Carbon emissions from heat rate degradation of flexible baseload plants operating below full load
+	+ ( sum { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] } (
+	    ( if can_build_new[t]
+ then ( (sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] ) * gen_availability[t]
+	    - DispatchFlexibleBaseload[pid, a, t, p, date[h]] )
+ else ( OperateEPDuringPeriod[pid, a, t, p] * ep_capacity_mw[pid, a, t] * gen_availability[t]
+		- DispatchFlexibleBaseload[pid, a, t, p, date[h]] ) ) * deep_cycling_penalty[t] 
+	    * ( if can_build_new[t] then heat_rate[pid, a, t] else ep_heat_rate[pid, a, t] )
+	    * carbon_content[fuel[t]] * hours_in_sample[h] )
+	    )
+  	<= carbon_cap[p];
+
 
 #################################################
 # Power conservation constraints
@@ -1803,7 +1807,8 @@ problem Investment_Cost_Minimization:
     ConsumeNonDistributedPower, ConsumeDistributedPower,
   # Policy Constraints
   # PATY: line below was completely commented.
-	Satisfy_RPS, #Meet_California_Solar_Initiative, Carbon_Cap,
+  	Satisfy_RPS, #Meet_California_Solar_Initiative, 
+    Carbon_Cap,
   # Investment Decisions
 	InstallGen, BuildGenOrNot, InstallTrans, 
   # Installation Constraints
