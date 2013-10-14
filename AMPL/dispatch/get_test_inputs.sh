@@ -24,6 +24,8 @@ function print_help {
 	head -n $last_line $0 | sed -e '/^#[ 	]/ !d' -e 's/^#[ 	]//'
 }
 
+# Set the umask to give group read & write permissions to all files & directories made by this script.
+umask 0002
 
 db_server="switch-db1.erg.berkeley.edu"
 DB_name="switch_inputs_wecc_v2_2"

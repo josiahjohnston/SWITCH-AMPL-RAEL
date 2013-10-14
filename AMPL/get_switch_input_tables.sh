@@ -1,23 +1,13 @@
-# present_year was forced to be 2013
-# Part by part of get_switch_input_tables.sh
-
-## here it begins:
-
-
-
-
-
-
-
+#!/bin/bash
 # Date of creation: May 8th/2013
 # SWITCH CHILE!
 # Note: This file was copied and modified from get_switch_input_tables.sh sent by Juan Pablo Carvallo (which was from China model of some time ago)
 # C:\University of California, Berkeley\Spring 2013\RAEL\Switch Chile\Switch_china_files\get_switch_input_tables.sh
 # the rest of the code follows the original .sh file (with the corresponding editions)
-
-
-
-#!/bin/bash
+#
+# present_year was forced to be 2013
+# Part by part of get_switch_input_tables.sh
+#
 # get_switch_input_tables.sh
 # SYNOPSIS
 #		./get_switch_input_tables.sh 
@@ -35,14 +25,20 @@
 #  -h [DB server]
 #  -np | --no-password      Do not prompt for or use a password to connect to the database
 # All arguments are optional.
+#
+
+
 
 # This function assumes that the lines at the top of the file that start with a # and a space or tab 
 # comprise the help message. It prints the matching lines with the prefix removed and stops at the first blank line.
 # Consequently, there needs to be a blank line separating the documentation of this program from this "help" function
-#function print_help {
-#	last_line=$(( $(egrep '^[ \t]*$' -n -m 1 $0 | sed 's/:.*//') - 1 ))
-#	head -n $last_line $0 | sed -e '/^#[ 	]/ !d' -e 's/^#[ 	]//'
-#}
+function print_help {
+	last_line=$(( $(egrep '^[ \t]*$' -n -m 1 $0 | sed 's/:.*//') - 1 ))
+	head -n $last_line $0 | sed -e '/^#[ 	]/ !d' -e 's/^#[ 	]//'
+}
+
+# Set the umask to give group read & write permissions to all files & directories made by this script.
+umask 0002
 
 # Export SWITCH input data from the Switch inputs database into text files that will be read in by AMPL
 
