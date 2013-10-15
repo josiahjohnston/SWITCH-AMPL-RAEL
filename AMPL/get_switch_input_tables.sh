@@ -1,27 +1,24 @@
 #!/bin/bash
-# get_switch_input_tables.sh
-# SYNOPSIS
-#		./get_switch_input_tables.sh 
-# DESCRIPTION
-# 	Pull input data for Switch from databases and other sources, formatting it for AMPL
-# This script assumes that the input database has already been built by the script 'Build WECC Cap Factors.sql'
-# 
-# INPUTS
-#  --help                   Print this message
-#  -t | --tunnel            Initiate an ssh tunnel to connect to the database. This won't work if ssh prompts you for your password.
-#  -u [DB Username]
-#  -p [DB Password]
-#  -D [DB name]
-#  -P/--port [port number]
-#  -h [DB server]
-# All arguments are optional.
 
-# This function assumes that the lines at the top of the file that start with a # and a space or tab 
-# comprise the help message. It prints the matching lines with the prefix removed and stops at the first blank line.
-# Consequently, there needs to be a blank line separating the documentation of this program from this "help" function
 function print_help {
-	last_line=$(( $(egrep '^[ \t]*$' -n -m 1 $0 | sed 's/:.*//') - 1 ))
-	head -n $last_line $0 | sed -e '/^#[ 	]/ !d' -e 's/^#[ 	]//'
+  echo $0 # The name of this file. 
+  cat <<END_HELP
+SYNOPSIS
+		./get_switch_input_tables.sh 
+DESCRIPTION
+	Pull input data for Switch from databases and other sources, formatting it for AMPL
+This script assumes that the input database has already been built by the script 'Build WECC Cap Factors.sql'
+
+INPUTS
+ --help                   Print this message
+ -t | --tunnel            Initiate an ssh tunnel to connect to the database. This won't work if ssh prompts you for your password.
+ -u [DB Username]
+ -p [DB Password]
+ -D [DB name]
+ -P/--port [port number]
+ -h [DB server]
+All arguments are optional.
+END_HELP
 }
 
 
