@@ -3,18 +3,23 @@
 # To submit this file, use: `qsub optimize.qsub`
 
 # Job label
-#PBS -N test-optimize
-# Please keep nodes below 8. Each node has 8 processors & 24GB RAM
-#PBS -l nodes=4:ppn=1
+#PBS -N AMPL-optimize
+#PBS -l nodes=1:ppn=8
+#PBS -l mem=20G
 # Name of queue to use for this job. `qstat -q` lists the available queues (4 for now). `qstat` without options shows the jobs each queue.
-#PBS -q long
-# How long you expect the job to run. The PBS scheduler will kill the job after this long. 72h is the maximum. Format is HH:MM:SS
-#PBS -l walltime=72:00:00
+#PBS -q psi
+### You can override the default 1 hour real-world time limit and 24-hour CPU-time.  
+# Note: When I set walltime to 24 hours, the job exited and claimed 24:03:17 hours of cpu time and 03:58:21 of wall-clock time. 
+# The opt_errfile log said "=>> PBS: job killed: cput 86597 exceeded limit 86400"
+# Looks like "walltime" actually means cpu time. I'm going to up it to 80 (8cores * 9 hours + a little wiggle room).
+# Update: 80 hours didn't work either. I need to also specify cputime to override the default of 24h
+#PBS -l walltime=24:00:00
+#PBS -l cput=192:00:00
 # Name of the files to direct stdout and stderr. These files will be written to the working directory. 
 #PBS -o logs/opt_outfile
 #PBS -e logs/opt_errfile
 # The scheduler will send updates to this email.
-#PBS -M siah@berkeley.edu
+#PBS -M example@phoney.ugh
 # When do you want notifications? a = abort (aka failure), b = begin, e = end (without crashing)
 #PBS -m bae
 #
@@ -22,14 +27,12 @@
 #PBS -V
 #
 
-# Update this directory every time before you start the execution. run_switch should set this for you.
-working_dir="/global/home/users/siah/AMPL"
-
 # Initialize the environment
-cd "$working_dir"          # Go to the working directory
+cd "$PBS_O_WORKDIR"          # Go to the working directory
 # Load ampl & cplex if we're on the citris cluster. Test for the citris cluster by looking for "citris" in the hostname
-if( $( hostname | grep "citris" | wc -l ) -gt 0 ); then
+if [ $( hostname | grep "citris" | wc -l ) -gt 0 ]; then
   module load ampl-cplex
+  module load openmpi
 fi
 
 # Make a list of problems composed from .nl files that don't have accompanying .sol files. 
@@ -37,4 +40,4 @@ problems=$(ls results/*nl | sed -e 's/.nl$//' | while read b; do if [ ! -f "$b.s
 # Spawn processes across nodes that will ask CPLEX to solve MIPs
 NUM_PROCS=`wc -l $PBS_NODEFILE| awk '{print $1}'`
 printf "Starting CPLEX optimization from initiating node\n";
-mpirun -v -np $NUM_PROCS ./cplex_worker.sh --num_workers $NUM_PROCS --problems "$problems"
+./cplex_worker.sh --num_workers 1 --problems "$problems"
