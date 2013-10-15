@@ -1,5 +1,5 @@
 --#######################################################
--- Export results for graphing
+-- Process results to summarize and export some views for graphing.
 
 -- GENERATION AND STORAGE SUMMARIES--------
 select 'Creating generation summaries' as progress;
