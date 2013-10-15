@@ -1,3 +1,4 @@
+# present_year was forced to be 2014
 # Part by part of get_switch_input_tables.sh
 
 ## here it begins:
@@ -133,7 +134,7 @@ number_of_years_per_period=$($connection_string -t -c "select years_per_period f
 echo $number_of_years_per_period
 # get the present year that will make present day cost optimization possible
 #present_year=$($connection_string -t -c "select extract(year from now());")
-present_year=$($connection_string -t -c "select 2011;")
+present_year=$($connection_string -t -c "select 2014;")
 echo $present_year
 # Export data to be read into ampl.
 
@@ -199,15 +200,10 @@ where case when $SIC_SING_ID = 0 then transmission_line_id <> 127 and transmissi
 
 # PATY: la_id used to be province (not province_id)
 echo '	la_hourly_demand.tab...'
-echo ampl.tab 2 1 > la_hourly_demand.tab
-echo 'la_id	hour	la_demand_mwh' >> la_hourly_demand.tab
-$connection_string -A -t -F  $'\t' -c  "SELECT la_id, to_char(chile.training_set_timepoints.timestamp_cst, 'YYYYMMDDHH24') AS hour, la_demand_mwh  \
-	FROM chile.la_hourly_demand \
-	JOIN chile.training_sets USING (demand_scenario_id) \
-	JOIN chile.training_set_timepoints USING (training_set_id, hour_number) \
-	JOIN chile.load_area USING (la_id) \
-WHERE demand_scenario_id = $DEMAND_SCENARIO_ID \
-AND training_set_id = $TRAINING_SET_ID;"  >> la_hourly_demand.tab
+echo ampl.tab 2 2 > la_hourly_demand.tab
+echo 'la_id	hour	la_demand_mwh	present_day_system_load' >> la_hourly_demand.tab
+$connection_string -A -t -F  $'\t' -c  "SELECT la_id, hour, la_demand_mwh, present_day_system_load  \
+	FROM chile.la_hourly_demand_mwh_new;"  >> la_hourly_demand.tab
 
 
 #present_day_province_demand_mwh
@@ -216,6 +212,15 @@ echo '	max_la_demand.tab...'
 echo ampl.tab 2 1 > max_la_demand.tab
 echo 'la_id	period	max_la_demand_mwh' >> max_la_demand.tab
 $connection_string -A -t -F  $'\t' -c  "\
+SELECT la_id, $present_year as period, max(la_demand_mwh) as max_la_demand_mwh \
+  FROM chile.la_hourly_demand \
+    JOIN chile.training_sets USING (demand_scenario_id)  \
+	JOIN chile.hours USING (hour_number)  \
+	JOIN chile.load_area USING (la_id) \
+  WHERE training_set_id = $TRAINING_SET_ID \
+  AND year = $present_year  \
+  GROUP BY la_id, period \
+UNION \
 SELECT la_id, period_start as period, max(la_demand_mwh) as max_la_demand_mwh \
   FROM chile.la_hourly_demand \
     JOIN chile.training_sets USING (demand_scenario_id)  \

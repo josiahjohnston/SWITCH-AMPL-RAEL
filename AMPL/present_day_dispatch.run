@@ -43,9 +43,9 @@ let {h in TIMEPOINTS} period[h] := present_year;
 let min_build_year['Gas_Combustion_Turbine'] := present_year - construction_time_years['Gas_Combustion_Turbine'];
 let num_years_per_period := 1;
 
-# PATY: The line below was commented because in switch.mod the system_load section is commented as well.
+
 # update system load to present day system loads
-# let {a in LOAD_AREAS, h in TIMEPOINTS} system_load[a, h] := present_day_system_load[a, h];
+let {a in LOAD_AREAS, h in TIMEPOINTS} la_demand_mwh[a, h] := present_day_system_load[a, h];
 # propagate the data changes downstream - this will update capital costs, discounting, constraints, etc.
 update data;
 # Set default values for all OperateEP and InstallGen variables. A subset of these will be decision variables according to the problem definition in windsun.mod

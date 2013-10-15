@@ -97,7 +97,7 @@ read table study_hours;
 
 
 table la_hourly_demand "inputs/la_hourly_demand.tab" IN: 
-  [la_id, hour], la_demand_mwh;
+  [la_id, hour], la_demand_mwh, present_day_system_load;
 read table la_hourly_demand;
 
 table max_la_demand "inputs/max_la_demand.tab" IN: 

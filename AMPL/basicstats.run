@@ -461,7 +461,7 @@ printf "\nPolicy Options Are:";
 # PATY: uncommented the 2 lines below so RPS can be activated.
 printf "\nEnable RPS=%0d  Enable Carbon Cap=%0d", 
 		enable_rps; 
-#		enable_carbon_cap
+		enable_carbon_cap
 # END OF PATY'S EDITS IN THIS BLOCK...
 
 printf "\nTax=$%d/tCO2: Levelized Cost=$%3.2f/MWh \n", 

@@ -76,7 +76,7 @@ param max_la_demand_mwh {LOAD_AREAS, PERIODS_AND_PRESENT} >= 0;
 # the load in current day instead of a future investment period
 # this is used to calculate the present day cost of power
 # and will be referenced to present day timepoints in ??
-# param present_day_system_load {LOAD_AREAS, TIMEPOINTS} >= 0;
+ param present_day_system_load {LOAD_AREAS, TIMEPOINTS} >= 0;
 
 # Regional cost multipliers
 # param economic_multiplier {LOAD_AREAS} >= 0;
@@ -106,7 +106,7 @@ param la_system {LOAD_AREAS} symbolic in LA_SYSTEMS;
 # the year to which all costs should be discounted and the year for which all costs are specified
 # so this means that the capital cost of a generator is in $base_year and would have cost $overnight_cost in $base_year
 # overnight_costs of generators march down their overnight_cost_change curves in years past this number
-param base_year = 2011;
+param base_year = 2014;
 
 # annual rate (real) to use to discount future costs to current year
 # a 7% real discount rate was chosen as per the recommendations of the Office of Managment and Budget
