@@ -1,25 +1,23 @@
 #!/bin/bash
-# import_results_to_mysql.sh
-# SYNOPSIS
-#		./import_results_to_mysql.sh -h 127.0.0.1 -P 3307 # For connecting through an ssh tunnel
-#		./import_results_to_mysql.sh                      # For connecting to the DB directly
-# INPUTS
-#  --help                   Print this message
-#  -n | --no-tunnel         Do not try to initiate an ssh tunnel to connect to the database. Overrides default behavior. 
-#   -u [DB Username]
-#   -p [DB Password]
-#   -D [DB name]
-#   -P/--port [port number]
-#   -h [DB server]
-#   --ExportOnly             Only export summaries of the results, don't import or crunch data in the DB
-# All arguments are optional.
 
-# This function assumes that the lines at the top of the file that start with a # and a space or tab 
-# comprise the help message. It prints the matching lines with the prefix removed and stops at the first blank line.
-# Consequently, there needs to be a blank line separating the documentation of this program from this "help" function
 function print_help {
-	last_line=$(( $(egrep '^[ \t]*$' -n -m 1 $0 | sed 's/:.*//') - 1 ))
-	head -n $last_line $0 | sed -e '/^#[ 	]/ !d' -e 's/^#[ 	]//'
+  echo $0 # The name of this file. 
+  cat <<END_HELP
+import_results_to_mysql.sh
+SYNOPSIS
+	./import_results_to_mysql.sh -h 127.0.0.1 -P 3307 # For connecting through an ssh tunnel
+	./import_results_to_mysql.sh                      # For connecting to the DB directly
+INPUTS
+ --help                   Print this message
+ -n | --no-tunnel         Do not try to initiate an ssh tunnel to connect to the database. Overrides default behavior. 
+  -u [DB Username]
+  -p [DB Password]
+  -D [DB name]
+  -P/--port [port number]
+  -h [DB server]
+  --ExportOnly             Only export summaries of the results, don't import or crunch data in the DB
+All arguments are optional.
+END_HELP
 }
 
 ##########################

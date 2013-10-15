@@ -1,19 +1,17 @@
 #!/bin/bash
-# cplex_worker.sh
-# SYNOPSIS
-#   ./cplex_worker.sh --num_workers W --problems "results/sol0_investment_cost results/sol30_investment_cost results/sol60_investment_cost"
-# INPUTS
-# 	--problems "results/prob1 results/prob2 ..." 
-# 	                         Lists the base filename of the optimization problems that need to be divided among workers
-# 	--num_workers W          Specifies the number of worker processes tasked with the given problems
-# 	--worker N               Used with is_worker in a non-cluster environment with a fork to indicate the worker id of the child process
 
-# This function assumes that the lines at the top of the file that start with a # and a space or tab 
-# comprise the help message. It prints the matching lines with the prefix removed and stops at the first blank line.
-# Consequently, there needs to be a blank line separating the documentation of this program from this "help" function
 function print_help {
-	last_line=$(( $(egrep '^[ \t]*$' -n -m 1 $0 | sed 's/:.*//') - 1 ))
-	head -n $last_line $0 | sed -e '/^#[ 	]/ !d' -e 's/^#[ 	]//'
+  echo $0 # The name of this file. 
+  cat <<END_HELP
+cplex_worker.sh
+SYNOPSIS
+  ./cplex_worker.sh --num_workers W --problems "results/sol0_investment_cost results/sol30_investment_cost results/sol60_investment_cost"
+INPUTS
+	--problems "results/prob1 results/prob2 ..." 
+	                         Lists the base filename of the optimization problems that need to be divided among workers
+	--num_workers W          Specifies the number of worker processes tasked with the given problems
+	--worker N               Used with is_worker in a non-cluster environment with a fork to indicate the worker id of the child process
+END_HELP
 }
 
 function is_process_running {

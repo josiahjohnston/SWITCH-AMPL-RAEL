@@ -1,32 +1,29 @@
 #!/bin/bash
-# export_carbon_intensity.sh
-# SYNOPSIS
-#		./export_carbon_intensity.sh --tunnel -np --scenario_id 2105 --carbon_cost 0 --fuel_cat_id 3 --study_date 20490417
-# DESCRIPTION
-# 
-# RECOMMENDED INPUTS
-#  -s/--scenario_id [scenario_id] 
-#  -c/--carbon_cost [carbon_cost] 
-#  -f | --fuel_cat_id [fuel_category_id] 
-#  -d | --study_date [study_date_id] 
-#
-# OPTIONAL INPUTS
-#  --help                   Print this message
-#  -t | --tunnel            Initiate an ssh tunnel to connect to the database. This won't work if ssh prompts you for your password.
-#  -u [DB Username]
-#  -p [DB Password]
-#  -D [DB name]
-#  -P/--port [port number]
-#  -h [DB server]
-#  -np | --no-password      Do not prompt for or use a password to connect to the database
-# All arguments are optional.
 
-# This function assumes that the lines at the top of the file that start with a # and a space or tab 
-# comprise the help message. It prints the matching lines with the prefix removed and stops at the first blank line.
-# Consequently, there needs to be a blank line separating the documentation of this program from this "help" function
 function print_help {
-	last_line=$(( $(egrep '^[ \t]*$' -n -m 1 $0 | sed 's/:.*//') - 1 ))
-	head -n $last_line $0 | sed -e '/^#[ 	]/ !d' -e 's/^#[ 	]//'
+  echo $0 # The name of this file. 
+  cat <<END_HELP
+SYNOPSIS
+	./export_carbon_intensity.sh --tunnel -np --scenario_id 2105 --carbon_cost 0 --fuel_cat_id 3 --study_date 20490417
+DESCRIPTION
+  This file has not been maintained in years and will almost certainly not work as-is!
+RECOMMENDED INPUTS
+ -s/--scenario_id [scenario_id] 
+ -c/--carbon_cost [carbon_cost] 
+ -f | --fuel_cat_id [fuel_category_id] 
+ -d | --study_date [study_date_id] 
+
+OPTIONAL INPUTS
+ --help                   Print this message
+ -t | --tunnel            Initiate an ssh tunnel to connect to the database. This won't work if ssh prompts you for your password.
+ -u [DB Username]
+ -p [DB Password]
+ -D [DB name]
+ -P/--port [port number]
+ -h [DB server]
+ -np | --no-password      Do not prompt for or use a password to connect to the database
+All arguments are optional.
+END_HELP
 }
 
 # Set the umask to give group read & write permissions to all files & directories made by this script.
