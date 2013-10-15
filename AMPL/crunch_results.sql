@@ -166,7 +166,7 @@ insert into gen_summary_fuel ( scenario_id, carbon_cost, period, fuel,
 -- GENERATOR CAPACITY--------------
 
 -- capacity each period by load area
-insert into _gen_cap_summary_tech_la (scenario_id, carbon_cost, period, area_id, technology_id, capacity, capital_cost, fixed_o_m_cost)
+insert into _gen_cap_summary_tech_la (scenario_id, carbon_cost, period, area_id, technology_id, capacity, storage_energy_capacity, capital_cost, fixed_o_m_cost)
   select 	scenario_id, carbon_cost, period, area_id, technology_id,
   			sum(capacity) as capacity, sum(storage_energy_capacity) as storage_energy_capacity, sum(capital_cost) as capital_cost, sum(fixed_o_m_cost) as fixed_o_m_cost
 	from _gen_cap 
