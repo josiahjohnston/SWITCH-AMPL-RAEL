@@ -293,9 +293,9 @@ echo ampl.tab 4 1 > existing_intermittent_plant_cap_factor.tab
 mysql $connection_string -e "\
 SELECT project_id, load_area, technology, DATE_FORMAT(datetime_utc,'%Y%m%d%H') as hour, cap_factor \
 FROM _training_set_timepoints \
-  JOIN study_timepoints USING(timepoint_id)\
-  JOIN load_scenario_historic_timepoints USING(timepoint_id)\
-  JOIN existing_intermittent_plant_cap_factor ON(historic_hour=hour)\
+  JOIN study_timepoints USING(timepoint_id) \
+  JOIN load_scenario_historic_timepoints USING(timepoint_id) \
+  JOIN existing_intermittent_plant_cap_factor ON(historic_hour=hour) \
 WHERE training_set_id=$TRAINING_SET_ID AND load_scenario_id=$LOAD_SCENARIO_ID;\
 " >> existing_intermittent_plant_cap_factor.tab
 
@@ -326,7 +326,8 @@ mysql $connection_string -e "select technology, period_start as period, overnigh
 from generator_costs_yearly \
 join generator_info_v2 g using (technology), \
 training_set_periods \
-where year = ( period_start + (period_end-period_start+1)/2 ) - g.construction_time_years \
+join training_sets using(training_set_id) \
+where year = FLOOR( period_start + years_per_period / 2) - g.construction_time_years \
 and period_start >= g.construction_time_years + $present_year \
 and	period_start >= g.min_online_year \
 and gen_costs_scenario_id=$GEN_COSTS_SCENARIO_ID \
@@ -348,7 +349,8 @@ echo ampl.tab 2 2 > ng_supply_curve.tab
 mysql $connection_string -e "\
 select period_start as period, breakpoint_id, consumption_breakpoint as ng_consumption_breakpoint, price_surplus_adjusted as ng_price_surplus_adjusted \
 from natural_gas_supply_curve, training_set_periods \
-where simulation_year=period_start+(period_end-period_start+1)/2 \
+join training_sets using(training_set_id) \
+where simulation_year=FLOOR( period_start + years_per_period / 2) \
 and nems_scenario = (select nems_fuel_scenario from nems_fuel_scenarios where nems_fuel_scenario_id = $NEMS_FUEL_SCENARIO_ID) \
 and training_set_id=$TRAINING_SET_ID \
 UNION \
@@ -364,7 +366,8 @@ echo ampl.tab 2 1 > ng_regional_price_adders.tab
 mysql $connection_string -e "\
 select nems_region, period_start as period, regional_price_adder as ng_regional_price_adder \
 from 	natural_gas_regional_price_adders, training_set_periods \
-where	simulation_year = period_start+(period_end-period_start+1)/2 \
+join training_sets using(training_set_id) \
+where	simulation_year = FLOOR( period_start + years_per_period / 2) \
 and		nems_scenario = (select nems_fuel_scenario from nems_fuel_scenarios where nems_fuel_scenario_id = $NEMS_FUEL_SCENARIO_ID) \
 and training_set_id=$TRAINING_SET_ID \
 UNION \
@@ -381,7 +384,8 @@ echo ampl.tab 3 2 > biomass_supply_curve.tab
 mysql $connection_string -e "\
 SELECT load_area, period_start as period, breakpoint_id, COALESCE(breakpoint_mmbtu_per_year, 0) as breakpoint_mmbtu_per_year, price_dollars_per_mmbtu_surplus_adjusted \
 FROM biomass_solid_supply_curve, training_set_periods \
-WHERE year=period_start+(period_end-period_start+1)/2 \
+join training_sets using(training_set_id) \
+WHERE year=FLOOR( period_start + years_per_period / 2) \
   AND training_set_id=$TRAINING_SET_ID \
 UNION \
 SELECT load_area, $present_year, breakpoint_id, COALESCE(breakpoint_mmbtu_per_year, 0) as breakpoint_mmbtu_per_year, price_dollars_per_mmbtu_surplus_adjusted \
