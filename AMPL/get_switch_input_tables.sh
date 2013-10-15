@@ -1,28 +1,27 @@
 #!/bin/bash
-# get_switch_input_tables.sh
-# SYNOPSIS
-#		./get_switch_input_tables.sh 
-# DESCRIPTION
-# 	Pull input data for Switch from databases and other sources, formatting it for AMPL
-# This script assumes that the input database has already been built by the script 'compile_switch_china.sql'
-# 
-# INPUTS
-#  --help                   Print this message
-#  -t | --tunnel            Initiate an ssh tunnel to connect to the database. This won't work if ssh prompts you for your password.
-#  -u [DB Username]
-#  -p [DB Password]
-#  -D [DB name]
-#  -P/--port [port number]
-#  -h [DB server]
-#  -np | --no-password      Do not prompt for or use a password to connect to the database
-# All arguments are optional.
 
-# This function assumes that the lines at the top of the file that start with a # and a space or tab 
-# comprise the help message. It prints the matching lines with the prefix removed and stops at the first blank line.
-# Consequently, there needs to be a blank line separating the documentation of this program from this "help" function
 function print_help {
-	last_line=$(( $(egrep '^[ \t]*$' -n -m 1 $0 | sed 's/:.*//') - 1 ))
-	head -n $last_line $0 | sed -e '/^#[ 	]/ !d' -e 's/^#[ 	]//'
+  echo $0 # Print the name of this file. 
+  # Print the following text, end at the phrase END_HELP
+  cat <<END_HELP
+get_switch_input_tables.sh
+SYNOPSIS
+		./get_switch_input_tables.sh 
+DESCRIPTION
+	Pull input data for Switch from databases and other sources, formatting it for AMPL
+This script assumes that the input database has already been built by the script 'compile_switch_china.sql'
+
+INPUTS
+ --help                   Print this message
+ -t | --tunnel            Initiate an ssh tunnel to connect to the database. This won't work if ssh prompts you for your password.
+ -u [DB Username]
+ -p [DB Password]
+ -D [DB name]
+ -P/--port [port number]
+ -h [DB server]
+ -np | --no-password      Do not prompt for or use a password to connect to the database
+All arguments are optional.
+END_HELP
 }
 
 # Export SWITCH input data from the Switch inputs database into text files that will be read in by AMPL
@@ -33,27 +32,14 @@ write_to_path='inputs'
 
 db_server="switch-db1.erg.berkeley.edu"
 DB_name="switch_china"
-port=3306
-ssh_tunnel=0
-no_password=0
 
 ###################################################
 # Detect optional command-line arguments
 help=0
 while [ -n "$1" ]; do
 case $1 in
-  -t | --tunnel)
-    ssh_tunnel=1; shift 1 ;;
   -u)
     user=$2; shift 2 ;;
-  -np | --no-password)
-    no_password=1; shift 1 ;;
-  -p)
-    password=$2; shift 2 ;;
-  -P)
-    port=$2; shift 2 ;;
-  --port)
-    port=$2; shift 2 ;;
   -D)
     DB_name=$2; shift 2 ;;
   -h)
@@ -67,7 +53,7 @@ esac
 done
 
 ##########################
-# Get the user name and password 
+# Get the user name (default to system user name of current user) 
 default_user=$(whoami)
 if [ ! -n "$user" ]
 then 
@@ -77,59 +63,10 @@ then
 	  user="$default_user"
 	fi
 fi
-#if [ ! -n "$password" ] && [ $no_password -eq 0 ]
-#then 
-#	printf "Password for PostGreSQL $DB_name on $db_server? "
-#	stty_orig=`stty -g`   # Save screen settings
-#	stty -echo            # To keep the password vaguely secure, don't let it show to the screen
-#	read password
-#	stty $stty_orig       # Restore screen settings
-#	echo " "
-#fi
 
-function clean_up {
-  [ $ssh_tunnel -eq 1 ] && kill -9 $ssh_pid # This ensures that the ssh tunnel will be taken down if the program exits abnormally
-  unset password
-}
+connection_string="psql -h $db_server -U $user $DB_name"
 
-function is_port_free {
-  target_port=$1
-  if [ $(netstat -ant | \
-         sed -e '/^tcp/ !d' -e 's/^[^ ]* *[^ ]* *[^ ]* *.*[\.:]\([0-9]*\) .*$/\1/' | \
-         sort -g | uniq | \
-         grep $target_port | wc -l) -eq 0 ]; then
-    return 1
-  else
-    return 0
-  fi
-}
 
-#############
-# Try starting an ssh tunnel if requested
-if [ $ssh_tunnel -eq 1 ]; then 
-  echo "Trying to open an ssh tunnel. If it prompts you for your password, this method won't work."
-  local_port=5432
-  is_port_free $local_port
-  while [ $? -eq 0 ]; do
-    local_port=$((local_port+1))
-    is_port_free $local_port
-  done
-  ssh -N -p 22 -c 3des $db_server -L $local_port/$db_server/$port &
-  ssh_pid=$!
-  sleep 1
-  if [ $no_password -eq 0 ]; then
-	export PGPASSWORD=yourpassword
-    connection_string="psql 5432 -d $DB_name -U $user"
-  fi
-  trap "clean_up;" EXIT INT TERM 
-else
-  if [ $no_password -eq 0 ]; then
-	export PGPASSWORD=yourpassword
-    connection_string="psql -d $DB_name -U $user"
-  fi
-fi
-
-	export PGPASSWORD=yourpassword
 test_connection=`$connection_string -t -c "select count(*) from province_info;"`
 
 if [ ! -n "$test_connection" ]
