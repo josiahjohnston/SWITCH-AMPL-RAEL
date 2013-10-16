@@ -44,7 +44,7 @@ problem Dispatch_Only:
   Minimum_Local_TD_No_DR, Minimum_Local_TD_DR,
   
 # Dispatch Decisions
-  DispatchGen, DispatchFlexibleBaseload, Deep_Cycle_Amount, Commit_Intermediate_Gen, Startup_MW_from_Last_Hour, ProducePowerEP, ConsumeBioSolid, ConsumeNaturalGas, ConsumeNaturalGasRegional,
+  DispatchGen, DispatchFlexibleBaseload, Deep_Cycle_Amount, Commit_Intermediate_Gen, Startup_MW_from_Last_Hour, ProducePowerEP, ConsumeBioSolid, ConsumeBioSolidByTier, ConsumeNaturalGas, ConsumeNaturalGasByTier, ConsumeNaturalGasRegional, ConsumeNaturalGas_defeqn, ConsumeNaturalGas_UpperLimits, ConsumeBioSolid_UpperLimits, ConsumeBioSolid_defeqn, 
   DispatchTrans,
   StoreEnergy, ReleaseEnergy,
   DispatchHydro, Dispatch_Pumped_Hydro_Storage, Store_Pumped_Hydro,
@@ -84,7 +84,7 @@ problem Dispatch_peakers_and_storage:
   {(pid, a, t, p) in PROJECT_VINTAGES: t='Gas_Combustion_Turbine' or storage[t] } InstallGen[pid, a, t, p],
   
 # Dispatch Decisions
-  DispatchGen, DispatchFlexibleBaseload, Deep_Cycle_Amount, Commit_Intermediate_Gen, Startup_MW_from_Last_Hour, ProducePowerEP, ConsumeBioSolid, ConsumeNaturalGas, ConsumeNaturalGasRegional,
+  DispatchGen, DispatchFlexibleBaseload, Deep_Cycle_Amount, Commit_Intermediate_Gen, Startup_MW_from_Last_Hour, ProducePowerEP, ConsumeBioSolid, ConsumeBioSolidByTier, ConsumeNaturalGas, ConsumeNaturalGasByTier, ConsumeNaturalGasRegional, ConsumeNaturalGas_defeqn, ConsumeNaturalGas_UpperLimits, ConsumeBioSolid_UpperLimits, ConsumeBioSolid_defeqn, 
   DispatchTrans,
   StoreEnergy, ReleaseEnergy,
   DispatchHydro, Dispatch_Pumped_Hydro_Storage, Store_Pumped_Hydro,

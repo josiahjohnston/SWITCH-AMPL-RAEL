@@ -28,22 +28,32 @@ let { (pid, a, t, p) in EP_PERIODS } EP_Fixed_OM_by_Plant_and_Period[pid, a, t, 
 
 let { a in LOAD_AREAS, p in PERIODS: num_bio_breakpoints[a, p] > 0 }
   Biomass_Solid_Fuel_Cost[a, p] :=
-    if ConsumeBioSolid[a, p] = 0 then 0 else
+    if ConsumeBioSolid[a, p] = 0 
+    then 0 
+    else 
     # total cost in each load area in each period for biomass solid
-        (<< { bp in 1..num_bio_breakpoints[a, p]-1 } biomass_breakpoint_mmbtu_per_period[a, p, bp]; 
-           { bp in 1..num_bio_breakpoints[a, p] } biomass_price_dollars_per_mmbtu_surplus_adjusted[a, p, bp] >>
-          ConsumeBioSolid[a, p])
+    ( 
+      sum { bp in 1..num_bio_breakpoints[a, p]: num_bio_breakpoints[a, p] > 0 } 
+      ConsumeBioSolidByTier[a, p, bp] 
+      * biomass_price_dollars_per_mmbtu_surplus_adjusted[a, p, bp] 
+    )
     # divided by the total fuel usage
-       / ConsumeBioSolid[a, p];	
+    / ConsumeBioSolid[a, p] 
+;	
        
-let { p in PERIODS } NG_Wellhead_Price_in_Period[p] := 
-  if ConsumeNaturalGas[p] = 0 then 0 else (
-  # total cost for natural gas fuel
-    ( << { bp in 1..num_ng_breakpoints[p]-1  } ng_consumption_breakpoint_per_period[p, bp]; 
-		   { bp in 1..num_ng_breakpoints[p] } ng_price_surplus_adjusted[p, bp] >>
-	   		ConsumeNaturalGas[p] )
-  # divided by the total fuel usage
-       / ConsumeNaturalGas[p] );	 
+let { p in PERIODS } 
+  NG_Wellhead_Price_in_Period[p] := 
+    if ConsumeNaturalGas[p] = 0 
+    then 0 
+    else 
+    # total cost for natural gas fuel
+    ( 
+      sum { bp in 1..num_ng_breakpoints[p] } 
+        ConsumeNaturalGasByTier[p,bp] * ng_price_surplus_adjusted[p, bp] 
+    ) 
+    # divided by the total fuel usage
+    / ConsumeNaturalGas[p]
+;
 
 # Speed up calculations by initially setting all these values to 0, then only calculate values for projects that have installed capacity
 let {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage'} Power_Produced[pid, a, t, p, h] := 0;
