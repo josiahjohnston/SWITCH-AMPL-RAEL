@@ -190,13 +190,14 @@ param carbon_sequestered {FUELS} default 0;
 
 # biomass supply curve params
 set LOAD_AREAS_AND_BIO_BREAKPOINTS dimen 3;
+set FUTURE_PERIODS_AREAS_AND_BIOBREAKPOINTS := {(a, p, bp) in LOAD_AREAS_AND_BIO_BREAKPOINTS: p in PERIODS};
 
 param num_bio_breakpoints {a in LOAD_AREAS, p in PERIODS_AND_PRESENT} = max( { (la, p, bp) in LOAD_AREAS_AND_BIO_BREAKPOINTS: la = a } bp , 0 );
-param biomass_price_dollars_per_mmbtu_surplus_adjusted {a in LOAD_AREAS, p in PERIODS_AND_PRESENT, bp in 1..num_bio_breakpoints[a, p]}
+param biomass_price_dollars_per_mmbtu_surplus_adjusted {(a, p, bp) in LOAD_AREAS_AND_BIO_BREAKPOINTS}
 	>= if bp = 1 then 0 else biomass_price_dollars_per_mmbtu_surplus_adjusted[a, p, bp-1];
-param biomass_breakpoint_mmbtu_per_year {a in LOAD_AREAS, p in PERIODS_AND_PRESENT, bp in 1..num_bio_breakpoints[a, p]-1}
+param biomass_breakpoint_mmbtu_per_year {(a, p, bp) in LOAD_AREAS_AND_BIO_BREAKPOINTS: bp < num_bio_breakpoints[a, p]}
 	> if bp = 1 then 0 else biomass_breakpoint_mmbtu_per_year[a, p, bp-1];
-param biomass_breakpoint_mmbtu_per_period {a in LOAD_AREAS, p in PERIODS, bp in 1..num_bio_breakpoints[a, p]-1}
+param biomass_breakpoint_mmbtu_per_period {(a, p, bp) in FUTURE_PERIODS_AREAS_AND_BIOBREAKPOINTS: bp < num_bio_breakpoints[a, p]}
 	= biomass_breakpoint_mmbtu_per_year[a, p, bp] * num_years_per_period;
 param biomass_maximum_mmbtu_per_hour {a in LOAD_AREAS, p in PERIODS}
 	= max{ bp in 1..num_bio_breakpoints[a, p]-1 } biomass_breakpoint_mmbtu_per_period[a, p, bp] / hours_in_period[p];
@@ -1127,8 +1128,13 @@ var Startup_MW_from_Last_Hour { (pid, a, t, p, h) in AVAILABLE_HOURS: t in PEAKE
 # as a function of the installed biomass generation capacity.
 # this corresponds via the objective function to a price level on the biomass solid supply curve
 # if this variable is changed, check subject to Maximum_Resource_Bio below - it may need to be changed as well
-var ConsumeBioSolid {a in LOAD_AREAS, p in PERIODS: num_bio_breakpoints[a, p] > 0 } = 
-	# the hourly MWh output of biomass solid projects in baseload mode is below
+var ConsumeBioSolidByTier {(a, p, bp) in FUTURE_PERIODS_AREAS_AND_BIOBREAKPOINTS } >= 0;
+var ConsumeBioSolid {a in LOAD_AREAS, p in PERIODS: num_bio_breakpoints[a, p] > 0 } 
+  = sum { (a, p, bp) in FUTURE_PERIODS_AREAS_AND_BIOBREAKPOINTS } ConsumeBioSolidByTier[a,p,bp];
+subject to ConsumeBioSolid_defeqn {a in LOAD_AREAS, p in PERIODS: num_bio_breakpoints[a, p] > 0}:
+  ConsumeBioSolid[a,p]
+  = 
+  # the hourly MWh output of biomass solid projects in baseload mode
 		(
 		( sum { (pid, a, t, p) in PROJECT_VINTAGES: fuel[t] in BIO_SOLID_FUELS } 
 			( Installed_To_Date[pid, a, t, p] * gen_availability[t]
@@ -1138,6 +1144,13 @@ var ConsumeBioSolid {a in LOAD_AREAS, p in PERIODS: num_bio_breakpoints[a, p] > 
 			* ( ep_heat_rate[pid, a, t] + ep_cogen_thermal_demand[pid, a, t] ) ) )
 		# multiply by the number of hours in each period to get the total fuel consumed
 		) * hours_in_period[p];
+;
+subject to ConsumeBioSolid_UpperLimits {(a, p, bp) in FUTURE_PERIODS_AREAS_AND_BIOBREAKPOINTS: bp < num_bio_breakpoints[a, p]}:
+  ConsumeBioSolidByTier[a,p,bp] <= 
+    if( bp = 1 ) 
+    then biomass_breakpoint_mmbtu_per_period[a, p, bp]
+    else (biomass_breakpoint_mmbtu_per_period[a, p, bp] - biomass_breakpoint_mmbtu_per_period[a, p, bp-1]);
+
 
 # the load in MW drawn from grid from storing electrons in new storage plants
 var StoreEnergy {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t]} >= 0;
@@ -1268,8 +1281,17 @@ var ConsumeNaturalGasRegional { (nr, p) in NG_REGIONAL_PRICE_ADDERS_PERIODS } =
 	    )
   ;
 
-var ConsumeNaturalGas {p in PERIODS} = 
-  sum { nr in NEMS_FUEL_REGIONS } ConsumeNaturalGasRegional [nr, p];
+var ConsumeNaturalGasByTier {p in PERIODS, bp in 1..num_ng_breakpoints[p] } >= 0;
+var ConsumeNaturalGas {p in PERIODS} 
+  = sum { bp in 1..num_ng_breakpoints[p] } ConsumeNaturalGasByTier[p,bp];
+subject to ConsumeNaturalGas_defeqn {p in PERIODS}:
+  ConsumeNaturalGas[p]
+  = sum { nr in NEMS_FUEL_REGIONS } ConsumeNaturalGasRegional [nr, p];
+subject to ConsumeNaturalGas_UpperLimits {p in PERIODS, bp in 1..num_ng_breakpoints[p]-1}:
+  ConsumeNaturalGasByTier[p,bp] <= 
+    if( bp = 1 ) then ng_consumption_breakpoint_per_period[p, bp]
+    else ng_consumption_breakpoint_per_period[p, bp] - ng_consumption_breakpoint_per_period[p, bp-1];
+
 
 #### OBJECTIVE ####
 
@@ -1296,16 +1318,12 @@ minimize Power_Cost:
         InstallGen[pid, a, t, p] * variable_cost[pid, a, t, p] )
 	# BioSolid fuel costs - ConsumeBioSolid is the MMbtu of biomass consumed per period per load area
 	# this is annualized because costs in the objective function are annualized for proper discounting
-	+ ( sum { a in LOAD_AREAS, p in PERIODS: num_bio_breakpoints[a, p] > 0 } 
-		<< { bp in 1..num_bio_breakpoints[a, p] - 1 } biomass_breakpoint_mmbtu_per_period[a, p, bp]; 
-		   { bp in 1..num_bio_breakpoints[a, p] } biomass_price_dollars_per_mmbtu_surplus_adjusted[a, p, bp] >>
-	   		ConsumeBioSolid[a, p] * ( 1 / num_years_per_period ) * discount_to_base_year[p]  )
+	+ ( sum { (a, p, bp) in FUTURE_PERIODS_AREAS_AND_BIOBREAKPOINTS } 
+      ConsumeBioSolidByTier[a, p, bp] * biomass_price_dollars_per_mmbtu_surplus_adjusted[a, p, bp] * ( 1 / num_years_per_period ) * discount_to_base_year[p]  )
 	# Natural gas fuel costs
    		# WECC-wide supply curves
-   + ( sum { p in PERIODS } 
-		<< { bp in 1..num_ng_breakpoints[p] - 1  } ng_consumption_breakpoint_per_period[p, bp]; 
-		   { bp in 1..num_ng_breakpoints[p]} ng_price_surplus_adjusted[p, bp] >>
-	   		ConsumeNaturalGas[p] * ( 1 / num_years_per_period ) * discount_to_base_year[p]  )
+   + ( sum { p in PERIODS, bp in 1..num_ng_breakpoints[p] } 
+	   		ConsumeNaturalGasByTier[p,bp] * ng_price_surplus_adjusted[p, bp] * ( 1 / num_years_per_period ) * discount_to_base_year[p]  )
    		# Regional adder NG fuel costs
    	+ ( sum { nr in NEMS_FUEL_REGIONS, p in PERIODS } 
      ConsumeNaturalGasRegional[nr, p] * ng_regional_price_adder[nr, p] * ( 1 / num_years_per_period ) * discount_to_base_year[p] )
@@ -2032,7 +2050,7 @@ problem Investment_Cost_Minimization:
 	Maximum_Resource_Central_Station_Solar, Maximum_Resource_Bio, Maximum_Resource_Single_Location, Maximum_Resource_EP_Cogen_Replacement,
 	Minimum_GenSize, BuildGenOrNot_Constraint, SymetricalTrans, Minimum_Local_TD_No_DR, Minimum_Local_TD_DR,
   # Dispatch Decisions
-	DispatchGen, DispatchFlexibleBaseload, Deep_Cycle_Amount, Commit_Intermediate_Gen, Startup_MW_from_Last_Hour, OperateEPDuringPeriod, ProducePowerEP, ConsumeBioSolid, ConsumeNaturalGas, ConsumeNaturalGasRegional,
+	DispatchGen, DispatchFlexibleBaseload, Deep_Cycle_Amount, Commit_Intermediate_Gen, Startup_MW_from_Last_Hour, OperateEPDuringPeriod, ProducePowerEP, ConsumeBioSolidByTier, ConsumeBioSolid, ConsumeNaturalGas, ConsumeNaturalGasByTier, ConsumeNaturalGasRegional, ConsumeNaturalGas_defeqn, ConsumeNaturalGas_UpperLimits, ConsumeBioSolid_UpperLimits, ConsumeBioSolid_defeqn, 
 	DispatchTrans,  
 	StoreEnergy, ReleaseEnergy, TotalEnergyAvailableinStorage,
 	DispatchHydro, Dispatch_Pumped_Hydro_Storage, Store_Pumped_Hydro,
@@ -2071,8 +2089,8 @@ problem Present_Day_Cost_Minimization:
   # Installation Constraints
   	Minimum_Local_TD_No_DR,
   # Dispatch Decisions
-	DispatchGen, DispatchFlexibleBaseload, Deep_Cycle_Amount, Commit_Intermediate_Gen, Startup_MW_from_Last_Hour, ProducePowerEP, ConsumeBioSolid,
-	ConsumeNaturalGas, ConsumeNaturalGasRegional,
+	DispatchGen, DispatchFlexibleBaseload, Deep_Cycle_Amount, Commit_Intermediate_Gen, Startup_MW_from_Last_Hour, ProducePowerEP, ConsumeBioSolid, ConsumeBioSolidByTier, 
+	ConsumeNaturalGas, ConsumeNaturalGasByTier, ConsumeNaturalGasRegional, ConsumeNaturalGas_defeqn, ConsumeNaturalGas_UpperLimits, ConsumeBioSolid_UpperLimits, ConsumeBioSolid_defeqn, 
 	DispatchTrans,
 	{(pid, a, t, p) in EP_PERIODS: ( not intermittent[t] and not hydro[t] and ep_could_be_operating_past_expected_lifetime[pid, a, t, p] ) or fuel[t] in BIO_SOLID_FUELS } OperateEPDuringPeriod[pid, a, t, p],
 	DispatchHydro, Dispatch_Pumped_Hydro_Storage, Store_Pumped_Hydro,

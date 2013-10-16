@@ -434,7 +434,7 @@ for {c in CARBON_COSTS} {
         # switch.mod mandates that the first breakpoint is greater than 0. The use of max below
         # will ensure this occurs. This is a hypothetical issue for natural gas because it is 
         # essentially always consumed to some degree, but a practical issue for biomass. 
-        max( ConsumeNaturalGas[p], 1), 
+        max(ConsumeNaturalGas[p], 1), 
         NG_Wellhead_Price_in_Period[p]
         >> (ng_consumption_and_prices_by_period_path);
       printf {p in PERIODS} 
@@ -455,7 +455,7 @@ for {c in CARBON_COSTS} {
       printf {a in LOAD_AREAS, p in PERIODS} 
         "%s\t%d\t%d\t%.4f\t%.4f\n", 
         a, p, 1, 
-        max(ConsumeBioSolid[a, p], 1), Biomass_Solid_Fuel_Cost[a, p]
+        max( ConsumeBioSolid[a, p], 1), Biomass_Solid_Fuel_Cost[a, p]
         >> (biomass_consumption_and_prices_by_period_path);
       printf {a in LOAD_AREAS, p in PERIODS} 
         "%s\t%d\t%d\t%d\t%.4f\n",
