@@ -1,7 +1,7 @@
 #!/bin/bash
 # The first line needs to stay #!/bin/bash to make this file a proper executable shell script. 
 
-# present_year was forced to be 2014
+# present_year was forced to be 2011
 # Part by part of get_switch_input_tables.sh
 
 ## here it begins:
