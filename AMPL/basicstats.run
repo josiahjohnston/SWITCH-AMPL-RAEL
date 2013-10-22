@@ -461,7 +461,7 @@ printf "\nPolicy Options Are:";
 # PATY: uncommented the 2 lines below so RPS can be activated.
 printf "\nEnable RPS=%0d  Enable Carbon Cap=%0d", 
 		enable_rps; 
-		enable_carbon_cap
+#		enable_carbon_cap
 # END OF PATY'S EDITS IN THIS BLOCK...
 
 printf "\nTax=$%d/tCO2: Levelized Cost=$%3.2f/MWh \n", 
@@ -487,8 +487,31 @@ for {p in PERIODS} {
 	  )
 	  / Gross_Power_by_Period[p]
 	;
+	printf "\n";
+	for {s in LA_SYSTEMS: s <> "SIC2"} {
+		printf "%s, %.0d:\t", s, p;
+		printf { f in FUELS: f <> 'Storage' } "%s=%2.0f\%, ", 
+		  f, 
+		  100 * (
+			#    Power from new plants
+			( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: fuel[t] = f and t <> 'Storage' and la_system[a] = s} 
+				Power_Produced[pid, a, t, p, h] * hours_in_sample[h] )
+			# Power from existing plants
+			+ ( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: fuel[t] = f and la_system[a] = s }
+				ProducePowerEP[pid, a, t, p, h] * hours_in_sample[h] )
+		  )
+		  / 
+		  # Need Gross_Power_by_Period[p], but for LA_SYSTEMS
+		  sum{ a in LOAD_AREAS, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY: period[h] = p and la_system[a] = s } 
+			( ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Storage' and rps_fuel_category_tech[t] = fc } Power_Produced[pid, a, t, p, h] )
+			+ ( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: rps_fuel_category[fuel[t]] = fc } ProducePowerEP[pid, a, t, p, h] )
+			) * hours_in_sample[h];
+
+		;
+		printf "\n";
+	}
 	
-	printf "\n   Transmission Losses=%2d\%\n  Distribution Losses=%2d\%\n  Storage Losses=%2d\%\n   Spilled=%2d\%\n", 
+	printf "   Transmission Losses=%2d\%\n  Distribution Losses=%2d\%\n  Storage Losses=%2d\%\n   Spilled=%2d\%\n", 
 		100 * Transmission_Losses_by_Period[p] / Gross_Power_by_Period[p], 
 		100 * Distribution_Losses_by_Period[p] / Gross_Power_by_Period[p],
 		100 * Storage_Losses_by_Period[p]      / Gross_Power_by_Period[p], 
