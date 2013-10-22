@@ -46,7 +46,7 @@ if [ $cluster -eq 1 ]; then
   esac
   case $cluster_name in
     psi) 
-      base_data_dir="$HOME/work/data/dispatch/daily" ;;
+      base_data_dir="/work2/dkammen/data/dispatch/daily" ;;
     citris)
       base_data_dir="$HOME/shared/data/dispatch/daily" ;;
   esac
