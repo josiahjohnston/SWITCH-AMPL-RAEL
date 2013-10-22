@@ -134,7 +134,7 @@ number_of_years_per_period=$($connection_string -t -c "select years_per_period f
 echo $number_of_years_per_period
 # get the present year that will make present day cost optimization possible
 #present_year=$($connection_string -t -c "select extract(year from now());")
-present_year=$($connection_string -t -c "select 2014;")
+present_year=$($connection_string -t -c "select 2011;")
 echo $present_year
 # Export data to be read into ampl.
 
@@ -349,11 +349,11 @@ $connection_string -A -t -F  $'\t' -c  "select project_id, t1.la_id, technology,
   WHERE training_set_id = $TRAINING_SET_ID \
   AND new_project_portfolio_id = $NEW_PROJECT_PORTFOLIO_ID;" >> new_projects_intermittent_capacity_factor.tab
   
-# PATY: NEW TAB FOR RPS  
+# PATY: NEW TAB FOR RPS. EDIT!!   $STUDY_START_YEAR WAS CHANGED FOR 
 echo '	rps_compliance_entity_targets.tab...'
 echo ampl.tab 3 1 > rps_compliance_entity_targets.tab
 echo 'rps_compliance_entity	rps_compliance_type	rps_compliance_year	rps_compliance_fraction' >> rps_compliance_entity_targets.tab
-$connection_string -A -t -F  $'\t' -c "select rps_compliance_entity, rps_compliance_type, rps_compliance_year, rps_compliance_fraction from chile.rps_compliance_entity_targets_v2 where enable_rps = $ENABLE_RPS AND rps_compliance_year >= $STUDY_START_YEAR and rps_compliance_year <= $STUDY_END_YEAR AND rps_id = $RPS_ID;" >> rps_compliance_entity_targets.tab
+$connection_string -A -t -F  $'\t' -c "select rps_compliance_entity, rps_compliance_type, rps_compliance_year, rps_compliance_fraction from chile.rps_compliance_entity_targets_v2 where enable_rps = $ENABLE_RPS AND rps_compliance_year >= $present_year and rps_compliance_year <= $STUDY_END_YEAR AND rps_id = $RPS_ID;" >> rps_compliance_entity_targets.tab
 
 # PATY: NEW TAB FOR RPS  
 echo '	rps_areas_and_fuel_category.tab...'
