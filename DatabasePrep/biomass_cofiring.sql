@@ -133,6 +133,9 @@ INSERT INTO scenarios_v3_cofiring VALUES (10102,'CCC2_140percent_new_costs_cofir
 INSERT INTO scenarios_v3_cofiring VALUES (10103,'CCC2_120percent_new_costs_nocofire_288',1110,1,1,10,14,1,29,6,NULL,NULL,'','','no',0,1,1000,0);
 INSERT INTO scenarios_v3_cofiring VALUES (10104,'CCC2_140percent_new_costs_cofire2_288',1110,1,1,10,14,1,37,6,NULL,NULL,'','','no',0,1,1000,2);
 
+INSERT INTO scenarios_v3_cofiring VALUES (10105,'CCC2_120percent_new_costs_cofire576',1112,1,1,10,14,1,29,6,NULL,NULL,'','','no',0,1,1000,2);
+INSERT INTO scenarios_v3_cofiring VALUES (10106,'CCC2_140percent_new_costs_nocofire',1112,1,1,10,14,1,37,6,NULL,NULL,'','','no',0,1,1000,0);
+
 -- More toy runs for commits (10010 = cofire id 2, 10011 = cofire id 0)
 
 INSERT INTO scenarios_v3_cofiring 
@@ -140,6 +143,10 @@ VALUES ('10010','Cofiring toy, gen info 12, cofire id 2','508','1','1','10','12'
 
 INSERT INTO scenarios_v3_cofiring 
 VALUES ('10011','Cofiring toy, gen info 12, no cofiring','508','1','1','10','12','1','1','6',NULL,NULL,'','','no','0','1','1000','0');
+
+-- Base case for comparison to work
+
+INSERT INTO scenarios_v3_cofiring VALUES (10200,'CCC2_base_new_costs_no_bio',1112,1,1,10,12,1,20,6,NULL,NULL,'','','no',0,1,1000,0);
 
 
 --Now focus on new generator info work
