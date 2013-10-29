@@ -14,7 +14,7 @@ if( file_exists( peaker_solution_file ) == 1 ) then {
     # Labels and auxillary info for convenience
     "load_area	technology	new	baseload	cogen	storage	fuel	" &
     # Data
-    "additional_capacity updated_capacity	capital_cost	fixed_o_m_cost\n"
+    "additional_capacity	updated_capacity	capital_cost	fixed_o_m_cost\n"
   ) > (outfile);
   printf 
     { (pid, a, t, p) in PROJECT_VINTAGES_ALL: 
