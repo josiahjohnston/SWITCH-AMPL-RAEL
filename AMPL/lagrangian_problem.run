@@ -1,0 +1,454 @@
+# Lagrangian Decomposition extensions to the switch model.
+# The standard approach to Lagrangian Decomposition requires duplicating investment decision variables so that each investment period has its own copy of investment decisions made in prior periods. 
+
+# I could explicitly model the extensive form of the problem 
+# ...all duplicate variables in a single AMPL instance...
+# BUT, this would involve more duplicated code that an alternative
+#set PROJECT_VINTAGES_LAGRANG_DUP = { (pid, a, t, p) in PROJECT_VINTAGES, p_focus in PERIODS: p_focus >= p };
+#var InstallGen_LAGRANG_DUP { (pid, a, t, p, p_focus) in PROJECT_VINTAGES_LAGRANG_DUP } >= 0;
+#...
+
+# Instead, I'll have each instance of AMPL represent a sub-problem that focus on a single period. 
+# The investment decisions from other periods and associated costs will remain in the problem (representing duplicate variables)
+# The dispatch decisions from other periods will be excluded. 
+# I'll make a duplicate of each investment decision variable from prior periods to represents the average from other subproblems. 
+# I'll add a term to the objective function to represent a penalty for having investment decisions in a sub-problem diverging from the average across all sub-problems. 
+# In the first iteration, these averages and penalties will both be 0. 
+
+param target_period in PERIODS; 
+param iteration default 0;
+param subproblem_basename symbolic = results_path & "sol" & "_subproblem_" & target_period & "_" & iteration;
+param subproblem_path symbolic =  subproblem_basename & ".nl";
+param subsolution_path symbolic =  subproblem_basename & ".sol";
+param include_subproblem{p in PERIODS} = if( p < last(PERIODS) ) then 1 else 0;
+param num_subproblems = card(PERIODS);
+
+# Investments Period decisions that carry forward in time:
+# InstallGen, InstallStorageEnergyCapacity, BuildGenOrNot, InstallTrans, InstallLocalTD, OperateEPDuringPeriod
+
+# Average variable values from all subproblems in one iteration..
+param InstallGen_LGN_AVG { (pid, a, t, p) in PROJECT_VINTAGES } >= 0;
+param InstallStorageEnergyCapacity_LGN_AVG { (pid, a, t, p) in PROJECT_VINTAGES: storage[t] } >= 0;
+param BuildGenOrNot_LGN_AVG { (pid, a, t, p) in PROJECT_VINTAGES: min_build_capacity[t] > 0 } >= 0, <= 1, integer;
+param InstallTrans_LGN_AVG { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS } >= 0;
+param InstallLocalTD_LGN_AVG { a in LOAD_AREAS, p in PERIODS } >= 0;
+param OperateEPDuringPeriod_LGN_AVG { (pid, a, t, p) in EP_PERIODS: not intermittent[t] and not hydro[t] } >= 0, <= 1, integer;
+
+# Duplicate variable values from all subproblems from one iteration
+param InstallGen_SUB_ALL { (pid, a, t, p) in PROJECT_VINTAGES, target_period in PERIODS: target_period >= p } >= 0;
+param InstallStorageEnergyCapacity_SUB_ALL { (pid, a, t, p) in PROJECT_VINTAGES, target_period in PERIODS: storage[t] and target_period >= p} >= 0;
+param BuildGenOrNot_SUB_ALL { (pid, a, t, p) in PROJECT_VINTAGES, target_period in PERIODS: min_build_capacity[t] > 0 and target_period >= p} >= 0, <= 1, integer;
+param InstallTrans_SUB_ALL { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS, target_period in PERIODS: target_period >= p } >= 0;
+param InstallLocalTD_SUB_ALL { a in LOAD_AREAS, p in PERIODS, target_period in PERIODS: target_period >= p } >= 0;
+param OperateEPDuringPeriod_SUB_ALL { (pid, a, t, p) in EP_PERIODS, target_period in PERIODS: not intermittent[t] and not hydro[t] and target_period >= p} >= 0, <= 1, integer;
+
+# Gap between this subproblem and the average in the last iteration
+param InstallGen_LGN_GAP { (pid, a, t, p) in PROJECT_VINTAGES } >= 0;
+param InstallStorageEnergyCapacity_LGN_GAP { (pid, a, t, p) in PROJECT_VINTAGES: storage[t] } >= 0;
+param BuildGenOrNot_LGN_GAP { (pid, a, t, p) in PROJECT_VINTAGES: min_build_capacity[t] > 0 } >= 0, <= 1, integer;
+param InstallTrans_LGN_GAP { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS } >= 0;
+param InstallLocalTD_LGN_GAP { a in LOAD_AREAS, p in PERIODS } >= 0;
+param OperateEPDuringPeriod_LGN_GAP { (pid, a, t, p) in EP_PERIODS: not intermittent[t] and not hydro[t] } >= 0, <= 1, integer;
+
+# Lagrangian Multipliers: Penalties for deviating from the joint plan
+param InstallGen_DEV_PNTLY { (pid, a, t, p) in PROJECT_VINTAGES };
+param InstallStorageEnergyCapacity_DEV_PNTLY { (pid, a, t, p) in PROJECT_VINTAGES: storage[t] };
+param BuildGenOrNot_DEV_PNTLY { (pid, a, t, p) in PROJECT_VINTAGES: min_build_capacity[t] > 0 };
+param InstallTrans_DEV_PNTLY { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS };
+param InstallLocalTD_DEV_PNTLY { a in LOAD_AREAS, p in PERIODS };
+param OperateEPDuringPeriod_DEV_PNTLY { (pid, a, t, p) in EP_PERIODS: not intermittent[t] and not hydro[t] };
+
+# Auxillary terms for calculating penalties
+param norm;
+param scale default 2;
+param iterations_since_improvement default 0;
+param iterations_since_improvement_limit := 3;
+
+
+# Subproblem I/O need temporary params & table definitions
+include subproblem_io.run;
+
+# On iteration 0, initialize the penalties to 0. 
+if (iteration = 0) then {
+  let { (pid, a, t, p) in PROJECT_VINTAGES } 
+    InstallGen_LGN_AVG[pid, a, t, p] := 0;
+  let { (pid, a, t, p) in PROJECT_VINTAGES: storage[t] } 
+    InstallStorageEnergyCapacity_LGN_AVG[pid, a, t, p] := 0;
+  let { (pid, a, t, p) in PROJECT_VINTAGES: min_build_capacity[t] > 0 } 
+    BuildGenOrNot_LGN_AVG[pid, a, t, p] := 0;
+  let { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS } 
+    InstallTrans_LGN_AVG[a1, a2, p] := 0;
+  let { a in LOAD_AREAS, p in PERIODS } 
+    InstallLocalTD_LGN_AVG[a, p] := 0;
+  let { (pid, a, t, p) in EP_PERIODS: not intermittent[t] and not hydro[t] } 
+    OperateEPDuringPeriod_LGN_AVG[pid, a, t, p] := 0;
+
+  let { (pid, a, t, p) in PROJECT_VINTAGES } 
+    InstallGen_DEV_PNTLY[pid, a, t, p] := 0;
+  let { (pid, a, t, p) in PROJECT_VINTAGES: storage[t] } 
+    InstallStorageEnergyCapacity_DEV_PNTLY[pid, a, t, p] := 0;
+  let { (pid, a, t, p) in PROJECT_VINTAGES: min_build_capacity[t] > 0 } 
+    BuildGenOrNot_DEV_PNTLY[pid, a, t, p] := 0;
+  let { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS } 
+    InstallTrans_DEV_PNTLY[a1, a2, p] := 0;
+  let { a in LOAD_AREAS, p in PERIODS } 
+    InstallLocalTD_DEV_PNTLY[a, p] := 0;
+  let { (pid, a, t, p) in EP_PERIODS: not intermittent[t] and not hydro[t] } 
+    OperateEPDuringPeriod_DEV_PNTLY[pid, a, t, p] := 0;
+}
+
+# If AMPL were cool, I could declare the new objective like so:
+#minimize Power_Cost2: 
+#  Power_Cost + 
+#  sum { (pid, a, t, p) in PROJECT_VINTAGES } 
+#    InstallGen_DEV_PNTLY[pid, a, t, p] * (InstallGen[pid, a, t, p] - InstallGen_LGN_AVG[pid, a, t, p]); 
+#  ...;  
+# But AMPL is decidedly un-cool and makes me copy & paste .. bad for code maintenance.. :(
+minimize Power_Cost_Lagrangian:
+
+	#############################
+	#    NEW PLANTS
+	# Capital costs and fixed costs
+      ( sum { (pid, a, t, p) in PROJECT_VINTAGES: p = target_period } 
+        InstallGen[pid, a, t, p] * ( capital_cost[pid, a, t, p] + fixed_o_m_discounted[pid, a, t, p] ) )
+    + ( sum { (pid, a, t, p) in PROJECT_VINTAGES: storage[t] and p = target_period} 
+        InstallStorageEnergyCapacity[pid, a, t, p] *  storage_energy_capacity_capital_cost[pid, a, t, p] )    
+	# Variable, fuel, and carbon costs for intermittent and baseload generators
+	# Bio_solid fuel cost isn't included here - it's in the bio supply curve
+    + ( sum { (pid, a, t, p) in PROJECT_VINTAGES: (intermittent[t] or baseload[t]) and p = target_period } 
+        InstallGen[pid, a, t, p] * variable_cost[pid, a, t, p] )
+	# BioSolid fuel costs - ConsumeBioSolid is the MMbtu of biomass consumed per period per load area
+	# this is annualized because costs in the objective function are annualized for proper discounting
+	+ ( sum { (a, p, bp) in FUTURE_PERIODS_AREAS_AND_BIOBREAKPOINTS } 
+      ConsumeBioSolidByTier[a, p, bp] * biomass_price_dollars_per_mmbtu_surplus_adjusted[a, p, bp] * ( 1 / num_years_per_period ) * discount_to_base_year[p]  )
+	# Natural gas fuel costs
+   		# WECC-wide supply curves
+   + ( sum { p in PERIODS, bp in 1..num_ng_breakpoints[p] } 
+	   		ConsumeNaturalGasByTier[p,bp] * ng_price_surplus_adjusted[p, bp] * ( 1 / num_years_per_period ) * discount_to_base_year[p]  )
+   		# Regional adder NG fuel costs
+   	+ ( sum { nr in NEMS_FUEL_REGIONS, p in PERIODS } 
+     ConsumeNaturalGasRegional[nr, p] * ng_regional_price_adder[nr, p] * ( 1 / num_years_per_period ) * discount_to_base_year[p] )
+    # Variable costs for dispatchable, non-storage projects
+    # fuel_cost_hourly is 0 for bio solid and natural gas plants (fuel costs are calculated via the supply curves instead), so NG and bio solid fuel costs are not double counted here
+	+ ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t] and t <> 'Compressed_Air_Energy_Storage' } 
+		DispatchGen[pid, a, t, p, h] * ( variable_o_m_cost_hourly[pid, a, t, p, h] + carbon_cost_per_mwh_hourly[pid, a, t, p, h] + fuel_cost_hourly[pid, a, t, p, h] ) )
+	# Variable costs for new flexible baseload projects
+	+ ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: flexible_baseload[t] } 
+		DispatchFlexibleBaseload[pid, a, t, p, date[h]] * ( variable_o_m_cost_hourly[pid, a, t, p, h] + carbon_cost_per_mwh_hourly[pid, a, t, p, h] + fuel_cost_hourly[pid, a, t, p, h] ) )
+	# Variable costs for storage projects: currently attributed to the dispatch side of storage
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] and t <> 'Compressed_Air_Energy_Storage' } 
+		ReleaseEnergy[pid, a, t, p, h] * variable_o_m_cost_hourly[pid, a, t, p, h])
+	# for CAES, power output is apportioned between DispatchGen and ReleaseEnergy by caes_storage_to_ng_ratio through the constraint CAES_Combined_Dispatch
+	# the sum of DispatchGen and ReleaseEnergy simplifies to DispatchGen * ( 1 + caes_storage_to_ng_ratio )
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t = 'Compressed_Air_Energy_Storage' } 
+	  DispatchGen[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) * ( variable_o_m_cost_hourly[pid, a, t, p, h] + carbon_cost_per_mwh_hourly[pid, a, t, p, h] + fuel_cost_hourly[pid, a, t, p, h] ) )
+	# fuel and carbon costs for keeping spinning reserves from new dispatchable plants (oil and gas except for CAES)
+	# for natural gas plants, fuel costs for spinning reserves are handled via the NG supply curve so for NG, fuel_cost_hourly_spinning_reserve = 0; however, fuels cost are calculated here for oil plants
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t] and t <> 'Compressed_Air_Energy_Storage' } 
+		Provide_Spinning_Reserve[pid, a, t, p, h] * ( carbon_cost_per_mwh_hourly_spinning_reserve[pid, a, t, p, h] + fuel_cost_hourly_spinning_reserve[pid, a, t, p, h] ) )
+	# fuel and carbon costs for keeping spinning reserves from CAES
+	# the sum of spinning reserve provided by the natural gas and storage parts of CAES simplifies to
+	# Provide_Spinning_Reserve * ( 1 + caes_storage_to_ng_ratio )
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t = 'Compressed_Air_Energy_Storage' } 
+		Provide_Spinning_Reserve[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) * ( carbon_cost_per_mwh_hourly_spinning_reserve[pid, a, t, p, h] + fuel_cost_hourly_spinning_reserve[pid, a, t, p, h] ) )
+	# cost incurred for keeping new flexible baseload plants below full load
+	+ ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: flexible_baseload[t] } (
+	    Deep_Cycle_Amount[pid, a, t, p, date[h]]
+	    * deep_cycling_penalty[t] * ( carbon_cost_per_mwh_hourly[pid, a, t, p, h] + fuel_cost_hourly[pid, a, t, p, h] ) )
+	    )
+	# carbon cost incurred for keeping new intermediate plants below full load (fuel costs are handled via the NG supply curve)
+	+ ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t in INTERMEDIATE_TECHNOLOGIES } (
+	    ( Commit_Intermediate_Gen[pid, a, t, p, h] - ( DispatchGen[pid, a, t, p, h] + Provide_Spinning_Reserve[pid, a, t, p, h] ) ) * deep_cycling_penalty[t] * carbon_cost_per_mwh_hourly[pid, a, t, p, h] )
+		)
+	# costs for starting up intermediate and peaker plants (fuel costs are included here for oil generators only; for gas, they are handled via the natural gas supply curve so startup_fuel_cost_per_mw_hourly is 0 )
+	+ ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t in PEAKER_TECHNOLOGIES or t in INTERMEDIATE_TECHNOLOGIES } (
+	    Startup_MW_from_Last_Hour[pid, a, t, p, h] * ( startup_fuel_cost_per_mw_hourly[pid, a, t, p, h] + startup_nonfuel_cost_per_mw_hourly[pid, a, t, p, h] + startup_carbon_cost_per_mw_hourly[pid, a, t, p, h] ) ) 
+	    )
+		      
+	#############################
+	#    EXISTING PLANTS
+	# Capital costs (sunk cost)
+	+ ( sum {(pid, a, t, p) in EP_PERIODS: not ep_could_be_operating_past_expected_lifetime[pid, a, t, p]}
+		ep_capacity_mw[pid, a, t] * ep_capital_cost[pid, a, t, p] )
+	# Calculate fixed costs for all existing plants
+	+ ( sum {(pid, a, t, p) in EP_PERIODS: p = target_period} 
+		( if ( intermittent[t] or hydro[t] ) then 1 else OperateEPDuringPeriod[pid, a, t, p] ) * ep_capacity_mw[pid, a, t] * ep_fixed_o_m_by_period[pid, a, t, p] )
+	# Calculate variable, fuel, and carbon costs for all existing plants
+	# Bio_solid fuel cost isn't included here - it's in the bio supply curve
+	+ ( sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS}
+		ProducePowerEP[pid, a, t, p, h] * ( variable_o_m_cost_hourly[pid, a, t, p, h] + fuel_cost_hourly[pid, a, t, p, h] + carbon_cost_per_mwh_hourly[pid, a, t, p, h] ) )
+	# variable costs for releasing energy from pumped hydro storage - currently zero because the variable O&M value is zero
+	# decision variables are on the load area level - this shares them out by plant (pid) in case plants have different variable costs within a load area
+	+ ( sum {(pid, a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS_BY_PID}
+		Dispatch_Pumped_Hydro_Storage[a, t, p, h] * ( ep_capacity_mw[pid, a, t] / hydro_capacity_mw_in_load_area[a, t, p] ) * variable_o_m_cost_hourly[pid, a, t, p, h] )
+	# carbon costs for keeping spinning reserves from existing dispatchable thermal plants (fuel costs for NG generators are handled via the NG supply curve, but is included in fuel_cost_hourly_spinning_reserve for oil plants)
+	+ ( sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: dispatchable[t] }
+		Provide_Spinning_Reserve[pid, a, t, p, h] * ( fuel_cost_hourly_spinning_reserve[pid, a, t, p, h] + carbon_cost_per_mwh_hourly_spinning_reserve[pid, a, t, p, h] ) )
+	+ ( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: flexible_baseload[t] }
+	    Deep_Cycle_Amount[pid, a, t, p, date[h]]
+	    * deep_cycling_penalty[t] * ( carbon_cost_per_mwh_hourly[pid, a, t, p, h] + fuel_cost_hourly[pid, a, t, p, h] ) )
+	# carbon cost incurred for keeping existing intermediate plants below full load (fuel costs are handled via the NG supply curve)
+	+ ( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: t in INTERMEDIATE_TECHNOLOGIES } (
+	    ( Commit_Intermediate_Gen[pid, a, t, p, h] - ( ProducePowerEP[pid, a, t, p, h] + Provide_Spinning_Reserve[pid, a, t, p, h] ) ) * deep_cycling_penalty[t] * carbon_cost_per_mwh_hourly[pid, a, t, p, h] )
+		)
+	# costs for starting up existing intermediate and peaker plants (fuel costs are included here for oil generators only; for gas, they are handled via the natural gas supply curve and startup_fuel_cost_per_mw_hourly is 0
+	+ ( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: t in PEAKER_TECHNOLOGIES or t in INTERMEDIATE_TECHNOLOGIES } (
+	    Startup_MW_from_Last_Hour[pid, a, t, p, h] * ( startup_fuel_cost_per_mw_hourly[pid, a, t, p, h] + startup_nonfuel_cost_per_mw_hourly[pid, a, t, p, h] + startup_carbon_cost_per_mw_hourly[pid, a, t, p, h] ) ) 
+	    )
+	    
+	########################################
+	#    TRANSMISSION & DISTRIBUTION
+	# Sunk costs of operating the existing transmission grid
+	+ ( sum {a in LOAD_AREAS, p in PERIODS}
+		transmission_sunk_annual_payment[a] * discount_to_base_year[p] )
+	# Calculate the cost of installing new transmission lines between load areas
+	+ ( sum { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS: p = target_period } 
+		InstallTrans[a1, a2, p] * transmission_cost_per_mw[a1, a2, p] )
+	+ ( sum { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS: p = target_period } 
+		InstallTrans[a1, a2, p] * transmission_fixed_o_m_by_period[a1, a2, p] )
+	# Calculate the cost of installing new local (intra-load area) transmission and distribution
+	+ ( sum {a in LOAD_AREAS, p in PERIODS: p = target_period}
+		InstallLocalTD[a, p] * local_td_cost_per_mw[a, p] )
+	# Sunk costs of operating the existing local (intra-load area) transmission and distribution
+	+ ( sum {a in LOAD_AREAS, p in PERIODS: p = target_period} local_td_sunk_annual_payment[a] * discount_to_base_year[p] )
+
+  #########################################
+  # Lagrangian penalties for deviations between sub-problems
+  # Eventually, I'll have multiple sub-problems per period and will need to include penalties for deviations in the last period
+  # For now, I'll just exclude the last period from these penalties
+  + sum { (pid, a, t, p) in PROJECT_VINTAGES: include_subproblem[p] } 
+      InstallGen_DEV_PNTLY[pid, a, t, p] * 
+      (InstallGen[pid, a, t, p] - InstallGen_LGN_AVG[pid, a, t, p])
+  + sum { (pid, a, t, p) in PROJECT_VINTAGES: storage[t] and include_subproblem[p] } 
+      InstallStorageEnergyCapacity_DEV_PNTLY[pid, a, t, p] * 
+      (InstallStorageEnergyCapacity[pid, a, t, p] - InstallStorageEnergyCapacity_LGN_AVG[pid, a, t, p])
+  + sum { (pid, a, t, p) in PROJECT_VINTAGES: min_build_capacity[t] > 0 and include_subproblem[p] } 
+      BuildGenOrNot_DEV_PNTLY[pid, a, t, p] * 
+      (BuildGenOrNot[pid, a, t, p] - BuildGenOrNot_LGN_AVG[pid, a, t, p])
+  + sum { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS: include_subproblem[p] } 
+      InstallTrans_DEV_PNTLY[a1, a2, p] * 
+      (InstallTrans[a1, a2, p] - InstallTrans_LGN_AVG[a1, a2, p])
+  + sum { a in LOAD_AREAS, p in PERIODS: include_subproblem[p] }
+      InstallLocalTD_DEV_PNTLY[a, p] * 
+      (InstallLocalTD[a, p] - InstallLocalTD_LGN_AVG[a, p])
+  + sum { (pid, a, t, p) in EP_PERIODS: not intermittent[t] and not hydro[t] and include_subproblem[p]}
+      OperateEPDuringPeriod_DEV_PNTLY[pid, a, t, p] * 
+      (OperateEPDuringPeriod[pid, a, t, p] - OperateEPDuringPeriod_LGN_AVG[pid, a, t, p])
+  
+;
+
+
+problem Lagrang_Subprob: 
+  # Objective function 
+	Power_Cost_Lagrangian, 
+	
+  # Satisfy Load and Power Consumption
+  {a in LOAD_AREAS, h in TIMEPOINTS: period[h] = target_period} Satisfy_Load[a,h], 
+  {a in LOAD_AREAS, h in TIMEPOINTS: period[h] = target_period} Conservation_Of_Energy_NonDistributed[a,h], 
+  {a in LOAD_AREAS, h in TIMEPOINTS: period[h] = target_period} ConsumeNonDistributedPower[a,h], 
+
+  # Policy Constraints
+	Carbon_Cap[target_period], 
+	{ (r, c, p) in RPS_TARGETS: c = 'Primary' and p = target_period} 
+	  Satisfy_Primary_RPS[r,c,p], 
+	{r in RPS_AREAS, h in TIMEPOINTS: period[h] = target_period} 
+	  ConsumeREC[r,h], 
+	{r in RPS_AREAS, h in TIMEPOINTS: period[h] = target_period} 
+	  Conservation_of_REC[r,h], 
+	{ (r, c, p) in RPS_TARGETS: c = 'Distributed' and able_to_meet_rps[r, c, p] and p = target_period} 
+	  Satisfy_Distributed_RPS[r, c, p],
+	{ p in PERIODS: p + num_years_per_period/2 >= 2016 and p = target_period} 
+	  Meet_California_Solar_Initiative[p], 
+	{ p in PERIODS: p + num_years_per_period/2 >= 2020 and p = target_period} 
+	  Meet_California_Distributed_Generation_Mandate[p], 
+
+  # Investment Decisions .. Don't include investments that happen after the target period. 
+  # Note that only decisions from the target period have normal costs in the objective function; 
+  # Decisions from prior periods have costs in the objective function when they deviate from the plan. 
+	{ (pid, a, t, p) in PROJECT_VINTAGES: p <= target_period }
+	  InstallGen[pid, a, t, p], 
+	{ (pid, a, t, p) in PROJECT_VINTAGES: storage[t] and p <= target_period }
+	  InstallStorageEnergyCapacity[pid, a, t, p], 
+	{ (pid, a, t, p) in PROJECT_VINTAGES: min_build_capacity[t] > 0 and p <= target_period }
+	  BuildGenOrNot[pid, a, t, p], 
+	{ (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS: p <= target_period }
+	  InstallTrans[a1, a2, p],
+	{ a in LOAD_AREAS, p in PERIODS: p <= target_period }
+	  InstallLocalTD[a, p],
+
+  # Dispatch decisions that carry forward in time .. Don't include decisions that happen after the target period
+ 	{ (pid, a, t, p) in EP_PERIODS: not intermittent[t] and not hydro[t] and p <= target_period}
+	  OperateEPDuringPeriod[pid, a, t, p],
+	# Constraints that carries that variable forward in time.
+	{(pid, a, t, p) in EP_PERIODS: p > first(PERIODS) and not intermittent[t] and not hydro[t] and p <= target_period}
+	  EP_Operational_Continuity[pid, a, t, p],
+
+  # Installation Constraints
+  # I *think* I don't have to limit these to the target period, because any constraints that reference future periods and un-used decision variables should be factored out in presolve..
+	Maximum_Resource_Central_Station_Solar, Maximum_Resource_Bio, Maximum_Resource_Single_Location, Maximum_Resource_EP_Cogen_Replacement,
+	Minimum_GenSize, BuildGenOrNot_Constraint, SymetricalTrans, Minimum_Local_TD_No_DR, Minimum_Local_TD_DR,
+
+  # Dispatch Decisions
+	{(pid,a,t,p,h) in PROJECT_VINTAGE_HOURS: dispatchable[t] and p = target_period} 
+	  DispatchGen[pid,a,t,p,h], 
+	{(pid,a,t,p,d) in AVAILABLE_DATES: flexible_baseload[t] and p = target_period } 
+	  DispatchFlexibleBaseload[pid,a,t,p,d],
+	{(pid,a,t,p,d) in AVAILABLE_DATES: flexible_baseload[t] and p = target_period } 
+	  Deep_Cycle_Amount[pid,a,t,p,d], 
+	{(pid,a,t,p,h) in AVAILABLE_HOURS: t in INTERMEDIATE_TECHNOLOGIES and p = target_period } 
+	  Commit_Intermediate_Gen[pid,a,t,p,h],
+	{(pid,a,t,p,h) in AVAILABLE_HOURS: 
+	  (t in PEAKER_TECHNOLOGIES or t in INTERMEDIATE_TECHNOLOGIES) and p = target_period } 
+	    Startup_MW_from_Last_Hour[pid,a,t,p,h], 
+	{(pid,a,t,p,h) in EP_AVAILABLE_HOURS: p = target_period } 
+	  ProducePowerEP[pid,a,t,p,h], 
+	{(nr, p) in NG_REGIONAL_PRICE_ADDERS_PERIODS: p = target_period } 
+	  ConsumeNaturalGasRegional[nr,p],
+	{bp in 1..num_ng_breakpoints[target_period]}
+  	ConsumeNaturalGasByTier[target_period, bp], 
+  ConsumeNaturalGas[target_period],
+  ConsumeNaturalGas_defeqn[target_period], 
+	{bp in 1..num_ng_breakpoints[target_period]-1}
+	  ConsumeNaturalGas_UpperLimits[target_period, bp], 
+	{(a, p, bp) in FUTURE_PERIODS_AREAS_AND_BIOBREAKPOINTS: p = target_period }
+	  ConsumeBioSolidByTier[a, p, bp],
+	{a in LOAD_AREAS, p in PERIODS: num_bio_breakpoints[a, p] > 0 and p = target_period}
+	  ConsumeBioSolid[a,p],
+	{a in LOAD_AREAS, p in PERIODS: num_bio_breakpoints[a, p] > 0 and p = target_period}
+	  ConsumeBioSolid_defeqn[a,p],
+	{(a, p, bp) in FUTURE_PERIODS_AREAS_AND_BIOBREAKPOINTS: bp < num_bio_breakpoints[a, p] and p = target_period}
+	  ConsumeBioSolid_UpperLimits[a, p, bp],
+	{(a1,a2,fc,p,h) in TRANSMISSION_LINE_HOURS: p = target_period } 
+	  DispatchTrans[a1,a2,fc,p,h],  
+	{(pid,a,t,p,h) in PROJECT_VINTAGE_HOURS: storage[t] and p = target_period } 
+	  StoreEnergy[pid,a,t,p,h], 
+	{(pid,a,t,p,h) in PROJECT_VINTAGE_HOURS: storage[t] and p = target_period } 
+	  ReleaseEnergy[pid,a,t,p,h], 
+	{ (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] and p = target_period }
+	  TotalEnergyAvailableinStorage[pid,a,t,p,h],
+	{(a,t,p,h) in HYDRO_AVAILABLE_HOURS: p = target_period } 
+	  DispatchHydro[a,t,p,h], 
+	{(a,t,p,h) in PUMPED_HYDRO_AVAILABLE_HOURS: p = target_period } 
+	  Dispatch_Pumped_Hydro_Storage[a,t,p,h], 
+	{(a,t,p,h) in PUMPED_HYDRO_AVAILABLE_HOURS: p = target_period } 
+	  Store_Pumped_Hydro[a,t,p,h], 
+	{(pid,a,t,p,h) in AVAILABLE_HOURS: dispatchable[t] and p = target_period } 
+	  Provide_Spinning_Reserve[pid,a,t,p,h], 
+	{(pid,a,t,p,h) in AVAILABLE_HOURS: dispatchable[t] and p = target_period } 
+	  Provide_Quickstart_Capacity[pid,a,t,p,h], 
+	{(pid,a,t,p,h) in PROJECT_VINTAGE_HOURS: storage[t] and p = target_period }
+	  Storage_Operating_Reserve[pid,a,t,p,h], 
+	{(a,t,p,h) in HYDRO_AVAILABLE_HOURS: p = target_period }
+	  Hydro_Operating_Reserve[a,t,p,h],
+	{(a,t,p,h) in PUMPED_HYDRO_AVAILABLE_HOURS: p = target_period }
+	  Pumped_Hydro_Storage_Operating_Reserve[a,t,p,h],
+
+
+	 
+  # Dispatch Constraints
+	{(pid,a,t,p,h) in PROJECT_VINTAGE_HOURS: 
+	  dispatchable[t] and t <> 'Compressed_Air_Energy_Storage' and p = target_period } 
+	    Power_and_Operating_Reserve_From_Dispatchable_Plants[pid,a,t,p,h], 
+	{(pid,a,t,p,h) in AVAILABLE_HOURS: t in INTERMEDIATE_TECHNOLOGIES and p = target_period} 
+	  Maximum_Intermediate_Capacity_Online[pid,a,t,p,h],
+	{(pid,a,t,p,h) in AVAILABLE_HOURS: t in INTERMEDIATE_TECHNOLOGIES and p = target_period} 
+	  Maximum_Dispatch_Intermediate_Gen[pid,a,t,p,h],
+	{(pid,a,t,p,h) in AVAILABLE_HOURS: t in INTERMEDIATE_TECHNOLOGIES and p = target_period} 
+	  Minimum_Loading_Intermediate_Gen[pid,a,t,p,h],
+	{(pid,a,t,p,h) in AVAILABLE_HOURS: t in INTERMEDIATE_TECHNOLOGIES and p = target_period} 
+	  Intermediate_Gen_Startup[pid,a,t,p,h],
+  {(pid,a,t,p,h) in AVAILABLE_HOURS: t in PEAKER_TECHNOLOGIES and p = target_period}
+    Peaker_Plant_Startup[pid,a,t,p,h],
+  {(pid,a,t,p,d) in PROJECT_AVAILABLE_DATES: flexible_baseload[t] and p = target_period}
+    Power_From_New_Flexible_Baseload_Plants[pid,a,t,p,d], 
+  {(pid,a,t,p,d) in PROJECT_AVAILABLE_DATES: flexible_baseload[t] and p = target_period}
+    Minimum_Loading_New_Flexible_Baseload_Plants[pid,a,t,p,d],
+  {(pid,a,t,p,h) in EP_AVAILABLE_HOURS: dispatchable[t] and p = target_period}
+    EP_Power_and_Operating_Reserve_From_Dispatchable_Plants[pid,a,t,p,h], 
+  {(pid,a,t,p,h) in EP_AVAILABLE_HOURS: intermittent[t] and p = target_period}
+    EP_Power_From_Intermittent_Plants[pid,a,t,p,h], 
+  {(pid,a,t,p,h) in EP_AVAILABLE_HOURS: hydro[t] and p = target_period}
+    EP_Power_From_Hydro_Plants[pid,a,t,p,h], 
+  {(pid,a,t,p,h) in EP_AVAILABLE_HOURS: baseload[t] and p = target_period}
+  	EP_Power_From_Baseload_Plants[pid,a,t,p,h], 
+  {(pid,a,t,p,h) in EP_AVAILABLE_HOURS: flexible_baseload[t] and p = target_period}
+  	EP_Power_From_Flexible_Baseload_Plants[pid,a,t,p,h], 
+	{(pid,a,t,p,d) in EP_AVAILABLE_DATES: flexible_baseload[t] and p = target_period}
+	  Maximum_Loading_Existing_Flexible_Baseload_Plants[pid,a,t,p,d], 
+	{(pid,a,t,p,d) in EP_AVAILABLE_DATES: flexible_baseload[t] and p = target_period}
+  	Minimum_Loading_Existing_Flexible_Baseload_Plants[pid,a,t,p,d], 
+	{(pid,a,t,p,h) in AVAILABLE_HOURS: dispatchable[t] and p = target_period}
+	  Spinning_Reserve_as_Fraction_of_Dispatch[pid,a,t,p,h],
+	{(a1,a2,p) in TRANSMISSION_LINE_PERIODS, h in TIMEPOINTS: period[h] = p and p = target_period}
+	  Maximum_DispatchTrans[a1,a2,p,h], 
+	{ a in LOAD_AREAS, p in PERIODS: a = 'MEX_BAJA' and p = target_period}
+	  Mexican_Export_Limit[a,p], 
+	{(a,t,p,h) in HYDRO_AVAILABLE_HOURS: p = target_period } 
+  	Maximum_Dispatch_and_Operating_Reserve_Hydro[a,t,p,h], 
+	{(a,t,p,h) in NONPUMPED_HYDRO_AVAILABLE_HOURS: p = target_period } 
+  	Minimum_Dispatch_Hydro[a,t,p,h], 
+	{(a,t,p,d) in HYDRO_DATES: p = target_period } 
+  	Average_Hydro_Output[a,t,p,d], 
+	{(a,t,p,h) in HYDRO_AVAILABLE_HOURS: p = target_period } 
+  	Max_Operating_Reserve_Hydro[a,t,p,h],
+  {(a,t,p,h) in PUMPED_HYDRO_AVAILABLE_HOURS: p = target_period }
+	  Maximum_Store_Pumped_Hydro[a,t,p,h], 
+	{(a,t,p,d) in PUMPED_HYDRO_DATES: period_of_date[d] = p and p = target_period } 
+	  Pumped_Hydro_Energy_Balance[a,t,p,d],
+	{(pid,a,t,p,h) in PROJECT_VINTAGE_HOURS: t = 'Compressed_Air_Energy_Storage' and p = target_period }
+    CAES_Combined_Dispatch[pid,a,t,p,h], 
+	{(pid,a,t,p,h) in PROJECT_VINTAGE_HOURS: t = 'Compressed_Air_Energy_Storage' and p = target_period }
+  	CAES_Combined_Operating_Reserve[pid,a,t,p,h], 
+	{(pid,a,t,p,h) in PROJECT_VINTAGE_HOURS: storage[t] and p = target_period} 
+	  Maximum_Store_Rate[pid,a,t,p,h], 
+	{(pid,a,t,p,h) in PROJECT_VINTAGE_HOURS: storage[t] and p = target_period} 
+	  Maximum_Release_and_Operating_Reserve_Storage_Rate[pid,a,t,p,h], 
+  { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] and p = target_period }
+    Maximum_Release_and_Operating_Reserve_Storage_Energy[pid,a,t,p,h],
+  { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] and p = target_period }
+	  Max_Energy_in_Storage[pid,a,t,p,h],
+  { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] and p = target_period }
+  	Storage_Projects_Hourly_Energy_Tracking[pid,a,t,p,h],
+
+  # Contigency Planning Constraints
+  {a in LOAD_AREAS, h in TIMEPOINTS: period[h] = target_period} 
+    Satisfy_Load_Reserve[a,h], 
+  {a in LOAD_AREAS, h in TIMEPOINTS: period[h] = target_period} 
+    Conservation_Of_Energy_NonDistributed_Reserve[a,h], 
+  {a in LOAD_AREAS, h in TIMEPOINTS: period[h] = target_period} 
+    ConsumeNonDistributedPower_Reserve[a,h],
+
+  # Operating Reserve Variables
+  { b in BALANCING_AREAS, h in TIMEPOINTS: period[h] = target_period } 
+    Spinning_Reserve_Requirement[b,h], 
+  { b in BALANCING_AREAS, h in TIMEPOINTS: period[h] = target_period } 
+    Quickstart_Reserve_Requirement[b,h],
+
+  # Operating Reserve Constraints
+  { b in BALANCING_AREAS, h in TIMEPOINTS: period[h] = target_period }
+    Satisfy_Spinning_Reserve_Requirement[b,h], 
+  { b in BALANCING_AREAS, h in TIMEPOINTS: period[h] = target_period }
+    Satisfy_Quickstart_Reserve_Requirement[b,h],
+  
+  # Demand response
+  {a in LOAD_AREAS, h in TIMEPOINTS: period[h] = target_period} 
+    Shift_Res_Comm_Load[a,h], 
+  {a in LOAD_AREAS, h in TIMEPOINTS: period[h] = target_period} 
+    Meet_Shifted_Load[a,h], 
+  {a in LOAD_AREAS, h in TIMEPOINTS: period[h] = target_period} 
+    Shift_EV_Load[a,h], 
+  {a in LOAD_AREAS, h in TIMEPOINTS: period[h] = target_period} 
+    Charge_EVs[a,h], 
+  {a in LOAD_AREAS, h in TIMEPOINTS: period[h] = target_period} 
+    Maximum_Res_Comm_Load_That_Can_Be_Shifted_from_Hour[a,h], 
+  {a in LOAD_AREAS, h in TIMEPOINTS: period[h] = target_period} 
+    Maximum_Res_Comm_Load_That_Can_Be_Shifted_to_Hour[a,h], 
+  {a in LOAD_AREAS, h in TIMEPOINTS: period[h] = target_period} 
+    Maximum_EV_Load_That_Can_Be_Shifted_from_Hour[a,h], 
+  {a in LOAD_AREAS, h in TIMEPOINTS: period[h] = target_period} 
+    Maximum_EV_Load_That_Can_Be_Shifted_to_Hour[a,h], 
+  {a in LOAD_AREAS, d in DATES: period_of_date[d] = target_period }	
+    Res_Comm_Demand_Response_Energy_Balance[a,d], 
+  {a in LOAD_AREAS, d in DATES: period_of_date[d] = target_period } 
+    EV_Charging_Energy_Balance[a,d]
+;

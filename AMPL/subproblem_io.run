@@ -1,0 +1,59 @@
+# Parameters and table definitions for passing information between Lagrangian sub-problems
+
+# Paths to store concrete results from a sub problem
+param InstallGen_sub_tab_path symbolic := 
+  results_path & "InstallGen_" & target_period & "_" & iteration & ".tab";
+param InstallStorageEnergyCapacity_sub_tab_path	symbolic := 
+  results_path & "InstallStorageEnergyCapacity_" & target_period & "_" & iteration & ".tab";
+param BuildGenOrNot_sub_tab_path symbolic := 
+  results_path & "BuildGenOrNot_" & target_period & "_" & iteration & ".tab";
+param OperateEPDuringPeriod_sub_tab_path symbolic := 
+  results_path & "OperateEPDuringPeriod_" & target_period & "_" & iteration & ".tab";
+param InstallTrans_sub_tab_path symbolic := 
+  results_path & "InstallTrans_" & target_period & "_" & iteration & ".tab";
+param InstallLocalTD_sub_tab_path symbolic := 
+  results_path & "InstallLocalTD_" & target_period & "_" & iteration & ".tab";
+
+# Generic paths to correspond to table definitions below .. If AMPL wasn't so crappy, I would set the tables to read from the dynamic paths above. 
+param InstallGen_generic_tab_path symbolic := 
+  results_path & "InstallGen_sub.tab";
+param InstallStorageEnergyCapacity_generic_tab_path	symbolic := 
+  results_path & "InstallStorageEnergyCapacity_sub.tab";
+param BuildGenOrNot_generic_tab_path symbolic := 
+  results_path & "BuildGenOrNot_sub.tab";
+param OperateEPDuringPeriod_generic_tab_path symbolic := 
+  results_path & "OperateEPDuringPeriod_sub.tab";
+param InstallTrans_generic_tab_path symbolic := 
+  results_path & "InstallTrans_sub.tab";
+param InstallLocalTD_generic_tab_path symbolic := 
+  results_path & "InstallLocalTD_sub.tab";
+
+# Sets to hold data that is read in from a single sub-problem
+set PROJECT_VINTAGES_SUB dimen 5;
+set PROJ_MIN_BUILD_VINTAGES_SUB dimen 5;
+set EP_PERIODS_SUB dimen 5;
+set TRANSMISSION_LINE_VINTAGES_SUB dimen 4;
+set LOCAL_TD_VINTAGES_SUB dimen 3;
+
+# Duplicate variable values from a single subproblem from one iteration
+param InstallGen_SUB {PROJECT_VINTAGES_SUB};
+param InstallStorageEnergyCapacity_SUB {PROJECT_VINTAGES_SUB};
+param BuildGenOrNot_SUB {PROJ_MIN_BUILD_VINTAGES_SUB};
+param InstallTrans_SUB {EP_PERIODS_SUB};
+param InstallLocalTD_SUB {TRANSMISSION_LINE_VINTAGES_SUB};
+param OperateEPDuringPeriod_SUB {LOCAL_TD_VINTAGES_SUB};
+
+# Tables for reading in a specific sub-problem
+table TableInstallGen_SUB IN "results/InstallGen_sub.tab": 
+  PROJECT_VINTAGES_SUB <- [ pid, a, t, p, target_period ], InstallGen_SUB ~ InstallGen;
+table TableInstallStorageEnergyCapacity_SUB IN "results/InstallStorageEnergyCapacity_sub.tab": 
+  PROJECT_VINTAGES_SUB <- [ pid, a, t, p, target_period ], InstallStorageEnergyCapacity_SUB ~ InstallStorageEnergyCapacity;
+table TableBuildGenOrNot_SUB IN "results/BuildGenOrNot_sub.tab": 
+  PROJ_MIN_BUILD_VINTAGES_SUB <- [ pid, a, t, p, target_period ], BuildGenOrNot_SUB ~ BuildGenOrNot;
+table TableOperateEPDuringPeriod_SUB IN "results/OperateEPDuringPeriod_sub.tab": 
+  EP_PERIODS_SUB <- [pid, a, t, p, target_period], OperateEPDuringPeriod_SUB ~ OperateEPDuringPeriod;
+table TableInstallTrans_SUB IN "results/InstallTrans_sub.tab":
+  TRANSMISSION_LINE_VINTAGES_SUB <- [a1, a2, p, target_period], InstallTrans_SUB ~ InstallTrans;
+table TableInstallLocalTD_SUB IN "results/InstallLocalTD_sub.tab":
+  LOCAL_TD_VINTAGES_SUB <- [a, p, target_period], InstallLocalTD_SUB ~ InstallLocalTD;
+

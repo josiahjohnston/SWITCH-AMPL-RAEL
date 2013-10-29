@@ -1,0 +1,69 @@
+include load.run; 
+include lagrangian_problem.run;
+
+#let target_period := 2015;
+#option auxfiles cfrsu; write ("m" & problem_basename); 
+#solve;
+# display {i in 1.._ncons: _con[i].iis <> "non"} (_conname[i], _con[i].iis);
+
+# Iteration 0
+for {target_period in PERIODS} {
+  write ("b" & subproblem_basename);
+  solve;
+  include export_subproblem_decisions.run;
+};
+
+# Iterate a few times...
+for {iteration in 1..1} {
+  # Read in the subproblem outcomes and average values from the last iteration
+  include import_subproblem_decisions.run;
+
+  for {target_period in PERIODS} {
+
+    # Calculate the gap from the last iteration
+    let { (pid, a, t, p) in PROJECT_VINTAGES } 
+      InstallGen_LGN_GAP[pid, a, t, p] := 
+        InstallGen_SUB_ALL[ pid, a, t, p, target_period ] - InstallGen_LGN_AVG[pid, a, t, p];
+    let { (pid, a, t, p) in PROJECT_VINTAGES: storage[t] } 
+      InstallStorageEnergyCapacity_LGN_GAP[pid, a, t, p] := 
+        InstallStorageEnergyCapacity_SUB_ALL[pid, a, t, p, target_period] - InstallStorageEnergyCapacity_LGN_AVG[pid, a, t, p];
+    let { (pid, a, t, p) in PROJECT_VINTAGES: min_build_capacity[t] > 0 } 
+      BuildGenOrNot_LGN_GAP[pid, a, t, p] := 
+        BuildGenOrNot_SUB_ALL[pid, a, t, p, target_period] - BuildGenOrNot_LGN_AVG[pid, a, t, p];
+    let { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS } 
+      InstallTrans_LGN_GAP[a1, a2, p] := 
+        InstallTrans_SUB_ALL[a1, a2, p, target_period] - InstallTrans_LGN_AVG[a1, a2, p];
+    let { a in LOAD_AREAS, p in PERIODS } 
+      InstallLocalTD_LGN_GAP[a, p] := 
+        InstallLocalTD_SUB_ALL[a, p, target_period] - InstallLocalTD_LGN_AVG[a, p];
+    let { (pid, a, t, p) in EP_PERIODS: not intermittent[t] and not hydro[t] } 
+      OperateEPDuringPeriod_LGN_GAP[pid, a, t, p] := 
+        OperateEPDuringPeriod_SUB_ALL[pid, a, t, p, target_period] - OperateEPDuringPeriod_LGN_AVG[pid, a, t, p];
+    
+    # Calculate the penalties
+    # First the "norm": The sum of the squares of all the gaps
+    let norm := 
+        sum { (pid, a, t, p) in PROJECT_VINTAGES: include_subproblem[p] } 
+        InstallGen_LGN_GAP[pid, a, t, p] ^ 2 
+      + sum { (pid, a, t, p) in PROJECT_VINTAGES: storage[t] and include_subproblem[p] } 
+        InstallStorageEnergyCapacity_LGN_GAP[pid, a, t, p] ^ 2
+      + sum { (pid, a, t, p) in PROJECT_VINTAGES: min_build_capacity[t] > 0 and include_subproblem[p] }
+        BuildGenOrNot_LGN_GAP[pid, a, t, p] ^ 2
+      + sum { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS: include_subproblem[p] }
+        InstallTrans_LGN_GAP[a1, a2, p] ^ 2
+      + sum { a in LOAD_AREAS, p in PERIODS: include_subproblem[p] }
+        OperateEPDuringPeriod_LGN_GAP[pid, a, t, p] ^ 2
+      + sum { (pid, a, t, p) in EP_PERIODS: not intermittent[t] and not hydro[t] and include_subproblem[p]}
+        OperateEPDuringPeriod_LGN_GAP[pid, a, t, p] ^ 2;
+    # 
+    let { (pid, a, t, p) in PROJECT_VINTAGES }
+      InstallGen_DEV_PNTLY[pid, a, t, p] := 
+        InstallGen_DEV_PNTLY[pid, a, t, p] + 
+        
+
+    write ("b" & subproblem_basename);
+    solve;
+    include export_subproblem_decisions.run;
+  };
+
+};
