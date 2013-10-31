@@ -559,8 +559,9 @@ param able_to_meet_rps { (r, c, p) in RPS_TARGETS } binary =
 ## cost of carbon emissions ($/ton), e.g., from a carbon tax
 ## can also be set negative to drive renewables out of the system
 param carbon_cost default 0;
-#
-## set and parameters used to make carbon cost curves
+param carbon_cost_by_period { p in PERIODS } default carbon_cost;
+
+# set and parameters used to make carbon cost curves
 set CARBON_COSTS ordered;
 #
 #### Carbon Cap
@@ -803,7 +804,7 @@ param fuel_cost_hourly { (pid, a, t, p, h) in AVAILABLE_HOURS } =
 # same for the carbon cost per MWh
 param carbon_cost_per_mwh_hourly { (pid, a, t, p, h) in AVAILABLE_HOURS } = 
 	( if can_build_new[t] then heat_rate[pid, a, t] else ep_heat_rate[pid, a, t] )
-	* carbon_content[fuel[t]] * carbon_cost
+	* carbon_content[fuel[t]] * carbon_cost_by_period[p]
 	* ( hours_in_sample[h] / num_years_per_period ) * discount_to_base_year[p];
 
 # now tally all variable costs ($/MWh costs) by period for generators that aren't dispached hourly (i.e. intermittent and baseload)
@@ -849,7 +850,7 @@ param fuel_cost_hourly_spinning_reserve { (pid, a, t, p, h) in AVAILABLE_HOURS }
 	* ( hours_in_sample[h] / num_years_per_period ) * discount_to_base_year[p];
 
 param carbon_cost_per_mwh_hourly_spinning_reserve { (pid, a, t, p, h) in AVAILABLE_HOURS } = 
-	heat_rate_spinning_reserve[pid, a, t] * carbon_content[fuel[t]] * carbon_cost
+	heat_rate_spinning_reserve[pid, a, t] * carbon_content[fuel[t]] * carbon_cost_by_period[p]
 	* ( hours_in_sample[h] / num_years_per_period ) * discount_to_base_year[p];
 
 # The maximum percentage of generator capacity that can be dedicated to spinning reserves (as opposed to useful generation)

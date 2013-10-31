@@ -84,7 +84,9 @@ read table rps_areas_and_fuel_category;
 
 table carbon_cap_targets "inputs/carbon_cap_targets.tab" IN: 
   [year], carbon_emissions_relative_to_base;
-read table carbon_cap_targets;
+if (enable_carbon_cap = 1) then {
+  read table carbon_cap_targets;
+}
 
 table transmission_lines "inputs/transmission_lines.tab" IN: 
   TRANSMISSION_LINES <- [la_start, la_end], transmission_line_id, existing_transfer_capacity_mw, 
@@ -161,6 +163,11 @@ table fuel_prices "inputs/fuel_prices.tab" IN:
 	[la_id, fuel, year], fuel_price;
 read table fuel_prices;
 
+table carbon_cost_by_period_table "inputs/carbon_cost_by_period.tab" IN:
+  [p], carbon_cost_by_period;
+if (file_exists("inputs/carbon_cost_by_period.tab")) then {
+  read table carbon_cost_by_period_table;
+}
 
 ###################################
 # update some params that can't be easily dealt with elsewhere
