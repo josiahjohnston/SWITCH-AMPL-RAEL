@@ -432,7 +432,7 @@ define_new_training_sets_loop: LOOP
 					INSERT INTO _training_set_timepoints (training_set_id, period, timepoint_id, hours_in_sample)
 						SELECT @training_set_id, @period, timepoint_id, @hours_in_sample
 							FROM study_timepoints
-							WHERE DATE(datetime_utc) = @date_utc AND (HOUR(datetime_utc) MOD @hours_between_samples) = @start_hour;
+							WHERE DATE(datetime_utc) = @date_utc AND (HOUR(datetime_utc) MOD @hours_between_samples) = (@start_hour MOD @hours_between_samples);
 				WHEN 'MEAN' THEN
 				  set @monthly_avg := (
 				    SELECT avg(total_load)
@@ -463,7 +463,7 @@ define_new_training_sets_loop: LOOP
 					INSERT INTO _training_set_timepoints (training_set_id, period, timepoint_id, hours_in_sample)
 						SELECT @training_set_id, @period, timepoint_id, @hours_in_sample
 							FROM study_timepoints
-							WHERE DATE(datetime_utc) = @date_utc AND (HOUR(datetime_utc) MOD @hours_between_samples) = @start_hour;
+							WHERE DATE(datetime_utc) = @date_utc AND (HOUR(datetime_utc) MOD @hours_between_samples) = (@start_hour MOD @hours_between_samples);
 				WHEN 'RAND'   THEN
 					SET @date_utc := (
 						SELECT date_utc 
@@ -478,7 +478,7 @@ define_new_training_sets_loop: LOOP
 					INSERT INTO _training_set_timepoints (training_set_id, period, timepoint_id, hours_in_sample)
 						SELECT @training_set_id, @period, timepoint_id, @hours_in_sample
 							FROM study_timepoints
-							WHERE DATE(datetime_utc) = @date_utc AND (HOUR(datetime_utc) MOD @hours_between_samples) = @start_hour;					
+							WHERE DATE(datetime_utc) = @date_utc AND (HOUR(datetime_utc) MOD @hours_between_samples) = (@start_hour MOD @hours_between_samples);					
 			END CASE;
 			INSERT INTO historic_dates_used 
 				SELECT historic_date_utc FROM _load_projection_daily_summaries WHERE load_scenario_id=@load_scenario_id AND date_utc=@date_utc;
