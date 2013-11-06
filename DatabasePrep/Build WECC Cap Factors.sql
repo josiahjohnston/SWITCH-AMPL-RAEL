@@ -12,6 +12,7 @@ create table load_area_info(
   primary_state varchar(20),
   economic_multiplier NUMERIC(3,2),
   rps_compliance_entity varchar(20),
+  ccs_distance_km NUMERIC(5,2),
   UNIQUE load_area (load_area)
 ) ROW_FORMAT=FIXED;
 
@@ -24,26 +25,6 @@ load data local infile
 	ignore 1 lines;
 
 alter table load_area_info add column area_id smallint unsigned NOT NULL AUTO_INCREMENT primary key first;
-
--- add ccs distance costs
--- ccs costs will increase with distance from a viable sink - right now this is handeled on a load area level basis
--- the distance from load areas without viable sinks to the nearest sink is calculated in postgresql and imported here
-alter table load_area_info add column ccs_distance_km float default 0;
-
-drop table if exists ccs_distances;
-create temporary table ccs_distances(
-	load_area  varchar(11) PRIMARY KEY,
-	distance_km float);
-	
-load data local infile
-	'ccs_distances.csv'
-	into table ccs_distances
-	fields terminated by	','
-	optionally enclosed by '"'
-	ignore 1 lines;	
-
-update load_area_info join ccs_distances using (load_area)
-set ccs_distance_km = distance_km;
 
 -- add nems_region column for fuel supply curves
 alter table load_area_info add column nems_fuel_region varchar(20);

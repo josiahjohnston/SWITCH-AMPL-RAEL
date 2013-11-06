@@ -21,8 +21,8 @@ alter table wecc_load_areas add column substation_center_rec_id bigint;
 SELECT AddGeometryColumn ('public','wecc_load_areas','substation_center_geom',4326,'POINT',2);
 alter table wecc_load_areas add column primary_nerc_subregion character varying(20);
 alter table wecc_load_areas add column primary_state character varying(20);
-alter table wecc_load_areas add column economic_multiplier numeric(3,2);
-
+alter table wecc_load_areas add column economic_multiplier numeric(3,2) default null;
+alter table wecc_load_areas add column ccs_distance_km numeric(5,2) default 0;
 
 
 -- TRANSMISION LINES THAT CROSS BORDERS---------
@@ -675,6 +675,87 @@ UPDATE wecc_load_areas
 		END;
 
 
+-- CCS PIPELINE DISTANCE COST ADDER -------------------------
+-- ccs projects have a cost adder (calculated here) for not being in a load area that has CCS sinks
+-- should update data at some point to new CCS atlas
+  
+-- first make a table of all polygon geoms of viable sinks
+-- (ones with vol_high > 0 and not ( assessed = 1 and suitable = 0 )
+drop table if exists ccs_sinks_all;
+create table ccs_sinks_all(
+	gid serial primary key,
+	sink_type character varying (30),
+	native_dataset_gid int,
+	vol_high numeric );
+
+SELECT AddGeometryColumn ('wecc_inputs','ccs_sinks_all','the_geom',4326,'POLYGON',2);
+CREATE INDEX ccs_sinks_all_index ON ccs_sinks_all USING gist (the_geom);
+
+insert into ccs_sinks_all (sink_type, native_dataset_gid, vol_high, the_geom)
+	select 	'ccs_unmineable_coal_areas' as sink_type,
+			gid as native_dataset_gid,
+			vol_high,
+			(ST_Dump(polygon_geom)).geom
+	from 	ccs_unmineable_coal_areas
+	where 	vol_high > 0
+	and		not ( assessed = 1 and suitable = 0 );
+	
+insert into ccs_sinks_all (sink_type, native_dataset_gid, vol_high, the_geom)
+	select 	'ccs_saline_formations' as sink_type,
+			gid as native_dataset_gid,
+			vol_high,
+			(ST_Dump(polygon_geom)).geom
+	from 	ccs_saline_formations
+	where 	vol_high > 0
+	and		not ( assessed = 1 and suitable = 0 );
+
+insert into ccs_sinks_all (sink_type, native_dataset_gid, vol_high, the_geom)
+	select 	'ccs_oil_and_gas_reservoirs' as sink_type,
+			gid as native_dataset_gid,
+			vol_high,
+			(ST_Dump(polygon_geom)).geom
+	from 	ccs_oil_and_gas_reservoirs
+	where 	vol_high > 0
+	and		not ( assessed = 1 and suitable = 0 );
+
+
+-- draw distances from the substation_center_geom of each load area without a ccs sink to the nearest sink
+-- the fancy geometry finds the point along the edge of the sink polygon that's closest to substation_center_geom
+-- and then calculates the distance between those two points
+-- the subquery past 'not in' gives all load_areas DO have sinks (so the 'not in' excludes these from the distance calculation)
+drop table if exists ccs_sink_to_load_area;
+create table ccs_sink_to_load_area as
+select 	load_area,
+		st_distance_sphere(
+			st_line_interpolate_point(
+				st_exteriorring( the_geom ),
+				st_line_locate_point(
+					st_exteriorring( the_geom ), substation_center_geom )
+				),
+			substation_center_geom ) / 1000 as distance_km
+from 	ccs_sinks_all,
+		wecc_load_areas
+where load_area not in 
+	(select distinct load_area
+		from  	wecc_load_areas,
+				ccs_sinks_all
+		where ST_Intersects(polygon_geom, the_geom));
+
+drop table if exists ccs_tmp;
+create temporary table ccs_tmp as 
+select load_area, min(distance_km) as min_distance_km from ccs_sink_to_load_area group by load_area;
+
+delete from ccs_sink_to_load_area;
+insert into ccs_sink_to_load_area select * from ccs_tmp;
+
+UPDATE wecc_load_areas
+SET ccs_distance_km = distance_km
+FROM ccs_sink_to_load_area
+WHERE ccs_sink_to_load_area.load_area = wecc_load_areas.load_area;
+
+drop table ccs_sink_to_load_area;
+
+
 -- RPS COMPLIANCE ENTITIES  -----------
 -- define a map between load_area and rps_compliance_entity based on the structure
 -- of utilities inside each state as shown in the ventyx data (manual matching)
@@ -844,7 +925,8 @@ copy
  		primary_nerc_subregion,
  		primary_state,
   		economic_multiplier,
-  		rps_compliance_entity
+  		rps_compliance_entity,
+  		ccs_distance_km
 from	wecc_load_areas
 order by load_area)
 to '/Volumes/switch/Models/GIS/wecc_load_area_info.csv'
