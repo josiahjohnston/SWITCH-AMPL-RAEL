@@ -3,28 +3,37 @@
 CREATE SCHEMA wecc_inputs AUTHORIZATION jimmy;
 ALTER USER jimmy SET SEARCH_PATH TO wecc_inputs, public;
 
--- a script that does all of the non-generator queries to make working load areas for WECC.
--- whole script should be run after any change in the wecc load area polygon shapefile.
 
--- first, load up the latest wecc load area shapefile into postgresql...
--- modify the .dbf file to the one you want to load
--- shp2pgsql -s 4326 /Volumes/1TB_RAID-1/Models/GIS/New\ LoadZone\ Shape\ Files/wecc_load_areas_10_3_09_5.dbf wecc_load_areas | psql -h xserve-rael.erg.berkeley.edu -U postgres -d switch_gis
+-- IMPORT LOAD AREA SHAPEFILES-------------------
+-- shp2pgsql will automatically index the geometries with -I
+-- shp2pgsql -s 4326 -d -I -g polygon_geom /Volumes/switch/Models/USA_CAN/shapefiles_used_to_make_load_areas/wecc_load_areas.shp wecc_inputs.wecc_load_areas_import | psql -h switch-db1.erg.berkeley.edu -U jimmy -d switch_gis
 
--- add all the necessary columns (done at the top such that running parts of the script becomes easier)
-SELECT AddGeometryColumn ('public','wecc_load_areas','polygon_geom',4326,'MULTIPOLYGON',2);
-update wecc_load_areas set polygon_geom = the_geom;
-alter table wecc_load_areas drop column the_geom;
-CREATE INDEX polygon_geom_index ON wecc_load_areas USING gist (polygon_geom);
+CREATE TABLE wecc_load_areas (
+  area_id serial primary key,
+  load_area varchar(11),
+  primary_nerc_subregion varchar(20),
+  primary_state varchar(20),
+  economic_multiplier numeric(3,2) CHECK (economic_multiplier BETWEEN 0.5 AND 2),
+  substation_center_rec_id bigint CHECK (substation_center_rec_id > 0),
+  rps_compliance_entity varchar(20),
+  ccs_distance_km numeric(5,2) DEFAULT 0,
+  UNIQUE (load_area)
+);
 
+SELECT addgeometrycolumn ('wecc_inputs','wecc_load_areas','polygon_geom',4326,'MULTIPOLYGON',2);
+SELECT addgeometrycolumn ('wecc_inputs','wecc_load_areas','substation_center_geom',4326,'POINT',2);
+CREATE INDEX ON wecc_load_areas USING gist (polygon_geom);
+CREATE INDEX ON wecc_load_areas USING gist (substation_center_geom);
 
-alter table wecc_load_areas add column substation_center_rec_id bigint;
-SELECT AddGeometryColumn ('public','wecc_load_areas','substation_center_geom',4326,'POINT',2);
-alter table wecc_load_areas add column primary_nerc_subregion character varying(20);
-alter table wecc_load_areas add column primary_state character varying(20);
-alter table wecc_load_areas add column economic_multiplier numeric(3,2) default null;
-alter table wecc_load_areas add column ccs_distance_km numeric(5,2) default 0;
+-- the order by here is critical as it sets area_id
+-- the left() makes this ordering consistent with legacy code from MySQL and also nicely keeps all California load areas together
+-- because ordering with '_' is funky!
+INSERT INTO wecc_load_areas (load_area, polygon_geom)
+SELECT load_area, polygon_geom
+FROM wecc_load_areas_import
+ORDER BY left(replace(load_area,'_', 'Z'), 3), load_area;
 
-
+DROP TABLE wecc_load_areas_import;
 
 -- LOAD AREA SUBSTATION CENTERS--------------
 -- NOTE: could/should be updated to newer transmission capacity data from Ventyx/FERC
@@ -633,13 +642,14 @@ with CSV HEADER;
 
 -- EXPORT LOAD AREA INFO TO MYSQL-------
 copy
-(select	load_area,
+(select	area_id,
+		load_area,
  		primary_nerc_subregion,
  		primary_state,
   		economic_multiplier,
   		rps_compliance_entity,
   		ccs_distance_km
 from	wecc_load_areas
-order by load_area)
+order by area_id)
 to '/Volumes/switch/Models/GIS/wecc_load_area_info.csv'
 with CSV HEADER;

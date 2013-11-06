@@ -7,6 +7,7 @@ use switch_inputs_wecc_v2_2;
 -- made in postgresql
 drop table if exists load_area_info;
 create table load_area_info(
+  area_id smallint primary key,
   load_area varchar(20) NOT NULL,
   primary_nerc_subregion varchar(20),
   primary_state varchar(20),
@@ -23,8 +24,6 @@ load data local infile
 	optionally enclosed by '"'
 	lines terminated by "\r"
 	ignore 1 lines;
-
-alter table load_area_info add column area_id smallint unsigned NOT NULL AUTO_INCREMENT primary key first;
 
 -- add nems_region column for fuel supply curves
 alter table load_area_info add column nems_fuel_region varchar(20);
