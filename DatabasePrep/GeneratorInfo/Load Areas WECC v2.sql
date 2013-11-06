@@ -1,5 +1,8 @@
 -- Load Area Shapefiles script
 
+CREATE SCHEMA wecc_inputs AUTHORIZATION jimmy;
+ALTER USER jimmy SET SEARCH_PATH TO wecc_inputs, public;
+
 -- a script that does all of the non-generator queries to make working load areas for WECC.
 -- whole script should be run after any change in the wecc load area polygon shapefile.
 
@@ -18,58 +21,7 @@ alter table wecc_load_areas add column substation_center_rec_id bigint;
 SELECT AddGeometryColumn ('public','wecc_load_areas','substation_center_geom',4326,'POINT',2);
 alter table wecc_load_areas add column primary_nerc_subregion character varying(20);
 alter table wecc_load_areas add column primary_state character varying(20);
-alter table wecc_load_areas add column economic_multiplier double precision;
-
-
--- IMPORT WECC LINK INFORMATION--------
--- should be updated once we get more FERC data.
-
--- a mysql query that matches teppc load areas to wecc links
--- (links are trans lines between busses)
--- this matching will help us locate transmission lines in postgresql
--- export this query to /Volumes/1TB_RAID/Models/GIS/New\ LoadZone\ Shape\ Files/wecc_transfer_cap.csv
--- so that it can be picked up by postgresql
-
--- select one_area_matched.*, area2 from (SELECT busnumber as busnumber2, TEPPC_Bus.area as area2 FROM grid.TEPPC_bus) as bar,
--- (select windsun.wecc_link_info.*, area1 from windsun.wecc_link_info,
--- (SELECT busnumber as busnumber1, TEPPC_Bus.area as area1 FROM grid.TEPPC_bus) as foo
--- where busnumber1 = bus1_id) as one_area_matched
--- where busnumber2 = bus2_id
--- order by area1, area2, bus1_kv;
-
-
--- in postgresql
-
--- import the above table made in mysql.
-drop table if exists wecc_link_busses_in_teppc_areas;
-CREATE TABLE wecc_link_busses_in_teppc_areas (
-  link_id int NOT NULL primary key,
-  bus1_id int,
-  bus1_name character varying(8),
-  bus1_kv double precision,
-  bus2_id int,
-  bus2_name character varying(8),
-  bus2_kv double precision,
-  rate1 double precision,
-  rate2 double precision,
-  resist double precision,
-  length double precision,
-  ext_id int,
-  link_type character varying(10),
-  cap_fromto double precision,
-  cap_tofrom double precision,
-  area1 character varying(10),
-  area2 character varying(10)
-);
-
-CREATE INDEX bus1_name ON wecc_link_busses_in_teppc_areas (bus1_name);
-CREATE INDEX bus2_name ON wecc_link_busses_in_teppc_areas (bus2_name);
-CREATE INDEX bus1_kv ON wecc_link_busses_in_teppc_areas (bus1_kv);
-CREATE INDEX bus2_kv ON wecc_link_busses_in_teppc_areas (bus2_kv);
-
-copy wecc_link_busses_in_teppc_areas
-from '/Volumes/1TB_RAID/Models/GIS/New\ LoadZone\ Shape\ Files/wecc_transfer_cap.csv'
-with CSV HEADER;
+alter table wecc_load_areas add column economic_multiplier numeric(3,2);
 
 
 
@@ -613,72 +565,115 @@ and 	max_intersection_area = intersection_area
 and 	(wecc_load_areas.load_area like 'CAN%' or wecc_load_areas.load_area like 'MEX%');
 
 
+-- REGIONAL ECONOMIC MULTIPLIER---------------------
+-- import a table of generator capital costs broken down by region
+-- here they're specificed by nearest city, so we'll a distance query below to match city to load area
+-- Source: 2010 EIA Beck plant costs: Updated Capital Cost Estimated for Electricity Generation Plants. Nov 2010, US Energy Information Agency.
+-- PDF in the same folder as the regional_capital_costs.csv
+-- also, SWITCH doesn't yet have capabilties to change the regional multipler by technology,
+-- so we'll assume the average for all techs - could be changed/improved in the future
 
--- REGIONAL ECONOMIC MULTIPLIER-------------------
+DROP TABLE IF EXISTS regional_capital_costs_import;
+CREATE TABLE regional_capital_costs_import(
+	generator_type varchar(100),
+	state varchar(50),
+	city varchar(50),
+	base_cost_dollars2010_per_kw int,
+	location_percent_variation NUMERIC(4,2),
+	delta_cost_difference_dollars2010_per_kw int,
+	total_location_project_cost_dollars2010_per_kw int,
+	PRIMARY KEY (generator_type, state, city)
+	);
 
--- finds each population density point inside each load area
-drop table if exists us_population_density_to_load_area;
-Create table us_population_density_to_load_area as 
-	select us_population_density.gid, popdensity, load_area
-	from us_population_density, wecc_load_areas
-	where intersects(us_population_density.the_geom, wecc_load_areas.polygon_geom);
-	
-create index gid on us_population_density_to_load_area (gid);
+copy regional_capital_costs_import
+from '/Volumes/switch/Models/Switch_Input_Data/regional_economic_multiplier/regional_capital_costs.csv'
+with csv header;
 
--- finds each population density point inside each county.
--- no need to run multipule times because it takes a long time, unless the county shapefile is changed
-drop table if exists us_population_density_to_county;
-Create table us_population_density_to_county as 
-	select us_population_density.gid, popdensity, cnty_fips
-	from us_population_density, ventyx_counties_region
-	where intersects(us_population_density.the_geom, ventyx_counties_region.the_geom);
-	
-create index gid on us_population_density_to_county (gid);
+DROP TABLE IF EXISTS regional_capital_costs;
+CREATE TABLE regional_capital_costs(
+	state varchar(50),
+	city varchar(50),
+	average_location_cost_multiplier NUMERIC(4,2),
+	PRIMARY KEY (state, city)
+	);
 
--- makes a table of regional economic multipliers calculated for each load area
--- by taking the sum of the population of each fraction of a county in a load area multiplied by its econ multiplier
--- and then dividing by the whole population of a load area
-update wecc_load_areas
-set economic_multiplier = multiplier_table.economic_multiplier
-from
-	(select 	load_area_population_table.load_area,
-			sum(regional_economic_multiplier*population_load_area_county)/population_load_area as economic_multiplier
-	from	regional_economic_multipliers,
-	-- gets the total population of each load area for use above
-		(select sum(popdensity) as population_load_area,
-			load_area
-		from us_population_density_to_load_area
-		group by load_area) as load_area_population_table,
-	-- finds the population of counties as divided across load area lines
-	-- many counties are completly in one load area,
-	-- but for those that aren't this one allocates population on either side of the load area line
-		(select sum(us_population_density_to_load_area.popdensity) as population_load_area_county,
-			load_area,
-			cnty_fips
-		from 	us_population_density_to_county,
-				us_population_density_to_load_area
-		where 	us_population_density_to_load_area.gid = us_population_density_to_county.gid
-		group by load_area, cnty_fips) as county_load_area_population_table
-	where 	regional_economic_multipliers.county_fips_code = cast(county_load_area_population_table.cnty_fips as int)
-	and 	county_load_area_population_table.load_area = load_area_population_table.load_area
-	and		load_area_population_table.load_area not like 'CAN%'
-	and 	load_area_population_table.load_area not like 'MEX%'
-	group by load_area_population_table.load_area, population_load_area) as multiplier_table
-where multiplier_table.load_area = wecc_load_areas.load_area;
+SELECT addgeometrycolumn ('wecc_inputs','regional_capital_costs','the_geom',4326,'POINT',2);
+CREATE INDEX ON regional_capital_costs USING gist (the_geom);
 
--- we don't have Canadian and Mexican values yet - these should be put here when they become available
--- right now they're educated guesses
-update wecc_load_areas
-set economic_multiplier = 0.85
-where load_area like 'MEX%';
+INSERT INTO regional_capital_costs
+	SELECT 	state,
+			city,
+			1 + avg(location_percent_variation)/100 as average_location_cost_multiplier
+	FROM	regional_capital_costs_import
+	WHERE 	base_cost_dollars2010_per_kw > 0
+	GROUP BY state, city;
 
-update wecc_load_areas
-set economic_multiplier = 1.05
-where load_area like 'CAN_BC';
+-- get the actual locations from a table of cities
+UPDATE regional_capital_costs r
+SET the_geom = m.the_geom
+FROM
+	(select name, state, the_geom from ventyx_may_2012.cities_point
+		JOIN 
+	(select name, max(pop_98) as pop_98
+		from ventyx_may_2012.cities_point
+		WHERE NOT (name = 'Concord' and state = 'CA')
+		AND NOT (name = 'Portland' and state = 'ME')
+		AND NOT (name = 'Burlington' and state = 'NC')
+		group by name) as max_table
+		USING (name, pop_98)) m
+WHERE r.city = m.name;
 
-update wecc_load_areas
-set economic_multiplier = 1.1
-where load_area like 'CAN_ALB';
+-- get Portland, ME
+UPDATE regional_capital_costs r
+set the_geom = m.the_geom
+FROM ventyx_may_2012.cities_point m
+WHERE m.name = 'Portland' and m.state = 'ME'
+AND	r.city = 'Portland' and r.state = 'Maine';
+
+-- normalized average_location_cost_multiplier to an average of 1
+-- can't directly use the multipliers as our actual capital costs come from Black and Veatch, not EIA Beck plantcosts.
+-- also, exclude states that aren't in the continental US.
+UPDATE regional_capital_costs
+SET average_location_cost_multiplier = average_location_cost_multiplier / normalization_factor
+FROM
+	(SELECT avg(average_location_cost_multiplier) as normalization_factor
+		FROM 	regional_capital_costs
+		WHERE 	state NOT IN ('Alaska', 'Hawaii', 'Puerto Rico')
+		) as normalization_factor_table;
+		
+-- update wecc_load_areas with the proper multiplier,
+-- based on minimum distance from the city specified in regional_capital_costs to the primary_substation_geom of wecc_load_areas
+UPDATE wecc_load_areas
+SET economic_multiplier = average_location_cost_multiplier
+FROM 
+	(SELECT load_area, city, average_location_cost_multiplier
+		FROM 	regional_capital_costs,
+				wecc_load_areas
+			JOIN
+			( SELECT load_area, min(st_distance_spheroid(substation_center_geom, the_geom, 'SPHEROID["WGS 84",6378137,298.257223563]')) as min_distance
+				FROM regional_capital_costs, wecc_load_areas
+				GROUP BY load_area ) as min_distance_table
+			USING (load_area)
+		WHERE 	min_distance = st_distance_spheroid(substation_center_geom, the_geom, 'SPHEROID["WGS 84",6378137,298.257223563]')
+		) as match_table
+WHERE match_table.load_area = wecc_load_areas.load_area;
+
+-- update a few where the match isn't quite right due to the relative position of city and primary substation
+UPDATE wecc_load_areas
+	SET economic_multiplier = 
+		CASE WHEN load_area = 'CAN_ALB' THEN
+				(SELECT economic_multiplier FROM wecc_load_areas WHERE load_area = 'CAN_BC')
+			WHEN load_area = 'MEX_BAJA' THEN
+				(SELECT economic_multiplier FROM wecc_load_areas WHERE load_area = 'AZ_APS_SW')
+			WHEN load_area = 'AZ_NW' THEN
+				(SELECT economic_multiplier FROM wecc_load_areas WHERE load_area = 'AZ_NM_N')
+			WHEN load_area = 'NV_N' THEN
+				(SELECT economic_multiplier FROM wecc_load_areas WHERE load_area = 'NV_S')
+			WHEN load_area = 'CA_PGE_CEN' THEN
+				(SELECT economic_multiplier FROM wecc_load_areas WHERE load_area = 'CA_SMUD')
+		ELSE economic_multiplier
+		END;
+
 
 -- RPS COMPLIANCE ENTITIES  -----------
 -- define a map between load_area and rps_compliance_entity based on the structure
@@ -852,5 +847,5 @@ copy
   		rps_compliance_entity
 from	wecc_load_areas
 order by load_area)
-to '/Volumes/1TB_RAID/Models/GIS/wecc_load_area_info.csv'
+to '/Volumes/switch/Models/GIS/wecc_load_area_info.csv'
 with CSV HEADER;

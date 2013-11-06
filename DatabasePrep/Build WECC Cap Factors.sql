@@ -1,6 +1,4 @@
 -- makes the switch input database from which data is thrown into ampl via 'get_switch_input_tables.sh'
--- run at command line from the DatabasePrep directory:
--- mysql -h switch-db1.erg.berkeley.edu -u jimmy -p < /Volumes/1TB_RAID/Models/Switch\ Runs/WECCv2_2/122/DatabasePrep/Build\ WECC\ Cap\ Factors.sql
   
 create database if not exists switch_inputs_wecc_v2_2;
 use switch_inputs_wecc_v2_2;
@@ -12,7 +10,7 @@ create table load_area_info(
   load_area varchar(20) NOT NULL,
   primary_nerc_subregion varchar(20),
   primary_state varchar(20),
-  economic_multiplier double,
+  economic_multiplier NUMERIC(3,2),
   rps_compliance_entity varchar(20),
   UNIQUE load_area (load_area)
 ) ROW_FORMAT=FIXED;
@@ -25,14 +23,7 @@ load data local infile
 	lines terminated by "\r"
 	ignore 1 lines;
 
-alter table load_area_info add column scenario_id INT NOT NULL first;
-alter table load_area_info add index scenario_id (scenario_id);
 alter table load_area_info add column area_id smallint unsigned NOT NULL AUTO_INCREMENT primary key first;
-
-set @load_area_scenario_id := (select if( count(distinct scenario_id) = 0, 1, max(scenario_id)) from load_area_info);
-
-update load_area_info set scenario_id = @load_area_scenario_id;
-
 
 -- add ccs distance costs
 -- ccs costs will increase with distance from a viable sink - right now this is handeled on a load area level basis
