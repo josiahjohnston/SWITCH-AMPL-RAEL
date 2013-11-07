@@ -1,6 +1,5 @@
-# This is the fundamental code of Switch which compiles a mixed integer linear program to be solved by CPLEX.
-# Most constants are found in windsun.dat, while run-time variables are in the various .tab files.
-# A combination of windsun.run and switch.run wrap around windsun.mod.
+# This is the fundamental code of Switch which compiles a linear program to be solved by CPLEX.
+
 
 ###############################################
 # Time-tracking parameters
@@ -547,15 +546,15 @@ set CARBON_COSTS ordered;
 #
 #### Carbon Cap
 ## does this scenario include a cap on carbon emissions?
-param enable_carbon_cap >= 0, <= 1 default 1;
+#param enable_carbon_cap >= 0, <= 1 default 1;
 #
-## the base (2005) carbon emissions in tCO2/Yr
-param base_carbon_emissions = 284800000;
-## the fraction of emissions relative to the base year of 2010 that should be allowed in a given year
-param carbon_emissions_relative_to_base {YEARS};
+## the base (1990) carbon emissions in tCO2/Yr
+#param base_carbon_emissions = 284800000;
+## the fraction of emissions relative to the base year of 1990 that should be allowed in a given year
+#param carbon_emissions_relative_to_base {YEARS};
 ## add up all the targets for each period to get the total cap level in each period
-param carbon_cap {p in PERIODS} = base_carbon_emissions *
-		( sum{ y in YEARS: y >= p and y < p + num_years_per_period } carbon_emissions_relative_to_base[y] );
+#param carbon_cap {p in PERIODS} = base_carbon_emissions *
+#		( sum{ y in YEARS: y >= p and y < p + num_years_per_period } carbon_emissions_relative_to_base[y] );
 #
 ##############################################
 # Existing hydro plants (assumed impossible to build more, but these last forever)
