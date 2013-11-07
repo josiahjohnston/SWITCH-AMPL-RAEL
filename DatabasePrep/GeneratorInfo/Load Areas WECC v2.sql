@@ -17,6 +17,7 @@ CREATE TABLE wecc_load_areas (
   substation_center_rec_id bigint CHECK (substation_center_rec_id > 0),
   rps_compliance_entity varchar(20),
   ccs_distance_km numeric(5,2) DEFAULT 0,
+  country varchar(24),
   UNIQUE (load_area)
 );
 
@@ -24,6 +25,8 @@ SELECT addgeometrycolumn ('wecc_inputs','wecc_load_areas','polygon_geom',4326,'M
 SELECT addgeometrycolumn ('wecc_inputs','wecc_load_areas','substation_center_geom',4326,'POINT',2);
 CREATE INDEX ON wecc_load_areas USING gist (polygon_geom);
 CREATE INDEX ON wecc_load_areas USING gist (substation_center_geom);
+CREATE INDEX ON wecc_load_areas (country);
+CREATE INDEX ON wecc_load_areas (load_area, country);
 
 -- the order by here is critical as it sets area_id
 -- the left() makes this ordering consistent with legacy code from MySQL and also nicely keeps all California load areas together
@@ -34,6 +37,14 @@ FROM wecc_load_areas_import
 ORDER BY left(replace(load_area,'_', 'Z'), 3), load_area;
 
 DROP TABLE wecc_load_areas_import;
+
+-- COUNTRY -------------
+UPDATE 	wecc_load_areas
+SET		country = 
+CASE WHEN 	load_area like 'CAN_%' THEN 'Canada'
+	 WHEN	load_area like 'MEX_%' THEN 'Mexico'
+	 ELSE	'United States of America'
+	 END;
 
 -- LOAD AREA SUBSTATION CENTERS--------------
 -- NOTE: could/should be updated to newer transmission capacity data from Ventyx/FERC
