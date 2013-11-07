@@ -562,61 +562,20 @@ CREATE TABLE IF NOT EXISTS generator_info_scenarios (
 -- ---------------------------------------------------------------------
 drop table if exists fuel_info_v2;
 create table fuel_info_v2(
-	fuel varchar(64),
+	fuel varchar(64) primary key,
 	rps_fuel_category varchar(10),
 	biofuel tinyint,
-	carbon_content float COMMENT 'carbon content (tonnes CO2 per million Btu)',
-	carbon_content_without_carbon_accounting float COMMENT 'carbon content before you account for the biomass being NET carbon neutral (or carbon negative for biomass CCS) (tonnes CO2 per million Btu)',
-	carbon_sequestered float
+	carbon_content NUMERIC(5,5) COMMENT 'carbon content (tonnes CO2 per million Btu)',
+	carbon_content_without_carbon_accounting NUMERIC(5,5) COMMENT 'carbon content before you account for the biomass being NET carbon neutral (or carbon negative for biomass CCS) (tonnes CO2 per million Btu)',
+	carbon_sequestered NUMERIC(5,5)
 );
 
--- carbon content in tCO2/MMBtu from http://www.eia.doe.gov/oiaf/1605/coefficients.html:
--- Voluntary Reporting of Greenhouse Gases Program (Voluntary Reporting of Greenhouse Gases Program Fuel Carbon Dioxide Emission Coefficients)
-
--- Nuclear, Geothermal, Biomass, Water, Wind and Solar have non-zero LCA emissions
--- To model those emissions, we'd need to divide carbon content into capital, fixed, and variable emissions. Currently, this only lists variable emissions. 
-
--- carbon_content_without_carbon_accounting represents the amount of carbon actually emitted by a technology
--- before you sequester carbon or before you account for the biomass being NET carbon neutral (or carbon negative for biomass CCS)
--- the Bio_Solid value comes from: Biomass integrated gasiﬁcation combined cycle with reduced CO2emissions: Performance analysis and life cycle assessment (LCA), A. Corti, L. Lombardi / Energy 29 (2004) 2109–2124
--- on page 2119 they say that biomass STs are 23% efficient and emit 1400 kg CO2=MWh, which converts to .094345 tCO2/MMBtu
--- the Bio_Liquid value is derived from http://www.ipst.gatech.edu/faculty/ragauskas_art/technical_reviews/Black%20Liqour.pdf
--- in the spreadsheet /Volumes/1TB_RAID/Models/GIS/Biomass/black_liquor_emissions_calc.xlsx
--- Bio_Gas (landfill gas) is almost exactly 50:50 methane (NG) and CO2... we'll therefore use 2x the natural gas value
-
-insert into fuel_info_v2 (fuel, rps_fuel_category, carbon_content_without_carbon_accounting) values
-	('Gas', 'fossilish', 0.05306),
-	('DistillateFuelOil', 'fossilish', 0.07315),
-	('ResidualFuelOil', 'fossilish', 0.07880),
-	('Wind', 'renewable', 0),
-	('Solar', 'renewable', 0),
-	('Bio_Solid', 'renewable', 0.094345),
-	('Bio_Liquid', 'renewable', 0.07695),
-	('Bio_Gas', 'renewable', 0.05306),
-	('Coal', 'fossilish', 0.09552),
-	('Uranium', 'fossilish', 0),
-	('Geothermal', 'renewable', 0),
-	('Water', 'fossilish', 0);
-
-update fuel_info_v2 set carbon_content = if(fuel like 'Bio%', 0, carbon_content_without_carbon_accounting);
-
--- currently we assume that CCS captures all but 15% of the carbon emissions of a plant
--- this assumption also affects carbon_sequestered below
-insert into fuel_info_v2 (fuel, rps_fuel_category, carbon_content, carbon_content_without_carbon_accounting)
-select 	concat(fuel, '_CCS') as fuel,
-		rps_fuel_category,
-		if(fuel like 'Bio%',
-			( -1 * ( 1 - 0.15) * carbon_content_without_carbon_accounting ),
-			( 0.15 * carbon_content_without_carbon_accounting )
-			) as carbon_content,
-		carbon_content_without_carbon_accounting
-	from fuel_info_v2
-	where ( fuel like 'Bio%' or fuel in ('Gas', 'DistillateFuelOil', 'ResidualFuelOil', 'Coal') );
-
-update fuel_info_v2 set biofuel = if( fuel like 'Bio%', 1, 0 );
-
-update fuel_info_v2 set carbon_sequestered =
-	if(fuel like '%CCS', ( 1 - 0.15 ) * carbon_content_without_carbon_accounting, 0);
+load data local infile
+	'./fuel_info.csv'
+	into table fuel_info_v2
+	fields terminated by ','
+	optionally enclosed by '"'
+	ignore 1 lines;
 
 drop table if exists fuel_qualifies_for_rps;
 create table fuel_qualifies_for_rps(
