@@ -147,7 +147,9 @@ if [ $cluster == 1 ]; then
 		  runtime=$(sed -n -e 's/^#PBS -l walltime=\([0-9]*\):.*$/\1/p' $f)
 		else
 		  runtime=$opt_runtime
+		  cputime=$(($opt_runtime * $threads_per_cplex))
       sed -i".orig" -e 's/^#PBS -l walltime=.*$/#PBS -l walltime='$runtime':00:00/' "$f"
+      sed -i".orig" -e 's/^#PBS -l cput=.*$/#PBS -l cput='$cputime':00:00/' "$f"
 		fi
     # Decide which queue to use
     if [ $runtime -le 6 ]; then
