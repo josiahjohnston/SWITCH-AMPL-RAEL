@@ -1,5 +1,6 @@
-# This is the fundamental code of Switch which compiles a linear program to be solved by CPLEX.
-
+# This is the fundamental code of Switch which compiles a mixed integer linear program to be solved by CPLEX.
+# Most constants are found in windsun.dat, while run-time variables are in the various .tab files.
+# A combination of windsun.run and switch.run wrap around windsun.mod.
 
 ###############################################
 # Time-tracking parameters
