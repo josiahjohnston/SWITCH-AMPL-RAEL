@@ -253,6 +253,7 @@ create table generator_info_v2 (
 	forced_outage_rate float,
 	scheduled_outage_rate float,
 	intermittent boolean,
+	distributed boolean default 0,
 	resource_limited boolean,
 	baseload boolean,
 	flexible_baseload boolean,
