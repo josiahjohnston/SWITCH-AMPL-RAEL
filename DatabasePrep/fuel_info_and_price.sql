@@ -6,8 +6,7 @@
 SET search_path TO wecc_info, public;
 
 
-DROP TABLE IF EXISTS fuel_info;
-CREATE TABLE fuel_info (
+CREATE TABLE IF NOT EXISTS fuel_info (
 	fuel varchar(64) PRIMARY KEY,
 	rps_fuel_category varchar(10),
 	biofuel boolean,
@@ -32,6 +31,7 @@ COMMENT ON COLUMN fuel_info.carbon_content_tons_per_mmbtu IS 'carbon content bef
 -- the Bio_Liquid value is derived from http://www.ipst.gatech.edu/faculty/ragauskas_art/technical_reviews/Black%20Liqour.pdf
 -- in the spreadsheet /Volumes/switch/Models/USA_CAN/Biomass/black_liquor_emissions_calc.xlsx
 
+-- note storage here is a meta-fuel... it's needed here for foreign keys down the line
 INSERT INTO fuel_info (fuel, rps_fuel_category, carbon_content_without_carbon_accounting) values
 	('Bio_Solid', 'renewable', 0.094345),
 	('Bio_Liquid', 'renewable', 0.07695),
@@ -44,7 +44,8 @@ INSERT INTO fuel_info (fuel, rps_fuel_category, carbon_content_without_carbon_ac
 	('Solar', 'renewable', 0),
 	('Uranium', 'fossilish', 0),
 	('Geothermal', 'renewable', 0),
-	('Water', 'fossilish', 0);
+	('Water', 'fossilish', 0),
+	('Storage', 'na', 0);
 
 UPDATE fuel_info
 SET carbon_content_tons_per_mmbtu =

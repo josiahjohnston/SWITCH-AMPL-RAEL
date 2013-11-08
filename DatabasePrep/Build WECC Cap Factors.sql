@@ -590,7 +590,8 @@ insert into fuel_qualifies_for_rps
 	        rps_compliance_entity,
 			rps_fuel_category,
 			if(rps_fuel_category like 'renewable', 1, 0)
-		from fuel_info_v2, load_area_info;
+		from fuel_info_v2, load_area_info
+		WHERE fuel != 'Storage';
 
 
 -- FUEL PRICES-------------
@@ -715,19 +716,10 @@ insert into _fuel_prices (scenario_id, area_id, fuel, year, fuel_price)
 			fuel,
 			year,
 			0 as fuel_price
-	from 	( select distinct scenario_id, area_id, year from _fuel_prices) as scenarios_areas_years,
+	from 	(select distinct scenario_id, area_id, year from _fuel_prices) as scenarios_areas_years,
 			fuel_info_v2
 	where 	fuel not in (select distinct fuel from _fuel_prices);
 
--- add values for the fuel 'Storage'
-insert into _fuel_prices (scenario_id, area_id, fuel, year, fuel_price)
-	select 	scenario_id,
-			area_id,
-			'Storage' as fuel,
-			year,
-			0 as fuel_price
-	from 	( select distinct scenario_id, area_id, year from _fuel_prices) as scenarios_areas_years;
-  
 DROP VIEW IF EXISTS fuel_prices;
 CREATE VIEW fuel_prices as
 SELECT _fuel_prices.scenario_id, load_area_info.area_id, load_area, fuel, year, fuel_price 

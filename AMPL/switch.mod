@@ -554,7 +554,7 @@ set RPS_AREAS = setof { a in LOAD_AREAS } (rps_compliance_entity[a]);
 # determines if fuel falls in solar/wind/geo or gas/coal/nuclear/hydro
 param rps_fuel_category {FUELS} symbolic;
 
-param tech_qualifies_for_rps {t in TECHNOLOGIES: t <> 'Battery_Storage'} binary
+param tech_qualifies_for_rps {t in TECHNOLOGIES: fuel[t] <> 'Storage'} binary
 	= if rps_fuel_category[fuel[t]] = 'renewable' then 1 else 0;
 
 # read in the set of all rps targets, even the rps_areas with targets of zero

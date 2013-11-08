@@ -181,7 +181,6 @@ let {a in LOAD_AREAS, p in PERIODS_AND_PRESENT, bp in 1..num_bio_breakpoints[a, 
 table fuel_info "inputs/fuel_info.tab" IN:
 	FUELS <- [fuel], rps_fuel_category, biofuel, carbon_content, carbon_sequestered;
 read table fuel_info;
-let FUELS := FUELS union {"Storage"};
 
 table carbon_cost_by_period_table "inputs/carbon_cost_by_period.tab" IN:
   [p], carbon_cost_by_period;
