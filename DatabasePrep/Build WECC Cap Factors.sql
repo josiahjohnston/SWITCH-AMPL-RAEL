@@ -507,7 +507,7 @@ drop table if exists years_for_loop;
 drop table if exists generator_costs_temp_calculation_table;
 
 -- delete the EPs as their costs get input elsewhere
-delete from generator_costs_yearly where technology like '%_EP%' or technology like '%Hydro%';
+delete from generator_costs_yearly where technology like '%_EP%';
 
 -- for CCS, make the cost at the beginning of construction for plants available in 2020 the same as in 2020
 update generator_costs_yearly

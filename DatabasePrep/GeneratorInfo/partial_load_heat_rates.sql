@@ -65,8 +65,8 @@ from switch_results_wecc_v2_2._generator_and_storage_dispatch
   join `switch_inputs_wecc_v2_2`.`partial_load_heat_rates` using (technology_id) 
 where spinning_reserve > 0 and
    percent_of_full_load = 0.75 and
-   technology <> 'Hydro_NonPumped' and
-   technology <> 'Hydro_Pumped' and
+   technology <> 'Hydro_NonPumped_EP' and
+   technology <> 'Hydro_Pumped_EP' and
    technology <> 'Compressed_Air_Energy_Storage'
 ;
 
@@ -82,8 +82,8 @@ select scenario_id, carbon_cost, technology, round(power/(spinning_reserve+power
 from switch_results_wecc_v2_2._generator_and_storage_dispatch g
   join switch_results_wecc_v2_2.technologies using (technology_id) 
 where spinning_reserve>0 and 
-   technology <> 'Hydro_NonPumped' and
-   technology <> 'Hydro_Pumped' and
+   technology <> 'Hydro_NonPumped_EP' and
+   technology <> 'Hydro_Pumped_EP' and
    technology <> 'Compressed_Air_Energy_Storage'
 group by 1, 2, 3, 4
 order by 1, 2, 3, 4
@@ -114,8 +114,8 @@ select scenario_id, carbon_cost, technology,
 from switch_results_wecc_v2_2._generator_and_storage_dispatch g
   join switch_results_wecc_v2_2.technologies using (technology_id) 
 where spinning_reserve>0 and 
-   technology <> 'Hydro_NonPumped' and
-   technology <> 'Hydro_Pumped' and
+   technology <> 'Hydro_NonPumped_EP' and
+   technology <> 'Hydro_Pumped_EP' and
    technology <> 'Compressed_Air_Energy_Storage'
 group by 1, 2, 3
 ;

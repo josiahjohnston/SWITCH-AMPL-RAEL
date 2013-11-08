@@ -244,14 +244,14 @@ let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: hydro[t] }
 
 let { (pid, a, t, p, h) in AVAILABLE_HOURS: storage[t] }
 	Storage_Operating_Reserve_Provided[pid, a, t, p, h] :=
-	if t = 'Hydro_Pumped' then ( Pumped_Hydro_Storage_Operating_Reserve[a, t, p, h] * ( ep_capacity_mw[pid, a, t] / hydro_capacity_mw_in_load_area[a, t, p] ) )
+	if t = 'Hydro_Pumped_EP' then ( Pumped_Hydro_Storage_Operating_Reserve[a, t, p, h] * ( ep_capacity_mw[pid, a, t] / hydro_capacity_mw_in_load_area[a, t, p] ) )
 	else Storage_Operating_Reserve[pid, a, t, p, h];
 	
-let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: t = 'Hydro_Pumped' } 		
+let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: t = 'Hydro_Pumped_EP' } 		
 	Storage_Spinning_Reserve_Provided[pid, a, t, p, h] := 
 	Fraction_of_Nonthermal_Reserves_That_Are_Spinning_in_Balancing_Area_in_Hour[balancing_area[a], h]
 	* Pumped_Hydro_Storage_Operating_Reserve[a, t, p, h] * ( ep_capacity_mw[pid, a, t] / hydro_capacity_mw_in_load_area[a, t, p] );
-let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: t = 'Hydro_Pumped' } 
+let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: t = 'Hydro_Pumped_EP' } 
 	Storage_Quickstart_Capacity_Provided[pid, a, t, p, h] := 
 	( 1 - Fraction_of_Nonthermal_Reserves_That_Are_Spinning_in_Balancing_Area_in_Hour[balancing_area[a], h] )
 	* Pumped_Hydro_Storage_Operating_Reserve[a, t, p, h] * ( ep_capacity_mw[pid, a, t] / hydro_capacity_mw_in_load_area[a, t, p] );
