@@ -240,7 +240,7 @@ create table generator_info_v2 (
 	technology varchar(64),
 	min_online_year year,
 	fuel varchar(64),
-	connect_cost_per_mw_generic float,
+	connect_cost_per_mw_generic NUMERIC(7,1),
 	heat_rate float,
 	construction_time_years float,
 	year_1_cost_fraction float,
@@ -915,7 +915,7 @@ CREATE TABLE existing_plants_v2 (
 	start_year year NOT NULL,
 	forced_retirement_year smallint NOT NULL default 9999,
 	overnight_cost float NOT NULL,
-	connect_cost_per_mw float,
+	connect_cost_per_mw NUMERIC(7,1),
 	fixed_o_m double NOT NULL,
 	variable_o_m double NOT NULL,
 	forced_outage_rate double NOT NULL,
@@ -1204,7 +1204,7 @@ insert into _proposed_projects_v2 (technology_id, technology, area_id,
 			( select area_id, concat(technology, '_CCS') as ccs_technology from _proposed_projects_v2,
 				( select trim(trailing '_CCS' from technology) as non_ccs_technology
 						from generator_info_v2
-						where technology in ('Biomass_IGCC_CCS', 'Bio_Gas_CCS') ) as non_ccs_technology_table
+						where technology = 'Biomass_IGCC_CCS' ) as non_ccs_technology_table
 					where non_ccs_technology_table.non_ccs_technology = _proposed_projects_v2.technology ) as resource_limited_ccs_load_area_projects
 	where 	generator_info_v2.technology = resource_limited_ccs_load_area_projects.ccs_technology
 	and		load_area_info.area_id = resource_limited_ccs_load_area_projects.area_id;
@@ -1274,9 +1274,8 @@ update	cogen_ccs_var_costs_and_heat_rates
 set		non_cogen_reference_ccs_technology =
 		CASE
 			WHEN technology in ('Gas_Combustion_Turbine_Cogen_CCS', 'Gas_Internal_Combustion_Engine_Cogen_CCS') THEN 'Gas_Combustion_Turbine_CCS'
-			WHEN technology = 'Bio_Gas_Internal_Combustion_Engine_Cogen_CCS' THEN 'Bio_Gas_CCS'
 			WHEN technology in ('Coal_Steam_Turbine_Cogen_CCS') THEN 'Coal_Steam_Turbine_CCS'
-			WHEN technology in ('Bio_Liquid_Steam_Turbine_Cogen_CCS', 'Bio_Solid_Steam_Turbine_Cogen_CCS') THEN 'Biomass_IGCC_CCS'
+			WHEN technology in ('Bio_Solid_Steam_Turbine_Cogen_CCS') THEN 'Biomass_IGCC_CCS'
 			WHEN technology in ('CCGT_Cogen_CCS', 'Gas_Steam_Turbine_Cogen_CCS') THEN 'CCGT_CCS'
 		END;
 		

@@ -33,7 +33,6 @@ CCGT_Cogen_EP	32	2000	Gas	2	0.25	0.75	0	0	0	0	20	0.04	0.06	0	0	0	1	1	0	0	1	0	1	0
 Battery_Storage	33	2010	Storage	3	0.8	0.1	0.1	0	0	0	10	0.02	0.0055	1	0	0	0	0	0	0	0	0	0	1	0.75	1	0	0	0	0	0	0
 CCGT_CCS	34	2020	Gas_CCS	2	0.25	0.75	0	0	0	0	20	0.04	0.06	1	1	0	0	0	0	1	0	0	0	0	0	0	0.38	0.33	0.4	0.33	9.16	10.3
 Gas_Combustion_Turbine_CCS	35	2020	Gas_CCS	2	0.25	0.75	0	0	0	0	20	0.03	0.05	1	1	0	0	0	0	1	0	0	0	0	0	0	0.5	0.1	0	0	0.22	0.86
-Bio_Gas_CCS	36	2020	Bio_Gas_CCS	1	1	0	0	0	0	0	20	0.11	0.04	1	1	0	1	1	0	0	0	0	1	0	0	0	0	0	1	0	0	0
 Biomass_IGCC_CCS	37	2020	Bio_Solid_CCS	2	0.25	0.75	0	0	0	0	40	0.09	0.076	1	1	0	1	1	0	0	0	0	1	0	0	0	0	0	1	0	0	0
 Coal_IGCC_CCS	38	2020	Coal_CCS	2	0.2	0.8	0	0	0	0	40	0.08	0.12	1	1	0	0	0	1	0	0	0	0	0	0	0	0	0	0.4	0.29	0	0
 Coal_Steam_Turbine_CCS	39	2020	Coal_CCS	2	0.2	0.8	0	0	0	0	40	0.06	0.1	1	1	0	0	0	1	0	0	0	0	0	0	0	0	0	0.4	0.05	0	0
@@ -58,7 +57,5 @@ CCGT_Cogen_CCS	110	2020	Gas_CCS	2	0.25	0.75	0	0	0	0	20	0.04	0.06	1	1	0	1	1	0	0	1
 Gas_Combustion_Turbine_Cogen_CCS	111	2020	Gas_CCS	2	0.25	0.75	0	0	0	0	20	0.03	0.05	1	1	0	1	1	0	0	1	0	1	0	0	0	0	0	1	0	0	0
 Gas_Internal_Combustion_Engine_Cogen_CCS	112	2020	Gas_CCS	2	0.25	0.75	0	0	0	0	20	0.03	0.05	1	1	0	1	1	0	0	1	0	1	0	0	0	0	0	1	0	0	0
 Gas_Steam_Turbine_Cogen_CCS	113	2020	Gas_CCS	2	0.2	0.8	0	0	0	0	40	0.1288	0.0915	1	1	0	1	1	0	0	1	0	1	0	0	0	0	0	1	0	0	0
-Bio_Gas_Internal_Combustion_Engine_Cogen_CCS	114	2020	Bio_Gas_CCS	1	1	0	0	0	0	0	20	0.11	0.04	1	1	0	1	1	0	0	1	0	1	0	0	0	0	0	1	0	0	0
-Bio_Liquid_Steam_Turbine_Cogen_CCS	115	2020	Bio_Liquid_CCS	2	0.2	0.8	0	0	0	0	40	0.09	0.076	1	1	0	1	1	0	0	1	0	1	0	0	0	0	0	1	0	0	0
 Bio_Solid_Steam_Turbine_Cogen_CCS	116	2020	Bio_Solid_CCS	2	0.2	0.8	0	0	0	0	40	0.09	0.076	1	1	0	1	1	0	0	1	0	1	0	0	0	0	0	1	0	0	0
 Coal_Steam_Turbine_Cogen_CCS	117	2020	Coal_CCS	2	0.2	0.8	0	0	0	0	40	0.06	0.1	1	1	0	1	1	0	0	1	0	1	0	0	0	0	0	1	0	0	0
