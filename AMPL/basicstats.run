@@ -46,8 +46,8 @@ let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: intermittent[t] }
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: baseload[t] }
   Power_Produced[pid, a, t, p, h] := Installed_To_Date[pid, a, t, p] * gen_availability[t];
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: hydro[t] }
-  Power_Produced[pid, a, t, p, h] := Installed_To_Date[pid, a, t, p] * gen_availability[t] * average_hydro_output_mw_new_cf[pid, a, t, date[h]];
-#  Power_Produced[pid, a, t, p, h] := DispatchHydro[pid, a, t, p, h]; 
+#  Power_Produced[pid, a, t, p, h] := Installed_To_Date[pid, a, t, p] * gen_availability[t] * average_hydro_output_mw_new_cf[pid, a, t, date[h]];
+  Power_Produced[pid, a, t, p, h] := DispatchHydro[pid, a, t, p, h]; 
 #let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: fuel[t] in BIO_SOLID_FUELS}
 #  Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] := Power_Produced[pid, a, t, p, h] * heat_rate[pid, a, t] * Biomass_Solid_Fuel_Cost[a, p, h];
 #let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: fuel[t] not in BIO_SOLID_FUELS and t <> 'Compressed_Air_Energy_Storage' }
