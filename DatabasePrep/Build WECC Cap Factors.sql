@@ -238,10 +238,11 @@ create table generator_info_v2 (
 	gen_info_scenario_id int unsigned NOT NULL,
 	technology_id tinyint unsigned NOT NULL,
 	technology varchar(64),
+	prime_mover char(2),
 	min_online_year year,
 	fuel varchar(64),
 	connect_cost_per_mw_generic NUMERIC(7,1),
-	heat_rate float,
+	heat_rate NUMERIC(5,3),
 	construction_time_years float,
 	year_1_cost_fraction float,
 	year_2_cost_fraction float,
@@ -272,14 +273,13 @@ create table generator_info_v2 (
 	deep_cycling_penalty float,
 	startup_mmbtu_per_mw float,
 	startup_cost_dollars_per_mw float,
-	data_source_and_notes varchar(512),
 	index techology_id_name (technology_id, technology),
 	PRIMARY KEY (gen_info_scenario_id, technology_id),
 	INDEX tech (technology)
 );
 
 load data local infile
-	'./GeneratorInfo/generator_info.csv'
+	'/GeneratorInfo/generator_info.csv'
 	into table generator_info_v2
 	fields terminated by	','
 	optionally enclosed by '"'
