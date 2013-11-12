@@ -580,9 +580,6 @@ copy ( SELECT
 	startup_cost_dollars_per_mw
 FROM generator_info
 order by technology_id )
-to '/Volumes/switch/Models/USA_CAN/generator_info.csv'
+to 'GeneratorInfo/generator_info.csv'
 WITH CSV HEADER NULL '';
-
-
-/Generator_Info/generator_info.csv
 
