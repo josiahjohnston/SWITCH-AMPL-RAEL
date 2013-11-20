@@ -36,7 +36,9 @@ option substout 1, linelim 1;
 # Options to enable timing of compilation
 # option show_stats 1, times 1, gentimes 1;
 option solver cplexamp;
-option cplex_options (" threads=4 presolve=1 prestats=1 nodefile=2 baropt barobjrange=1e+30 comptol=1e-9 lpdisplay=1 bardisplay=2 timing=1 startalgorithm=4 mipdisplay=4 iisfind=1" );
+option cplex_options (" threads=4 presolve=1 prestats=1 nodefile=2 baropt barobjrange=1e+30 comptol=1e-9 lpdisplay=1 timing=1 startalgorithm=4 iisfind=1" );
+#option cplex_options (" threads=4 presolve=1 prestats=1 nodefile=2 comptol=1e-9 lpdisplay=1 timing=1 startalgorithm=4 iisfind=1" );
+#option cplex_options (" threads=4 presolve=1 prestats=1 nodefile=2 baropt barobjrange=1e+30 comptol=1e-9 lpdisplay=1 bardisplay=2 timing=1 startalgorithm=4 mipdisplay=4 iisfind=1" );
 # Use the option string below to enable iisfind when you are trying to diagnose infeasibilities
 #option cplex_options (" lpdisplay=1 iisfind=1 mipdisplay=2 presolve=1 prestats=1 timing=1 nodefile=2 treememory=15000 threads=4" );
 option cplex_options > results/cplex_options;

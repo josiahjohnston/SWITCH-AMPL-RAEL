@@ -15,87 +15,150 @@
 # I'll add a term to the objective function to represent a penalty for having investment decisions in a sub-problem diverging from the average across all sub-problems. 
 # In the first iteration, these averages and penalties will both be 0. 
 
-param target_period in PERIODS; 
+#include dispatch/dispatch_problem.run;
+
+param target_period in PERIODS default first(PERIODS); 
 param iteration default 0;
 param subproblem_basename symbolic = results_path & "sol" & "_subproblem_" & target_period & "_" & iteration;
-param subproblem_path symbolic =  subproblem_basename & ".nl";
-param subsolution_path symbolic =  subproblem_basename & ".sol";
+param subproblem_path symbolic = subproblem_basename & ".nl";
+param subsolution_path symbolic = subproblem_basename & ".sol";
+param upper_problem_basename symbolic = results_path & "sol" & "_upper_problem_" & target_period & "_" & iteration;
+param upper_problem_path symbolic = subproblem_basename & ".nl";
+param upper_solution_path symbolic = subproblem_basename & ".sol";
 param include_subproblem{p in PERIODS} = if( p < last(PERIODS) ) then 1 else 0;
 param num_subproblems = card(PERIODS);
 
 # Investments Period decisions that carry forward in time:
 # InstallGen, InstallStorageEnergyCapacity, BuildGenOrNot, InstallTrans, InstallLocalTD, OperateEPDuringPeriod
 
+# Define new sets that enable duplicate values & deviation penalties for each sub-problem
+set PROJECT_VINTAGES_LGN := { 
+  (pid, a, t, p) in PROJECT_VINTAGES, tp in PERIODS: 
+  include_subproblem[p] and tp >= p 
+};
+set TRANSMISSION_LINE_NEW_PERIODS_LGN = { 
+  (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS, tp in PERIODS: 
+  include_subproblem[p] and tp >= p 
+};
+set LOCAL_TD_NEW_PERIODS_LGN = {
+  a in LOAD_AREAS, p in PERIODS, tp in PERIODS: 
+  include_subproblem[p] and tp >= p 
+};
+set EP_PERIODS_LGN = {
+  (pid, a, t, p) in EP_PERIODS, tp in PERIODS:
+  include_subproblem[p] and tp >= p 
+};
+
 # Average variable values from all subproblems in one iteration..
-param InstallGen_LGN_AVG { (pid, a, t, p) in PROJECT_VINTAGES } >= 0;
-param InstallStorageEnergyCapacity_LGN_AVG { (pid, a, t, p) in PROJECT_VINTAGES: storage[t] } >= 0;
-param BuildGenOrNot_LGN_AVG { (pid, a, t, p) in PROJECT_VINTAGES: min_build_capacity[t] > 0 } >= 0, <= 1, integer;
-param InstallTrans_LGN_AVG { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS } >= 0;
-param InstallLocalTD_LGN_AVG { a in LOAD_AREAS, p in PERIODS } >= 0;
-param OperateEPDuringPeriod_LGN_AVG { (pid, a, t, p) in EP_PERIODS: not intermittent[t] and not hydro[t] } >= 0, <= 1, integer;
+param InstallGen_LGN_AVG 
+  { (pid, a, t, p) in PROJECT_VINTAGES: include_subproblem[p] } 
+  >= 0 default 0;
+param InstallStorageEnergyCapacity_LGN_AVG 
+  { (pid, a, t, p) in PROJECT_VINTAGES: storage[t] and include_subproblem[p] } 
+  >= 0 default 0;
+param BuildGenOrNot_LGN_AVG 
+  { (pid, a, t, p) in PROJECT_VINTAGES: 
+    min_build_capacity[t] > 0 and include_subproblem[p] } 
+  >= 0, <= 1 default 0;
+param InstallTrans_LGN_AVG 
+  { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS: include_subproblem[p] } 
+  >= 0 default 0;
+param InstallLocalTD_LGN_AVG 
+  { a in LOAD_AREAS, p in PERIODS: include_subproblem[p] } 
+  >= 0 default 0;
+param OperateEPDuringPeriod_LGN_AVG 
+  { (pid, a, t, p) in EP_PERIODS: 
+    not intermittent[t] and not hydro[t] and include_subproblem[p]} 
+  >= 0, <= 1 default 0;
 
 # Duplicate variable values from all subproblems from one iteration
-param InstallGen_SUB_ALL { (pid, a, t, p) in PROJECT_VINTAGES, target_period in PERIODS: target_period >= p } >= 0;
-param InstallStorageEnergyCapacity_SUB_ALL { (pid, a, t, p) in PROJECT_VINTAGES, target_period in PERIODS: storage[t] and target_period >= p} >= 0;
-param BuildGenOrNot_SUB_ALL { (pid, a, t, p) in PROJECT_VINTAGES, target_period in PERIODS: min_build_capacity[t] > 0 and target_period >= p} >= 0, <= 1, integer;
-param InstallTrans_SUB_ALL { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS, target_period in PERIODS: target_period >= p } >= 0;
-param InstallLocalTD_SUB_ALL { a in LOAD_AREAS, p in PERIODS, target_period in PERIODS: target_period >= p } >= 0;
-param OperateEPDuringPeriod_SUB_ALL { (pid, a, t, p) in EP_PERIODS, target_period in PERIODS: not intermittent[t] and not hydro[t] and target_period >= p} >= 0, <= 1, integer;
+param InstallGen_SUB_ALL 
+  { (pid, a, t, p, tp) in PROJECT_VINTAGES_LGN } 
+  >= 0;
+param InstallStorageEnergyCapacity_SUB_ALL 
+  { (pid, a, t, p, tp) in PROJECT_VINTAGES_LGN: storage[t] } 
+  >= 0;
+param BuildGenOrNot_SUB_ALL 
+  { (pid, a, t, p, tp) in PROJECT_VINTAGES_LGN: min_build_capacity[t] > 0 } 
+  >= 0, <= 1;
+param InstallTrans_SUB_ALL 
+  { (a1, a2, p, tp) in TRANSMISSION_LINE_NEW_PERIODS_LGN } 
+  >= 0;
+param InstallLocalTD_SUB_ALL 
+  { (a, p, tp) in LOCAL_TD_NEW_PERIODS_LGN } 
+  >= 0;
+param OperateEPDuringPeriod_SUB_ALL 
+  { (pid, a, t, p, tp) in EP_PERIODS_LGN: not intermittent[t] and not hydro[t] } 
+  >= 0, <= 1;
 
-# Gap between this subproblem and the average in the last iteration
-param InstallGen_LGN_GAP { (pid, a, t, p) in PROJECT_VINTAGES } >= 0;
-param InstallStorageEnergyCapacity_LGN_GAP { (pid, a, t, p) in PROJECT_VINTAGES: storage[t] } >= 0;
-param BuildGenOrNot_LGN_GAP { (pid, a, t, p) in PROJECT_VINTAGES: min_build_capacity[t] > 0 } >= 0, <= 1, integer;
-param InstallTrans_LGN_GAP { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS } >= 0;
-param InstallLocalTD_LGN_GAP { a in LOAD_AREAS, p in PERIODS } >= 0;
-param OperateEPDuringPeriod_LGN_GAP { (pid, a, t, p) in EP_PERIODS: not intermittent[t] and not hydro[t] } >= 0, <= 1, integer;
+# Gap between each subproblem and the average in the last iteration
+param InstallGen_LGN_GAP 
+  { (pid, a, t, p, tp) in PROJECT_VINTAGES_LGN } 
+  = InstallGen_SUB_ALL[ pid, a, t, p, tp ] - InstallGen_LGN_AVG[pid, a, t, p];
+param InstallStorageEnergyCapacity_LGN_GAP 
+  { (pid, a, t, p, tp) in PROJECT_VINTAGES_LGN: storage[t] } 
+  = InstallStorageEnergyCapacity_SUB_ALL[pid, a, t, p, tp] - InstallStorageEnergyCapacity_LGN_AVG[pid, a, t, p];
+param BuildGenOrNot_LGN_GAP 
+  { (pid, a, t, p, tp) in PROJECT_VINTAGES_LGN: min_build_capacity[t] > 0 } 
+  = BuildGenOrNot_SUB_ALL[pid, a, t, p, tp] - BuildGenOrNot_LGN_AVG[pid, a, t, p];
+param InstallTrans_LGN_GAP 
+  { (a1, a2, p, tp) in TRANSMISSION_LINE_NEW_PERIODS_LGN } 
+  = InstallTrans_SUB_ALL[a1, a2, p, tp] - InstallTrans_LGN_AVG[a1, a2, p];
+param InstallLocalTD_LGN_GAP 
+  { (a, p, tp) in LOCAL_TD_NEW_PERIODS_LGN } 
+  = InstallLocalTD_SUB_ALL[a, p, tp] - InstallLocalTD_LGN_AVG[a, p];
+param OperateEPDuringPeriod_LGN_GAP 
+  { (pid, a, t, p, tp) in EP_PERIODS_LGN: not intermittent[t] and not hydro[t] } 
+  = OperateEPDuringPeriod_SUB_ALL[pid, a, t, p, tp] - OperateEPDuringPeriod_LGN_AVG[pid, a, t, p];;
 
 # Lagrangian Multipliers: Penalties for deviating from the joint plan
-param InstallGen_DEV_PNTLY { (pid, a, t, p) in PROJECT_VINTAGES };
-param InstallStorageEnergyCapacity_DEV_PNTLY { (pid, a, t, p) in PROJECT_VINTAGES: storage[t] };
-param BuildGenOrNot_DEV_PNTLY { (pid, a, t, p) in PROJECT_VINTAGES: min_build_capacity[t] > 0 };
-param InstallTrans_DEV_PNTLY { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS };
-param InstallLocalTD_DEV_PNTLY { a in LOAD_AREAS, p in PERIODS };
-param OperateEPDuringPeriod_DEV_PNTLY { (pid, a, t, p) in EP_PERIODS: not intermittent[t] and not hydro[t] };
+param InstallGen_DEV_PNTLY 
+  { (pid, a, t, p, tp) in PROJECT_VINTAGES_LGN }
+  default 0;
+param InstallStorageEnergyCapacity_DEV_PNTLY 
+  { (pid, a, t, p, tp) in PROJECT_VINTAGES_LGN: storage[t] }
+  default 0;
+param BuildGenOrNot_DEV_PNTLY
+  { (pid, a, t, p, tp) in PROJECT_VINTAGES_LGN: min_build_capacity[t] > 0 }
+  default 0;
+param InstallTrans_DEV_PNTLY
+  { (a1, a2, p, tp) in TRANSMISSION_LINE_NEW_PERIODS_LGN }
+  default 0;
+param InstallLocalTD_DEV_PNTLY 
+  { (a, p, tp) in LOCAL_TD_NEW_PERIODS_LGN }
+  default 0;
+param OperateEPDuringPeriod_DEV_PNTLY 
+  { (pid, a, t, p, tp) in EP_PERIODS_LGN: not intermittent[t] and not hydro[t] }
+  default 0;
 
 # Auxillary terms for calculating penalties
-param norm;
+param norm = 
+  sum { (pid, a, t, p, tp) in PROJECT_VINTAGES_LGN } 
+    InstallGen_LGN_GAP[pid, a, t, p, tp] ^ 2 
+  + sum { (pid, a, t, p, tp) in PROJECT_VINTAGES_LGN: storage[t] }
+    InstallStorageEnergyCapacity_LGN_GAP[pid, a, t, p, tp] ^ 2
+  + sum { (pid, a, t, p, tp) in PROJECT_VINTAGES_LGN: min_build_capacity[t] > 0 }
+    BuildGenOrNot_LGN_GAP[pid, a, t, p, tp] ^ 2
+  + sum { (a1, a2, p, tp) in TRANSMISSION_LINE_NEW_PERIODS_LGN }
+    InstallTrans_LGN_GAP[a1, a2, p, tp] ^ 2
+  + sum { (a, p, tp) in LOCAL_TD_NEW_PERIODS_LGN }
+    InstallLocalTD_LGN_GAP[a, p, tp] ^ 2
+  + sum { (pid, a, t, p, tp) in EP_PERIODS_LGN: 
+           not intermittent[t] and not hydro[t] }
+    OperateEPDuringPeriod_LGN_GAP[pid, a, t, p, tp] ^ 2;
 param scale default 2;
+param iteration_limit default 10;
 param iterations_since_improvement default 0;
 param iterations_since_improvement_limit := 3;
+param sub_prob_objective_values {1..iteration_limit, tp in PERIODS}; 
+param ext_prob_objective_value { i in {1..iteration_limit} };
+param upper_bound { i in {1..iteration_limit} } >= 0;
+param step_size = 
+ scale * (upper_bound[iteration] - ext_prob_objective_value[iteration]) / norm;
 
 
 # Subproblem I/O need temporary params & table definitions
 include subproblem_io.run;
-
-# On iteration 0, initialize the penalties to 0. 
-if (iteration = 0) then {
-  let { (pid, a, t, p) in PROJECT_VINTAGES } 
-    InstallGen_LGN_AVG[pid, a, t, p] := 0;
-  let { (pid, a, t, p) in PROJECT_VINTAGES: storage[t] } 
-    InstallStorageEnergyCapacity_LGN_AVG[pid, a, t, p] := 0;
-  let { (pid, a, t, p) in PROJECT_VINTAGES: min_build_capacity[t] > 0 } 
-    BuildGenOrNot_LGN_AVG[pid, a, t, p] := 0;
-  let { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS } 
-    InstallTrans_LGN_AVG[a1, a2, p] := 0;
-  let { a in LOAD_AREAS, p in PERIODS } 
-    InstallLocalTD_LGN_AVG[a, p] := 0;
-  let { (pid, a, t, p) in EP_PERIODS: not intermittent[t] and not hydro[t] } 
-    OperateEPDuringPeriod_LGN_AVG[pid, a, t, p] := 0;
-
-  let { (pid, a, t, p) in PROJECT_VINTAGES } 
-    InstallGen_DEV_PNTLY[pid, a, t, p] := 0;
-  let { (pid, a, t, p) in PROJECT_VINTAGES: storage[t] } 
-    InstallStorageEnergyCapacity_DEV_PNTLY[pid, a, t, p] := 0;
-  let { (pid, a, t, p) in PROJECT_VINTAGES: min_build_capacity[t] > 0 } 
-    BuildGenOrNot_DEV_PNTLY[pid, a, t, p] := 0;
-  let { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS } 
-    InstallTrans_DEV_PNTLY[a1, a2, p] := 0;
-  let { a in LOAD_AREAS, p in PERIODS } 
-    InstallLocalTD_DEV_PNTLY[a, p] := 0;
-  let { (pid, a, t, p) in EP_PERIODS: not intermittent[t] and not hydro[t] } 
-    OperateEPDuringPeriod_DEV_PNTLY[pid, a, t, p] := 0;
-}
 
 # If AMPL were cool, I could declare the new objective like so:
 #minimize Power_Cost2: 
@@ -216,23 +279,23 @@ minimize Power_Cost_Lagrangian:
   # Lagrangian penalties for deviations between sub-problems
   # Eventually, I'll have multiple sub-problems per period and will need to include penalties for deviations in the last period
   # For now, I'll just exclude the last period from these penalties
-  + sum { (pid, a, t, p) in PROJECT_VINTAGES: include_subproblem[p] } 
-      InstallGen_DEV_PNTLY[pid, a, t, p] * 
+  + sum { (pid, a, t, p, target_period) in PROJECT_VINTAGES_LGN } 
+      InstallGen_DEV_PNTLY[pid, a, t, p, target_period] * 
       (InstallGen[pid, a, t, p] - InstallGen_LGN_AVG[pid, a, t, p])
-  + sum { (pid, a, t, p) in PROJECT_VINTAGES: storage[t] and include_subproblem[p] } 
-      InstallStorageEnergyCapacity_DEV_PNTLY[pid, a, t, p] * 
+  + sum { (pid, a, t, p, target_period) in PROJECT_VINTAGES_LGN: storage[t] } 
+      InstallStorageEnergyCapacity_DEV_PNTLY[pid, a, t, p, target_period] * 
       (InstallStorageEnergyCapacity[pid, a, t, p] - InstallStorageEnergyCapacity_LGN_AVG[pid, a, t, p])
-  + sum { (pid, a, t, p) in PROJECT_VINTAGES: min_build_capacity[t] > 0 and include_subproblem[p] } 
-      BuildGenOrNot_DEV_PNTLY[pid, a, t, p] * 
+  + sum { (pid, a, t, p, target_period) in PROJECT_VINTAGES_LGN: min_build_capacity[t] > 0 } 
+      BuildGenOrNot_DEV_PNTLY[pid, a, t, p, target_period] * 
       (BuildGenOrNot[pid, a, t, p] - BuildGenOrNot_LGN_AVG[pid, a, t, p])
-  + sum { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS: include_subproblem[p] } 
-      InstallTrans_DEV_PNTLY[a1, a2, p] * 
+  + sum { (a1, a2, p, target_period) in TRANSMISSION_LINE_NEW_PERIODS_LGN } 
+      InstallTrans_DEV_PNTLY[a1, a2, p, target_period] * 
       (InstallTrans[a1, a2, p] - InstallTrans_LGN_AVG[a1, a2, p])
-  + sum { a in LOAD_AREAS, p in PERIODS: include_subproblem[p] }
-      InstallLocalTD_DEV_PNTLY[a, p] * 
+  + sum { (a, p, target_period) in LOCAL_TD_NEW_PERIODS_LGN }
+      InstallLocalTD_DEV_PNTLY[a, p, target_period] * 
       (InstallLocalTD[a, p] - InstallLocalTD_LGN_AVG[a, p])
-  + sum { (pid, a, t, p) in EP_PERIODS: not intermittent[t] and not hydro[t] and include_subproblem[p]}
-      OperateEPDuringPeriod_DEV_PNTLY[pid, a, t, p] * 
+  + sum { (pid, a, t, p, target_period) in EP_PERIODS_LGN: not intermittent[t] and not hydro[t] }
+      OperateEPDuringPeriod_DEV_PNTLY[pid, a, t, p, target_period] * 
       (OperateEPDuringPeriod[pid, a, t, p] - OperateEPDuringPeriod_LGN_AVG[pid, a, t, p])
   
 ;
@@ -284,9 +347,24 @@ problem Lagrang_Subprob:
 	  EP_Operational_Continuity[pid, a, t, p],
 
   # Installation Constraints
-  # I *think* I don't have to limit these to the target period, because any constraints that reference future periods and un-used decision variables should be factored out in presolve..
-	Maximum_Resource_Central_Station_Solar, Maximum_Resource_Bio, Maximum_Resource_Single_Location, Maximum_Resource_EP_Cogen_Replacement,
-	Minimum_GenSize, BuildGenOrNot_Constraint, SymetricalTrans, Minimum_Local_TD_No_DR, Minimum_Local_TD_DR,
+	{ (l, a) in CENTRAL_STATION_SOLAR_LOCATIONS, p in PERIODS: p <= target_period } 
+	  Maximum_Resource_Central_Station_Solar[l, a, p], 
+	{ (f, a, p) in BIO_FUELS_LOAD_AREAS: bio_fuel_limit_by_load_area[f, a, p] > 0 and p <= target_period}
+	  Maximum_Resource_Bio[f, a, p], 
+	{ (pid, a, t, p) in PROJECT_VINTAGES: resource_limited[t] and not competes_for_space[t] and p <= target_period } 
+	  Maximum_Resource_Single_Location[pid, a, t, p],
+	{ (l, a) in EP_COGEN_REPLACEMENT_PLANT_LOCATIONS, p in PERIODS: p <= target_period } 
+	  Maximum_Resource_EP_Cogen_Replacement[l, a, p],
+	{(pid, a, t, p) in PROJECT_VINTAGES: min_build_capacity[t] > 0 and p <= target_period }
+	  Minimum_GenSize[pid, a, t, p], 
+	{(pid, a, t, p) in PROJECT_VINTAGES: min_build_capacity[t] > 0 and p <= target_period }
+	  BuildGenOrNot_Constraint[pid, a, t, p], 
+	{ (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS: p <= target_period }
+	  SymetricalTrans[a1, a2, p],
+	{a in LOAD_AREAS, p in PERIODS: p <= target_period }  
+	  Minimum_Local_TD_No_DR[a, p],
+	{a in LOAD_AREAS, h in TIMEPOINTS: period[h] <= target_period }
+	  Minimum_Local_TD_DR[a, h],
 
   # Dispatch Decisions
 	{(pid,a,t,p,h) in PROJECT_VINTAGE_HOURS: dispatchable[t] and p = target_period} 
@@ -452,3 +530,56 @@ problem Lagrang_Subprob:
   {a in LOAD_AREAS, d in DATES: period_of_date[d] = target_period } 
     EV_Charging_Energy_Balance[a,d]
 ;
+
+problem Dispatch_With_Reserves_and_Policy: 
+	# Objective function 
+	Power_Cost, 
+	
+	# Satisfy Load and Power Consumption
+	Satisfy_Load,
+	Conservation_Of_Energy_NonDistributed, ConsumeNonDistributedPower, 
+
+	# Policy Constraints
+	Satisfy_Primary_RPS, Satisfy_Distributed_RPS, Meet_California_Solar_Initiative, Meet_California_Distributed_Generation_Mandate, 
+	Carbon_Cap, ConsumeREC, Conservation_of_REC,
+
+  # Allow installation of storage technologies.  or t='Gas_Combustion_Turbine' 
+  {(pid, a, t, p) in PROJECT_VINTAGES: storage[t]} InstallGen[pid, a, t, p],
+  InstallStorageEnergyCapacity, 
+  
+  # Installation Constraints
+	Minimum_Local_TD_No_DR, Minimum_Local_TD_DR, Maximum_Resource_Single_Location, 
+	
+	# Dispatch Decisions
+	DispatchGen, DispatchFlexibleBaseload, Deep_Cycle_Amount, Commit_Intermediate_Gen, Startup_MW_from_Last_Hour, ProducePowerEP, ConsumeBioSolidByTier, ConsumeBioSolid, ConsumeNaturalGas, ConsumeNaturalGasByTier, ConsumeNaturalGasRegional, ConsumeNaturalGas_defeqn, ConsumeNaturalGas_UpperLimits, ConsumeBioSolid_UpperLimits, ConsumeBioSolid_defeqn, 
+	DispatchTrans,
+	StoreEnergy, ReleaseEnergy, TotalEnergyAvailableinStorage, 
+	DispatchHydro, Dispatch_Pumped_Hydro_Storage, Store_Pumped_Hydro,
+	Provide_Spinning_Reserve, Provide_Quickstart_Capacity, Storage_Operating_Reserve, Hydro_Operating_Reserve, Pumped_Hydro_Storage_Operating_Reserve,
+
+	# Dispatch Constraints
+	Power_and_Operating_Reserve_From_Dispatchable_Plants, Maximum_Intermediate_Capacity_Online, Maximum_Dispatch_Intermediate_Gen, Minimum_Loading_Intermediate_Gen,
+	Intermediate_Gen_Startup, Peaker_Plant_Startup, Power_From_New_Flexible_Baseload_Plants, Minimum_Loading_New_Flexible_Baseload_Plants,
+	EP_Operational_Continuity, EP_Power_and_Operating_Reserve_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants, EP_Power_From_Hydro_Plants, 
+	EP_Power_From_Baseload_Plants, EP_Power_From_Flexible_Baseload_Plants, Maximum_Loading_Existing_Flexible_Baseload_Plants, Minimum_Loading_Existing_Flexible_Baseload_Plants, Spinning_Reserve_as_Fraction_of_Dispatch,
+	Maximum_DispatchTrans, 
+	Mexican_Export_Limit, 
+	Maximum_Dispatch_and_Operating_Reserve_Hydro, Minimum_Dispatch_Hydro, Average_Hydro_Output, Max_Operating_Reserve_Hydro,
+	Maximum_Store_Pumped_Hydro, Pumped_Hydro_Energy_Balance,
+	CAES_Combined_Dispatch, CAES_Combined_Operating_Reserve, Maximum_Store_Rate, Maximum_Release_and_Operating_Reserve_Storage_Rate, Maximum_Release_and_Operating_Reserve_Storage_Energy,
+	Max_Energy_in_Storage, Storage_Projects_Hourly_Energy_Tracking,
+
+	# Contigency Planning Constraints
+	Satisfy_Load_Reserve, Conservation_Of_Energy_NonDistributed_Reserve, ConsumeNonDistributedPower_Reserve,
+
+	# Operating Reserve Variables
+	Spinning_Reserve_Requirement, Quickstart_Reserve_Requirement, 
+
+	# Operating Reserve Constraints
+	Satisfy_Spinning_Reserve_Requirement, Satisfy_Quickstart_Reserve_Requirement,
+
+	# Demand response
+	Shift_Res_Comm_Load, Meet_Shifted_Load, Shift_EV_Load, Charge_EVs, Maximum_Res_Comm_Load_That_Can_Be_Shifted_from_Hour, Maximum_Res_Comm_Load_That_Can_Be_Shifted_to_Hour, Res_Comm_Demand_Response_Energy_Balance, Maximum_EV_Load_That_Can_Be_Shifted_from_Hour, Maximum_EV_Load_That_Can_Be_Shifted_to_Hour, EV_Charging_Energy_Balance
+;
+
+

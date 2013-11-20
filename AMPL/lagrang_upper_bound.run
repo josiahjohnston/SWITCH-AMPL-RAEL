@@ -1,0 +1,39 @@
+# Calculate an upper bound of the extensive form of the problem for this 
+# iteration by taking the max of each investment decision and running the
+# dispatch problem.
+# This script assumes import_subproblem_decisions.run has already been called.
+
+let { (pid, a, t, p) in PROJECT_VINTAGES } 
+  InstallGen[pid, a, t, p] := 
+    max { (pid, a, t, p, tp) in PROJECT_VINTAGES_LGN } 
+      InstallGen_SUB_ALL[pid, a, t, p, tp];
+let { (pid, a, t, p) in PROJECT_VINTAGES: storage[t] } 
+  InstallStorageEnergyCapacity[pid, a, t, p] := 
+    max { (pid, a, t, p, tp) in PROJECT_VINTAGES_LGN } 
+      InstallStorageEnergyCapacity_SUB_ALL[pid, a, t, p, tp];
+let { (pid, a, t, p) in PROJECT_VINTAGES: min_build_capacity[t] > 0 } 
+  BuildGenOrNot[pid, a, t, p] := 
+    max { (pid, a, t, p, tp) in PROJECT_VINTAGES_LGN }
+      BuildGenOrNot_SUB_ALL[pid, a, t, p, tp];
+let { (pid, a, t, p) in EP_PERIODS: not intermittent[t] and not hydro[t] } 
+  OperateEPDuringPeriod[pid, a, t, p] := 
+    max { (pid, a, t, p, tp) in EP_PERIODS_LGN } 
+      OperateEPDuringPeriod_SUB_ALL[pid, a, t, p, tp];
+let { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS } 
+  InstallTrans[a1, a2, p] := 
+    max { (a1, a2, p, tp) in TRANSMISSION_LINE_NEW_PERIODS_LGN }
+      InstallTrans_SUB_ALL[a1, a2, p, tp];
+let { a in LOAD_AREAS, p in PERIODS } 
+  InstallLocalTD[a, p] := 
+    max { (a, p, tp) in LOCAL_TD_NEW_PERIODS_LGN }
+      InstallLocalTD_SUB_ALL[a, p, tp];
+
+problem Dispatch_With_Reserves_and_Policy;
+include tweak_problem.run;
+if( file_exists(upper_solution_path) = 0 ) then {
+  write(upper_problem_path);
+  solve;
+} else {
+  solution(upper_solution_path);
+}
+let upper_bound[iteration] := Power_Cost;

@@ -1,0 +1,55 @@
+include load.run; 
+include lagrangian_problem.run;
+let iteration := 1;
+problem Lagrang_Subprob;
+include tweak_problem.run;
+include import_subproblem_decisions.run;
+include lagrang_upper_bound.run;
+
+
+display {i in 1.._ncons: _con[i].iis <> "non"} (_conname[i]);
+display {i in 1.._nvars: _var[i].iis <> "non"} (_varname[i]);
+
+display { b in BALANCING_AREAS, h in TIMEPOINTS: b='MX' and h=2040122416 } (
+  Spinning_Reserve_Requirement[b, h],
+  Quickstart_Reserve_Requirement[b, h],
+  quickstart_requirement_relative_to_spinning_reserve_requirement[b]
+	  * Spinning_Reserve_Requirement[b, h],
+	csp_quickstart_reserve_requirement[b] 
+	* (
+    ( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: balancing_area[a] = b and t = 'CSP_Trough_No_Storage' } 
+      eip_cap_factor[pid, a, t, h] * ep_capacity_mw[pid, a, t] )
+    + (	sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: balancing_area[a] = b and t = 'CSP_Trough_No_Storage' } (
+    Installed_To_Date[pid, a, t, p] * cap_factor[pid, a, t, h] ) )
+	)
+);
+
+display {(pid, a, t, p) in PROJECT_VINTAGES: a='MEX_BAJA' and storage[t] } InstallGen[pid, a, t, p];
+display {p in PERIODS, t in TECHNOLOGIES: intermittent[t]} sum {(pid, a, t, p) in PROJECT_VINTAGES: a='MEX_BAJA' } InstallGen[pid, a, t, p];
+display {p in PERIODS, t in TECHNOLOGIES: intermittent[t]} sum {(pid, a, t, p) in PROJECT_VINTAGES: a='MEX_BAJA' } Installed_To_Date[pid, a, t, p];
+display {p in PERIODS, t in TECHNOLOGIES: dispatchable[t]} sum {(pid, a, t, p) in PROJECT_VINTAGES: a='MEX_BAJA' } Installed_To_Date[pid, a, t, p];
+display {p in PERIODS} (sum{a in LOAD_AREAS, h in TIMEPOINTS: a='MEX_BAJA' and period[h]=p } system_load[a, h]*hours_in_sample[h]) / (sum{h in TIMEPOINTS: period[h]=p} hours_in_sample[h]);
+
+# Infeasibles:
+#Satisfy_Quickstart_Reserve_Requirement['RMPA',2039120817]
+display InstallGen[1191209491,'CO_DEN','CCGT',2035]; # 783.092
+display Installed_To_Date[1191209491,'CO_DEN','CCGT',2035];
+
+
+display Quickstart_Reserve_Requirement['RMPA',2039120817];
+display Spinning_Reserve_Requirement['RMPA',2039120817];
+
+let InstallGen[1191209491,'CO_DEN','CCGT',2035] := 785;
+
+solve;
+
+
+
+printf {(pid, a, t, p) in PROJECT_VINTAGES: balancing_area[a]='RMPA' and (dispatchable[t] or storage[t]) and InstallGen[pid, a, t, p] > 0 and p <= target_period}
+  "%d, %s, %s, %d, %.5f\n", pid, a, t, p, InstallGen[pid, a, t, p];
+printf {(pid, a, t, p) in PROJECT_VINTAGES: balancing_area[a]='RMPA' and (dispatchable[t] or storage[t]) and Installed_To_Date[pid, a, t, p] > 0 and p = target_period}
+  "%d, %s, %s, %d, %.5f\n", pid, a, t, p, Installed_To_Date[pid, a, t, p];
+
+
+display {i in 1.._ncons: _con[i].iis <> "non"} (_conname[i], _con[i].iis);
+display {i in 1.._nvars: _var[i].iis <> "non"} (_varname[i], _var[i].iis);

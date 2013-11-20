@@ -13,6 +13,8 @@ param InstallTrans_sub_tab_path symbolic :=
   results_path & "InstallTrans_" & target_period & "_" & iteration & ".tab";
 param InstallLocalTD_sub_tab_path symbolic := 
   results_path & "InstallLocalTD_" & target_period & "_" & iteration & ".tab";
+param Power_Cost_Lagrangian_sub_path symbolic := 
+  results_path & "Power_Cost_Lagrangian_" & target_period & "_" & iteration & ".txt";
 
 # Generic paths to correspond to table definitions below .. If AMPL wasn't so crappy, I would set the tables to read from the dynamic paths above. 
 param InstallGen_generic_tab_path symbolic := 
@@ -28,32 +30,17 @@ param InstallTrans_generic_tab_path symbolic :=
 param InstallLocalTD_generic_tab_path symbolic := 
   results_path & "InstallLocalTD_sub.tab";
 
-# Sets to hold data that is read in from a single sub-problem
-set PROJECT_VINTAGES_SUB dimen 5;
-set PROJ_MIN_BUILD_VINTAGES_SUB dimen 5;
-set EP_PERIODS_SUB dimen 5;
-set TRANSMISSION_LINE_VINTAGES_SUB dimen 4;
-set LOCAL_TD_VINTAGES_SUB dimen 3;
-
-# Duplicate variable values from a single subproblem from one iteration
-param InstallGen_SUB {PROJECT_VINTAGES_SUB};
-param InstallStorageEnergyCapacity_SUB {PROJECT_VINTAGES_SUB};
-param BuildGenOrNot_SUB {PROJ_MIN_BUILD_VINTAGES_SUB};
-param InstallTrans_SUB {EP_PERIODS_SUB};
-param InstallLocalTD_SUB {TRANSMISSION_LINE_VINTAGES_SUB};
-param OperateEPDuringPeriod_SUB {LOCAL_TD_VINTAGES_SUB};
-
 # Tables for reading in a specific sub-problem
 table TableInstallGen_SUB IN "results/InstallGen_sub.tab": 
-  PROJECT_VINTAGES_SUB <- [ pid, a, t, p, target_period ], InstallGen_SUB ~ InstallGen;
+  [ pid, a, t, p, target_period ], InstallGen_SUB_ALL ~ InstallGen;
 table TableInstallStorageEnergyCapacity_SUB IN "results/InstallStorageEnergyCapacity_sub.tab": 
-  PROJECT_VINTAGES_SUB <- [ pid, a, t, p, target_period ], InstallStorageEnergyCapacity_SUB ~ InstallStorageEnergyCapacity;
+  [ pid, a, t, p, target_period ], InstallStorageEnergyCapacity_SUB_ALL ~ InstallStorageEnergyCapacity;
 table TableBuildGenOrNot_SUB IN "results/BuildGenOrNot_sub.tab": 
-  PROJ_MIN_BUILD_VINTAGES_SUB <- [ pid, a, t, p, target_period ], BuildGenOrNot_SUB ~ BuildGenOrNot;
+  [ pid, a, t, p, target_period ], BuildGenOrNot_SUB_ALL ~ BuildGenOrNot;
 table TableOperateEPDuringPeriod_SUB IN "results/OperateEPDuringPeriod_sub.tab": 
-  EP_PERIODS_SUB <- [pid, a, t, p, target_period], OperateEPDuringPeriod_SUB ~ OperateEPDuringPeriod;
+  [pid, a, t, p, target_period], OperateEPDuringPeriod_SUB_ALL ~ OperateEPDuringPeriod;
 table TableInstallTrans_SUB IN "results/InstallTrans_sub.tab":
-  TRANSMISSION_LINE_VINTAGES_SUB <- [a1, a2, p, target_period], InstallTrans_SUB ~ InstallTrans;
+  [a1, a2, p, target_period], InstallTrans_SUB_ALL ~ InstallTrans;
 table TableInstallLocalTD_SUB IN "results/InstallLocalTD_sub.tab":
-  LOCAL_TD_VINTAGES_SUB <- [a, p, target_period], InstallLocalTD_SUB ~ InstallLocalTD;
+  [a, p, target_period], InstallLocalTD_SUB_ALL ~ InstallLocalTD;
 

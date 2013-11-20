@@ -1,53 +1,57 @@
 # Installed generation
 printf "ampl.tab 5 1\npid	a	t	p	target_period	InstallGen\n"
   > (InstallGen_sub_tab_path);
-printf {(pid, a, t, p) in PROJECT_VINTAGES: include_subproblem[p]} 
-  "%d	%s	%s	%d	%d	%.8f\n",
+printf {(pid, a, t, p, tp) in PROJECT_VINTAGES_LGN: target_period=tp} 
+  "%d	%s	%s	%d	%d	%.20f\n",
   pid, a, t, p, target_period, InstallGen[pid, a, t, p]
   >> (InstallGen_sub_tab_path);
 close (InstallGen_sub_tab_path);
 
 # Installed storage energy capacity
-printf "ampl.tab 4 1\npid	a	t	p	InstallStorageEnergyCapacity\n"
-  > (InstallStorageEnergyCapacity_tab_path);
-printf {(pid, a, t, p) in PROJECT_VINTAGES: include_subproblem[p] } 
-  "%d	%s	%s	%d	%d	%.8f\n",
+printf "ampl.tab 5 1\npid	a	t	p	target_period	InstallStorageEnergyCapacity\n"
+  > (InstallStorageEnergyCapacity_sub_tab_path);
+printf {(pid, a, t, p, tp) in PROJECT_VINTAGES_LGN: target_period=tp and storage[t] } 
+  "%d	%s	%s	%d	%d	%.20f\n",
   pid, a, t, p, target_period, if storage[t] then InstallStorageEnergyCapacity[pid, a, t, p] else 0
-  >> (InstallStorageEnergyCapacity_tab_path);
-close (InstallStorageEnergyCapacity_tab_path);
+  >> (InstallStorageEnergyCapacity_sub_tab_path);
+close (InstallStorageEnergyCapacity_sub_tab_path);
 
 # BuildGenOrNot: Whether to commit to building a minimum capacity of a generator
 printf "ampl.tab 5 1\npid	a	t	p	target_period	BuildGenOrNot\n"
   > (BuildGenOrNot_sub_tab_path);
-printf {(pid, a, t, p) in PROJECT_VINTAGES: min_build_capacity[t] > 0 and include_subproblem[p]} 
-  "%d	%s	%s	%d	%d	%.8f\n",
+printf {(pid, a, t, p, tp) in PROJECT_VINTAGES_LGN: target_period=tp and min_build_capacity[t] > 0 } 
+  "%d	%s	%s	%d	%d	%.20f\n",
   pid, a, t, p, target_period, BuildGenOrNot[pid, a, t, p]
   >> (BuildGenOrNot_sub_tab_path);
 close (BuildGenOrNot_sub_tab_path);
 
-# OperateEPDuringPeriod: Whether to operate existing plants in each future period
-printf "ampl.tab 5 1\npid	a	t	p	target_period	OperateEPDuringPeriod\n"
-  > (OperateEPDuringPeriod_tab_path);
-printf {(pid, a, t, p) in EP_PERIODS: not intermittent[t] and not hydro[t] and include_subproblem[p]} 
-  "%d	%s	%s	%d	%d	%.8f\n",
-  pid, a, t, p, target_period, OperateEPDuringPeriod[pid, a, t, p]
-  >> (OperateEPDuringPeriod_tab_path);
-close (OperateEPDuringPeriod_tab_path);
-
 # Installed Transmission
 printf "ampl.tab 4 1\na1	a2	p	target_period	InstallTrans\n"
-  > (InstallTrans_tab_path);
-printf { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS: include_subproblem[p] } 
-  "%s	%s	%d	%d	%.8f\n",
+  > (InstallTrans_sub_tab_path);
+printf { (a1, a2, p, tp) in TRANSMISSION_LINE_NEW_PERIODS_LGN: target_period=tp } 
+  "%s	%s	%d	%d	%.20f\n",
   a1, a2, p, target_period, InstallTrans[a1, a2, p]
-  >> (InstallTrans_tab_path);
-close (InstallTrans_tab_path);
+  >> (InstallTrans_sub_tab_path);
+close (InstallTrans_sub_tab_path);
 
 # Installed Local T & D
-printf "ampl.tab 3 1\na	p	target_period	install_local_td\n"
-  > (install_local_td_tab_path);
-printf {a in LOAD_AREAS, p in PERIODS: include_subproblem[p]} 
-  "%s	%d	%d	%.2f\n",
-  a, p, target_period, install_local_td[a, p]
-  >> (install_local_td_tab_path);
-close (install_local_td_tab_path);
+printf "ampl.tab 3 1\na	p	target_period	InstallLocalTD\n"
+  > (InstallLocalTD_sub_tab_path);
+printf { (a, p, tp) in LOCAL_TD_NEW_PERIODS_LGN: target_period=tp } 
+  "%s	%d	%d	%.20f\n",
+  a, p, target_period, InstallLocalTD[a, p]
+  >> (InstallLocalTD_sub_tab_path);
+close (InstallLocalTD_sub_tab_path);
+
+# OperateEPDuringPeriod: Whether to operate existing plants in each future period
+printf "ampl.tab 5 1\npid	a	t	p	target_period	OperateEPDuringPeriod\n"
+  > (OperateEPDuringPeriod_sub_tab_path);
+printf {(pid, a, t, p, tp) in EP_PERIODS_LGN: target_period=tp and not intermittent[t] and not hydro[t] } 
+  "%d	%s	%s	%d	%d	%.20f\n",
+  pid, a, t, p, target_period, OperateEPDuringPeriod[pid, a, t, p]
+  >> (OperateEPDuringPeriod_sub_tab_path);
+close (OperateEPDuringPeriod_sub_tab_path);
+
+# Objective function value
+print Power_Cost_Lagrangian > (Power_Cost_Lagrangian_sub_path);
+close (Power_Cost_Lagrangian_sub_path);

@@ -1,66 +1,40 @@
-# Initialize the average variable values to 0. 
-# We'll use them to sum the sub-problem values, then will divide at the end to get the averages. 
-let { (pid, a, t, p) in PROJECT_VINTAGES } 
-  InstallGen_LGN_AVG[pid, a, t, p] := 0;
-let { (pid, a, t, p) in PROJECT_VINTAGES: storage[t] } 
-  InstallStorageEnergyCapacity_LGN_AVG[pid, a, t, p] := 0;
-let { (pid, a, t, p) in PROJECT_VINTAGES: min_build_capacity[t] > 0 } 
-  BuildGenOrNot_LGN_AVG[pid, a, t, p] := 0;
-let { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS } 
-  InstallTrans_LGN_AVG[a1, a2, p] := 0;
-let { a in LOAD_AREAS, p in PERIODS } 
-  InstallLocalTD_LGN_AVG[a, p] := 0;
-let { (pid, a, t, p) in EP_PERIODS: not intermittent[t] and not hydro[t] } 
-  OperateEPDuringPeriod_LGN_AVG[pid, a, t, p] := 0;
+# Read in values for each sub-problem
+for {tp in PERIODS} {
+  let target_period := tp;
 
-
-# Read in values for each sub-problem and add them up
-for {target_period in PERIODS} {
+  # Read the subproblem's objective value
+  read sub_prob_objective_values[iteration, target_period] < (Power_Cost_Lagrangian_sub_path);
+  close;
 
   # Make links to results from one subproblem so AMPL's stupid table reader can find the input data.
-  shell( "ln -sf " & InstallGen_sub_tab_path & " " & InstallGen_generic_tab_path );
-  shell( "ln -sf " & InstallStorageEnergyCapacity_sub_tab_path & " " & InstallStorageEnergyCapacity_generic_tab_path );
-  shell( "ln -sf " & BuildGenOrNot_sub_tab_path & " " & BuildGenOrNot_generic_tab_path );
-  shell( "ln -sf " & OperateEPDuringPeriod_sub_tab_path & " " & OperateEPDuringPeriod_generic_tab_path );
-  shell( "ln -sf " & InstallTrans_sub_tab_path & " " & InstallTrans_generic_tab_path );
-  shell( "ln -sf " & InstallLocalTD_sub_tab_path & " " & InstallLocalTD_generic_tab_path );
+  shell( "ln -sf " 
+    & sub(InstallGen_sub_tab_path, results_path, '') & " " 
+    & InstallGen_generic_tab_path );
+  shell( "ln -sf " 
+    & sub(InstallStorageEnergyCapacity_sub_tab_path, results_path, '') & " " 
+    & InstallStorageEnergyCapacity_generic_tab_path );
+  shell( "ln -sf " 
+    & sub(BuildGenOrNot_sub_tab_path, results_path, '') & " " 
+    & BuildGenOrNot_generic_tab_path );
+  shell( "ln -sf " 
+    & sub(OperateEPDuringPeriod_sub_tab_path, results_path, '') & " " 
+    & OperateEPDuringPeriod_generic_tab_path );
+  shell( "ln -sf " 
+    & sub(InstallTrans_sub_tab_path, results_path, '') & " " 
+    & InstallTrans_generic_tab_path );
+  shell( "ln -sf " 
+    & sub(InstallLocalTD_sub_tab_path, results_path, '') & " " 
+    & InstallLocalTD_generic_tab_path );
 
   # Read in data from one sub-problem
   read table TableInstallGen_SUB;
   read table TableInstallStorageEnergyCapacity_SUB;
   read table TableBuildGenOrNot_SUB;
-  read table TableOperateEPDuringPeriod_SUB;
   read table TableInstallTrans_SUB;
   read table TableInstallLocalTD_SUB;
-  
-  # Add the values to the summation
-  let { (pid, a, t, p) in PROJECT_VINTAGES } 
-    InstallGen_LGN_AVG[pid, a, t, p] := InstallGen_LGN_AVG[pid, a, t, p] + InstallGen_SUB[ pid, a, t, p, target_period ];
-  let { (pid, a, t, p) in PROJECT_VINTAGES: storage[t] } 
-    InstallStorageEnergyCapacity_LGN_AVG[pid, a, t, p] := InstallStorageEnergyCapacity_LGN_AVG[pid, a, t, p] + InstallStorageEnergyCapacity_SUB[pid, a, t, p, target_period];
-  let { (pid, a, t, p) in PROJECT_VINTAGES: min_build_capacity[t] > 0 } 
-    BuildGenOrNot_LGN_AVG[pid, a, t, p] := BuildGenOrNot_LGN_AVG[pid, a, t, p] + BuildGenOrNot_SUB[pid, a, t, p, target_period];
-  let { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS } 
-    InstallTrans_LGN_AVG[a1, a2, p] := InstallTrans_LGN_AVG[a1, a2, p] + InstallTrans_SUB[a1, a2, p, target_period];
-  let { a in LOAD_AREAS, p in PERIODS } 
-    InstallLocalTD_LGN_AVG[a, p] := InstallLocalTD_LGN_AVG[a, p] + InstallLocalTD_SUB[a, p, target_period];
-  let { (pid, a, t, p) in EP_PERIODS: not intermittent[t] and not hydro[t] } 
-    OperateEPDuringPeriod_LGN_AVG[pid, a, t, p] := OperateEPDuringPeriod_LGN_AVG[pid, a, t, p] + OperateEPDuringPeriod_SUB[pid, a, t, p, target_period];
-  
-  # Store the values to later calculate the gap and associated penalty. 
-  let { (pid, a, t, p) in PROJECT_VINTAGES } 
-    InstallGen_SUB_ALL[ pid, a, t, p, target_period ] := InstallGen_SUB[ pid, a, t, p, target_period ];
-  let { (pid, a, t, p) in PROJECT_VINTAGES: storage[t] } 
-    InstallStorageEnergyCapacity_SUB_ALL[pid, a, t, p, target_period] := InstallStorageEnergyCapacity_SUB[pid, a, t, p, target_period];
-  let { (pid, a, t, p) in PROJECT_VINTAGES: min_build_capacity[t] > 0 } 
-    BuildGenOrNot_SUB_ALL[pid, a, t, p, target_period] := BuildGenOrNot_SUB[pid, a, t, p, target_period];
-  let { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS } 
-    InstallTrans_SUB_ALL[a1, a2, p, target_period] := InstallTrans_SUB[a1, a2, p, target_period];
-  let { a in LOAD_AREAS, p in PERIODS } 
-    InstallLocalTD_SUB_ALL[a, p, target_period] := InstallLocalTD_SUB[a, p, target_period];
-  let { (pid, a, t, p) in EP_PERIODS: not intermittent[t] and not hydro[t] } 
-    OperateEPDuringPeriod_SUB_ALL[pid, a, t, p, target_period] := OperateEPDuringPeriod_SUB[pid, a, t, p, target_period];
-  
+  read table TableOperateEPDuringPeriod_SUB;
+  close;
+ 
   # Remove the links
   shell( "rm -f " & InstallGen_generic_tab_path );
   shell( "rm -f " & InstallStorageEnergyCapacity_generic_tab_path );
@@ -68,18 +42,37 @@ for {target_period in PERIODS} {
   shell( "rm -f " & OperateEPDuringPeriod_generic_tab_path );
   shell( "rm -f " & InstallTrans_generic_tab_path );
   shell( "rm -f " & InstallLocalTD_generic_tab_path );
+  
 }
 
 # Divide to get the average..
-let { (pid, a, t, p) in PROJECT_VINTAGES } 
-  InstallGen_LGN_AVG[pid, a, t, p] := InstallGen_LGN_AVG[pid, a, t, p] / num_subproblems;
-let { (pid, a, t, p) in PROJECT_VINTAGES: storage[t] } 
-  InstallStorageEnergyCapacity_LGN_AVG[pid, a, t, p] := InstallStorageEnergyCapacity_LGN_AVG[pid, a, t, p] / num_subproblems;
-let { (pid, a, t, p) in PROJECT_VINTAGES: min_build_capacity[t] > 0 } 
-  BuildGenOrNot_LGN_AVG[pid, a, t, p] := BuildGenOrNot_LGN_AVG[pid, a, t, p] / num_subproblems;
-let { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS } 
-  InstallTrans_LGN_AVG[a1, a2, p] := InstallTrans_LGN_AVG[a1, a2, p] / num_subproblems;
-let { a in LOAD_AREAS, p in PERIODS } 
-  InstallLocalTD_LGN_AVG[a, p] := InstallLocalTD_LGN_AVG[a, p] / num_subproblems;
-let { (pid, a, t, p) in EP_PERIODS: not intermittent[t] and not hydro[t] } 
-  OperateEPDuringPeriod_LGN_AVG[pid, a, t, p] := OperateEPDuringPeriod_LGN_AVG[pid, a, t, p] / num_subproblems;
+let { (pid, a, t, p) in PROJECT_VINTAGES: include_subproblem[p] } 
+  InstallGen_LGN_AVG[pid, a, t, p] := 
+    ( sum { (pid, a, t, p, tp) in PROJECT_VINTAGES_LGN }
+      InstallGen_SUB_ALL[ pid, a, t, p, tp ] 
+    ) / num_subproblems;
+let { (pid, a, t, p) in PROJECT_VINTAGES: storage[t] and include_subproblem[p]} 
+  InstallStorageEnergyCapacity_LGN_AVG[pid, a, t, p] := 
+    ( sum { (pid, a, t, p, tp) in PROJECT_VINTAGES_LGN }
+      InstallStorageEnergyCapacity_SUB_ALL[ pid, a, t, p, tp ] 
+    ) / num_subproblems;
+let { (pid, a, t, p) in PROJECT_VINTAGES: min_build_capacity[t] > 0 and include_subproblem[p] } 
+  BuildGenOrNot_LGN_AVG[pid, a, t, p] := 
+    ( sum { (pid, a, t, p, tp) in PROJECT_VINTAGES_LGN }
+      BuildGenOrNot_SUB_ALL[ pid, a, t, p, tp ] 
+    ) / num_subproblems;
+let { (pid, a, t, p) in EP_PERIODS: not intermittent[t] and not hydro[t] and include_subproblem[p]} 
+  OperateEPDuringPeriod_LGN_AVG[pid, a, t, p] := 
+    ( sum { (pid, a, t, p, tp) in EP_PERIODS_LGN }
+      OperateEPDuringPeriod_SUB_ALL[ pid, a, t, p, tp ] 
+    ) / num_subproblems;
+let { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS: include_subproblem[p] } 
+  InstallTrans_LGN_AVG[a1, a2, p] := 
+    ( sum { (a1, a2, p, tp) in TRANSMISSION_LINE_NEW_PERIODS_LGN }
+      InstallTrans_SUB_ALL[ a1, a2, p, tp ] 
+    ) / num_subproblems;
+let { a in LOAD_AREAS, p in PERIODS: include_subproblem[p] } 
+  InstallLocalTD_LGN_AVG[a, p] := 
+    ( sum { (a, p, tp) in LOCAL_TD_NEW_PERIODS_LGN }
+      InstallLocalTD_SUB_ALL[ a, p, tp ] 
+    ) / num_subproblems;
