@@ -1218,14 +1218,18 @@ var Quickstart_Reserve_Requirement { b in BALANCING_AREAS, h in TIMEPOINTS } = q
 	* Spinning_Reserve_Requirement[b, h]
 	# CSP trough with no storage contributes only to the quickstart requirement
 	# CSP trough with storage doesn't contribute to either spinning or quickstart
+	# CSP sometimes has negative cap factors because they sometimes run heaters 
+	# at night to keep the heat transfer fluid or equipement warm. If the cap factor 
+	# is negative, treat it as contributing to quickstart reserve requirements. 
+	# This is a conservative estimate that could be revisited in more detail later. 
 	+ csp_quickstart_reserve_requirement[b] 
 	* (
 	# existing CSP with no storage
 	( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: balancing_area[a] = b and t = 'CSP_Trough_No_Storage' } 
-		eip_cap_factor[pid, a, t, h] * ep_capacity_mw[pid, a, t] )
+		abs(eip_cap_factor[pid, a, t, h]) * ep_capacity_mw[pid, a, t] )
 	# new CSP with no storage
 	+ (	sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: balancing_area[a] = b and t = 'CSP_Trough_No_Storage' } (
-	Installed_To_Date[pid, a, t, p] * cap_factor[pid, a, t, h] ) )
+	Installed_To_Date[pid, a, t, p] * abs(cap_factor[pid, a, t, h]) ) )
 	);
 
 # Spinning reserve and quickstart capacity can be provided by dispatchable generators, hydro, and storage
