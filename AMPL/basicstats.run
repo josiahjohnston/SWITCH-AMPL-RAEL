@@ -521,12 +521,12 @@ let {p in PERIODS} Power_Cost_Per_Period[p] :=
 	    Startup_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h]
 	  )
 	# Add capital and fixed O+M costs for biomass cofiring
-	 + sum { (pid, a, t, turbine_online_year, p) in AVAILABLE_COFIRE_VINTAGES} (
-    	InstallCofire[pid, a, t, turbine_online_year, p] 
+	 + sum { (pid, a, t, turbine_online_year, cofire_online_year) in AVAILABLE_COFIRE_VINTAGES} (
+    	InstallCofire[pid, a, t, turbine_online_year, cofire_online_year] 
 # This line is from the objective function and yields NPV of future costs. We need to pick 
 # cousins of these variables that yield costs in future dollars. 
 #    	* ( capital_cost_cofire[pid, a, t, turbine_online_year, p] +  fixed_o_m_cofire_discounted[pid, a, t, p] ) 
-    	* ( capital_cost_annual_payment_cofire[pid, a, t, turbine_online_year, p] +  fixed_o_m_cofire_per_period[pid, a, t, p] ) 
+    	* ( capital_cost_annual_payment_cofire[pid, a, t, turbine_online_year, cofire_online_year] +  fixed_o_m_cofire_per_period[t] ) 
       )
 	# Variable and Carbon costs from CCS biomass cofiring (operation and deep cycling)
 	+ ( sum { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] and can_cofire_biomass[t]}
@@ -551,7 +551,7 @@ let {p in PERIODS} Power_Cost_Per_Period[p] :=
             else 0
           )
           + variable_o_m_cofire[t] * economic_multiplier[a] 
-        ) * ( hours_in_sample[h] / num_years_per_period )
+        ) * 8766 # Multiply hourly costs of a baseload plant by avg hours per year to get annual costs
       )
   	)
 	+ ( sum { (pid, a, t, p, h) in AVAILABLE_HOURS: ccs[t] and flexible_baseload[t] and can_cofire_biomass[t]}
@@ -561,7 +561,7 @@ let {p in PERIODS} Power_Cost_Per_Period[p] :=
           then 
             heat_rate_cofire[t] * carbon_content_bio_ccs * carbon_cost_by_period[p]
           else 0
-  		  )
+  		  ) * ( hours_in_sample[h] / num_years_per_period )
   		)
 	  )
 	)

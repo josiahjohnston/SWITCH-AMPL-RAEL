@@ -42,9 +42,9 @@ let {p in PERIODS} bio_lcoe[p] :=
 # This line is from the objective function and yields NPV of future costs. We need to pick 
 # cousins of these variables that yield costs in future dollars. 
 #    	* ( capital_cost_cofire[pid, a, t, turbine_online_year, p] +  fixed_o_m_cofire_discounted[pid, a, t, p] ) 
-    	* ( capital_cost_annual_payment_cofire[pid, a, t, turbine_online_year, p] +  fixed_o_m_cofire_per_period[pid, a, t, p] ) 
+    	* ( capital_cost_annual_payment_cofire[pid, a, t, turbine_online_year, p] +  fixed_o_m_cofire_per_period[t] ) 
       )
-	# Variable and Carbon costs from CCS biomass cofiring (operation and deep cycling)
+	# Variable and Carbon costs from biomass cofiring for flexible baseload
 	+ ( sum { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] and can_cofire_biomass[t]}
 		  DispatchFlexibleBaseloadCofire[pid, a, t, p, date[h]] *
 		  ( 
@@ -57,6 +57,20 @@ let {p in PERIODS} bio_lcoe[p] :=
 		  + variable_o_m_cofire[t] * economic_multiplier[a] 
 	  	) * ( hours_in_sample[h] / num_years_per_period )
 	  )
+	# Reduction in carbon income from biomass cofiring for flexible baseload when operated in deep-cycling mode
+	# .. This doesn't matter for any current runs, because we've been running scenarios with carbon
+	# caps, not carbon costs...
+	+ ( sum { (pid, a, t, p, h) in AVAILABLE_HOURS: ccs[t] and flexible_baseload[t] and can_cofire_biomass[t]}
+	   	(Deep_Cycle_Cofire_Amount[pid, a, t, p, date[h]] * deep_cycling_penalty[t] * 
+		    ( # This is the future cost in one year corresponding to carbon_cost_per_mwh_hourly_cofire
+          if ccs[t] 
+          then 
+            heat_rate_cofire[t] * carbon_content_bio_ccs * carbon_cost_by_period[p]
+          else 0
+  		  ) * ( hours_in_sample[h] / num_years_per_period )
+  		)
+	  )
+	# Variable and Carbon costs from biomass cofiring for baseload
 	+ ( sum { (pid, a, t, turbine_online_year, p) in AVAILABLE_COFIRE_VINTAGES: baseload[t]} 
   		( InstallCofire[pid, a, t, turbine_online_year, p] * gen_availability[t] * 
         ( 
@@ -67,19 +81,9 @@ let {p in PERIODS} bio_lcoe[p] :=
             else 0
           )
           + variable_o_m_cofire[t] * economic_multiplier[a] 
-        ) * ( hours_in_sample[h] / num_years_per_period )
+        ) * 8766 # Multiply hourly costs of a baseload plant by avg hours per year to get annual costs
       )
   	)
-	+ ( sum { (pid, a, t, p, h) in AVAILABLE_HOURS: ccs[t] and flexible_baseload[t] and can_cofire_biomass[t]}
-	   	(Deep_Cycle_Cofire_Amount[pid, a, t, p, date[h]] * deep_cycling_penalty[t] * 
-		    ( # This is the future cost in one year corresponding to carbon_cost_per_mwh_hourly_cofire
-          if ccs[t] 
-          then 
-            heat_rate_cofire[t] * carbon_content_bio_ccs * carbon_cost_by_period[p]
-          else 0
-  		  )
-  		)
-	  )
 ) / ( 
   sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: fuel[t] in BIO_SOLID_FUELS } 
     Power_Produced[pid, a, t, p, h] * hours_in_sample[h]
