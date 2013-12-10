@@ -833,19 +833,15 @@ param capital_cost {(pid, a, t, online_yr) in PROJECT_VINTAGES} =
   	capital_cost_annual_payment[pid, a, t, online_yr] * discount_to_base_year[p];
 
 # Create separate capital_cost parameter for cofiring (defined as constant by B+V each year)
-param capital_cost_cofire {(pid, a, t, turbine_online_year, p) in AVAILABLE_COFIRE_VINTAGES} = 
-  sum { p_extra in PERIODS: 
-          p_extra = p and 
-          turbine_online_year <= p_extra and 
-          p_extra < (if can_build_new[t] 
-                     then project_end_year[pid, a, t, turbine_online_year] 
-                     else ep_end_year[pid, a, t] ) 
-      }
-    capital_cost_annual_payment_cofire[pid, a, t, turbine_online_year, p] * discount_to_base_year[p];
+param capital_cost_cofire {(pid, a, t, turbine_online_year, cofire_online_year) in AVAILABLE_COFIRE_VINTAGES} = 
+  sum { (pid, a, t, turbine_online_year, cofire_online_year, cofire_operating_period) in COFIRE_VINTAGE_INSTALLED_PERIODS }
+    capital_cost_annual_payment_cofire[pid, a, t, turbine_online_year, cofire_online_year] * discount_to_base_year[cofire_operating_period];
+
 
 # Also, create separate fixed_o_m_discounted parameter for cofiring (defined as constant by B+V each year)
 # No variable O+M for cofiring (per B+V)
 param fixed_o_m_cofire_discounted { (pid, a, t, online_yr) in AVAILABLE_VINTAGES: can_cofire_biomass[t] } = 
+# This sum could equivalently use the set COFIRE_VINTAGE_INSTALLED_PERIODS
   sum {p in PERIODS: online_yr <= p and
          p < (if can_build_new[t] 
               then project_end_year[pid, a, t, online_yr] 
@@ -1488,6 +1484,7 @@ minimize Power_Cost:
     + ( sum { (pid, a, t, p) in PROJECT_VINTAGES: intermittent[t] or (baseload[t] and not can_cofire_biomass[t])} 
         InstallGen[pid, a, t, p] * variable_cost[pid, a, t, p] )
     # Variable costs for (new ) baseload coal plants with cofiring
+    # Bug: Coal_Portion_Baseload_Cofire should be derated by gen_availability in the sum below. 
     + ( sum { (pid, a, t, p) in AVAILABLE_VINTAGES: baseload[t] and can_cofire_biomass[t] and can_build_new[t] } 
         Coal_Portion_Baseload_Cofire[pid, a, t, p] * variable_cost[pid, a, t, p])
 	# BioSolid fuel costs - ConsumeBioSolid is the MMbtu of biomass consumed per period per load area

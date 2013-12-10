@@ -1,0 +1,147 @@
+# SYNOPSIS
+#   include load.run; solution(solution_path); include basicstats.run; include bio_lcoe.run; 
+#param bio_lcoe {p in PERIODS};
+#param bio_emissions_ton_per_mwh {p in PERIODS};
+#param non_bio_lcoe {p in PERIODS};
+
+# bio_lcoe: Levelized cost of all biomass electricity generated across WECC
+# I initially made this by copying and pasting the calculation of Power_Cost_Per_Period in basicstats.run
+# I was looking through the objective function to double-check that I was appropriately considering 
+# cofiring costs, and those look like they were left out of the calculation of power costs by period
+#  in basicstats. Woops!!!
+# I also noticed that the power calculation in basic stats uses a simplified conversion of 
+# annual costs to period-wide costs. Instead of scaling annual costs up to period, it should scale 
+# period-wide energy produced down to annual. 
+let {p in PERIODS} bio_lcoe[p] := 
+( # These sums were copied and pasted from basic stats, then edited to limit fuels to biosolids. 
+  sum { (pid, a, t, p) in PROJECT_VINTAGES: fuel[t] in BIO_SOLID_FUELS } (
+    Capital_Payments_by_Plant_and_Period[pid, a, t, p] +
+    Fixed_OM_by_Plant_and_Period[pid, a, t, p]
+  ) +
+  sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: fuel[t] in BIO_SOLID_FUELS } (
+    Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] +
+    Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] +
+    Variable_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h]
+  ) +
+  sum { (pid, a, t, p) in EP_PERIODS: fuel[t] in BIO_SOLID_FUELS } (
+    EP_Capital_Payments_by_Plant_and_Period[pid, a, t, p] +
+    EP_Fixed_OM_by_Plant_and_Period[pid, a, t, p]
+  ) + 
+  sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: fuel[t] in BIO_SOLID_FUELS } (
+    EP_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] +
+    EP_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] +
+    EP_Variable_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h]
+  ) 
+
+  # These next sums are also from basicstats. They reflect portions of costs that aren't added into 
+  # standard summary variables. 
+
+	# Add capital and fixed O+M costs for biomass cofiring
+	 + sum { (pid, a, t, turbine_online_year, p) in AVAILABLE_COFIRE_VINTAGES} (
+    	InstallCofire[pid, a, t, turbine_online_year, p] 
+# This line is from the objective function and yields NPV of future costs. We need to pick 
+# cousins of these variables that yield costs in future dollars. 
+#    	* ( capital_cost_cofire[pid, a, t, turbine_online_year, p] +  fixed_o_m_cofire_discounted[pid, a, t, p] ) 
+    	* ( capital_cost_annual_payment_cofire[pid, a, t, turbine_online_year, p] +  fixed_o_m_cofire_per_period[pid, a, t, p] ) 
+      )
+	# Variable and Carbon costs from CCS biomass cofiring (operation and deep cycling)
+	+ ( sum { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] and can_cofire_biomass[t]}
+		  DispatchFlexibleBaseloadCofire[pid, a, t, p, date[h]] *
+		  ( 
+		    ( # This is the future cost in one year corresponding to carbon_cost_per_mwh_hourly_cofire
+          if ccs[t] 
+          then 
+            heat_rate_cofire[t] * carbon_content_bio_ccs * carbon_cost_by_period[p]
+          else 0
+  		  )
+		  + variable_o_m_cofire[t] * economic_multiplier[a] 
+	  	) * ( hours_in_sample[h] / num_years_per_period )
+	  )
+	+ ( sum { (pid, a, t, turbine_online_year, p) in AVAILABLE_COFIRE_VINTAGES: baseload[t]} 
+  		( InstallCofire[pid, a, t, turbine_online_year, p] * gen_availability[t] * 
+        ( 
+          ( # This is the future cost in one year corresponding to carbon_cost_per_mwh_hourly_cofire
+            if ccs[t] 
+            then 
+              heat_rate_cofire[t] * carbon_content_bio_ccs * carbon_cost_by_period[p]
+            else 0
+          )
+          + variable_o_m_cofire[t] * economic_multiplier[a] 
+        ) * ( hours_in_sample[h] / num_years_per_period )
+      )
+  	)
+	+ ( sum { (pid, a, t, p, h) in AVAILABLE_HOURS: ccs[t] and flexible_baseload[t] and can_cofire_biomass[t]}
+	   	(Deep_Cycle_Cofire_Amount[pid, a, t, p, date[h]] * deep_cycling_penalty[t] * 
+		    ( # This is the future cost in one year corresponding to carbon_cost_per_mwh_hourly_cofire
+          if ccs[t] 
+          then 
+            heat_rate_cofire[t] * carbon_content_bio_ccs * carbon_cost_by_period[p]
+          else 0
+  		  )
+  		)
+	  )
+) / ( 
+  sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: fuel[t] in BIO_SOLID_FUELS } 
+    Power_Produced[pid, a, t, p, h] * hours_in_sample[h]
++ sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: fuel[t] in BIO_SOLID_FUELS } 
+    ProducePowerEP[pid, a, t, p, h] * hours_in_sample[h]
++ 0.001 # To prevent 0-value denominators from creating pesky divide-by-zero errors. 
+) 
+;
+
+let {p in PERIODS} bio_emissions_ton_per_mwh[p]:= 
+( 
+  sum { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: fuel[t] in BIO_SOLID_FUELS } (
+    Carbon_Emissions[pid, a, t, p, h] * hours_in_sample[h] 
+  ) +
+  sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: fuel[t] in BIO_SOLID_FUELS } (
+    EP_Carbon_Emissions[pid, a, t, p, h] * hours_in_sample[h] 
+  )
+) / ( 
+  sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: fuel[t] in BIO_SOLID_FUELS} 
+    Power_Produced[pid, a, t, p, h] * hours_in_sample[h]
++ sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: fuel[t] in BIO_SOLID_FUELS } 
+    ProducePowerEP[pid, a, t, p, h] * hours_in_sample[h]
++ 0.001 # To prevent 0-value denominators from creating pesky divide-by-zero errors. 
+) ;
+
+# Non-bio electricity LCOE, generation only; no T&D or spinning reserves
+let {p in PERIODS} non_bio_lcoe[p] := 
+( 
+  sum { (pid, a, t, p) in PROJECT_VINTAGES: t <> 'Battery_Storage' and fuel[t] not in BIO_SOLID_FUELS } (
+    Capital_Payments_by_Plant_and_Period[pid, a, t, p] +
+    Fixed_OM_by_Plant_and_Period[pid, a, t, p]
+  ) +
+  sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' and fuel[t] not in BIO_SOLID_FUELS} (
+    Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] +
+    Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] +
+    Variable_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h]
+  ) +
+  sum { (pid, a, t, p) in EP_PERIODS: t <> 'Battery_Storage' and fuel[t] not in BIO_SOLID_FUELS } (
+    EP_Capital_Payments_by_Plant_and_Period[pid, a, t, p] +
+    EP_Fixed_OM_by_Plant_and_Period[pid, a, t, p]
+  ) + 
+  sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: t <> 'Battery_Storage' and fuel[t] not in BIO_SOLID_FUELS } (
+    EP_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] +
+    EP_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] +
+    EP_Variable_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h]
+  ) 
+) / ( 
+  sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' and fuel[t] not in BIO_SOLID_FUELS}
+    Power_Produced[pid, a, t, p, h] * hours_in_sample[h]
++ sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: t <> 'Battery_Storage' and fuel[t] not in BIO_SOLID_FUELS } 
+    ProducePowerEP[pid, a, t, p, h] * hours_in_sample[h]
++ 0.001 # To prevent 0-value denominators from creating pesky divide-by-zero errors. 
+);
+
+printf "Biomass LCOE by period & tech\n";
+printf "%6s\t%13s\t%13s\t%20s\t%20s\t%13s\t%13s\n", 
+  "Period", "Biomass LCOE", "Non-bio LCOE", 
+  "Bio elec-adj abate cost $/ton", "Bio Pure Abate cost $/ton", "Carb cost $/ton", "% bio cons.";
+printf {p in PERIODS: bio_emissions_ton_per_mwh[p] <> 0} 
+  "%6d\t$%12.2f\t$%12.2f\t$%-20.2f\t$%-20.2f\t$%-12.2f\t%4.3f%%\n", p, bio_lcoe[p], non_bio_lcoe[p], 
+  (bio_lcoe[p] - non_bio_lcoe[p]) / (-1 * bio_emissions_ton_per_mwh[p]),
+  bio_lcoe[p] / (-1 * bio_emissions_ton_per_mwh[p]), 
+  -1*Carbon_Cap[p].dual / discount_to_base_year[p] * num_years_per_period,
+  100 * (sum {a in LOAD_AREAS} ConsumeBioSolid[a, p]) / (sum {a in LOAD_AREAS} biomass_breakpoint_mmbtu_per_period[a, p, num_bio_breakpoints[a, p]-1] )
+  ;
