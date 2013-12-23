@@ -88,7 +88,7 @@ let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS }
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: t <> 'Compressed_Air_Energy_Storage' }
   Variable_Cost_Incurred_Hourly[pid, a, t, p, h] := Power_Produced[pid, a, t, p, h] * variable_o_m[t];
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: t = 'Compressed_Air_Energy_Storage' }
-  Variable_Cost_Incurred_Hourly[pid, a, t, p, h] := Power_Produced[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) * variable_o_m[t];
+  Variable_Cost_Incurred_Hourly[pid, a, t, p, h] := ( DispatchGen[pid, a, t, p, h] + StoreEnergy[pid, a, t, p, h] * storage_efficiency[t] ) * variable_o_m[t];
 
 let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }
   EP_Carbon_Emissions[pid, a, t, p, h] := ProducePowerEP[pid, a, t, p, h] * ep_heat_rate[pid, a, t] * carbon_content[fuel[t]];
@@ -121,7 +121,7 @@ let { (pid, a, t, p, h) in AVAILABLE_HOURS: storage[t] and not can_build_new[t]}
 		Pumped_Hydro_Storage_Released[pid, a, t, p, h] - Pumped_Hydro_Storage_Stored[pid, a, t, p, h];
 let { (pid, a, t, p, h) in AVAILABLE_HOURS: storage[t] and can_build_new[t] and t <> 'Compressed_Air_Energy_Storage' }
   Storage_Variable_Cost_Incurred_Hourly[pid, a, t, p, h] := 
-    ReleaseEnergy[pid, a, t, p, h] * variable_o_m[t];
+    StoreEnergy[pid, a, t, p, h] * storage_efficiency[t] * variable_o_m[t];
 let { (pid, a, t, p, h) in AVAILABLE_HOURS: storage[t] and not can_build_new[t] }
   Storage_Variable_Cost_Incurred_Hourly[pid, a, t, p, h] := 
     Pumped_Hydro_Storage_Released[pid, a, t, p, h] * ep_variable_o_m[pid, a, t];

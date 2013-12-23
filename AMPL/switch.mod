@@ -1338,13 +1338,17 @@ minimize Power_Cost:
 	# Variable costs for new flexible baseload projects
 	+ ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: flexible_baseload[t] } 
 		DispatchFlexibleBaseload[pid, a, t, p, date[h]] * ( variable_o_m_cost_hourly[pid, a, t, p, h] + carbon_cost_per_mwh_hourly[pid, a, t, p, h] + fuel_cost_hourly[pid, a, t, p, h] ) )
-	# Variable costs for storage projects: currently attributed to the dispatch side of storage
-	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] and t <> 'Compressed_Air_Energy_Storage' } 
-		ReleaseEnergy[pid, a, t, p, h] * variable_o_m_cost_hourly[pid, a, t, p, h])
+	# Variable costs for storage projects: attributed to the storing side of storage to prevent inefficient storage dispatch (and losses) as a way of spilling energy
+	# Since the variable cost is per MWh-provided, multiply by the storage_efficiency
+	# For CAES, also add the variable cost incurred by the combustion turbine
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] } ( 
+		StoreEnergy[pid, a, t, p, h] * storage_efficiency[t] * variable_o_m_cost_hourly[pid, a, t, p, h]
+		+ ( if t = 'Compressed_Air_Energy_Storage' then ( DispatchGen[pid, a, t, p, h] * variable_o_m_cost_hourly[pid, a, t, p, h] ) else 0 ) ) )
+	# Fuel and carbon cost for CAES
 	# for CAES, power output is apportioned between DispatchGen and ReleaseEnergy by caes_storage_to_ng_ratio through the constraint CAES_Combined_Dispatch
 	# the sum of DispatchGen and ReleaseEnergy simplifies to DispatchGen * ( 1 + caes_storage_to_ng_ratio )
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t = 'Compressed_Air_Energy_Storage' } 
-	  DispatchGen[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) * ( variable_o_m_cost_hourly[pid, a, t, p, h] + carbon_cost_per_mwh_hourly[pid, a, t, p, h] + fuel_cost_hourly[pid, a, t, p, h] ) )
+	  DispatchGen[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) * ( carbon_cost_per_mwh_hourly[pid, a, t, p, h] + fuel_cost_hourly[pid, a, t, p, h] ) )
 	# fuel and carbon costs for keeping spinning reserves from new dispatchable plants (oil and gas except for CAES)
 	# for natural gas plants, fuel costs for spinning reserves are handled via the NG supply curve so for NG, fuel_cost_hourly_spinning_reserve = 0; however, fuels cost are calculated here for oil plants
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t] and t <> 'Compressed_Air_Energy_Storage' } 
@@ -1383,7 +1387,7 @@ minimize Power_Cost:
 	# variable costs for releasing energy from pumped hydro storage - currently zero because the variable O&M value is zero
 	# decision variables are on the load area level - this shares them out by plant (pid) in case plants have different variable costs within a load area
 	+ ( sum {(pid, a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS_BY_PID}
-		Dispatch_Pumped_Hydro_Storage[a, t, p, h] * ( ep_capacity_mw[pid, a, t] / hydro_capacity_mw_in_load_area[a, t, p] ) * variable_o_m_cost_hourly[pid, a, t, p, h] )
+		Store_Pumped_Hydro[a, t, p, h] * storage_efficiency[t] * ( ep_capacity_mw[pid, a, t] / hydro_capacity_mw_in_load_area[a, t, p] ) * variable_o_m_cost_hourly[pid, a, t, p, h] )
 	# carbon costs for keeping spinning reserves from existing dispatchable thermal plants (fuel costs for NG generators are handled via the NG supply curve, but is included in fuel_cost_hourly_spinning_reserve for oil plants)
 	+ ( sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: dispatchable[t] }
 		Provide_Spinning_Reserve[pid, a, t, p, h] * ( fuel_cost_hourly_spinning_reserve[pid, a, t, p, h] + carbon_cost_per_mwh_hourly_spinning_reserve[pid, a, t, p, h] ) )
