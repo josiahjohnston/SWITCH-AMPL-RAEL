@@ -109,7 +109,7 @@ fi
 # Set up the .qsub files and submit job requests to the queue if this is operating on a cluster
 if [ $cluster == 1 ]; then
 
-	qsub_files="compile.qsub   optimize.qsub   export.qsub	present_day_dispatch.qsub"
+	qsub_files="compile.qsub   optimize.qsub   export.qsub	transmission_optimization.qsub	present_day_dispatch.qsub"
 	# Process parameter values
 	working_directory=$(pwd)
 	# If the email wasn't specified, try to guess who gets the email notifications
@@ -185,12 +185,14 @@ if [ $cluster == 1 ]; then
 	compile_jobid=$(qsub compile.qsub)
 	optimize_jobid=$(qsub optimize.qsub -W depend=afterok:$compile_jobid)
 	results_jobid=$(qsub export.qsub -W depend=afterok:$optimize_jobid)
+	transopt_jobid=$(qsub transmission_optimization.qsub -W depend=afterok:$optimize_jobid)
 	present_day_dispatch_jobid=$(qsub present_day_dispatch.qsub)
 	echo "Submission successful. Job IDs are:"
-	printf "\t compile.qsub:               $compile_jobid\n"
-	printf "\t optimize.qsub:              $optimize_jobid\n"
-	printf "\t export.qsub:                $results_jobid\n"
-	printf "\t present_day_dispatch.qsub:  $present_day_dispatch_jobid\n"
+	printf "\t compile.qsub:                    $compile_jobid\n"
+	printf "\t optimize.qsub:                   $optimize_jobid\n"
+	printf "\t export.qsub:                     $results_jobid\n"
+	printf "\t transmission_optimization.qsub:  $transopt_jobid\n"
+	printf "\t present_day_dispatch.qsub:       $present_day_dispatch_jobid\n"
 	
 	exit;
 fi
@@ -270,6 +272,12 @@ fi
 log_base="logs/ampl_export_"$(date +'%m_%d_%H_%M_%S')
 printf "Exporting results from AMPL to text files. Logging results to $log_base...\n"
 echo 'include load.run; include export.run;' | ampl 1>$log_base".log"  2>$log_base".error_log" 
+
+
+# Export results with one copy of AMPL
+log_base="logs/ampl_transopt_"$(date +'%m_%d_%H_%M_%S')
+printf "Optimizing transmission. Logging results to $log_base...\n"
+echo 'include load.run; include transmission_optimization.run;' | ampl 1>$log_base".log"  2>$log_base".error_log" 
 
 
 # Execute present_day_dispatch with one copy of AMPL

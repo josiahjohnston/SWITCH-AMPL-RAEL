@@ -148,7 +148,7 @@ if [ $ExportOnly = 0 ]; then
   present_year=$(awk '{if (NR==2) print $3}' "$f")
   
   # now import all of the non-runtime results
-  for file_base_name in gen_cap trans_cap local_td_cap transmission_dispatch system_load existing_trans_cost rps_reduced_cost generator_and_storage_dispatch load_wind_solar_operating_reserve_levels consume_variables; do
+  for file_base_name in gen_cap trans_cap local_td_cap transmission_dispatch_optimized system_load existing_trans_cost rps_reduced_cost generator_and_storage_dispatch load_wind_solar_operating_reserve_levels consume_variables; do
     for file_name in $(ls $results_dir/*${file_base_name}_*txt | grep "[[:digit:]]"); do
       file_path="$(pwd)/$file_name"
       echo "    ${file_name}  ->  ${DB_name}._${file_base_name}"
@@ -183,7 +183,7 @@ if [ $ExportOnly = 0 ]; then
               (scenario_id, carbon_cost, period, area_id, @junk, new, local_td_mw, fixed_cost);\
               select count(*) from _local_td_cap where scenario_id=$SCENARIO_ID and $row_count_clause;"
           ) ;;
-        transmission_dispatch)
+        transmission_dispatch_optimized)
           db_row_count=$(
             mysql $connection_string --column-names=false -e "load data local infile \"$file_path\" \
               into table _transmission_dispatch ignore 1 lines \
@@ -249,7 +249,7 @@ if [ $ExportOnly = 0 ]; then
         printf "%20s seconds to import %s rows\n" $(($end_time - $start_time)) $file_row_count
       else
         printf " -------------\n -- ERROR! Imported %d rows, but expected %d. (%d seconds.) --\n -------------\n" $db_row_count $file_row_count $(($end_time - $start_time))
-        exit
+#        exit
       fi
     done
   done

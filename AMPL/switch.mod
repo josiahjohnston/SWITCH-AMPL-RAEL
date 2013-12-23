@@ -1416,6 +1416,12 @@ minimize Power_Cost:
 	+ ( sum {a in LOAD_AREAS, p in PERIODS} local_td_sunk_annual_payment[a] * discount_to_base_year[p] )
 ;
 
+
+# Transmission minimization
+minimize Transmission_Use:
+	sum { (a1, a2, fc, p, h) in TRANSMISSION_LINE_HOURS } hours_in_sample[h] * DispatchTrans[a1, a2, fc, p, h]; 
+
+
 ############## CONSTRAINTS ##############
 
 ###### Policy Constraints #######
