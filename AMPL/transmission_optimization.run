@@ -66,7 +66,10 @@ problem Transmission_Use_Minimization:
   	Maximum_Res_Comm_Load_That_Can_Be_Shifted_from_Hour, Maximum_Res_Comm_Load_That_Can_Be_Shifted_to_Hour,
   	Res_Comm_Demand_Response_Energy_Balance,
   	Maximum_EV_Load_That_Can_Be_Shifted_from_Hour, Maximum_EV_Load_That_Can_Be_Shifted_to_Hour,
-  	EV_Charging_Energy_Balance
+  	EV_Charging_Energy_Balance,
+  # CSP with storage constraints
+  	Max_CSP_Solar_Field_Energy, Max_CSP_Power, Max_Energy_in_CSP_Storage,
+  	CSP_Storage_Hourly_Energy_Tracking
 ;
 
 ### Fix variables ###
@@ -96,6 +99,10 @@ fix Provide_Quickstart_Capacity;
 fix Storage_Operating_Reserve;
 fix Hydro_Operating_Reserve;
 fix Pumped_Hydro_Storage_Operating_Reserve;
+fix StoreCSP;
+fix ReleaseCSP;
+fix TotalEnergyinCSPStorage;
+fix DispatchCSP;
 
 # Fix fuel consumption variables
 fix ConsumeBioSolidByTier;
@@ -118,7 +125,7 @@ fix Charge_EVs;
 
 ### Adjust cplex settings ###
 # cplex has trouble solving this problem with default options, so increase the feasibility tolerance from the default 1e-6 (acceptable values are from 1e-8 to 1e-1) and turn on numericalemphasis
-option cplex_options " feasibility=9e-6 numericalemphasis=1 threads=4 presolve=1 prestats=1 nodefile=2 baropt barobjrange=1e+30 comptol=1e-9 lpdisplay=1 bardisplay=2 timing=1 startalgorithm=4 mipdisplay=4 "
+option cplex_options " feasibility=2e-5 numericalemphasis=1 threads=4 presolve=1 prestats=1 nodefile=2 baropt barobjrange=1e+30 comptol=1e-9 lpdisplay=1 bardisplay=2 timing=1 startalgorithm=4 mipdisplay=4 "
 ;
 
 

@@ -65,6 +65,7 @@ param Total_Load_Shifted { p in PERIODS };
 param Storage_Variable_Cost_Incurred_Hourly { (pid, a, t, p, h) in AVAILABLE_HOURS: storage[t] and t <> 'Compressed_Air_Energy_Storage' };
 param Total_New_Storage_Power_Capacity_Installed_To_Date { p in PERIODS };
 param Total_New_Storage_Energy_Capacity_Installed_To_Date { p in PERIODS };
+param Total_New_CSP_Trough_6h_Storage_Capacity_Installed_To_Date { p in PERIODS };
 param EP_Variable_Cost_Incurred_Hourly { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }; 
 param Local_TD_Existing_Cost_Per_Period { a in LOAD_AREAS, p in PERIODS };
 param Local_TD_New_Cost_Per_Period { a in LOAD_AREAS, p in PERIODS };
