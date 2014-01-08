@@ -1058,12 +1058,18 @@ var Local_TD_Installed_To_Date { a in LOAD_AREAS, p in PERIODS } = sum { online_
 
 ######## GENERATOR AND STORAGE VARIABLES ########
 
-# Number of MW of power consumed in each load area in each hour for non distributed and distributed projects
+# Number of MW of power consumed and spilled in each load area in each hour for non-distributed and distributed projects
 # in terms of actual load met - distribution losses are NOT consumed
 # This is needed for RPS in cases where some excess power is spilled.
 var ConsumeNonDistributedPower {LOAD_AREAS, TIMEPOINTS} >= 0;
+var SpillNonDistributedPower {LOAD_AREAS, TIMEPOINTS} >= 0;
+var ConsumeDistributedPower {LOAD_AREAS, TIMEPOINTS} >= 0;
+var SpillDistributedPower {LOAD_AREAS, TIMEPOINTS} >= 0;
+#var RedirectDistributedPower {LOAD_AREAS, TIMEPOINTS} >= 0;
+
 # same on a reserve basis
-var ConsumeNonDistributedPower_Reserve {LOAD_AREAS, TIMEPOINTS} >= 0;
+var Contribute_to_Planning_Reserve_NonDistributed {LOAD_AREAS, TIMEPOINTS} >= 0;
+var Contribute_to_Planning_Reserve_Distributed {LOAD_AREAS, TIMEPOINTS} >= 0;
 
 # MW of Renewable Energy Certificates (RECs) to consume in each RPS area in each hour
 var ConsumeREC {r in RPS_AREAS, h in TIMEPOINTS} >= 0;
@@ -1519,21 +1525,29 @@ subject to Carbon_Cap {p in PERIODS}:
 
 # System needs to meet the load in each load area in each study hour, with all available flows of power.
 subject to Satisfy_Load {a in LOAD_AREAS, h in TIMEPOINTS}:
-	  ConsumeNonDistributedPower[a, h]
-	# distributed power production doesn't experience distribution losses and must be consumed immediately on site or spilled
-	+ ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES }
-          Installed_To_Date[pid, a, t, p] * cap_factor[pid, a, t, h] * gen_availability[t])
-	+ ( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES }
-   	      ep_capacity_mw[pid, a, t] * gen_availability[t] * eip_cap_factor[pid, a, t, h] ) 
-	>= system_load[a, h]
+	ConsumeNonDistributedPower[a, h] + ConsumeDistributedPower[a, h]
+	= system_load[a, h]
 	# power from load_response
 	+ Meet_Shifted_Load[a, h] - Shift_Res_Comm_Load[a, h] + Charge_EVs[a, h] - Shift_EV_Load[a, h];
+
+# distributed power production
+subject to Conservation_Of_Energy_Distributed {a in LOAD_AREAS, h in TIMEPOINTS}:
+  ConsumeDistributedPower[a, h] + SpillDistributedPower[a, h]
+  =
+   (
+   # distributed power production doesn't experience distribution losses and must be consumed immediately on site or spilled
+    ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES }
+          Installed_To_Date[pid, a, t, p] * cap_factor[pid, a, t, h] * gen_availability[t])
+	+ ( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES }
+   	      ep_capacity_mw[pid, a, t] * gen_availability[t] * eip_cap_factor[pid, a, t, h] )
+   	 );
+
 
 # non-distributed power production experiences distribution losses when consumed
 # but it can also be stored, transmitted, or spilled (hence the <=).
 subject to Conservation_Of_Energy_NonDistributed {a in LOAD_AREAS, h in TIMEPOINTS}:
-  ConsumeNonDistributedPower[a, h] * (1 + distribution_losses)
-  <= 
+  ConsumeNonDistributedPower[a, h] * (1 + distribution_losses) + SpillNonDistributedPower[a, h]
+  = 
   (
 	# power produced from new non-battery-storage projects  
 	  ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t] } DispatchGen[pid, a, t, p, h] )
@@ -1548,7 +1562,7 @@ subject to Conservation_Of_Energy_NonDistributed {a in LOAD_AREAS, h in TIMEPOIN
 	+ ( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: t not in SOLAR_DIST_PV_TECHNOLOGIES} ProducePowerEP[pid, a, t, p, h] )
 	# power from existing (pumped hydro) storage
  	+ ( sum { (a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS} ( Dispatch_Pumped_Hydro_Storage[a, t, p, h] - Store_Pumped_Hydro[a, t, p, h] ) )
-	# transmission in and out of each load area
+ 	# transmission in and out of each load area
 	+ ( sum { (a2, a, fc, p, h) in TRANSMISSION_LINE_HOURS } DispatchTrans[a2, a, fc, p, h] * transmission_efficiency[a2, a] )
 	- ( sum { (a, a1, fc, p, h) in TRANSMISSION_LINE_HOURS } DispatchTrans[a, a1, fc, p, h] )
   	);
@@ -1583,19 +1597,26 @@ subject to Conservation_of_REC {r in RPS_AREAS, h in TIMEPOINTS}:
 # same on a reserve basis
 # note: these are not derated by forced outage rate, because that is incorporated in the reserve margin
 subject to Satisfy_Load_Reserve {a in LOAD_AREAS, h in TIMEPOINTS}:
-	ConsumeNonDistributedPower_Reserve[a,h] + 
-	  ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES}
-          Installed_To_Date[pid, a, t, p] * cap_factor[pid, a, t, h] )
-	+ ( sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES}
-   	      eip_cap_factor[pid, a, t, h] * ep_capacity_mw[pid, a, t] ) 
+	Contribute_to_Planning_Reserve_NonDistributed[a, h] + Contribute_to_Planning_Reserve_Distributed[a, h]
 	>=
 	( 1 + planning_reserve_margin ) * ( system_load[a, h] + Meet_Shifted_Load[a, h] - Shift_Res_Comm_Load[a, h] + Charge_EVs[a, h] - Shift_EV_Load[a, h] )
 	;
 
+# distributed that is not redirected to the bulk transmission system can contribute to the load areas planning reserve margin
+subject to Conservation_Of_Energy_Distributed_Reserve {a in LOAD_AREAS, h in TIMEPOINTS}:
+  Contribute_to_Planning_Reserve_Distributed[a,h]
+  =
+   (
+   # distributed power production doesn't experience distribution losses and must be consumed immediately on site or spilled
+    ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES }
+          Installed_To_Date[pid, a, t, p] * cap_factor[pid, a, t, h] * gen_availability[t])
+	+ ( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES }
+   	      ep_capacity_mw[pid, a, t] * gen_availability[t] * eip_cap_factor[pid, a, t, h] )
+   	 );
 
 subject to Conservation_Of_Energy_NonDistributed_Reserve {a in LOAD_AREAS, h in TIMEPOINTS}:
-  ( ConsumeNonDistributedPower_Reserve[a,h] * (1 + distribution_losses) )
-  <= 
+  ( Contribute_to_Planning_Reserve_NonDistributed[a,h] * (1 + distribution_losses) )
+  = 
   (
 	#    NEW PLANTS
   # new dispatchable capacity (no need to decide how to dispatch it; we just need to know it's available)
@@ -2053,7 +2074,7 @@ problem Investment_Cost_Minimization:
 	Power_Cost, 
   # Satisfy Load and Power Consumption
     Satisfy_Load,
-	Conservation_Of_Energy_NonDistributed, ConsumeNonDistributedPower, 
+	Conservation_Of_Energy_NonDistributed, Conservation_Of_Energy_Distributed, ConsumeNonDistributedPower, SpillNonDistributedPower, ConsumeDistributedPower, SpillDistributedPower,
   # Policy Constraints
 	Satisfy_Primary_RPS, Satisfy_Distributed_RPS, Meet_California_Solar_Initiative, Meet_California_Distributed_Generation_Mandate, 
 	Carbon_Cap,
@@ -2082,7 +2103,7 @@ problem Investment_Cost_Minimization:
 	Max_Energy_in_Storage, Storage_Projects_Hourly_Energy_Tracking,
   # Contigency Planning Constraints
 	Satisfy_Load_Reserve, 
-	Conservation_Of_Energy_NonDistributed_Reserve, ConsumeNonDistributedPower_Reserve,
+	Conservation_Of_Energy_NonDistributed_Reserve, Conservation_Of_Energy_Distributed_Reserve, Contribute_to_Planning_Reserve_NonDistributed, Contribute_to_Planning_Reserve_Distributed,
   # Operating Reserve Variables
     Spinning_Reserve_Requirement, Quickstart_Reserve_Requirement,
   # Operating Reserve Constraints
@@ -2096,8 +2117,8 @@ problem Present_Day_Cost_Minimization:
   # Objective function 
 	Power_Cost, 
   # Satisfy Load and Power Consumption
-    Satisfy_Load,
-	Conservation_Of_Energy_NonDistributed, ConsumeNonDistributedPower, 
+    Satisfy_Load, 
+	Conservation_Of_Energy_NonDistributed, Conservation_Of_Energy_Distributed, ConsumeNonDistributedPower, SpillNonDistributedPower, ConsumeDistributedPower, SpillDistributedPower, 
   # Installation Decisions - only gas combustion turbines and local TD for the present day optimization
 	{(pid, a, t, p) in PROJECT_VINTAGES: t='Gas_Combustion_Turbine' } InstallGen[pid, a, t, p], InstallLocalTD,
   # Installation Constraints

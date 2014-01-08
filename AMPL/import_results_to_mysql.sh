@@ -235,13 +235,14 @@ if [ $ExportOnly = 0 ]; then
                quickstart_thermal_capacity_provided, quickstart_nonthermal_capacity_provided); \
               select count(*) from _load_wind_solar_operating_reserve_levels where scenario_id=$SCENARIO_ID and $row_count_clause;"
           ) ;;
-        consume_variables)
+        energy_consumed_and_spilled)
           db_row_count=$(
             mysql $connection_string --column-names=false -e "load data local infile \"$file_path\" \
-              into table _consume_and_redirect_variables ignore 1 lines \
-              (scenario_id, carbon_cost, period, area_id, @junk, study_date, study_hour, \
-               hours_in_sample, consume_nondistributed_power); \
-              select count(*) from _consume_and_redirect_variables where scenario_id=$SCENARIO_ID and $row_count_clause;"
+              into table _energy_consumed_and_spilled ignore 1 lines \
+              (scenario_id, carbon_cost, period, area_id, @junk, study_date, study_hour, hours_in_sample, \
+              nondistributed_power_consumed, distributed_power_consumed, \
+              nondistributed_power_spilled, distributed_power_spilled); \
+              select count(*) from _energy_consumed_and_spilled where scenario_id=$SCENARIO_ID and $row_count_clause;"
           ) ;;
       esac
       end_time=$(date +%s)

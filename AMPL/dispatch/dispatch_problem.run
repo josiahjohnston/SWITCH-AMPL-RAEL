@@ -38,7 +38,7 @@ problem Dispatch_Only:
 
 # Satisfy Load and Power Consumption
   Satisfy_Load,
-  Conservation_Of_Energy_NonDistributed, ConsumeNonDistributedPower,  
+  Conservation_Of_Energy_NonDistributed, Conservation_Of_Energy_Distributed, ConsumeNonDistributedPower, SpillNonDistributedPower, ConsumeDistributedPower, SpillDistributedPower,
   
 # Installation Constraints
   Minimum_Local_TD_No_DR, Minimum_Local_TD_DR,
@@ -74,7 +74,7 @@ problem Dispatch_peakers_and_storage:
 
 # Satisfy Load and Power Consumption
   Satisfy_Load,
-  Conservation_Of_Energy_NonDistributed, ConsumeNonDistributedPower,
+  Conservation_Of_Energy_NonDistributed, Conservation_Of_Energy_Distributed, ConsumeNonDistributedPower, SpillNonDistributedPower, ConsumeDistributedPower, SpillDistributedPower,
 # Installation Constraints
   Minimum_Local_TD_No_DR, Minimum_Local_TD_DR,
   

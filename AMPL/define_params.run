@@ -76,6 +76,7 @@ param Power_Cost_Per_Period {p in PERIODS};
 param Carbon_Costs_Per_Period_per_MWh {p in PERIODS};
 param Yearly_Carbon_Emissions {p in PERIODS};
 param Gross_Power_by_Period {p in PERIODS}; 
+param Energy_Spilled_by_Period {p in PERIODS}; 
 param Transmission_Losses_by_Period {p in PERIODS};
 param Distribution_Losses_by_Period {p in PERIODS};
 param Storage_Losses_by_Period {p in PERIODS};

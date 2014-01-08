@@ -32,7 +32,7 @@ problem Transmission_Use_Minimization:
 	Transmission_Use, 
   # Satisfy Load and Power Consumption
     Satisfy_Load,
-	Conservation_Of_Energy_NonDistributed, ConsumeNonDistributedPower, 
+	Conservation_Of_Energy_NonDistributed, Conservation_Of_Energy_Distributed, ConsumeNonDistributedPower, SpillNonDistributedPower, ConsumeDistributedPower, SpillDistributedPower,
   # Policy Constraints
 	Satisfy_Primary_RPS, Satisfy_Distributed_RPS, Meet_California_Solar_Initiative, Meet_California_Distributed_Generation_Mandate, 
 	Carbon_Cap,
@@ -59,7 +59,7 @@ problem Transmission_Use_Minimization:
 	Max_Energy_in_Storage, Storage_Projects_Hourly_Energy_Tracking,
   # Contigency Planning Constraints
 	Satisfy_Load_Reserve, 
-	Conservation_Of_Energy_NonDistributed_Reserve, ConsumeNonDistributedPower_Reserve,
+	Conservation_Of_Energy_NonDistributed_Reserve, Conservation_Of_Energy_Distributed_Reserve, Contribute_to_Planning_Reserve_NonDistributed, Contribute_to_Planning_Reserve_Distributed,
   # Operating Reserve Constraints
   	Satisfy_Spinning_Reserve_Requirement, Satisfy_Quickstart_Reserve_Requirement,
   # Demand response constraints
@@ -68,7 +68,6 @@ problem Transmission_Use_Minimization:
   	Maximum_EV_Load_That_Can_Be_Shifted_from_Hour, Maximum_EV_Load_That_Can_Be_Shifted_to_Hour,
   	EV_Charging_Energy_Balance
 ;
-
 
 ### Fix variables ###
 
@@ -111,8 +110,9 @@ fix Charge_EVs;
 # Variables not to fix
 # DispatchTrans - to optimize
 # ConsumeREC -- could have been set higher than necessary with transmission bringing in excess renewable energy into a load area
-# ConsumeNonDistributedPower -- could have been set higher than necessary with transmission bringing in excess energy into a load area
-# ConsumeNonDistributedPower_Reserve -- could have been set higher than necessary with transmission bringing in excess reserve capacity into a load area
+# ConsumeNonDistributedPower, ConsumeDistributedPower -- could have been set higher than necessary with inefficient transmission dispatch bringing in excess energy into a load area
+# SpillNonDistributedPower, SpillDistributedPower -- could have been set lower than actual because of inefficient transmission
+# Contribute_to_Planning_Reserve_NonDistributed, Contribute_to_Planning_Reserve_Distributed -- could have been set higher than necessary with inefficient transmission dispatch bringing in excess reserve capacity into a load area
 # Derived variables -- don't need to be fixed (ampl gives an error if they are)
 		
 
@@ -176,5 +176,24 @@ printf { (a1, a2, fc, p, h) in TRANSMISSION_LINE_HOURS: DispatchTrans[a1, a2, fc
 
 close (outfile);
 
+let output_section := 'energy_consumed_and_spilled_optimized';
+let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
+printf "scenario_id	carbon_cost	period	load_area_id	load_area	date	hour	hours_in_sample	nondistributed_power_consumed	distributed_power_consumed	nondistributed_power_spilled	distributed_power_spilled\n"
+        > (outfile);
+        
+# energy consumed and spilled
+printf { a in LOAD_AREAS, h in TIMEPOINTS } 
+  "%s	%d	%d	%d	%s	%d	%d	%.2f	%.2f	%.2f	%.2f	%.2f\n",
+  scenario_id, carbon_cost, period[h],  load_area_id[a], a,
+  date[h],
+  h,
+  hours_in_sample[h],
+  ConsumeNonDistributedPower[a, h],
+  ConsumeDistributedPower[a, h],
+  SpillNonDistributedPower[a, h],
+  SpillDistributedPower[a, h]
+    >> (outfile);
+
+close (outfile);
 
 

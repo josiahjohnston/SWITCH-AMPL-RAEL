@@ -543,6 +543,11 @@ let {p in PERIODS} Gross_Power_by_Period[p]  :=
 		+ ( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS } ProducePowerEP[pid, a, t, p, h] )
 		) * hours_in_sample[h];
 
+# this is before transmission is optimized, so likely an underestimate
+let {p in PERIODS} Energy_Spilled_by_Period[p]  := 
+	sum{ a in LOAD_AREAS, h in TIMEPOINTS: period[h] = p } 
+		( SpillNonDistributedPower[a, h] + SpillDistributedPower[a, h] ) * hours_in_sample[h];
+		
 let {p in PERIODS} Transmission_Losses_by_Period[p] := 
     sum { (a1, a2, fc, p, h) in TRANSMISSION_LINE_HOURS }
 		DispatchTrans[a1, a2, fc, p, h] * ( 1 - transmission_efficiency[a1, a2] ) * hours_in_sample[h];
@@ -611,7 +616,7 @@ for {p in PERIODS} {
 		100 * Transmission_Losses_by_Period[p] / Gross_Power_by_Period[p], 
 		100 * Distribution_Losses_by_Period[p] / Gross_Power_by_Period[p],
 		100 * Storage_Losses_by_Period[p]      / Gross_Power_by_Period[p], 
-		100 * (Gross_Power_by_Period[p] - total_loads_by_period_weighted[p] - Distribution_Losses_by_Period[p] - Transmission_Losses_by_Period[p] - Storage_Losses_by_Period[p]) / Gross_Power_by_Period[p];
+		100 * Energy_Spilled_by_Period[p] / Gross_Power_by_Period[p];
 	
 	printf "Total Load  = %.0f MWh\n", total_loads_by_period_weighted[p];
 	printf "Total Trans Losses = %.0f MWh\n", Transmission_Losses_by_Period[p];
@@ -620,7 +625,7 @@ for {p in PERIODS} {
 	printf "Total New Storage Energy Capacity Installed to Date = %.0f MWh\n", Total_New_Storage_Energy_Capacity_Installed_To_Date[p];
 	printf "Total Storage Losses = %.0f MWh\n", Storage_Losses_by_Period[p];
 	printf "Total Load Shifted = %.0f MWh\n", Total_Load_Shifted[p];
-	printf "Total Spilled = %.0f MWh\n", Gross_Power_by_Period[p] - total_loads_by_period_weighted[p] - Transmission_Losses_by_Period[p] - Storage_Losses_by_Period[p] - Distribution_Losses_by_Period[p];
+	printf "Total Spilled = %.0f MWh\n", Energy_Spilled_by_Period[p] ;
 	printf "Total Power = %.0f MWh\n", Gross_Power_by_Period[p];
 	printf "Total Carbon Emissions = %.0f MtCO2/yr\n", Yearly_Carbon_Emissions[p]/1000000;
 	printf "Percent of 1990 Carbon Emissions = %.0f \%\n", 100 * Yearly_Carbon_Emissions[p] / base_carbon_emissions;
