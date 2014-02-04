@@ -1,6 +1,4 @@
 -- makes the switch input database from which data is thrown into ampl via 'get_switch_input_tables.sh'
--- run at command line from the DatabasePrep directory:
--- mysql -h switch-db1.erg.berkeley.edu -u jimmy -p < /Volumes/1TB_RAID/Models/Switch\ Runs/WECCv2_2/122/DatabasePrep/Build\ WECC\ Cap\ Factors.sql
   
 create database if not exists switch_inputs_wecc_v2_2;
 use switch_inputs_wecc_v2_2;
@@ -9,11 +7,13 @@ use switch_inputs_wecc_v2_2;
 -- made in postgresql
 drop table if exists load_area_info;
 create table load_area_info(
+  area_id smallint primary key,
   load_area varchar(20) NOT NULL,
   primary_nerc_subregion varchar(20),
   primary_state varchar(20),
-  economic_multiplier double,
+  economic_multiplier NUMERIC(3,2),
   rps_compliance_entity varchar(20),
+  ccs_distance_km NUMERIC(5,2),
   UNIQUE load_area (load_area)
 ) ROW_FORMAT=FIXED;
 
@@ -24,35 +24,6 @@ load data local infile
 	optionally enclosed by '"'
 	lines terminated by "\r"
 	ignore 1 lines;
-
-alter table load_area_info add column scenario_id INT NOT NULL first;
-alter table load_area_info add index scenario_id (scenario_id);
-alter table load_area_info add column area_id smallint unsigned NOT NULL AUTO_INCREMENT primary key first;
-
-set @load_area_scenario_id := (select if( count(distinct scenario_id) = 0, 1, max(scenario_id)) from load_area_info);
-
-update load_area_info set scenario_id = @load_area_scenario_id;
-
-
--- add ccs distance costs
--- ccs costs will increase with distance from a viable sink - right now this is handeled on a load area level basis
--- the distance from load areas without viable sinks to the nearest sink is calculated in postgresql and imported here
-alter table load_area_info add column ccs_distance_km float default 0;
-
-drop table if exists ccs_distances;
-create temporary table ccs_distances(
-	load_area  varchar(11) PRIMARY KEY,
-	distance_km float);
-	
-load data local infile
-	'ccs_distances.csv'
-	into table ccs_distances
-	fields terminated by	','
-	optionally enclosed by '"'
-	ignore 1 lines;	
-
-update load_area_info join ccs_distances using (load_area)
-set ccs_distance_km = distance_km;
 
 -- add nems_region column for fuel supply curves
 alter table load_area_info add column nems_fuel_region varchar(20);
@@ -267,10 +238,11 @@ create table generator_info_v2 (
 	gen_info_scenario_id int unsigned NOT NULL,
 	technology_id tinyint unsigned NOT NULL,
 	technology varchar(64),
+	prime_mover char(2),
 	min_online_year year,
 	fuel varchar(64),
-	connect_cost_per_mw_generic float,
-	heat_rate float,
+	connect_cost_per_mw_generic NUMERIC(7,1),
+	heat_rate NUMERIC(5,3),
 	construction_time_years float,
 	year_1_cost_fraction float,
 	year_2_cost_fraction float,
@@ -282,6 +254,7 @@ create table generator_info_v2 (
 	forced_outage_rate float,
 	scheduled_outage_rate float,
 	intermittent boolean,
+	distributed boolean default 0,
 	resource_limited boolean,
 	baseload boolean,
 	flexible_baseload boolean,
@@ -300,14 +273,13 @@ create table generator_info_v2 (
 	deep_cycling_penalty float,
 	startup_mmbtu_per_mw float,
 	startup_cost_dollars_per_mw float,
-	data_source_and_notes varchar(512),
 	index techology_id_name (technology_id, technology),
 	PRIMARY KEY (gen_info_scenario_id, technology_id),
 	INDEX tech (technology)
 );
 
 load data local infile
-	'./GeneratorInfo/generator_info.csv'
+	'/GeneratorInfo/generator_info.csv'
 	into table generator_info_v2
 	fields terminated by	','
 	optionally enclosed by '"'
@@ -536,7 +508,7 @@ drop table if exists years_for_loop;
 drop table if exists generator_costs_temp_calculation_table;
 
 -- delete the EPs as their costs get input elsewhere
-delete from generator_costs_yearly where technology like '%_EP%' or technology like '%Hydro%';
+delete from generator_costs_yearly where technology like '%_EP%';
 
 -- for CCS, make the cost at the beginning of construction for plants available in 2020 the same as in 2020
 update generator_costs_yearly
@@ -591,61 +563,20 @@ CREATE TABLE IF NOT EXISTS generator_info_scenarios (
 -- ---------------------------------------------------------------------
 drop table if exists fuel_info_v2;
 create table fuel_info_v2(
-	fuel varchar(64),
+	fuel varchar(64) primary key,
 	rps_fuel_category varchar(10),
 	biofuel tinyint,
-	carbon_content float COMMENT 'carbon content (tonnes CO2 per million Btu)',
-	carbon_content_without_carbon_accounting float COMMENT 'carbon content before you account for the biomass being NET carbon neutral (or carbon negative for biomass CCS) (tonnes CO2 per million Btu)',
-	carbon_sequestered float
+	carbon_content NUMERIC(5,5) COMMENT 'carbon content (tonnes CO2 per million Btu)',
+	carbon_content_without_carbon_accounting NUMERIC(5,5) COMMENT 'carbon content before you account for the biomass being NET carbon neutral (or carbon negative for biomass CCS) (tonnes CO2 per million Btu)',
+	carbon_sequestered NUMERIC(5,5)
 );
 
--- carbon content in tCO2/MMBtu from http://www.eia.doe.gov/oiaf/1605/coefficients.html:
--- Voluntary Reporting of Greenhouse Gases Program (Voluntary Reporting of Greenhouse Gases Program Fuel Carbon Dioxide Emission Coefficients)
-
--- Nuclear, Geothermal, Biomass, Water, Wind and Solar have non-zero LCA emissions
--- To model those emissions, we'd need to divide carbon content into capital, fixed, and variable emissions. Currently, this only lists variable emissions. 
-
--- carbon_content_without_carbon_accounting represents the amount of carbon actually emitted by a technology
--- before you sequester carbon or before you account for the biomass being NET carbon neutral (or carbon negative for biomass CCS)
--- the Bio_Solid value comes from: Biomass integrated gasiﬁcation combined cycle with reduced CO2emissions: Performance analysis and life cycle assessment (LCA), A. Corti, L. Lombardi / Energy 29 (2004) 2109–2124
--- on page 2119 they say that biomass STs are 23% efficient and emit 1400 kg CO2=MWh, which converts to .094345 tCO2/MMBtu
--- the Bio_Liquid value is derived from http://www.ipst.gatech.edu/faculty/ragauskas_art/technical_reviews/Black%20Liqour.pdf
--- in the spreadsheet /Volumes/1TB_RAID/Models/GIS/Biomass/black_liquor_emissions_calc.xlsx
--- Bio_Gas (landfill gas) is almost exactly 50:50 methane (NG) and CO2... we'll therefore use 2x the natural gas value
-
-insert into fuel_info_v2 (fuel, rps_fuel_category, carbon_content_without_carbon_accounting) values
-	('Gas', 'fossilish', 0.05306),
-	('DistillateFuelOil', 'fossilish', 0.07315),
-	('ResidualFuelOil', 'fossilish', 0.07880),
-	('Wind', 'renewable', 0),
-	('Solar', 'renewable', 0),
-	('Bio_Solid', 'renewable', 0.094345),
-	('Bio_Liquid', 'renewable', 0.07695),
-	('Bio_Gas', 'renewable', 0.05306),
-	('Coal', 'fossilish', 0.09552),
-	('Uranium', 'fossilish', 0),
-	('Geothermal', 'renewable', 0),
-	('Water', 'fossilish', 0);
-
-update fuel_info_v2 set carbon_content = if(fuel like 'Bio%', 0, carbon_content_without_carbon_accounting);
-
--- currently we assume that CCS captures all but 15% of the carbon emissions of a plant
--- this assumption also affects carbon_sequestered below
-insert into fuel_info_v2 (fuel, rps_fuel_category, carbon_content, carbon_content_without_carbon_accounting)
-select 	concat(fuel, '_CCS') as fuel,
-		rps_fuel_category,
-		if(fuel like 'Bio%',
-			( -1 * ( 1 - 0.15) * carbon_content_without_carbon_accounting ),
-			( 0.15 * carbon_content_without_carbon_accounting )
-			) as carbon_content,
-		carbon_content_without_carbon_accounting
-	from fuel_info_v2
-	where ( fuel like 'Bio%' or fuel in ('Gas', 'DistillateFuelOil', 'ResidualFuelOil', 'Coal') );
-
-update fuel_info_v2 set biofuel = if( fuel like 'Bio%', 1, 0 );
-
-update fuel_info_v2 set carbon_sequestered =
-	if(fuel like '%CCS', ( 1 - 0.15 ) * carbon_content_without_carbon_accounting, 0);
+load data local infile
+	'./fuel_info.csv'
+	into table fuel_info_v2
+	fields terminated by ','
+	optionally enclosed by '"'
+	ignore 1 lines;
 
 drop table if exists fuel_qualifies_for_rps;
 create table fuel_qualifies_for_rps(
@@ -660,7 +591,8 @@ insert into fuel_qualifies_for_rps
 	        rps_compliance_entity,
 			rps_fuel_category,
 			if(rps_fuel_category like 'renewable', 1, 0)
-		from fuel_info_v2, load_area_info;
+		from fuel_info_v2, load_area_info
+		WHERE fuel != 'Storage';
 
 
 -- FUEL PRICES-------------
@@ -785,19 +717,10 @@ insert into _fuel_prices (scenario_id, area_id, fuel, year, fuel_price)
 			fuel,
 			year,
 			0 as fuel_price
-	from 	( select distinct scenario_id, area_id, year from _fuel_prices) as scenarios_areas_years,
+	from 	(select distinct scenario_id, area_id, year from _fuel_prices) as scenarios_areas_years,
 			fuel_info_v2
 	where 	fuel not in (select distinct fuel from _fuel_prices);
 
--- add values for the fuel 'Storage'
-insert into _fuel_prices (scenario_id, area_id, fuel, year, fuel_price)
-	select 	scenario_id,
-			area_id,
-			'Storage' as fuel,
-			year,
-			0 as fuel_price
-	from 	( select distinct scenario_id, area_id, year from _fuel_prices) as scenarios_areas_years;
-  
 DROP VIEW IF EXISTS fuel_prices;
 CREATE VIEW fuel_prices as
 SELECT _fuel_prices.scenario_id, load_area_info.area_id, load_area, fuel, year, fuel_price 
@@ -992,7 +915,7 @@ CREATE TABLE existing_plants_v2 (
 	start_year year NOT NULL,
 	forced_retirement_year smallint NOT NULL default 9999,
 	overnight_cost float NOT NULL,
-	connect_cost_per_mw float,
+	connect_cost_per_mw NUMERIC(7,1),
 	fixed_o_m double NOT NULL,
 	variable_o_m double NOT NULL,
 	forced_outage_rate double NOT NULL,
@@ -1281,7 +1204,7 @@ insert into _proposed_projects_v2 (technology_id, technology, area_id,
 			( select area_id, concat(technology, '_CCS') as ccs_technology from _proposed_projects_v2,
 				( select trim(trailing '_CCS' from technology) as non_ccs_technology
 						from generator_info_v2
-						where technology in ('Biomass_IGCC_CCS', 'Bio_Gas_CCS') ) as non_ccs_technology_table
+						where technology = 'Biomass_IGCC_CCS' ) as non_ccs_technology_table
 					where non_ccs_technology_table.non_ccs_technology = _proposed_projects_v2.technology ) as resource_limited_ccs_load_area_projects
 	where 	generator_info_v2.technology = resource_limited_ccs_load_area_projects.ccs_technology
 	and		load_area_info.area_id = resource_limited_ccs_load_area_projects.area_id;
@@ -1351,9 +1274,8 @@ update	cogen_ccs_var_costs_and_heat_rates
 set		non_cogen_reference_ccs_technology =
 		CASE
 			WHEN technology in ('Gas_Combustion_Turbine_Cogen_CCS', 'Gas_Internal_Combustion_Engine_Cogen_CCS') THEN 'Gas_Combustion_Turbine_CCS'
-			WHEN technology = 'Bio_Gas_Internal_Combustion_Engine_Cogen_CCS' THEN 'Bio_Gas_CCS'
 			WHEN technology in ('Coal_Steam_Turbine_Cogen_CCS') THEN 'Coal_Steam_Turbine_CCS'
-			WHEN technology in ('Bio_Liquid_Steam_Turbine_Cogen_CCS', 'Bio_Solid_Steam_Turbine_Cogen_CCS') THEN 'Biomass_IGCC_CCS'
+			WHEN technology in ('Bio_Solid_Steam_Turbine_Cogen_CCS') THEN 'Biomass_IGCC_CCS'
 			WHEN technology in ('CCGT_Cogen_CCS', 'Gas_Steam_Turbine_Cogen_CCS') THEN 'CCGT_CCS'
 		END;
 		

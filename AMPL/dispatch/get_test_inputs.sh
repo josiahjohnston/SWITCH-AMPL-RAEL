@@ -202,7 +202,7 @@ for f in balancing_areas.tab biomass_supply_curve.tab carbon_cap_targets.tab exi
   fi;
 done
 cd $input_dir;
-for b in InstallGen OperateEPDuringPeriod InstallTrans InstallLocalTD carbon_cost_by_period ng_consumption_and_prices_by_period biomass_consumption_and_prices_by_period; do
+for b in InstallGen OperateEPDuringPeriod InstallTrans InstallLocalTD InstallStorageEnergyCapacity carbon_cost_by_period ng_consumption_and_prices_by_period biomass_consumption_and_prices_by_period; do
   for p in $(ls ../../results/$b*); do 
     ln -sf $p .
   done

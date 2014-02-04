@@ -1458,7 +1458,7 @@ AND		c.prime_mover = p.prime_mover;
 UPDATE 	hydro_monthly_limits_plant p
 SET		avg_mw = CASE 	WHEN prime_mover = 'HY' THEN capacity_mw * avg_cap_factor
 						WHEN prime_mover = 'PS'	THEN ( net_generation_mwh + electricity_consumed_mwh 
-											* ( 1 - ( SELECT storage_efficiency FROM generator_info WHERE technology = 'Hydro_Pumped_EP' ) ) )
+											* ( 1 - ( SELECT min(storage_efficiency) FROM generator_info WHERE technology = 'Hydro_Pumped_EP' ) ) )
 											/ hours_in_month
 							END
 FROM	hours_in_month h
@@ -1654,8 +1654,8 @@ ALTER SEQUENCE existing_plants_hydro_for_mysql_ep_id_seq RESTART WITH 5000000;
 
 -- USA first
 INSERT INTO existing_plants_hydro_for_mysql (technology, load_area, plant_name, eia_id, start_year, prime_mover, fuel, capacity_MW)
-	SELECT 	CASE WHEN prime_mover = 'HY' THEN 'Hydro_NonPumped'
-				 WHEN prime_mover = 'PS' THEN 'Hydro_Pumped' END as technology,
+	SELECT 	CASE WHEN prime_mover = 'HY' THEN 'Hydro_NonPumped_EP'
+				 WHEN prime_mover = 'PS' THEN 'Hydro_Pumped_EP' END as technology,
 			wecc_load_areas.load_area,
 			replace(replace(replace(plant_name, ' ', '_'), '(', ''), ')', '') as plant_name,
 			facility_code as eia_id,
@@ -1672,8 +1672,8 @@ INSERT INTO existing_plants_hydro_for_mysql (technology, load_area, plant_name, 
 
 -- Canada next
 INSERT INTO existing_plants_hydro_for_mysql (technology, load_area, plant_name, eia_id, start_year, prime_mover, fuel, capacity_MW)
-	SELECT 	CASE WHEN prime_mover = 'HY' THEN 'Hydro_NonPumped'
-				 WHEN prime_mover = 'PS' THEN 'Hydro_Pumped' END as technology,
+	SELECT 	CASE WHEN prime_mover = 'HY' THEN 'Hydro_NonPumped_EP'
+				 WHEN prime_mover = 'PS' THEN 'Hydro_Pumped_EP' END as technology,
 			wecc_load_areas.load_area,
 			replace(replace(replace(plant_name, ' ', '_'), '(', ''), ')', '') as plant_name,
 			facility_code as eia_id,
@@ -1768,8 +1768,8 @@ insert into existing_plant_technologies (technology, fuel, primemover, cogen) va
 	('Geothermal_EP', 'Geothermal', 'ST', 0),
 	('Geothermal_EP', 'Geothermal', 'BT', 0),
 	('Wind_EP', 'Wind', 'WND', 0),
-	('Hydro_NonPumped', 'Water', 'HY', 0),
-	('Hydro_Pumped', 'Water', 'PS', 0),
+	('Hydro_NonPumped_EP', 'Water', 'HY', 0),
+	('Hydro_Pumped_EP', 'Water', 'PS', 0),
 	('Bio_Gas_Internal_Combustion_Engine_EP', 'Bio_Gas', 'IC', 0),
 	('Bio_Gas_Internal_Combustion_Engine_Cogen_EP', 'Bio_Gas', 'IC', 1),
 	('Bio_Gas_Steam_Turbine_EP', 'Bio_Gas', 'ST', 0),

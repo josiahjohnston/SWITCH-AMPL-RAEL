@@ -1,109 +1,53 @@
 -- Load Area Shapefiles script
 
--- a script that does all of the non-generator queries to make working load areas for WECC.
--- whole script should be run after any change in the wecc load area polygon shapefile.
-
--- first, load up the latest wecc load area shapefile into postgresql...
--- modify the .dbf file to the one you want to load
--- shp2pgsql -s 4326 /Volumes/1TB_RAID-1/Models/GIS/New\ LoadZone\ Shape\ Files/wecc_load_areas_10_3_09_5.dbf wecc_load_areas | psql -h xserve-rael.erg.berkeley.edu -U postgres -d switch_gis
-
--- add all the necessary columns (done at the top such that running parts of the script becomes easier)
-SELECT AddGeometryColumn ('public','wecc_load_areas','polygon_geom',4326,'MULTIPOLYGON',2);
-update wecc_load_areas set polygon_geom = the_geom;
-alter table wecc_load_areas drop column the_geom;
-CREATE INDEX polygon_geom_index ON wecc_load_areas USING gist (polygon_geom);
+CREATE SCHEMA wecc_inputs AUTHORIZATION jimmy;
+ALTER USER jimmy SET SEARCH_PATH TO wecc_inputs, public;
 
 
-alter table wecc_load_areas add column substation_center_rec_id bigint;
-SELECT AddGeometryColumn ('public','wecc_load_areas','substation_center_geom',4326,'POINT',2);
-alter table wecc_load_areas add column primary_nerc_subregion character varying(20);
-alter table wecc_load_areas add column primary_state character varying(20);
-alter table wecc_load_areas add column economic_multiplier double precision;
+-- IMPORT LOAD AREA SHAPEFILES-------------------
+-- shp2pgsql will automatically index the geometries with -I
+-- shp2pgsql -s 4326 -d -I -g polygon_geom /Volumes/switch/Models/USA_CAN/shapefiles_used_to_make_load_areas/wecc_load_areas.shp wecc_inputs.wecc_load_areas_import | psql -h switch-db1.erg.berkeley.edu -U jimmy -d switch_gis
 
-
--- IMPORT WECC LINK INFORMATION--------
--- should be updated once we get more FERC data.
-
--- a mysql query that matches teppc load areas to wecc links
--- (links are trans lines between busses)
--- this matching will help us locate transmission lines in postgresql
--- export this query to /Volumes/1TB_RAID/Models/GIS/New\ LoadZone\ Shape\ Files/wecc_transfer_cap.csv
--- so that it can be picked up by postgresql
-
--- select one_area_matched.*, area2 from (SELECT busnumber as busnumber2, TEPPC_Bus.area as area2 FROM grid.TEPPC_bus) as bar,
--- (select windsun.wecc_link_info.*, area1 from windsun.wecc_link_info,
--- (SELECT busnumber as busnumber1, TEPPC_Bus.area as area1 FROM grid.TEPPC_bus) as foo
--- where busnumber1 = bus1_id) as one_area_matched
--- where busnumber2 = bus2_id
--- order by area1, area2, bus1_kv;
-
-
--- in postgresql
-
--- import the above table made in mysql.
-drop table if exists wecc_link_busses_in_teppc_areas;
-CREATE TABLE wecc_link_busses_in_teppc_areas (
-  link_id int NOT NULL primary key,
-  bus1_id int,
-  bus1_name character varying(8),
-  bus1_kv double precision,
-  bus2_id int,
-  bus2_name character varying(8),
-  bus2_kv double precision,
-  rate1 double precision,
-  rate2 double precision,
-  resist double precision,
-  length double precision,
-  ext_id int,
-  link_type character varying(10),
-  cap_fromto double precision,
-  cap_tofrom double precision,
-  area1 character varying(10),
-  area2 character varying(10)
+CREATE TABLE wecc_load_areas (
+  area_id serial primary key,
+  load_area varchar(11),
+  primary_nerc_subregion varchar(20),
+  primary_state varchar(20),
+  economic_multiplier numeric(3,2) CHECK (economic_multiplier BETWEEN 0.5 AND 2),
+  substation_center_rec_id bigint CHECK (substation_center_rec_id > 0),
+  rps_compliance_entity varchar(20),
+  ccs_distance_km numeric(5,2) DEFAULT 0,
+  country varchar(24),
+  UNIQUE (load_area)
 );
 
-CREATE INDEX bus1_name ON wecc_link_busses_in_teppc_areas (bus1_name);
-CREATE INDEX bus2_name ON wecc_link_busses_in_teppc_areas (bus2_name);
-CREATE INDEX bus1_kv ON wecc_link_busses_in_teppc_areas (bus1_kv);
-CREATE INDEX bus2_kv ON wecc_link_busses_in_teppc_areas (bus2_kv);
+SELECT addgeometrycolumn ('wecc_inputs','wecc_load_areas','polygon_geom',4326,'MULTIPOLYGON',2);
+SELECT addgeometrycolumn ('wecc_inputs','wecc_load_areas','substation_center_geom',4326,'POINT',2);
+CREATE INDEX ON wecc_load_areas USING gist (polygon_geom);
+CREATE INDEX ON wecc_load_areas USING gist (substation_center_geom);
+CREATE INDEX ON wecc_load_areas (country);
+CREATE INDEX ON wecc_load_areas (load_area, country);
 
-copy wecc_link_busses_in_teppc_areas
-from '/Volumes/1TB_RAID/Models/GIS/New\ LoadZone\ Shape\ Files/wecc_transfer_cap.csv'
-with CSV HEADER;
+-- the order by here is critical as it sets area_id
+-- the left() makes this ordering consistent with legacy code from MySQL and also nicely keeps all California load areas together
+-- because ordering with '_' is funky!
+INSERT INTO wecc_load_areas (load_area, polygon_geom)
+SELECT load_area, polygon_geom
+FROM wecc_load_areas_import
+ORDER BY left(replace(load_area,'_', 'Z'), 3), load_area;
 
+DROP TABLE wecc_load_areas_import;
 
-
--- TRANSMISION LINES THAT CROSS BORDERS---------
--- finds all the transmssion lines that cross load area borders
--- the number_of_points_in_each_linestring_table is a work around that lets us select the first and last point
--- from the transmission linestring geometry
--- takes ~ 10min as it has to go through 50000 trans lines
-drop table if exists wecc_trans_lines_that_cross_load_area_borders;
-create table wecc_trans_lines_that_cross_load_area_borders as
-	select 	ventyx_e_transln_polyline.*,
-			la1.load_area as load_area_start,
-			la2.load_area as load_area_end
-	from 	wecc_load_areas as la1,
-	 		wecc_load_areas as la2,
-			ventyx_e_transln_polyline
-	where	intersects(la1.polygon_geom, startpoint(ventyx_e_transln_polyline.the_geom))
-	and 	intersects(la2.polygon_geom, endpoint(ventyx_e_transln_polyline.the_geom))
-	and 	la1.load_area <> la2.load_area
-	and		proposed like 'In Service';
-
-alter table wecc_trans_lines_that_cross_load_area_borders add primary key (gid);
-CREATE INDEX to_sub ON wecc_trans_lines_that_cross_load_area_borders (to_sub);
-CREATE INDEX from_sub ON wecc_trans_lines_that_cross_load_area_borders (from_sub);
-CREATE INDEX voltage_kv ON wecc_trans_lines_that_cross_load_area_borders (voltage_kv);
-
--- this bit of code adds transline_geom to the geometry columns table,
--- which allows map programs to be able to find the column to map
-SELECT AddGeometryColumn ('public','wecc_trans_lines_that_cross_load_area_borders','transline_geom',4326,'MULTILINESTRING',2);
-update wecc_trans_lines_that_cross_load_area_borders set transline_geom = the_geom;
-alter table wecc_trans_lines_that_cross_load_area_borders drop column the_geom;
-
+-- COUNTRY -------------
+UPDATE 	wecc_load_areas
+SET		country = 
+CASE WHEN 	load_area like 'CAN_%' THEN 'Canada'
+	 WHEN	load_area like 'MEX_%' THEN 'Mexico'
+	 ELSE	'United States of America'
+	 END;
 
 -- LOAD AREA SUBSTATION CENTERS--------------
+-- NOTE: could/should be updated to newer transmission capacity data from Ventyx/FERC
 -- finding load area centers by highest capacity substation
 -- takes about 20 min total
 
@@ -264,266 +208,6 @@ and load_area like 'CA_SCE_SE';
 
 
 
-
--- TRANS LINES------------------
--- make transmission lines between the load areas
-drop table if exists wecc_trans_lines;
-create table wecc_trans_lines(
-	transmission_line_id serial primary key,
-	load_area_start character varying(11),
-	load_area_end character varying(11),
-	load_areas_border_each_other boolean,
-	straightline_distance_km double precision,
-	distances_along_existing_lines_km double precision,
-	transmission_length_km double precision,
-	existing_transfer_capacity_mw NUMERIC(5,0) default 0,
-	transmission_efficiency double precision,
-	new_transmission_builds_allowed smallint default 1,
-	first_line_direction int default 0,
-	is_dc_line smallint default 0,
-	terrain_multiplier NUMERIC(4,3) CHECK (terrain_multiplier BETWEEN 0.5 AND 4),
-	is_new_path smallint CHECK (is_new_path = 0 or is_new_path = 1)
-);
-
-SELECT AddGeometryColumn ('public','wecc_trans_lines','straightline_geom',4326,'LINESTRING',2);
-SELECT AddGeometryColumn ('public','wecc_trans_lines','existing_lines_geom',4326,'MULTILINESTRING',2);
-SELECT AddGeometryColumn ('public','wecc_trans_lines','route_geom',4326,'MULTILINESTRING',2);
-CREATE INDEX ON wecc_trans_lines USING GIST (straightline_geom);
-CREATE INDEX ON wecc_trans_lines USING GIST (existing_lines_geom);
-CREATE INDEX ON wecc_trans_lines USING GIST (route_geom);
-
-
--- first add straightline_distance_km
-insert into wecc_trans_lines (load_area_start, load_area_end, straightline_distance_km, straightline_geom)
-select	la1,
-		la2,
-		st_distance_sphere(the_geom1, the_geom2)/1000,
-		makeline(the_geom1, the_geom2)
-from
-(select load_area as la1, substation_geom as the_geom1 from wecc_load_area_substation_centers) as la1_table,
-(select load_area as la2, substation_geom as the_geom2 from wecc_load_area_substation_centers) as la2_table
-where la1 <> la2;
-
--- test to see if the load areas border each other
-update wecc_trans_lines
-set load_areas_border_each_other = intersection
-	from
-		(select 	a.load_area as load_area_start,
-					b.load_area as load_area_end,
-					st_intersects(a.polygon_geom, b.polygon_geom) as intersection
-			FROM 	wecc_load_areas as a,
-					wecc_load_areas as b
-			where 	a.load_area <> b.load_area) as intersection_table
-where 	intersection_table.load_area_start = wecc_trans_lines.load_area_start
-and 	intersection_table.load_area_end = wecc_trans_lines.load_area_end;
-
-
--- note... Autumn should fill in all values for distances_along_existing_lines_m
--- and the creation of this column
---Autumn: I'm going to change this to a new column instead--no sense losing the calculated distances every time.  
---But it's still going to be called distances_along_existing_lines_m.  The new column is called calculated_distances_along_existing_lines
--- if the distance along existing lines is double as long as the straight line distance between load areas,
--- set the distance to double the straight line distance, reflecting the high added cost and added length of making a new right of way
-
---Don't run this unless you want to wait for a while.  Also, if you're changing the inputs at all, you'll want to see <some other file I'm going to make>
-select distances_along_translines('test_segment_start_end_dist_amp', 'test_segment_start_end_dist_amp_vertices', 'distances_along_existing_trans_lines');
-update wecc_trans_lines set distances_along_existing_lines_km = distances_along_existing_trans_lines.distance/1000
-from distances_along_existing_trans_lines d where (d.load_area_start like wecc_trans_lines.load_area_start and d.load_area_end like wecc_trans_lines.load_area_end)  
-
--- Autumn should insert the script that outputs transline geoms here
-update wecc_trans_lines set existing_lines_geom = wecc_trans_lines_old.route_geom
-from wecc_trans_lines_old
-where 	wecc_trans_lines.load_area_start = wecc_trans_lines_old.load_area_start
-and		wecc_trans_lines.load_area_end = wecc_trans_lines_old.load_area_end;
-
--- Intermountain doesn't have quite the correct existing_lines_geom, but add something here that is almost correct
-update wecc_trans_lines
-set existing_lines_geom = transline_geom
-from (select transline_geom from wecc_trans_lines_that_cross_load_area_borders where load_area_end = 'UT_S' and load_area_start = 'CA_SCE_CEN') as intermountain_geom
-where ( load_area_start = 'UT_S' and load_area_end = 'CA_SCE_CEN') or ( load_area_end = 'UT_S' and load_area_start = 'CA_SCE_CEN');
-
--- TRANSFER CAPACITY
--- add transfer capacites for lines that cross load area borders
--- run bus_matches_wecc.sql to match ventyx and ferc 715 data
-
--- bus_matches_wecc.sql doesn't get DC lines, so add them first
--- get the Pacific DC line capacity and length
-update wecc_trans_lines
-set existing_transfer_capacity_mw = 3100, 
-	is_dc_line = 1
-where 	( load_area_start = 'OR_WA_BPA' and load_area_end = 'CA_LADWP');
-
--- get the Intermountain Utah-California line
-update wecc_trans_lines
-set existing_transfer_capacity_mw = 1920, 
-	is_dc_line = 1
-where 	( load_area_start = 'UT_S' and load_area_end = 'CA_SCE_CEN');
-
-update  wecc_trans_lines
-set		existing_transfer_capacity_mw = rating_mva
-from (	select load_area_start, load_area_end, sum(rating_mva) as rating_mva
-		from	trans_wecc_ferc_ventyx
-		group by load_area_start, load_area_end
-	) as rating_table
-where	wecc_trans_lines.load_area_start = rating_table.load_area_start
-and		wecc_trans_lines.load_area_end = rating_table.load_area_end
-and		is_dc_line = 0;
-
-
--- each line needs to have the same capacity in both directions, which is the sum of the lines in each direction
--- (the 'direction' of each line is arbitrary - power can flow either way on any line)
-update wecc_trans_lines w1
-set existing_transfer_capacity_mw = w1.existing_transfer_capacity_mw + w2.existing_transfer_capacity_mw,
-	is_dc_line = case when ( w1.is_dc_line = 1 or w2.is_dc_line = 1 ) then 1 else 0 end
-from wecc_trans_lines w2
-where 	w1.load_area_start = w2.load_area_end
-and		w1.load_area_end = w2.load_area_start;
-
--- to reduce the number of decision variables, delete all transmission lines that aren't existing paths or that don't have load areas that border each other
-delete from wecc_trans_lines where (existing_transfer_capacity_mw = 0 and not load_areas_border_each_other);
-
--- route_geom is the actual geometry that SWITCH is going to assume connects two load areas
--- in most cases it will be along existing lines, unless the path represents a new path (existing_transfer_capacity_mw = 0)
--- in which case we'll assume a straight line path between the two load areas if existing lines don't connect the two load areas
--- at a distance <= 1.5x of the straightline distance
--- this straightline path will get a terrain_multiplier of whatever terrain is in its way...
--- might not be the optimal route, but in exchange it gets the shortest distance
-
--- below also updates transmission_length_km to be consistent with the length of route_geom
-
--- update the transmission_length_km to be along existing lines whenever possible
--- the case selects out lines which have really long distances along existing transmission lines
--- this effectivly limits their distance to 1.5 x that of the straight-line distance
-update wecc_trans_lines
-set   is_new_path = CASE WHEN distances_along_existing_lines_km > 1.5 * straightline_distance_km AND existing_transfer_capacity_mw = 0 THEN 1
-						 WHEN distances_along_existing_lines_km is null THEN 1
-						 ELSE 0 END;
-
--- we're going to derive the transmission length for new paths from that of existing paths, so set new path transmission distances to null for now
-update wecc_trans_lines
-SET		route_geom = CASE WHEN is_new_path = 1 THEN ST_Multi(straightline_geom) ELSE existing_lines_geom END,
-		transmission_length_km = CASE WHEN is_new_path = 0 THEN distances_along_existing_lines_km ELSE NULL END;
-
--- now derive the length for new paths... this came out to ~1.3x the straightline distance
-UPDATE 	wecc_trans_lines
-SET 	transmission_length_km = straightline_distance_km * length_multiplier
-FROM	(SELECT sum(distances_along_existing_lines_km) / sum(straightline_distance_km) as length_multiplier
-			FROM wecc_trans_lines
-			WHERE is_new_path = 0
-		) AS length_multiplier_table
-WHERE	transmission_length_km IS NULL;
-
--- calculate losses as 1 percent losses per 100 miles or 1 percent per 160.9344 km (reference from ReEDS Solar Vision Study documentation)
-update wecc_trans_lines set transmission_efficiency = 1 - (0.01 / 160.9344 * transmission_length_km);
-
--- a handful of existing long transmission lines are effectivly the combination of a few shorter ones in SWITCH,
--- so they are flagged here to prevent new builds along the longer corridors
-update wecc_trans_lines
-set new_transmission_builds_allowed = 0
-where	(load_area_start like 'AZ_APS_N' and load_area_end like 'NV_S')
-or		(load_area_start like 'AZ_APS_SW' and load_area_end like 'CA_SCE_S')
-or		(load_area_start like 'AZ_APS_SW' and load_area_end like 'NV_S')
-or		(load_area_start like 'CA_LADWP' and load_area_end like 'OR_WA_BPA')
-or		(load_area_start like 'CA_PGE_CEN' and load_area_end like 'CA_PGE_N')
-or		(load_area_start like 'CA_PGE_N' and load_area_end like 'OR_W')
-or		(load_area_start like 'CA_SCE_CEN' and load_area_end like 'UT_S')
-or		(load_area_start like 'CAN_BC' and load_area_end like 'MT_NW')
-or		(load_area_start like 'CO_E' and load_area_end like 'WY_SE')
-or		(load_area_start like 'MT_NW' and load_area_end like 'MT_NE')
-or		(load_area_start like 'WA_N_CEN' and load_area_end like 'WA_SEATAC')
-;
-
--- now get the other direction
-update wecc_trans_lines
-set new_transmission_builds_allowed = 0
-where (load_area_start, load_area_end) in
-	( select load_area_end, load_area_start from wecc_trans_lines where new_transmission_builds_allowed = 0 );
-
-
--- a handful of new transmission lines (ones without existing capacity) are redundant, so these are removed here
-delete from wecc_trans_lines
-where	(load_area_start like 'MT_SW' and load_area_end like 'WA_ID_AVA')
-or		(load_area_start like 'CA_PGE_CEN' and load_area_end like 'CA_SCE_CEN')
-or		(load_area_start like 'CA_SCE_CEN' and load_area_end like 'CA_SCE_SE')
-or		(load_area_start like 'CO_E' and load_area_end like 'CO_NW')
-;
-
--- now get the other direction
-delete from wecc_trans_lines 
-where (load_area_end, load_area_start) not in
-	( select load_area_start, load_area_end from wecc_trans_lines_for_export);
-
-
--- add a flag for if one direction of a line's transmission_line_id is less than the other direction
--- this will be used to define DC load flow constraints in AMPL 
-update wecc_trans_lines
-set first_line_direction = 1
-from
-	(select load_area_start,
-			load_area_end,
-			min(transmission_line_id) as transmission_line_id
-		from
-		(	select 	load_area_start,
- 					load_area_end,
- 					transmission_line_id
- 				from wecc_trans_lines
-			UNION
-			select 	load_area_end as load_area_start,
- 					load_area_start as load_area_end,
- 					transmission_line_id
- 				from wecc_trans_lines
-		) as id_table
-	group by load_area_start, load_area_end
-	order by 3) as min_id_table
-where wecc_trans_lines.transmission_line_id = min_id_table.transmission_line_id;
-
-
--- now run transmission_terrain.sql to create a transmission terrain map of WECC
--- that will be used to calculate the terrain_multiplier
--- the transmission costs that we use in SWITCH for transmission already have a default multiplier embedded
--- which evaluates to roughly 1.5, so divide by 1.5 to give the correct multiplicative factor to the $/MW-km value that we presently use
-update wecc_trans_lines
-set terrain_multiplier = multiplier/1.5
-FROM	
-	(SELECT transmission_line_id,
-			sum(	m.terrain_multiplier
-					* ST_Length(ST_Intersection(m.the_geom, route_geom)::geography, false)
-					/ ST_Length(route_geom::geography, false)
-				) as multiplier
-	FROM wecc_trans_lines,
-	 	 transmission_terrain_multiplier m
-	where 	ST_Intersects(m.the_geom, route_geom)
-	GROUP BY transmission_line_id
-) calc_multiplier
-WHERE calc_multiplier.transmission_line_id = wecc_trans_lines.transmission_line_id;
-
-
--- now add a derating factor that accounts for contingencies, loop flows, stability, etc constraints on transmission
--- this value is different for AC and DC, and is calculated in /Volumes/switch/Models/USA_CAN/Transmission/_switchwecc_path_matches_thermal.xlsx
--- the value is 0.59 for AC lines and 0.91 for DC lines
-ALTER TABLE wecc_trans_lines ADD COLUMN transmission_derating_factor float default 0.59;
-UPDATE wecc_trans_lines SET transmission_derating_factor = 0.91 WHERE is_dc_line = 1;
-
--- export the data to mysql
-COPY 
-(select	transmission_line_id,
-		load_area_start,
-		load_area_end,
-		existing_transfer_capacity_mw,
-		transmission_length_km,
-		transmission_efficiency,
-		new_transmission_builds_allowed,
-		first_line_direction,
-		is_dc_line,
-		transmission_derating_factor,
-		terrain_multiplier
-	from 	wecc_trans_lines
-	order by load_area_start, load_area_end)
-TO 		'/Volumes/switch/Models/USA_CAN/Transmission/_SWITCH_WECC/wecc_trans_lines.csv'
-WITH 	CSV
-		HEADER;
-
-
 -- NERC SUBREGIONS---------------
 -- EIA projections are for NERC subregions, so this gets the primary NERC subregion for each load area
 -- I unfortunally had to use the historical nerc subregions shapefile because the current nerc subregions shapefile
@@ -613,72 +297,196 @@ and 	max_intersection_area = intersection_area
 and 	(wecc_load_areas.load_area like 'CAN%' or wecc_load_areas.load_area like 'MEX%');
 
 
+-- REGIONAL ECONOMIC MULTIPLIER---------------------
+-- import a table of generator capital costs broken down by region
+-- here they're specificed by nearest city, so we'll a distance query below to match city to load area
+-- Source: 2010 EIA Beck plant costs: Updated Capital Cost Estimated for Electricity Generation Plants. Nov 2010, US Energy Information Agency.
+-- PDF in the same folder as the regional_capital_costs.csv
+-- also, SWITCH doesn't yet have capabilties to change the regional multipler by technology,
+-- so we'll assume the average for all techs - could be changed/improved in the future
 
--- REGIONAL ECONOMIC MULTIPLIER-------------------
+DROP TABLE IF EXISTS regional_capital_costs_import;
+CREATE TABLE regional_capital_costs_import(
+	generator_type varchar(100),
+	state varchar(50),
+	city varchar(50),
+	base_cost_dollars2010_per_kw int,
+	location_percent_variation NUMERIC(4,2),
+	delta_cost_difference_dollars2010_per_kw int,
+	total_location_project_cost_dollars2010_per_kw int,
+	PRIMARY KEY (generator_type, state, city)
+	);
 
--- finds each population density point inside each load area
-drop table if exists us_population_density_to_load_area;
-Create table us_population_density_to_load_area as 
-	select us_population_density.gid, popdensity, load_area
-	from us_population_density, wecc_load_areas
-	where intersects(us_population_density.the_geom, wecc_load_areas.polygon_geom);
+copy regional_capital_costs_import
+from '/Volumes/switch/Models/Switch_Input_Data/regional_economic_multiplier/regional_capital_costs.csv'
+with csv header;
+
+DROP TABLE IF EXISTS regional_capital_costs;
+CREATE TABLE regional_capital_costs(
+	state varchar(50),
+	city varchar(50),
+	average_location_cost_multiplier NUMERIC(4,2),
+	PRIMARY KEY (state, city)
+	);
+
+SELECT addgeometrycolumn ('wecc_inputs','regional_capital_costs','the_geom',4326,'POINT',2);
+CREATE INDEX ON regional_capital_costs USING gist (the_geom);
+
+INSERT INTO regional_capital_costs
+	SELECT 	state,
+			city,
+			1 + avg(location_percent_variation)/100 as average_location_cost_multiplier
+	FROM	regional_capital_costs_import
+	WHERE 	base_cost_dollars2010_per_kw > 0
+	GROUP BY state, city;
+
+-- get the actual locations from a table of cities
+UPDATE regional_capital_costs r
+SET the_geom = m.the_geom
+FROM
+	(select name, state, the_geom from ventyx_may_2012.cities_point
+		JOIN 
+	(select name, max(pop_98) as pop_98
+		from ventyx_may_2012.cities_point
+		WHERE NOT (name = 'Concord' and state = 'CA')
+		AND NOT (name = 'Portland' and state = 'ME')
+		AND NOT (name = 'Burlington' and state = 'NC')
+		group by name) as max_table
+		USING (name, pop_98)) m
+WHERE r.city = m.name;
+
+-- get Portland, ME
+UPDATE regional_capital_costs r
+set the_geom = m.the_geom
+FROM ventyx_may_2012.cities_point m
+WHERE m.name = 'Portland' and m.state = 'ME'
+AND	r.city = 'Portland' and r.state = 'Maine';
+
+-- normalized average_location_cost_multiplier to an average of 1
+-- can't directly use the multipliers as our actual capital costs come from Black and Veatch, not EIA Beck plantcosts.
+-- also, exclude states that aren't in the continental US.
+UPDATE regional_capital_costs
+SET average_location_cost_multiplier = average_location_cost_multiplier / normalization_factor
+FROM
+	(SELECT avg(average_location_cost_multiplier) as normalization_factor
+		FROM 	regional_capital_costs
+		WHERE 	state NOT IN ('Alaska', 'Hawaii', 'Puerto Rico')
+		) as normalization_factor_table;
+		
+-- update wecc_load_areas with the proper multiplier,
+-- based on minimum distance from the city specified in regional_capital_costs to the primary_substation_geom of wecc_load_areas
+UPDATE wecc_load_areas
+SET economic_multiplier = average_location_cost_multiplier
+FROM 
+	(SELECT load_area, city, average_location_cost_multiplier
+		FROM 	regional_capital_costs,
+				wecc_load_areas
+			JOIN
+			( SELECT load_area, min(st_distance_spheroid(substation_center_geom, the_geom, 'SPHEROID["WGS 84",6378137,298.257223563]')) as min_distance
+				FROM regional_capital_costs, wecc_load_areas
+				GROUP BY load_area ) as min_distance_table
+			USING (load_area)
+		WHERE 	min_distance = st_distance_spheroid(substation_center_geom, the_geom, 'SPHEROID["WGS 84",6378137,298.257223563]')
+		) as match_table
+WHERE match_table.load_area = wecc_load_areas.load_area;
+
+-- update a few where the match isn't quite right due to the relative position of city and primary substation
+UPDATE wecc_load_areas
+	SET economic_multiplier = 
+		CASE WHEN load_area = 'CAN_ALB' THEN
+				(SELECT economic_multiplier FROM wecc_load_areas WHERE load_area = 'CAN_BC')
+			WHEN load_area = 'MEX_BAJA' THEN
+				(SELECT economic_multiplier FROM wecc_load_areas WHERE load_area = 'AZ_APS_SW')
+			WHEN load_area = 'AZ_NW' THEN
+				(SELECT economic_multiplier FROM wecc_load_areas WHERE load_area = 'AZ_NM_N')
+			WHEN load_area = 'NV_N' THEN
+				(SELECT economic_multiplier FROM wecc_load_areas WHERE load_area = 'NV_S')
+			WHEN load_area = 'CA_PGE_CEN' THEN
+				(SELECT economic_multiplier FROM wecc_load_areas WHERE load_area = 'CA_SMUD')
+		ELSE economic_multiplier
+		END;
+
+
+-- CCS PIPELINE DISTANCE COST ADDER -------------------------
+-- ccs projects have a cost adder (calculated here) for not being in a load area that has CCS sinks
+-- should update data at some point to new CCS atlas
+  
+-- first make a table of all polygon geoms of viable sinks
+-- (ones with vol_high > 0 and not ( assessed = 1 and suitable = 0 )
+drop table if exists ccs_sinks_all;
+create table ccs_sinks_all(
+	gid serial primary key,
+	sink_type character varying (30),
+	native_dataset_gid int,
+	vol_high numeric );
+
+SELECT AddGeometryColumn ('wecc_inputs','ccs_sinks_all','the_geom',4326,'POLYGON',2);
+CREATE INDEX ccs_sinks_all_index ON ccs_sinks_all USING gist (the_geom);
+
+insert into ccs_sinks_all (sink_type, native_dataset_gid, vol_high, the_geom)
+	select 	'ccs_unmineable_coal_areas' as sink_type,
+			gid as native_dataset_gid,
+			vol_high,
+			(ST_Dump(polygon_geom)).geom
+	from 	ccs_unmineable_coal_areas
+	where 	vol_high > 0
+	and		not ( assessed = 1 and suitable = 0 );
 	
-create index gid on us_population_density_to_load_area (gid);
+insert into ccs_sinks_all (sink_type, native_dataset_gid, vol_high, the_geom)
+	select 	'ccs_saline_formations' as sink_type,
+			gid as native_dataset_gid,
+			vol_high,
+			(ST_Dump(polygon_geom)).geom
+	from 	ccs_saline_formations
+	where 	vol_high > 0
+	and		not ( assessed = 1 and suitable = 0 );
 
--- finds each population density point inside each county.
--- no need to run multipule times because it takes a long time, unless the county shapefile is changed
-drop table if exists us_population_density_to_county;
-Create table us_population_density_to_county as 
-	select us_population_density.gid, popdensity, cnty_fips
-	from us_population_density, ventyx_counties_region
-	where intersects(us_population_density.the_geom, ventyx_counties_region.the_geom);
-	
-create index gid on us_population_density_to_county (gid);
+insert into ccs_sinks_all (sink_type, native_dataset_gid, vol_high, the_geom)
+	select 	'ccs_oil_and_gas_reservoirs' as sink_type,
+			gid as native_dataset_gid,
+			vol_high,
+			(ST_Dump(polygon_geom)).geom
+	from 	ccs_oil_and_gas_reservoirs
+	where 	vol_high > 0
+	and		not ( assessed = 1 and suitable = 0 );
 
--- makes a table of regional economic multipliers calculated for each load area
--- by taking the sum of the population of each fraction of a county in a load area multiplied by its econ multiplier
--- and then dividing by the whole population of a load area
-update wecc_load_areas
-set economic_multiplier = multiplier_table.economic_multiplier
-from
-	(select 	load_area_population_table.load_area,
-			sum(regional_economic_multiplier*population_load_area_county)/population_load_area as economic_multiplier
-	from	regional_economic_multipliers,
-	-- gets the total population of each load area for use above
-		(select sum(popdensity) as population_load_area,
-			load_area
-		from us_population_density_to_load_area
-		group by load_area) as load_area_population_table,
-	-- finds the population of counties as divided across load area lines
-	-- many counties are completly in one load area,
-	-- but for those that aren't this one allocates population on either side of the load area line
-		(select sum(us_population_density_to_load_area.popdensity) as population_load_area_county,
-			load_area,
-			cnty_fips
-		from 	us_population_density_to_county,
-				us_population_density_to_load_area
-		where 	us_population_density_to_load_area.gid = us_population_density_to_county.gid
-		group by load_area, cnty_fips) as county_load_area_population_table
-	where 	regional_economic_multipliers.county_fips_code = cast(county_load_area_population_table.cnty_fips as int)
-	and 	county_load_area_population_table.load_area = load_area_population_table.load_area
-	and		load_area_population_table.load_area not like 'CAN%'
-	and 	load_area_population_table.load_area not like 'MEX%'
-	group by load_area_population_table.load_area, population_load_area) as multiplier_table
-where multiplier_table.load_area = wecc_load_areas.load_area;
 
--- we don't have Canadian and Mexican values yet - these should be put here when they become available
--- right now they're educated guesses
-update wecc_load_areas
-set economic_multiplier = 0.85
-where load_area like 'MEX%';
+-- draw distances from the substation_center_geom of each load area without a ccs sink to the nearest sink
+-- the fancy geometry finds the point along the edge of the sink polygon that's closest to substation_center_geom
+-- and then calculates the distance between those two points
+-- the subquery past 'not in' gives all load_areas DO have sinks (so the 'not in' excludes these from the distance calculation)
+drop table if exists ccs_sink_to_load_area;
+create table ccs_sink_to_load_area as
+select 	load_area,
+		st_distance_sphere(
+			st_line_interpolate_point(
+				st_exteriorring( the_geom ),
+				st_line_locate_point(
+					st_exteriorring( the_geom ), substation_center_geom )
+				),
+			substation_center_geom ) / 1000 as distance_km
+from 	ccs_sinks_all,
+		wecc_load_areas
+where load_area not in 
+	(select distinct load_area
+		from  	wecc_load_areas,
+				ccs_sinks_all
+		where ST_Intersects(polygon_geom, the_geom));
 
-update wecc_load_areas
-set economic_multiplier = 1.05
-where load_area like 'CAN_BC';
+drop table if exists ccs_tmp;
+create temporary table ccs_tmp as 
+select load_area, min(distance_km) as min_distance_km from ccs_sink_to_load_area group by load_area;
 
-update wecc_load_areas
-set economic_multiplier = 1.1
-where load_area like 'CAN_ALB';
+delete from ccs_sink_to_load_area;
+insert into ccs_sink_to_load_area select * from ccs_tmp;
+
+UPDATE wecc_load_areas
+SET ccs_distance_km = distance_km
+FROM ccs_sink_to_load_area
+WHERE ccs_sink_to_load_area.load_area = wecc_load_areas.load_area;
+
+drop table ccs_sink_to_load_area;
+
 
 -- RPS COMPLIANCE ENTITIES  -----------
 -- define a map between load_area and rps_compliance_entity based on the structure
@@ -845,12 +653,14 @@ with CSV HEADER;
 
 -- EXPORT LOAD AREA INFO TO MYSQL-------
 copy
-(select	load_area,
+(select	area_id,
+		load_area,
  		primary_nerc_subregion,
  		primary_state,
   		economic_multiplier,
-  		rps_compliance_entity
+  		rps_compliance_entity,
+  		ccs_distance_km
 from	wecc_load_areas
-order by load_area)
-to '/Volumes/1TB_RAID/Models/GIS/wecc_load_area_info.csv'
+order by area_id)
+to '/Volumes/switch/Models/GIS/wecc_load_area_info.csv'
 with CSV HEADER;
