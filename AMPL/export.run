@@ -341,7 +341,13 @@ for {c in CARBON_COSTS} {
        >> (outfile);
       
       close (outfile);
-       
+      
+      ##################
+      # Summarize costs
+      let outfile := results_path & 'energy_cost_summary.txt';
+      printf "scenario_id\tcarbon_cost\tperiod\tPower_Cost_Per_Period_MWh\n" > (outfile);
+      printf {p in PERIODS} "%d\t%d\t%d\t%.4f\n", scenario_id, carbon_cost, p, Power_Cost_Per_Period[p];
+      close (outfile);
 
       #######################
       # Export .tab files of investment decisions for dispatch to read in. 
