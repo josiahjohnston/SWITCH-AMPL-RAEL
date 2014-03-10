@@ -50,6 +50,7 @@ model switch.mod;
 include define_params.run;
 data switch.dat;
 data inputs/misc_params.dat;
+data inputs/ng_leakage_params.dat;
 problem Investment_Cost_Minimization; 
 
 #########################

@@ -344,9 +344,19 @@ for {c in CARBON_COSTS} {
       
       ##################
       # Summarize costs
-      let outfile := results_path & 'energy_cost_summary.txt';
-      printf "scenario_id\tcarbon_cost\tperiod\tPower_Cost_Per_Period_MWh\n" > (outfile);
-      printf {p in PERIODS} "%d\t%d\t%d\t%.4f\n", scenario_id, carbon_cost, p, Power_Cost_Per_Period[p];
+      let outfile := results_path & 'cost_summary.txt';
+      printf "scenario_id\tcarbon_cost\tperiod\tPower_Cost_Per_Period\tTotal_Cost_Per_Period\n" > (outfile);
+      printf {p in PERIODS} "%d\t%d\t%d\t%.4f\t%.4f\n", scenario_id, carbon_cost, p, Power_Cost_Per_Period[p], Power_Cost_Per_Period[p]*total_loads_by_period_weighted[p] >> (outfile);
+      close (outfile);
+
+      ##################
+      # Summarize fugitive methane emissions
+      let outfile := results_path & 'fugitive_methane_summary.txt';
+      printf "scenario_id\tcarbon_cost\tperiod\tmethane_consumption_MMBTU\tfugitive_methane_tonnes\tfugitive_methane_GWP_co2e\n" > (outfile);
+      printf {p in PERIODS} "%d\t%d\t%d\t%.4f\t%.4f\t%.4f\n", scenario_id, carbon_cost, p, ConsumeNaturalGas[p], 
+        ( ( ConsumeNaturalGas[p] * ( ng_leakage / (1 - ng_leakage) ) ) / ng_heat_content_mmbtu_per_tonne ),
+        ( ( ConsumeNaturalGas[p] * ( ng_leakage / (1 - ng_leakage) ) ) / ng_heat_content_mmbtu_per_tonne ) * ng_co2_eq_per_tonne
+        >> (outfile);
       close (outfile);
 
       #######################

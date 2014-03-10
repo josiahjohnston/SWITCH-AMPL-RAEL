@@ -1296,6 +1296,12 @@ subject to ConsumeNaturalGas_UpperLimits {p in PERIODS, bp in 1..num_ng_breakpoi
     if( bp = 1 ) then ng_consumption_breakpoint_per_period[p, bp]
     else ng_consumption_breakpoint_per_period[p, bp] - ng_consumption_breakpoint_per_period[p, bp-1];
 
+######
+# NG leakage
+param ng_heat_content_mmbtu_per_tonne default 50.97;
+# NG has a 100-yr GWP of 34 according to IPCC, 2013	http://www.climatechange2013.org/images/uploads/WGIAR5_WGI-12Doc2b_FinalDraft_All.pdf
+param ng_co2_eq_per_tonne default 34; 
+param ng_leakage default 0.00;
 
 #### OBJECTIVE ####
 
@@ -1501,6 +1507,8 @@ subject to Carbon_Cap {p in PERIODS}:
 	    Startup_MW_from_Last_Hour[pid, a, t, p, h] * startup_mmbtu_per_mw[t] 
 	    * carbon_content[fuel[t]] * hours_in_sample[h] )
 	    )
+	# Fugitive methane emissions from natural gas supply chain (ng_leakage defaults to 0)
+  + ( ( ConsumeNaturalGas[p] * ( ng_leakage / (1 - ng_leakage) ) ) / ng_heat_content_mmbtu_per_tonne ) * ng_co2_eq_per_tonne
   	<= carbon_cap[p];
 
 

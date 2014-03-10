@@ -1,0 +1,8 @@
+param ng_heat_content_mmbtu_per_tonne := 50.97;
+# NG co2 equivalents of 34 and 86 for 100 and 20 year time frames from
+# IPCC, 2013	http://www.climatechange2013.org/images/uploads/WGIAR5_WGI-12Doc2b_FinalDraft_All.pdf
+# IPCC 2007 values were lower at 25 and 72
+# "Shindell et al. 2009 " has values of 33 and 105
+# Use a 100-year GWP value from IPCC 2013
+param ng_co2_eq_per_tonne := 34;
+param ng_leakage := 0.00;
