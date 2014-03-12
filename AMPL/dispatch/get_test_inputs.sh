@@ -24,7 +24,7 @@ END_HELP
 # Set the umask to give group read & write permissions to all files & directories made by this script.
 umask 0002
 
-db_server="switch-db1.erg.berkeley.edu"
+db_server="switch-db2.erg.berkeley.edu"
 DB_name="switch_inputs_wecc_v2_2"
 port=3306
 ssh_tunnel=1

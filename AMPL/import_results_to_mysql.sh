@@ -24,7 +24,7 @@ END_HELP
 # Default values
 read SCENARIO_ID < scenario_id.txt
 DB_name='switch_results_wecc_v2_2'
-db_server='switch-db1.erg.berkeley.edu'
+db_server='switch-db2.erg.berkeley.edu'
 port=3306
 ssh_tunnel=1
 results_dir="results"

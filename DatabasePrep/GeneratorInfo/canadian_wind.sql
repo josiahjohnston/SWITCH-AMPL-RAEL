@@ -11,7 +11,7 @@
 -- it therefore represents the canadian land suitable for wind development
 
 -- first, load up point shapefiles (converted from a 2km raster via ArcGIS) with capacity factor data for all of Canada
--- shp2pgsql -s 4326 /Volumes/switch/Models/GIS/Canada_Wind_AWST/canwindlandpoints.dbf wind_canada_cap_factor_map | psql -h switch-db1.erg.berkeley.edu -U postgres -d switch_gis
+-- shp2pgsql -s 4326 /Volumes/switch/Models/GIS/Canada_Wind_AWST/canwindlandpoints.dbf wind_canada_cap_factor_map | psql -h switch-db2.erg.berkeley.edu -U postgres -d switch_gis
 
 alter table wind_canada_cap_factor_map drop column pointid;
 alter table wind_canada_cap_factor_map rename column grid_code to cap_factor_80m;
