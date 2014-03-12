@@ -30,7 +30,7 @@ mkdir -p inputs
 
 write_to_path='inputs'
 
-db_server="switch-db1.erg.berkeley.edu"
+db_server="switch-db2.erg.berkeley.edu"
 DB_name="switch_china"
 
 ###################################################
