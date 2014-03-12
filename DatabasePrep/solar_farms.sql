@@ -242,7 +242,7 @@ SELECT exclusion_zones();
 
 -- exclude/avoid areas from the Western Renewable Energy Zones project (wrez)
 -- load into postgres on the command line:
--- shp2pgsql -s 4326 -d -I -g the_geom /Volumes/switch/Models/GIS/wrez_exclude_avoid_areas/Exclusion_Areas.dbf usa_can.wrez_exclude_avoid_areas | psql -h switch-db1.erg.berkeley.edu -U jimmy -d switch_gis
+-- shp2pgsql -s 4326 -d -I -g the_geom /Volumes/switch/Models/GIS/wrez_exclude_avoid_areas/Exclusion_Areas.dbf usa_can.wrez_exclude_avoid_areas | psql -h switch-db2.erg.berkeley.edu -U jimmy -d switch_gis
 -- gave problems with ST_Union, so didn't union...
 insert into solar_central_station_exclusion_zones (the_geom)
 	select 	ST_Buffer((ST_Dump(the_geom)).geom,0)
@@ -362,9 +362,9 @@ INSERT INTO solar_central_station_polygons_rid_state (rid, state, the_geom)
 -- with the suny grid cells to find out which cells to simulate from our downloaded weather data
 
 -- load up the grid cell maps first
--- shp2pgsql -s 4326 -d -I -g the_geom /Volumes/switch/Models/USA_CAN/Solar/NREL_avg_maps/us9809_ghi_updated/us9809_ghi_updated.shp usa_can.solar_nrel_avg_ghi | psql -h switch-db1.erg.berkeley.edu -U jimmy -d switch_gis
--- shp2pgsql -s 4326 -d -I -g the_geom /Volumes/switch/Models/USA_CAN/Solar/NREL_avg_maps/us9809_dni_updated/us9809_dni_updated.shp usa_can.solar_nrel_avg_dni | psql -h switch-db1.erg.berkeley.edu -U jimmy -d switch_gis
--- shp2pgsql -s 4326 -d -I -g the_geom /Volumes/switch/Models/USA_CAN/Solar/NREL_avg_maps/us9809_latilt_updated/us9809_latilt_updated.shp usa_can.solar_nrel_avg_latitudetilt | psql -h switch-db1.erg.berkeley.edu -U jimmy -d switch_gis
+-- shp2pgsql -s 4326 -d -I -g the_geom /Volumes/switch/Models/USA_CAN/Solar/NREL_avg_maps/us9809_ghi_updated/us9809_ghi_updated.shp usa_can.solar_nrel_avg_ghi | psql -h switch-db2.erg.berkeley.edu -U jimmy -d switch_gis
+-- shp2pgsql -s 4326 -d -I -g the_geom /Volumes/switch/Models/USA_CAN/Solar/NREL_avg_maps/us9809_dni_updated/us9809_dni_updated.shp usa_can.solar_nrel_avg_dni | psql -h switch-db2.erg.berkeley.edu -U jimmy -d switch_gis
+-- shp2pgsql -s 4326 -d -I -g the_geom /Volumes/switch/Models/USA_CAN/Solar/NREL_avg_maps/us9809_latilt_updated/us9809_latilt_updated.shp usa_can.solar_nrel_avg_latitudetilt | psql -h switch-db2.erg.berkeley.edu -U jimmy -d switch_gis
 ALTER TABLE solar_nrel_avg_latitudetilt DROP COLUMN id;
 ALTER TABLE solar_nrel_avg_latitudetilt DROP COLUMN gid;
 ALTER TABLE solar_nrel_avg_latitudetilt ALTER COLUMN gridcode TYPE int;

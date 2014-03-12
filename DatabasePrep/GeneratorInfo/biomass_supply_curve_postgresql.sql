@@ -32,7 +32,7 @@
 
 -- IMPORT TO POSTGRESQL --------------------------------------------
 -- First, import the Agricultural Statistical Districts (ASD) shapefile to postgresql from the command line
--- shp2pgsql -s 4326 /Volumes/1TB_RAID/Models/GIS/Biomass_Resource_Supply_Module_NEMS_2007/POLYSIS_Shapefiles/POLYSIS.dbf biomass_asd_polygons | psql -h switch-db1.erg.berkeley.edu -U jimmy -d switch_gis
+-- shp2pgsql -s 4326 /Volumes/1TB_RAID/Models/GIS/Biomass_Resource_Supply_Module_NEMS_2007/POLYSIS_Shapefiles/POLYSIS.dbf biomass_asd_polygons | psql -h switch-db2.erg.berkeley.edu -U jimmy -d switch_gis
 
 -- create a geometry index for easy intersection queries later
 CREATE INDEX Biomass_ASDs_geom_index
@@ -344,7 +344,7 @@ insert into spatial_ref_sys (srid, auth_name, auth_srid, srtext, proj4text) valu
 	'PROJCS["USA_Contiguous_Lambert_Conformal_Conic",GEOGCS["GCS_North_American_1983",DATUM["D_North_American_1983",SPHEROID["GRS_1980",6378137,298.257222101]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]],PROJECTION["Lambert_Conformal_Conic"],PARAMETER["False_Easting",0],PARAMETER["False_Northing",0],PARAMETER["Central_Meridian",-96],PARAMETER["Standard_Parallel_1",33],PARAMETER["Standard_Parallel_2",45],PARAMETER["Latitude_Of_Origin",39],UNIT["Meter",1]]',
 	'+proj=lcc +lat_1=33 +lat_2=45 +lat_0=39 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +datum=NAD83 +units=m +no_defs');
 
--- shp2pgsql -s 102004 /Volumes/1TB_RAID/Models/GIS/Biomass_UC_Davis_2011_Nathan_Parker/place.dbf biomass_ucd_places | psql -h switch-db1.erg.berkeley.edu -U jimmy -d switch_gis
+-- shp2pgsql -s 102004 /Volumes/1TB_RAID/Models/GIS/Biomass_UC_Davis_2011_Nathan_Parker/place.dbf biomass_ucd_places | psql -h switch-db2.erg.berkeley.edu -U jimmy -d switch_gis
 
 -- now do the SRID transformation to make everything line up with other SWITCH shapefiles
 SELECT AddGeometryColumn ('public','biomass_ucd_places','place_geom',4326,'POINT',2);
@@ -485,7 +485,7 @@ order by load_area, biomass_type, year, price_dollars_per_ton, price_dollars_per
 -- and all except some random pieces of water from the UC Davis counties (not real counties - denoted with fips of XX000) are there
 -- so we can use the ventyx_counties_region shapefiles with the UC Davis counties table as a map table
 
--- shp2pgsql -s 102004 /Volumes/1TB_RAID/Models/GIS/Biomass_UC_Davis_2011_Nathan_Parker/county.dbf biomass_ucd_counties | psql -h switch-db1.erg.berkeley.edu -U jimmy -d switch_gis
+-- shp2pgsql -s 102004 /Volumes/1TB_RAID/Models/GIS/Biomass_UC_Davis_2011_Nathan_Parker/county.dbf biomass_ucd_counties | psql -h switch-db2.erg.berkeley.edu -U jimmy -d switch_gis
 alter table biomass_ucd_counties drop column the_geom;
 alter table biomass_ucd_counties rename column qid to location_id;
 

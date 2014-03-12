@@ -6,7 +6,7 @@ ALTER USER jimmy SET SEARCH_PATH TO wecc_inputs, public;
 
 -- IMPORT LOAD AREA SHAPEFILES-------------------
 -- shp2pgsql will automatically index the geometries with -I
--- shp2pgsql -s 4326 -d -I -g polygon_geom /Volumes/switch/Models/USA_CAN/shapefiles_used_to_make_load_areas/wecc_load_areas.shp wecc_inputs.wecc_load_areas_import | psql -h switch-db1.erg.berkeley.edu -U jimmy -d switch_gis
+-- shp2pgsql -s 4326 -d -I -g polygon_geom /Volumes/switch/Models/USA_CAN/shapefiles_used_to_make_load_areas/wecc_load_areas.shp wecc_inputs.wecc_load_areas_import | psql -h switch-db2.erg.berkeley.edu -U jimmy -d switch_gis
 
 CREATE TABLE wecc_load_areas (
   area_id serial primary key,
