@@ -1,6 +1,6 @@
 -- makes the switch input database from which data is thrown into ampl via 'get_switch_input_tables.sh'
 -- run at command line from the DatabasePrep directory:
--- mysql -h switch-db1.erg.berkeley.edu -u jimmy -p < /Volumes/1TB_RAID/Models/Switch\ Runs/WECCv2_2/122/DatabasePrep/Build\ WECC\ Cap\ Factors.sql
+-- mysql -h switch-db2.erg.berkeley.edu -u jimmy -p < /Volumes/1TB_RAID/Models/Switch\ Runs/WECCv2_2/122/DatabasePrep/Build\ WECC\ Cap\ Factors.sql
   
 create database if not exists switch_inputs_wecc_v2_2;
 use switch_inputs_wecc_v2_2;

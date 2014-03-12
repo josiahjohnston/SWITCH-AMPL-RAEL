@@ -26,7 +26,7 @@ function print_help {
 # Default values
 read SCENARIO_ID < scenario_id.txt
 DB_name='switch_results_wecc_v2_2_cofire'
-db_server='switch-db1.erg.berkeley.edu'
+db_server='switch-db2.erg.berkeley.edu'
 port=3306
 ssh_tunnel=1
 results_dir="results"
