@@ -38,7 +38,7 @@ END_HELP
 # Export SWITCH input data from the Switch inputs database into text files that will be read in by AMPL
 
 write_to_path='inputs'
-db_server="switch-db1.erg.berkeley.edu"
+db_server="switch-db2.erg.berkeley.edu"
 DB_name="switch_gis"
 
 ###################################################
