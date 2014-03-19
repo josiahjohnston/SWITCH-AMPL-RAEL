@@ -1,0 +1,60 @@
+technology	tech_group
+Battery_Storage	"Battery Storage"
+Biomass_IGCC	Biomass
+Biomass_IGCC_CCS	"Biomass CCS"
+Bio_Gas	Biomass
+Bio_Gas_Internal_Combustion_Engine_Cogen	Biomass
+Bio_Gas_Internal_Combustion_Engine_Cogen_EP	Biomass
+Bio_Gas_Internal_Combustion_Engine_EP	Biomass
+Bio_Gas_Steam_Turbine_EP	Biomass
+Bio_Liquid_Steam_Turbine_Cogen	Biomass
+Bio_Liquid_Steam_Turbine_Cogen_EP	Biomass
+Bio_Solid_Steam_Turbine_Cogen	Biomass
+Bio_Solid_Steam_Turbine_Cogen_CCS	"Biomass CCS"
+Bio_Solid_Steam_Turbine_Cogen_EP	Biomass
+Bio_Solid_Steam_Turbine_EP	Biomass
+CCGT	"Gas CCGT"
+CCGT_CCS	"Gas CCGT + CCS"
+CCGT_Cogen	"Gas CCGT"
+CCGT_Cogen_CCS	"Gas CCGT + CCS"
+CCGT_Cogen_EP	"Gas CCGT"
+CCGT_EP	"Gas CCGT"
+Central_PV	Solar
+Coal_IGCC	Coal
+Coal_IGCC_CCS	"Coal CCS"
+Coal_Steam_Turbine	Coal
+Coal_Steam_Turbine_CCS	"Coal CCS"
+Coal_Steam_Turbine_Cogen	Coal
+Coal_Steam_Turbine_Cogen_CCS	"Coal CCS"
+Coal_Steam_Turbine_Cogen_EP	Coal
+Coal_Steam_Turbine_EP	Coal
+Commercial_PV	"Solar Distrib"
+Compressed_Air_Energy_Storage	"Gas CT + storage"
+CSP_Trough_6h_Storage	"Solar Thermal"
+CSP_Trough_No_Storage	"Solar Thermal"
+DistillateFuelOil_Combustion_Turbine_EP	Other
+DistillateFuelOil_Internal_Combustion_Engine_EP	Other
+Gas_Combustion_Turbine	"Gas CT"
+Gas_Combustion_Turbine_CCS	"Gas CT + CCS"
+Gas_Combustion_Turbine_Cogen	"Gas CT"
+Gas_Combustion_Turbine_Cogen_CCS	"Gas CT + CCS"
+Gas_Combustion_Turbine_Cogen_EP	"Gas CT"
+Gas_Combustion_Turbine_EP	"Gas CT"
+Gas_Internal_Combustion_Engine_Cogen	"Other"
+Gas_Internal_Combustion_Engine_Cogen_CCS	"Other"
+Gas_Internal_Combustion_Engine_Cogen_EP	"Other"
+Gas_Internal_Combustion_Engine_EP	"Other"
+Gas_Steam_Turbine_Cogen	"Other"
+Gas_Steam_Turbine_Cogen_CCS	"Other"
+Gas_Steam_Turbine_Cogen_EP	"Other"
+Gas_Steam_Turbine_EP	"Other"
+Geothermal	Geo
+Geothermal_EP	Geo
+Hydro_NonPumped_EP	Hydro
+Hydro_Pumped_EP	"Hydro + storage"
+Nuclear	Nuclear
+Nuclear_EP	Nuclear
+Offshore_Wind	Wind
+Residential_PV	"Solar Distrib"
+Wind	Wind
+Wind_EP	Wind

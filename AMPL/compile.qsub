@@ -9,8 +9,8 @@
 # How long you expect the job to run. The PBS scheduler will kill the job after this long. 72h is the maximum. Format is HH:MM:SS
 #PBS -l walltime=01:00:00
 # Name of the files to direct stdout and stderr. These files will be written to the working directory. 
-#PBS -o logs/outfile
-#PBS -e logs/errfile
+#PBS -o logs/compile.log
+#PBS -e logs/compile.err
 # The scheduler will send updates to this email.
 #PBS -M example@phoney.ugh
 # When do you want notifications? a = abort (aka failure), b = begin, e = end (without crashing)
@@ -36,3 +36,6 @@ ampl_commands="include load.run; include compile.run; exit;"
 printf "Starting AMPL compilation on "$(hostname)" with commands:\n\t$ampl_commands\n";
 log_base="logs/ampl_compilation_"$(date +'%m_%d_%H_%M_%S')
 echo "$ampl_commands" | ampl 1>$log_base".log"  2>$log_base".error_log" 
+
+ampl_lic return ampl
+ampl_lic stop
