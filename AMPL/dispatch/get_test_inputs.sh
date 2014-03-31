@@ -194,7 +194,7 @@ fi
 # Make links to the common input files in the parent directory instead of exporting from the DB again
 input_dir="common_inputs"
 mkdir -p $input_dir tmp
-for f in balancing_areas.tab biomass_supply_curve.tab carbon_cap_targets.tab existing_plants.tab fuel_costs.tab fuel_info.tab generator_costs.tab generator_info.tab load_areas.tab max_system_loads.tab misc_params.dat misc_options.run ng_supply_curve.tab  ng_regional_price_adders.tab proposed_projects.tab rps_compliance_entity_targets.tab scenario_information.txt transmission_lines.tab ; do
+for f in balancing_areas.tab biomass_supply_curve.tab carbon_cap_targets.tab existing_plants.tab fuel_costs.tab fuel_info.tab generator_costs.tab generator_info.tab load_areas.tab max_system_loads.tab misc_params.dat misc_options.run ng_leakage_params.dat ng_supply_curve.tab  ng_regional_price_adders.tab proposed_projects.tab rps_compliance_entity_targets.tab scenario_information.txt transmission_lines.tab ; do
   if [ -f ../inputs/$f ]; then
     ln -sf ../../inputs/$f $input_dir/
   else
