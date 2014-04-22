@@ -4,7 +4,7 @@
 #		./export_carbon_intensity.sh --tunnel -np --scenario_id 2105 --carbon_cost 0 --fuel_cat_id 3 --study_date 20490417
 # DESCRIPTION
 # 
-# RECOMMENDED INPUTS
+# RECOMMENDED INPUTS.
 #  -s/--scenario_id [scenario_id] 
 #  -c/--carbon_cost [carbon_cost] 
 #  -f | --fuel_cat_id [fuel_category_id] 
