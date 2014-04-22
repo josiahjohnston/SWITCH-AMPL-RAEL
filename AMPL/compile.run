@@ -30,5 +30,4 @@ for {c in CARBON_COSTS} {
 	}
 }
 
-
 printf "Finished compiling.\n";

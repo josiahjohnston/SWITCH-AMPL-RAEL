@@ -34,21 +34,20 @@ option substout 1, linelim 1;
 # Options to enable timing of compilation
 # option show_stats 1, times 1, gentimes 1;
 option solver cplexamp;
-option cplex_options (" threads=4 presolve=1 prestats=1 nodefile=2 baropt barobjrange=1e+30 comptol=1e-9 lpdisplay=1 bardisplay=2 timing=1 startalgorithm=4 mipdisplay=4 " );
+option cplex_options (" lpdisplay=1 mipdisplay=2 presolve=1 prestats=1 timing=1 nodefile=2 treememory=15000 threads=4" );
 # Use the option string below to enable iisfind when you are trying to diagnose infeasibilities
 #option cplex_options (" lpdisplay=1 iisfind=1 mipdisplay=2 presolve=1 prestats=1 timing=1 nodefile=2 treememory=15000 threads=4" );
 option cplex_options > results/cplex_options;
 shell('sed -i -e "s/^.*' & "'\(.*\)'" & ';/\1/" results/cplex_options');
 
-# make SWITCH china have default LP runs
-option relax_integrality  1;
 
 # Include other AMPL code files. 
 model switch.mod;
 include define_params.run;
 data switch.dat;
 data inputs/misc_params.dat;
-param overwrite_output_files := 1;
+
+
 
 #########################
 # Read in data from tab files exported from mysql by get_switch_input_tables.sh
@@ -69,32 +68,16 @@ table transmission_lines "inputs/transmission_lines.tab" IN:
   transmission_length_km, transmission_efficiency, new_transmission_builds_allowed;
 read table transmission_lines;
 
-#table nuclear_targets "inputs/nuclear_targets.tab" IN:
-#	[province, year], nuclear_target;
-#read table nuclear_targets;
-#
-#table wind_plan "inputs/wind_plan.tab" IN:
-#	[province, year], wind_plan_capacity;
-#read table wind_plan;
-
-#table carbon_cap_targets "inputs/carbon_cap_targets.tab" IN: 
-#  [year], carbon_cap;
-#read table carbon_cap_targets;
-
-table carbon_cost_by_year_table "inputs/carbon_costs.tab" IN: 
-  [year], carbon_cost_by_year;
-read table carbon_cost_by_year_table;
-
 table study_hours "inputs/study_hours.tab" IN: 
   TIMEPOINTS <- [hour], period, date, hours_in_sample, month_of_year, hour_of_day;
 read table study_hours;
 
 table province_hourly_demand "inputs/province_hourly_demand.tab" IN: 
-  [province, hour], system_load;
+  [province, hour], province_demand_mwh;
 read table province_hourly_demand;
 
 table max_province_demand "inputs/max_province_demand.tab" IN: 
-  [province, period], max_system_load;
+  [province, period], max_province_demand_mwh;
 read table max_province_demand;
 
 table existing_plants "inputs/existing_plants.tab" IN: 

@@ -4,7 +4,7 @@
 #		./export_carbon_intensity.sh --tunnel -np --scenario_id 2105 --carbon_cost 0 --fuel_cat_id 3 --study_date 20490417
 # DESCRIPTION
 # 
-# RECOMMENDED INPUTS.
+# RECOMMENDED INPUTS
 #  -s/--scenario_id [scenario_id] 
 #  -c/--carbon_cost [carbon_cost] 
 #  -f | --fuel_cat_id [fuel_category_id] 
@@ -29,13 +29,11 @@ function print_help {
 	head -n $last_line $0 | sed -e '/^#[ 	]/ !d' -e 's/^#[ 	]//'
 }
 
-# Set the umask to give group read & write permissions to all files & directories made by this script.
-umask 0002
 
 # Export SWITCH input data from the Switch inputs database into text files that will be read in by AMPL
 # This script assumes that the input database has already been built by the script 'Build WECC Cap Factors.sql'
 
-db_server="switch-db2.erg.berkeley.edu"
+db_server="switch-db1.erg.berkeley.edu"
 DB_name="switch_results_wecc_v2_2"
 port=3306
 ssh_tunnel=0

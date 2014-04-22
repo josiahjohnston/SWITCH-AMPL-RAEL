@@ -1,4 +1,6 @@
-# This is the fundamental code of Switch which compiles a linear program to be solved by CPLEX.
+# This is the fundamental code of Switch which compiles a mixed integer linear program to be solved by CPLEX.
+# Most constants are found in windsun.dat, while run-time variables are in the various .tab files.
+# A combination of windsun.run and switch.run wrap around windsun.mod.
 
 ###############################################
 # Time-tracking parameters
@@ -105,7 +107,7 @@ param regional_grid_company {PROVINCES} symbolic in REGIONAL_GRID_COMPANIES;
 # the year to which all costs should be discounted and the year for which all costs are specified
 # so this means that the capital cost of a generator is in $base_year and would have cost $overnight_cost in $base_year
 # overnight_costs of generators march down their overnight_cost_change curves in years past this number
-param base_year = 2009 ;
+param base_year = 2010 ;
 
 # annual rate (real) to use to discount future costs to current year
 # a 8% real discount rate was chosen as per the recommendations of the NDRC
@@ -428,12 +430,13 @@ param ep_end_year {(pid, a, t) in EXISTING_PLANTS} =
 set EP_PERIODS :=
   { (pid, a, t) in EXISTING_PLANTS, p in PERIODS:
   		( p < ep_end_year[pid, a, t] ) or
-		( hydro[t] ) or
-  		( t = 'Nuclear_Existing' ) };
+		( hydro[t] ) or 
+		( t = 'Nuclear_EP' ) };
+#	( fuel[t] = 'Uranium' ) };
 
 # if a period exists that is >= ep_end_year[pid, a, t], then this plant can be operational past the expected lifetime of the plant
-param ep_could_be_operating_past_expected_lifetime { (pid, a, t, p) in EP_PERIODS } =
-  (if p >= ep_end_year[pid, a, t]
+param ep_could_be_operating_past_expected_lifetime { (pid, a, t, p) in EP_PERIODS } = 
+   (if p >= ep_end_year[pid, a, t]
    then 1
    else 0);
 
@@ -479,6 +482,35 @@ set PROJECT_VINTAGE_HOURS := { (pid, a, t, p, h) in AVAILABLE_HOURS: can_build_n
 set AVAILABLE_DATES := setof { (pid, a, t, p, h) in AVAILABLE_HOURS, d in DATES: date[h] = d } (pid, a, t, p, d);
 set PROJECT_AVAILABLE_DATES := { (pid, a, t, p, d) in AVAILABLE_DATES: can_build_new[t] };
 set EP_AVAILABLE_DATES := { (pid, a, t, p, d) in AVAILABLE_DATES: not can_build_new[t] };
+
+
+###################################################################
+### Nuclear Plan for each province 
+#param enable_nuclear_plan >= 0, <=1 default 1;
+#
+##set NUCLEAR_TARGETS dimen 2; #PROVINCE, TARGET_YEAR
+#
+#param nuclear_target {PROVINCES, YEARS};
+#
+##average the nuclear targets over a period to get the nuclear target for that period
+#param nuclear_targets_period {a in PROVINCES, p in PERIODS} = 
+#	( sum {yr in YEARS: yr >= p and yr < p + num_years_per_period} nuclear_target[a, yr] / num_years_per_period );
+#	
+#set NUCLEAR_TARGETS = {a in PROVINCES, p in PERIODS: nuclear_targets_period [a, p] >=0 };
+#
+#
+###################################################################
+### Wind Plan for each province 
+#
+##set Windbase_Plan dimen 2; #PROVINCE, TARGET_YEAR
+#
+#param wind_plan_capacity {PROVINCES, YEARS};
+#
+##average the nuclear targets over a period to get the nuclear target for that period
+#param wind_plan_period {a in PROVINCES, p in PERIODS} = 
+#	( sum {yr in YEARS: yr >= p and yr < p + num_years_per_period} wind_plan_capacity[a, yr] / num_years_per_period );
+#	
+#set WIND_PLAN = {a in PROVINCES, p in PERIODS: wind_plan_period [a, p] >=0 };
 
 
 ##################################################################
@@ -538,22 +570,29 @@ param rps_fuel_category_tech {t in TECHNOLOGIES: t <> 'Battery_Storage'} symboli
 #### Carbon Cost
 ## cost of carbon emissions ($/ton), e.g., from a carbon tax
 ## can also be set negative to drive renewables out of the system
+
 param carbon_cost default 0;
-#
+
 ## set and parameters used to make carbon cost curves
 set CARBON_COSTS ordered;
-#
+
+param carbon_cost_by_year {y in {start_year..end_year}};
+param carbon_cost_by_period {p in PERIODS} = 
+	( sum {yr in YEARS: yr >= p and yr < p + num_years_per_period} carbon_cost_by_year[yr] / num_years_per_period );
+
 #### Carbon Cap
 ## does this scenario include a cap on carbon emissions?
-#param enable_carbon_cap >= 0, <= 1 default 1;
+param enable_carbon_cap >= 0, <= 1 default 0;
 #
-## the base (1990) carbon emissions in tCO2/Yr
-#param base_carbon_emissions = 284800000;
-## the fraction of emissions relative to the base year of 1990 that should be allowed in a given year
+## the base (2005) carbon emissions in tCO2/Yr
+#param base_carbon_emissions = 2779208160;
+## the fraction of emissions relative to the base year of 2005 that should be allowed in a given year
 #param carbon_emissions_relative_to_base {YEARS};
 ## add up all the targets for each period to get the total cap level in each period
-#param carbon_cap {p in PERIODS} = base_carbon_emissions *
+# param carbon_cap {p in PERIODS} = base_carbon_emissions *
 #		( sum{ y in YEARS: y >= p and y < p + num_years_per_period } carbon_emissions_relative_to_base[y] );
+# param carbon_cap {YEARS};
+
 #
 ##############################################
 # Existing hydro plants (assumed impossible to build more, but these last forever)
@@ -729,7 +768,7 @@ param fuel_cost_hourly { (pid, a, t, p, h) in AVAILABLE_HOURS } =
 # same for the carbon cost per MWh
 param carbon_cost_per_mwh_hourly { (pid, a, t, p, h) in AVAILABLE_HOURS } = 
 	( if can_build_new[t] then heat_rate[pid, a, t] else ep_heat_rate[pid, a, t] )
-	* carbon_content[fuel[t]] * carbon_cost
+	* carbon_content[fuel[t]] * carbon_cost_by_period[p]
 	* ( hours_in_sample[h] / num_years_per_period ) * discount_to_base_year[p];
 
 # now tally all variable costs ($/MWh costs) by period for generators that aren't dispached hourly (i.e. intermittent and baseload)
@@ -775,7 +814,7 @@ param fuel_cost_hourly_spinning_reserve { (pid, a, t, p, h) in AVAILABLE_HOURS }
 	* ( hours_in_sample[h] / num_years_per_period ) * discount_to_base_year[p];
 
 param carbon_cost_per_mwh_hourly_spinning_reserve { (pid, a, t, p, h) in AVAILABLE_HOURS } = 
-	heat_rate_spinning_reserve[pid, a, t] * carbon_content[fuel[t]] * carbon_cost
+	heat_rate_spinning_reserve[pid, a, t] * carbon_content[fuel[t]] * carbon_cost_by_period[p]
 	* ( hours_in_sample[h] / num_years_per_period ) * discount_to_base_year[p];
 
 # The maximum percentage of generator capacity that can be dedicated to spinning reserves (as opposed to useful generation)
@@ -842,7 +881,7 @@ param distribution_losses = 0.053;
 ###############################################
 # Transmission lines
 
-# the cost to maintain the existing transmission infrustructure over all of WECC
+# the cost to maintain the existing transmission infrustructure over all of China
 param existing_transmission_sunk_annual_payment {PROVINCES} >= 0;
 
 # forced outage rate for transmission lines, used for probabilistic dispatch(!)
@@ -875,7 +914,7 @@ set TRANSMISSION_LINES_NEW_BUILDS_ALLOWED := { (a1, a2) in TRANSMISSION_LINES: n
 # $ cost per mw-km for new transmission lines
 # because transmission lines are built in one direction only and then constrained to have the same capacity in both directions
 # the per direction value needs to be half of what it would cost to install each line
-param transmission_capital_cost_per_mw_km = 1000;
+param transmission_capital_cost_per_mw_km = 300;
 param transmission_capital_cost_per_mw_km_per_direction = transmission_capital_cost_per_mw_km / 2;
 
 # costs for transmission maintenance, which is quoted as 3% of the installation cost in the 2009 WREZ transmission model transmission data
@@ -1142,6 +1181,22 @@ minimize Power_Cost:
 
 ###### Policy Constraints #######
 
+## Nuclear plan constraint, all available installed capacity should reach the accumulated capacity by a future year
+#subject to Satisfy_Nuclear_Plan {a in PROVINCES, p in PERIODS}:
+#	# existing nuclear
+#	( sum { (pid, a, t, p) in EP_PERIODS: fuel[t] = 'Uranium' } ep_capacity_mw[pid, a, t] )
+#	# new nuclear
+#	+ ( sum { (pid, a, t, p) in PROJECT_VINTAGES: fuel[t] = 'Uranium' } Installed_To_Date[pid, a, t, p] ) 
+#	>= nuclear_targets_period[a, p];
+#	
+## Wind plan constraint
+#subject to Satisfy_Wind_Plan {a in PROVINCES, p in PERIODS}:
+#	# existing wind
+#	( sum { (pid, a, t, p) in EP_PERIODS: fuel[t] = 'Wind' } ep_capacity_mw[pid, a, t] )
+#	# new nuclear
+#	+ ( sum { (pid, a, t, p) in PROJECT_VINTAGES: fuel[t] = 'Wind' } Installed_To_Date[pid, a, t, p] ) 
+#	>= wind_plan_period[a, p];
+
 ## RPS constraint
 ## load.run will drop this constraint if enable_rps is 0
 #subject to Satisfy_RPS { (r, c, p) in RPS_TARGETS: able_to_meet_rps[r, c, p] }:
@@ -1152,6 +1207,8 @@ minimize Power_Cost:
 #      ( ConsumeNonDistributedPower[a,h,fc] + ConsumeDistributedPower[a,h,fc] ) * hours_in_sample[h] )
 #	# distributed RPS is an RPS target that must be met by distributed power, modeled in SWITCH currently as distributed PV
 #	else if c = 'Distributed' then
+
+
 #	( sum { a in PROVINCES, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY: rps_compliance_entity[a] = r and period[h] = p and fuel_qualifies_for_rps[r, fc] } 
 #      ConsumeDistributedPower[a,h,fc] * hours_in_sample[h] )
 #      )
@@ -1183,7 +1240,7 @@ minimize Power_Cost:
 #	  * carbon_content[fuel[t]] * hours_in_sample[h] )
 #	# Carbon emissions from new baseload plants
 #	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t]}
-#		(sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] ) * gen_availability[t] * heat_rate[pid, a, t] * carbon_content[fuel[t]] * hours_in_sample[h] )
+#		Installed_To_Date[pid, a, t, p] * gen_availability[t] * heat_rate[pid, a, t] * carbon_content[fuel[t]] * hours_in_sample[h] )
 #	# Carbon emissions from new flexible baseload plants
 #	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: flexible_baseload[t] } (
 #	   DispatchFlexibleBaseload[pid, a, t, p, date[h]] * heat_rate[pid, a, t] * carbon_content[fuel[t]] * hours_in_sample[h] ) )
@@ -1195,7 +1252,7 @@ minimize Power_Cost:
 #	# Carbon emissions from heat rate degradation of flexible baseload plants operating below full load
 #	+ ( sum { (pid, a, t, p, h) in AVAILABLE_HOURS: flexible_baseload[t] } (
 #	    ( if can_build_new[t]
-# then ( (sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] ) * #gen_availability[t]
+# then ( (sum { (pid, a, t, online_yr, p) in PROJECT_VINTAGE_INSTALLED_PERIODS } InstallGen[pid, a, t, online_yr] ) * gen_availability[t]
 #	    - DispatchFlexibleBaseload[pid, a, t, p, date[h]] )
 # else ( OperateEPDuringPeriod[pid, a, t, p] * ep_capacity_mw[pid, a, t] * gen_availability[t]
 #		- DispatchFlexibleBaseload[pid, a, t, p, date[h]] ) ) * deep_cycling_penalty[t] 
@@ -1203,7 +1260,7 @@ minimize Power_Cost:
 #	    * carbon_content[fuel[t]] * hours_in_sample[h] )
 #	    )
 #  	<= carbon_cap[p];
-#
+
 
 #################################################
 # Power conservation constraints
@@ -1686,6 +1743,7 @@ problem Investment_Cost_Minimization:
 	Conservation_Of_Energy_NonDistributed, Conservation_Of_Energy_Distributed,
     ConsumeNonDistributedPower, ConsumeDistributedPower,
   # Policy Constraints
+  #	Satisfy_Nuclear_Plan, Satisfy_Wind_Plan,
 #	Satisfy_RPS, Meet_California_Solar_Initiative, Carbon_Cap,
   # Investment Decisions
 	InstallGen, BuildGenOrNot, InstallTrans, 
