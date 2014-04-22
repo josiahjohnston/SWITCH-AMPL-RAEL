@@ -17,209 +17,210 @@ for {c in CARBON_COSTS} {
 		let carbon_cost := c;
     
     # Export results if the solution file exists. 
-		if ( file_exists(solution_path) ) then {
-			printf "\nLoading solution from disk for a carbon cost of %d.\n", carbon_cost;
-			let curtime := time();
-			solution (solution_path);
-			printf "%d seconds to create a problem instance and load a solution from disk.\n", (time() - curtime);
-			# Delete the problem .nl file to save disk space if we have made it this far and the problem file still exists
-			shell( "[ -f '" & problem_path & "' ] && rm '" & problem_path & "'" );
-			
-			# update recording variables and show some info about this run
-			let curtime := time();
-			include basicstats.run;
-			printf "%d seconds to calculate basic statistics.\n", (time() - curtime);
-
-      let curtime := time();
+	if ( file_exists(solution_path) ) then {
+		printf "\nLoading solution from disk for a carbon cost of %d.\n", carbon_cost;
+		let curtime := time();
+		solution (solution_path);
+		printf "%d seconds to create a problem instance and load a solution from disk.\n", (time() - curtime);
+		# Delete the problem .nl file to save disk space if we have made it this far and the problem file still exists
+		shell( "[ -f '" & problem_path & "' ] && rm '" & problem_path & "'" );
+		
+		# update recording variables and show some info about this run
+		let curtime := time();
+		include basicstats.run;
+		printf "%d seconds to calculate basic statistics.\n", (time() - curtime);
+	
+		  let curtime := time();
            
-      #######################
-      # store all hourly generation data in standardized, MW terms
-      # followed by all hourly storage dispatch decisions
-      
-      # hourly power production from each source
-      # as well as total CO2 emissions per hour, heat rate, variable costs per MWh
-      # storage is included here with a fuel of 'Storage' and power < 0 when storing
-      let output_section := 'generator_and_storage_dispatch';
-      let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
-      if ( file_exists(outfile) == 0 ) then {
-      printf "scenario_id	carbon_cost	period	project_id	province_id	province	regional_grid_company	date	hour	technology_id	technology	new	baseload	cogen	storage	fuel	fuel_category	hours_in_sample	power	co2_tons	heat_rate	fuel_cost	carbon_cost_hourly	variable_o_m	spinning_reserve	quickstart_capacity	total_operating_reserve	spinning_co2_tons	spinning_fuel_cost	spinning_carbon_cost_incurred	deep_cycling_amount	deep_cycling_fuel_cost	deep_cycling_carbon_cost	deep_cycling_co2_tons\n"
-        > (outfile); }
-      
-      # New Plants
-      printf {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' and ( Power_Produced[pid, a, t, p, h] + Total_Operating_Reserve_Provided[pid, a, t, p, h] ) > 0.001 } 
-        "%s	%d	%d	%d	%d	%s	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	 %.2f	 %.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
-        scenario_id, carbon_cost, p, pid, province_id[a], a, regional_grid_company[a],
-        (if present_day_optimization then present_day_date[h] else date[h]),
-        (if present_day_optimization then present_day_timepoint[h] else h),
-        technology_id[t], t, 1, baseload[t], 0, 0, fuel[t], rps_fuel_category[fuel[t]], hours_in_sample[h],
-        Power_Produced[pid, a, t, p, h], 
-        Carbon_Emissions[pid, a, t, p, h],
-        heat_rate[pid, a, t], 
-        Fuel_Cost_Incurred_Hourly[pid, a, t, p, h],
-        Carbon_Cost_Incurred_Hourly[pid, a, t, p, h],
-        Variable_Cost_Incurred_Hourly[pid, a, t, p, h],
-        Spinning_Reserve_Provided[pid, a, t, p, h],
-        Quickstart_Capacity_Provided[pid, a, t, p, h],
-        Total_Operating_Reserve_Provided[pid, a, t, p, h],
-        Thermal_Spinning_Reserve_Carbon_Emissions[pid, a, t, p, h],
-        Thermal_Spinning_Reserve_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h],
-        Thermal_Spinning_Reserve_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h],
-        Amount_Deep_Cycled[pid, a, t, p, h],
-        Deep_Cycling_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h],
-        Deep_Cycling_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h],
-        Deep_Cycling_Carbon_Emissions[pid, a, t, p, h]
-        >> (outfile);
-      
-      
-      # Existing Plants
-      printf {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: ( ProducePowerEP[pid, a, t, p, h] + Total_Operating_Reserve_Provided[pid, a, t, p, h] ) > 0.001} 
-        "%s	%d	%d	%d	%d	%s	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	 %.2f	 %.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
-        scenario_id, carbon_cost, p, pid, province_id[a], a, regional_grid_company[a],
-        (if present_day_optimization then present_day_date[h] else date[h]),
-        (if present_day_optimization then present_day_timepoint[h] else h),
-        technology_id[t], t, 0, baseload[t], cogen[t], 0, fuel[t], rps_fuel_category_tech[t], hours_in_sample[h],
-        ProducePowerEP[pid, a, t, p, h], 
-        EP_Carbon_Emissions[pid, a, t, p, h],
-        ep_heat_rate[pid, a, t], 
-        EP_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h],
-        EP_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h],
-        EP_Variable_Cost_Incurred_Hourly[pid, a, t, p, h],
-        Spinning_Reserve_Provided[pid, a, t, p, h],
-        Quickstart_Capacity_Provided[pid, a, t, p, h],
-        Total_Operating_Reserve_Provided[pid, a, t, p, h],
-        Thermal_Spinning_Reserve_Carbon_Emissions[pid, a, t, p, h],
-        Thermal_Spinning_Reserve_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h],
-        Thermal_Spinning_Reserve_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h],
-        Amount_Deep_Cycled[pid, a, t, p, h],
-        Deep_Cycling_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h],
-        Deep_Cycling_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h],
-        Deep_Cycling_Carbon_Emissions[pid, a, t, p, h]
-        >> (outfile);
-      
-      
-      # Store all STORAGE DISPATCH decisions.  Don't have to pay variable O&M for storing at the moment.
-      printf {  (pid, a, t, p, h) in AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t] and ( not ( -0.01 < Storage_Net_Power[pid, a, t, p, h, fc] < 0.01 ) or Total_Storage_Operating_Reserve_Provided[pid, a, t, p, h] > 0 ) } 
-        "%s	%d	%d	%d	%d	%s	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	 %.2f	 %.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
-        scenario_id, carbon_cost, p, pid, province_id[a], a, regional_grid_company[a],
-        (if present_day_optimization then present_day_date[h] else date[h]),
-        (if present_day_optimization then present_day_timepoint[h] else h),
-        technology_id[t], t, can_build_new[t], 0, 0, 1, 'Storage', fc, hours_in_sample[h],
-        Storage_Net_Power[pid, a, t, p, h, fc],
-        0, 0, 0, 0,
-        if dispatchable[t] then 0 else Storage_Variable_Cost_Incurred_Hourly[pid, a, t, p, h, fc],
-        Storage_Spinning_Reserve_Provided_by_Fuel_Category[pid, a, t, p, h, fc],
-        Storage_Quickstart_Capacity_Provided_by_Fuel_Category[pid, a, t, p, h, fc],
-        Storage_Operating_Reserve_Provided_by_Fuel_Category[pid, a, t, p, h, fc],
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0
-        >> (outfile);
-      
-      close (outfile);
-      
-      
-      #######################
-      # store all generation CAPACITY data in standardized, MW terms
-      # (these are quoted as total capacity installed up through each study period)
-      
-      let output_section := 'generation_capacity';
-      let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
-      if ( file_exists(outfile) == 0 ) then {
-      printf "scenario_id	carbon_cost	period	project_id	province_id	province	technology_id	technology	site	new	baseload	cogen	fuel	capacity	capital_cost	fixed_o_m_cost\n"
-        > (outfile); }
-      
-      # New Plants, inclusive of new storage projects
-      printf {(pid, a, t, p) in PROJECT_VINTAGES: Installed_To_Date[pid, a, t, p]  > 0.001}
-        "%s	%d	%d	%d	%d	%s	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%.2f\n",
-        scenario_id, carbon_cost, p, pid, province_id[a], a, technology_id[t], t, location_id[pid, a, t], 1, baseload[t], cogen[t], fuel[t],
-        Installed_To_Date[pid, a, t, p],
-        Capital_Payments_by_Plant_and_Period[pid, a, t, p],
-        Fixed_OM_by_Plant_and_Period[pid, a, t, p]
-        >> (outfile);
-      
-      # existing plants (either baseload or dispatchable)
-      # note: they're only counted as "capacity" if they are operable during this period
-      # existing intermittent plants generally have low operational costs and are therefore kept running
-      printf {(pid, a, t, p) in EP_PERIODS}
-        "%s	%d	%d	%d	%d	%s	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%.2f\n",
-        scenario_id, carbon_cost, p, pid, province_id[a], a, technology_id[t], t,
-        ep_plant_name[pid, a, t], 0, baseload[t], cogen[t], fuel[t],
-        ( if ( intermittent[t] or hydro[t] ) then 1 else OperateEPDuringPeriod[pid, a, t, p] ) * ep_capacity_mw[pid, a, t],
-        EP_Capital_Payments_by_Plant_and_Period[pid, a, t, p], 
-        EP_Fixed_OM_by_Plant_and_Period[pid, a, t, p]
-        >> (outfile);
-      
-      close (outfile);
-      
-      ########################
-      # store all trans capacity between zones
-      let output_section := 'transmission_capacity';
-      let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
-      if ( file_exists(outfile) == 0 ) then {
-      printf "scenario_id	carbon_cost	period	transmission_line_id	start_id	end_id	start	end	new	trans_mw	fixed_cost\n"
-        > (outfile); }
-      
-      # existing lines
-      # the cost of the existing transmission grid is calculated in the param transmission_sunk_cost and is not included here
-      # because it includes all lines, not just the lines between provinces
-      printf { (a1, a2, p) in TRANSMISSION_LINE_PERIODS}:
-        "%s	%d	%d	%d	%d	%d	%s	%s	%d	%.2f	%d\n",
-        scenario_id, carbon_cost, p, transmission_line_id[a1, a2], province_id[a1], province_id[a2], a1, a2, 0,
-        existing_transfer_capacity_mw[a1, a2], 0
-        >> (outfile);
-      
-      # new lines
-      # the fixed cost here includes capital and O&M - could be disaggregated at some point
-      printf { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS }:
-        "%s	%d	%d	%d	%d	%d	%s	%s	%d	%.2f	%d\n",
-        scenario_id, carbon_cost, p, transmission_line_id[a1, a2], province_id[a1], province_id[a2], a1, a2, 1, 
-        Transmission_Installed_To_Date[a1, a2, p],
-        Transmission_New_Capital_Cost_Per_Period[a1, a2, p] + Transmission_Fixed_OM_Per_Period[a1, a2, p]
-        >> (outfile);
-      
-      close (outfile);
-      
-      #######################
-      # store hourly TRANSMISSION decisions in standardized, MW terms
-      
-      let output_section := 'transmission_dispatch';
-      let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
-      if ( file_exists(outfile) == 0 ) then {
-      printf "scenario_id	carbon_cost	period	transmission_line_id	province_receive_id	province_from_id	province_receive	province_from	date	hour	rps_fuel_category	power_sent	power_received	hours_in_sample\n"
-        > (outfile); }
-      
-      # detailed imports & exports
-      printf { (a1, a2, p, h) in TRANSMISSION_LINE_HOURS, fc in RPS_FUEL_CATEGORY: DispatchTransFromXToY[a1, a2, p, h, fc] > 0.001} 
-        "%s	%d	%d	%d	%d	%d	%s	%s	%d	%d	%s	%.2f	%.2f	%.2f\n",
-        scenario_id, carbon_cost, period[h], transmission_line_id[a1, a2], province_id[a2], province_id[a1], a2, a1,
-        (if present_day_optimization then present_day_date[h] else date[h]),
-        (if present_day_optimization then present_day_timepoint[h] else h),
-        fc, DispatchTransFromXToY[a1, a2, p, h, fc],
-        DispatchTransFromXToY[a1, a2, p, h, fc] * transmission_efficiency[a1, a2],
-        hours_in_sample[h]
-        >> (outfile);
-      close (outfile);
-      
-      ########################
-      # store the costs of all existing transmission capacity
-      let output_section := 'existing_trans_cost';
-      let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
-      if ( file_exists(outfile) == 0 ) then {
-      printf "scenario_id	carbon_cost	period	province_id	province	existing_trans_cost\n"
-        > (outfile); }
-      
-      printf {a in PROVINCES, p in PERIODS}:
-          "%s	%d	%d	%d	%s	%.2f\n",
-          scenario_id, carbon_cost, p, province_id[a], a,
-          Transmission_Existing_Cost_Per_Period[a, p]
-          >> (outfile);
-            
-      close (outfile);
-      
+	#######################
+	# store all hourly generation data in standardized, MW terms
+	# followed by all hourly storage dispatch decisions
+	
+	# hourly power production from each source
+	# as well as total CO2 emissions per hour, heat rate, variable costs per MWh
+	# storage is included here with a fuel of 'Storage' and power < 0 when storing
+	let output_section := 'generator_and_storage_dispatch';
+	let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
+	if ( file_exists(outfile) == 0 ) then {
+	printf "scenario_id	carbon_cost	period	project_id	province_id	province	regional_grid_company	date	hour	technology_id	technology	new	baseload	cogen	storage	fuel	fuel_category	hours_in_sample	power	co2_tons	heat_rate	fuel_cost	carbon_cost_hourly	variable_o_m	spinning_reserve	quickstart_capacity	total_operating_reserve	spinning_co2_tons	spinning_fuel_cost	spinning_carbon_cost_incurred	deep_cycling_amount	deep_cycling_fuel_cost	deep_cycling_carbon_cost	deep_cycling_co2_tons\n"
+	  > (outfile); }
+	
+	# New Plants
+	printf {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' and ( Power_Produced[pid, a, t, p, h] + Total_Operating_Reserve_Provided[pid, a, t, p, h] ) > 0.001 } 
+	  "%s	%d	%d	%d	%d	%s	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	 %.2f	 %.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
+	  scenario_id, carbon_cost, p, pid, province_id[a], a, regional_grid_company[a],
+	  (if present_day_optimization then present_day_date[h] else date[h]),
+	  (if present_day_optimization then present_day_timepoint[h] else h),
+	  technology_id[t], t, 1, baseload[t], 0, 0, fuel[t], rps_fuel_category[fuel[t]], hours_in_sample[h],
+	  Power_Produced[pid, a, t, p, h], 
+	  Carbon_Emissions[pid, a, t, p, h],
+	  heat_rate[pid, a, t], 
+	  Fuel_Cost_Incurred_Hourly[pid, a, t, p, h],
+	  Carbon_Cost_Incurred_Hourly[pid, a, t, p, h],
+	  Variable_Cost_Incurred_Hourly[pid, a, t, p, h],
+	  Spinning_Reserve_Provided[pid, a, t, p, h],
+	  Quickstart_Capacity_Provided[pid, a, t, p, h],
+	  Total_Operating_Reserve_Provided[pid, a, t, p, h],
+	  Thermal_Spinning_Reserve_Carbon_Emissions[pid, a, t, p, h],
+	  Thermal_Spinning_Reserve_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h],
+	  Thermal_Spinning_Reserve_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h],
+	  Amount_Deep_Cycled[pid, a, t, p, h],
+	  Deep_Cycling_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h],
+	  Deep_Cycling_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h],
+	  Deep_Cycling_Carbon_Emissions[pid, a, t, p, h]
+	  >> (outfile);
+	
+	
+	# Existing Plants
+	printf {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: ( ProducePowerEP[pid, a, t, p, h] + Total_Operating_Reserve_Provided[pid, a, t, p, h] ) > 0.001} 
+	  "%s	%d	%d	%d	%d	%s	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	 %.2f	 %.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
+	  scenario_id, carbon_cost, p, pid, province_id[a], a, regional_grid_company[a],
+	  (if present_day_optimization then present_day_date[h] else date[h]),
+	  (if present_day_optimization then present_day_timepoint[h] else h),
+	  technology_id[t], t, 0, baseload[t], cogen[t], 0, fuel[t], rps_fuel_category_tech[t], hours_in_sample[h],
+	  ProducePowerEP[pid, a, t, p, h], 
+	  EP_Carbon_Emissions[pid, a, t, p, h],
+	  ep_heat_rate[pid, a, t], 
+	  EP_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h],
+	  EP_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h],
+	  EP_Variable_Cost_Incurred_Hourly[pid, a, t, p, h],
+	  Spinning_Reserve_Provided[pid, a, t, p, h],
+	  Quickstart_Capacity_Provided[pid, a, t, p, h],
+	  Total_Operating_Reserve_Provided[pid, a, t, p, h],
+	  Thermal_Spinning_Reserve_Carbon_Emissions[pid, a, t, p, h],
+	  Thermal_Spinning_Reserve_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h],
+	  Thermal_Spinning_Reserve_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h],
+	  Amount_Deep_Cycled[pid, a, t, p, h],
+	  Deep_Cycling_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h],
+	  Deep_Cycling_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h],
+	  Deep_Cycling_Carbon_Emissions[pid, a, t, p, h]
+	  >> (outfile);
+	
+	
+	# Store all STORAGE DISPATCH decisions.  Don't have to pay variable O&M for storing at the moment.
+	printf {  (pid, a, t, p, h) in AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t] and ( not ( -0.01 < Storage_Net_Power[pid, a, t, p, h, fc] < 0.01 ) or Total_Storage_Operating_Reserve_Provided[pid, a, t, p, h] > 0 ) } 
+	  "%s	%d	%d	%d	%d	%s	%s	%d	%d	%d	%s	%d	%d	%d	%d	%s	%s	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	 %.2f	 %.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
+	  scenario_id, carbon_cost, p, pid, province_id[a], a, regional_grid_company[a],
+	  (if present_day_optimization then present_day_date[h] else date[h]),
+	  (if present_day_optimization then present_day_timepoint[h] else h),
+	  technology_id[t], t, can_build_new[t], 0, 0, 1, 'Storage', fc, hours_in_sample[h],
+	  Storage_Net_Power[pid, a, t, p, h, fc],
+	  0, 0, 0, 0,
+	  if dispatchable[t] then 0 else Storage_Variable_Cost_Incurred_Hourly[pid, a, t, p, h, fc],
+	  Storage_Spinning_Reserve_Provided_by_Fuel_Category[pid, a, t, p, h, fc],
+	  Storage_Quickstart_Capacity_Provided_by_Fuel_Category[pid, a, t, p, h, fc],
+	  Storage_Operating_Reserve_Provided_by_Fuel_Category[pid, a, t, p, h, fc],
+	  0,
+	  0,
+	  0,
+	  0,
+	  0,
+	  0,
+	  0
+	  >> (outfile);
+	
+	close (outfile);
+	
+	
+	#######################
+	# store all generation CAPACITY data in standardized, MW terms
+	# (these are quoted as total capacity installed up through each study period)
+	
+	let output_section := 'generation_capacity';
+	let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
+	if ( file_exists(outfile) == 0 ) then {
+	printf "scenario_id	carbon_cost	period	project_id	province_id	province	technology_id	technology	site	new	baseload	cogen	fuel	capacity	capital_cost	fixed_o_m_cost\n"
+	  > (outfile); }
+	
+	# New Plants, inclusive of new storage projects
+	printf {(pid, a, t, p) in PROJECT_VINTAGES: Installed_To_Date[pid, a, t, p]  > 0.001}
+	  "%s	%d	%d	%d	%d	%s	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%.2f\n",
+	  scenario_id, carbon_cost, p, pid, province_id[a], a, technology_id[t], t, location_id[pid, a, t], 1, baseload[t], cogen[t], fuel[t],
+	  Installed_To_Date[pid, a, t, p],
+	  Capital_Payments_by_Plant_and_Period[pid, a, t, p],
+	  Fixed_OM_by_Plant_and_Period[pid, a, t, p]
+	  >> (outfile);
+	
+	# existing plants (either baseload or dispatchable)
+	# note: they're only counted as "capacity" if they are operable during this period
+	# existing intermittent plants generally have low operational costs and are therefore kept running
+	printf {(pid, a, t, p) in EP_PERIODS}
+	  "%s	%d	%d	%d	%d	%s	%d	%s	%s	%d	%d	%d	%s	%.2f	%.2f	%.2f\n",
+	  scenario_id, carbon_cost, p, pid, province_id[a], a, technology_id[t], t,
+	  ep_plant_name[pid, a, t], 0, baseload[t], cogen[t], fuel[t],
+	  ( if ( intermittent[t] or hydro[t] ) then 1 else OperateEPDuringPeriod[pid, a, t, p] ) * ep_capacity_mw[pid, a, t],
+	  EP_Capital_Payments_by_Plant_and_Period[pid, a, t, p], 
+	  EP_Fixed_OM_by_Plant_and_Period[pid, a, t, p]
+	  >> (outfile);
+	
+	close (outfile);
+	
+	########################
+	# store all trans capacity between zones
+	let output_section := 'transmission_capacity';
+	let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
+	if ( file_exists(outfile) == 0 ) then {
+	printf "scenario_id	carbon_cost	period	transmission_line_id	start_id	end_id	start	end	new	trans_mw	fixed_cost\n"
+	  > (outfile); }
+	
+	# existing lines
+	# the cost of the existing transmission grid is calculated in the param transmission_sunk_cost and is not included here
+	# because it includes all lines, not just the lines between provinces
+	printf { (a1, a2, p) in TRANSMISSION_LINE_PERIODS}:
+	  "%s	%d	%d	%d	%d	%d	%s	%s	%d	%.2f	%d\n",
+	  scenario_id, carbon_cost, p, transmission_line_id[a1, a2], province_id[a1], province_id[a2], a1, a2, 0,
+	  existing_transfer_capacity_mw[a1, a2], 0
+	  >> (outfile);
+	
+	# new lines
+	# the fixed cost here includes capital and O&M - could be disaggregated at some point
+	printf { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS }:
+	  "%s	%d	%d	%d	%d	%d	%s	%s	%d	%.2f	%d\n",
+	  scenario_id, carbon_cost, p, transmission_line_id[a1, a2], province_id[a1], province_id[a2], a1, a2, 1, 
+	  Transmission_Installed_To_Date[a1, a2, p],
+	  Transmission_New_Capital_Cost_Per_Period[a1, a2, p] + Transmission_Fixed_OM_Per_Period[a1, a2, p]
+	  >> (outfile);
+	
+	close (outfile);
+	
+	#######################
+	# store hourly TRANSMISSION decisions in standardized, MW terms
+	
+	let output_section := 'transmission_dispatch';
+	let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
+	if ( file_exists(outfile) == 0 ) then {
+	printf "scenario_id	carbon_cost	period	transmission_line_id	province_receive_id	province_from_id	province_receive	province_from	date	hour	rps_fuel_category	power_sent	power_received	hours_in_sample\n"
+	  > (outfile); }
+	
+	# detailed imports & exports
+	printf { (a1, a2, p, h) in TRANSMISSION_LINE_HOURS, fc in RPS_FUEL_CATEGORY: DispatchTransFromXToY[a1, a2, p, h, fc] > 0.001} 
+	  "%s	%d	%d	%d	%d	%d	%s	%s	%d	%d	%s	%.2f	%.2f	%.2f\n",
+	  scenario_id, carbon_cost, period[h], transmission_line_id[a1, a2], province_id[a2], province_id[a1], a2, a1,
+	  (if present_day_optimization then present_day_date[h] else date[h]),
+	  (if present_day_optimization then present_day_timepoint[h] else h),
+	  fc, DispatchTransFromXToY[a1, a2, p, h, fc],
+	  DispatchTransFromXToY[a1, a2, p, h, fc] * transmission_efficiency[a1, a2],
+	  hours_in_sample[h]
+	  >> (outfile);
+	close (outfile);
+	
+	########################
+	# store the costs of all existing transmission capacity
+	let output_section := 'existing_trans_cost';
+	let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
+	if ( file_exists(outfile) == 0 ) then {
+	printf "scenario_id	carbon_cost	period	province_id	province	existing_trans_cost\n"
+	  > (outfile); }
+	
+	printf {a in PROVINCES, p in PERIODS}:
+	    "%s	%d	%d	%d	%s	%.2f\n",
+	    scenario_id, carbon_cost, p, province_id[a], a,
+	    Transmission_Existing_Cost_Per_Period[a, p]
+	    >> (outfile);
+	      
+	close (outfile);
+	
+          
        ########################
 #      # store the reduced costs of the RPS constraint
 #      let output_section := 'rps_reduced_cost';
@@ -244,135 +245,147 @@ for {c in CARBON_COSTS} {
 #      
 #      close (outfile);
       
-      ########################
-      # store local T&D capacity within each zone
-      let output_section := 'local_td_capacity';
-      let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
-      if ( file_exists(outfile) == 0 ) then {
-      printf "scenario_id	carbon_cost	period	province_id	province	new	local_td_mw	fixed_cost\n"
-        > (outfile); }
+	########################
+	# store local T&D capacity within each zone
+	let output_section := 'local_td_capacity';
+	let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
+	if ( file_exists(outfile) == 0 ) then {
+	printf "scenario_id	carbon_cost	period	province_id	province	new	local_td_mw	fixed_cost\n"
+	  > (outfile); }
+	
+	# existing local T&D - assumed to be equal to the planning reserve margin above max_coincident_load_for_local_td 
+	printf {a in PROVINCES, p in PERIODS}:
+	  "%s	%d	%d	%d	%s	%d	%.2f	%.2f\n",
+	  scenario_id, carbon_cost, p, province_id[a], a, 0,
+	  existing_local_td[a],
+	  Local_TD_Existing_Cost_Per_Period[a, p]
+	  >> (outfile);
+	
+	# newly installed local T&D
+	printf {a in PROVINCES, p in PERIODS}:
+	  "%s	%d	%d	%d	%s	%d	%.2f	%.2f\n",
+	  scenario_id, carbon_cost, p, province_id[a], a, 1,
+	  sum {online_yr in PERIODS: online_yr <= p < local_td_end_year[online_yr]} install_local_td[a, online_yr],
+	  Local_TD_New_Cost_Per_Period[a, p]
+	  >> (outfile);
+	
+	close (outfile);
+	
+	#######################
+	# province demand and consume variables
+	let output_section := 'system_load';
+	let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
+	if ( file_exists(outfile) == 0 ) then {
+	printf "scenario_id	carbon_cost	period	province_id	province	date	hour	hours_in_sample	power	satisfy_load_reduced_cost	satisfy_load_reserve_reduced_cost\n"
+	  > (outfile); }
       
-      # existing local T&D - assumed to be equal to the planning reserve margin above max_coincident_load_for_local_td 
-      printf {a in PROVINCES, p in PERIODS}:
-        "%s	%d	%d	%d	%s	%d	%.2f	%.2f\n",
-        scenario_id, carbon_cost, p, province_id[a], a, 0,
-        existing_local_td[a],
-        Local_TD_Existing_Cost_Per_Period[a, p]
-        >> (outfile);
-      
-      # newly installed local T&D
-      printf {a in PROVINCES, p in PERIODS}:
-        "%s	%d	%d	%d	%s	%d	%.2f	%.2f\n",
-        scenario_id, carbon_cost, p, province_id[a], a, 1,
-        sum {online_yr in PERIODS: online_yr <= p < local_td_end_year[online_yr]} install_local_td[a, online_yr],
-        Local_TD_New_Cost_Per_Period[a, p]
-        >> (outfile);
-      
-      close (outfile);
-      
-      #######################
-      # province demand and consume variables
-      let output_section := 'system_load';
-      let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
-      if ( file_exists(outfile) == 0 ) then {
-      printf "scenario_id	carbon_cost	period	province_id	province	date	hour	hours_in_sample	power	satisfy_load_reduced_cost	satisfy_load_reserve_reduced_cost\n"
-        > (outfile); }
-      
-	  # province demand first
-      printf {a in PROVINCES, h in TIMEPOINTS, p in PERIODS: period[h]=p} 
-        "%s	%d	%d	%d	%s	%d	%d	%.2f	%.2f	%.2f	%.2f\n",
-        scenario_id, carbon_cost, p, province_id[a], a,
-		(if present_day_optimization then present_day_date[h] else date[h]),
-        (if present_day_optimization then present_day_timepoint[h] else h),
-         hours_in_sample[h], system_load[a, h], Satisfy_Load[a, h], Satisfy_Load_Reserve[a, h]
-        >> (outfile);
-      close (outfile);
+	# province demand first
+    printf {a in PROVINCES, h in TIMEPOINTS, p in PERIODS: period[h]=p} 
+      "%s	%d	%d	%d	%s	%d	%d	%.2f	%.2f	%.2f	%.2f\n",
+      scenario_id, carbon_cost, p, province_id[a], a,
+	  (if present_day_optimization then present_day_date[h] else date[h]),
+	  (if present_day_optimization then present_day_timepoint[h] else h),
+	   hours_in_sample[h], system_load[a, h], Satisfy_Load[a, h], Satisfy_Load_Reserve[a, h]
+	  >> (outfile);
+	close (outfile);
 
-      # consume variables second
-      let output_section := 'consume_variables';
-      let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
-      if ( file_exists(outfile) == 0 ) then {
-      printf "scenario_id	carbon_cost	period	province_id	province	date	hour	hours_in_sample	fuel_category	consume_nondistributed_power	consume_distributed_power\n"
-        > (outfile); }
+	# consume variables second
+	let output_section := 'consume_variables';
+	let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
+	if ( file_exists(outfile) == 0 ) then {
+	printf "scenario_id	carbon_cost	period	province_id	province	date	hour	hours_in_sample	fuel_category	consume_nondistributed_power	consume_distributed_power\n"
+	  > (outfile); }
   
-      printf {a in PROVINCES, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY} 
-        "%s	%d	%d	%d	%s	%d	%d	%d	%s	%.2f	%.2f\n",
-        scenario_id, carbon_cost, period[h], province_id[a], a,
-		(if present_day_optimization then present_day_date[h] else date[h]),
-        (if present_day_optimization then present_day_timepoint[h] else h),
-         hours_in_sample[h], fc, ConsumeNonDistributedPower[a, h, fc], ConsumeDistributedPower[a, h, fc]
-        >> (outfile);
-      close (outfile);
+	printf {a in PROVINCES, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY} 
+	  "%s	%d	%d	%d	%s	%d	%d	%d	%s	%.2f	%.2f\n",
+	  scenario_id, carbon_cost, period[h], province_id[a], a,
+	  (if present_day_optimization then present_day_date[h] else date[h]),
+	  (if present_day_optimization then present_day_timepoint[h] else h),
+	   hours_in_sample[h], fc, ConsumeNonDistributedPower[a, h, fc], ConsumeDistributedPower[a, h, fc]
+	>> (outfile);
+	close (outfile);
  
-      ########################
-      # Check that the amount of operating reserve makes sense relative to load, wind, and solar levels
-      let output_section := 'load_wind_solar_operating_reserve_levels';
-      let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
-      if ( file_exists(outfile) == 0 ) then {
-      printf "scenario_id	carbon_cost	period	regional_grid_company	date	hour	hours_in_sample	load_level	wind_generation	noncsp_solar_generation	csp_generation	spinning_reserve_requirement	quickstart_capacity_requirement	total_spinning_reserve_provided	total_quickstart_capacity_provided	spinning_thermal_reserve_provided	spinning_nonthermal_reserve_provided	quickstart_thermal_capacity_provided	quickstart_nonthermal_capacity_provided\n"
-        > (outfile); }
-        
-      printf { h in TIMEPOINTS, b in REGIONAL_GRID_COMPANIES }
-      "%s	%d	%d	%s	%d	%d	%d	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
-       scenario_id, carbon_cost, period[h], b,
-       (if present_day_optimization then present_day_date[h] else date[h]),
-       (if present_day_optimization then present_day_timepoint[h] else h),
-       hours_in_sample[h],
-       Load_Level_in_Regional_Grid_Company_in_Hour[b, h],
-       Wind_Generation_Level_in_Regional_Grid_Company_in_Hour[b, h],
-       Non_CSP_Solar_Generation_Level_in_Regional_Grid_Company_in_Hour[b, h],
-       CSP_Solar_Generation_Level_in_Regional_Grid_Company_in_Hour[b, h],
-       Spinning_Reserve_Required_in_Regional_Grid_Company_in_Hour[b, h],
-       Quickstart_Capacity_Required_in_Regional_Grid_Company_in_Hour[b, h],
-       Total_Spinning_Reserve_Provided_in_Regional_Grid_Company_in_Hour[b, h],
-       Total_Quickstart_Capacity_Provided_in_Regional_Grid_Company_in_Hour[b, h],
-       Thermal_Spinning_Reserve_Provided_in_Regional_Grid_Company_in_Hour[b, h],
-       Nonthermal_Spinning_Reserve_Provided_in_Regional_Grid_Company_in_Hour[b, h],
-       Thermal_Quickstart_Capacity_Provided_in_Regional_Grid_Company_in_Hour[b, h],
-       Nonthermal_Quickstart_Capacity_Provided_in_Regional_Grid_Company_in_Hour[b, h]
-       >> (outfile);
-      
-      close (outfile);
-       
+	########################
+	# Check that the amount of operating reserve makes sense relative to load, wind, and solar levels
+	let output_section := 'load_wind_solar_operating_reserve_levels';
+	let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
+	if ( file_exists(outfile) == 0 ) then {
+	printf "scenario_id	carbon_cost	period	regional_grid_company	date	hour	hours_in_sample	load_level	wind_generation	noncsp_solar_generation	csp_generation	spinning_reserve_requirement	quickstart_capacity_requirement	total_spinning_reserve_provided	total_quickstart_capacity_provided	spinning_thermal_reserve_provided	spinning_nonthermal_reserve_provided	quickstart_thermal_capacity_provided	quickstart_nonthermal_capacity_provided\n"
+	  > (outfile); }
+	  
+	printf { h in TIMEPOINTS, b in REGIONAL_GRID_COMPANIES }
+	"%s	%d	%d	%s	%d	%d	%d	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f	%.2f\n",
+	 scenario_id, carbon_cost, period[h], b,
+	 (if present_day_optimization then present_day_date[h] else date[h]),
+	 (if present_day_optimization then present_day_timepoint[h] else h),
+	 hours_in_sample[h],
+	 Load_Level_in_Regional_Grid_Company_in_Hour[b, h],
+	 Wind_Generation_Level_in_Regional_Grid_Company_in_Hour[b, h],
+	 Non_CSP_Solar_Generation_Level_in_Regional_Grid_Company_in_Hour[b, h],
+	 CSP_Solar_Generation_Level_in_Regional_Grid_Company_in_Hour[b, h],
+	 Spinning_Reserve_Required_in_Regional_Grid_Company_in_Hour[b, h],
+	 Quickstart_Capacity_Required_in_Regional_Grid_Company_in_Hour[b, h],
+	 Total_Spinning_Reserve_Provided_in_Regional_Grid_Company_in_Hour[b, h],
+	 Total_Quickstart_Capacity_Provided_in_Regional_Grid_Company_in_Hour[b, h],
+	 Thermal_Spinning_Reserve_Provided_in_Regional_Grid_Company_in_Hour[b, h],
+	 Nonthermal_Spinning_Reserve_Provided_in_Regional_Grid_Company_in_Hour[b, h],
+	 Thermal_Quickstart_Capacity_Provided_in_Regional_Grid_Company_in_Hour[b, h],
+	 Nonthermal_Quickstart_Capacity_Provided_in_Regional_Grid_Company_in_Hour[b, h]
+	 >> (outfile);
+	
+	close (outfile);
+	 
 
-      #######################
-      # Export .tab files of investment decisions for dispatch to read in. 
+	#######################
+	# Export .tab files of investment decisions for dispatch to read in. 
+	
+	# Installed generation
+	printf "ampl.tab 4 1\npid	a	t	p	InstallGen\n"
+	  > (InstallGen_tab_path);
+	printf {(pid, a, t, p) in PROJECT_VINTAGES} 
+	  "%d	%s	%s	%d	%.2f\n",
+	  pid, a, t, p, InstallGen[pid, a, t, p]
+	  >> (InstallGen_tab_path);
+	close (InstallGen_tab_path);
+	
+	# Whether to operate existing plants in each future period
+	printf "ampl.tab 4 1\npid	a	t	p	OperateEPDuringPeriod\n"
+	  > (OperateEPDuringPeriod_tab_path);
+	printf {(pid, a, t, p) in EP_PERIODS: not intermittent[t] and not hydro[t]} 
+	  "%d	%s	%s	%d	%d\n",
+	  pid, a, t, p, OperateEPDuringPeriod[pid, a, t, p]
+	  >> (OperateEPDuringPeriod_tab_path);
+	close (OperateEPDuringPeriod_tab_path);
+	
+	# Installed Transmission
+	printf "ampl.tab 3 1\na1	a2	p	InstallTrans\n"
+	  > (InstallTrans_tab_path);
+	printf { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS } 
+	  "%s	%s	%d	%.2f\n",
+	  a1, a2, p, InstallTrans[a1, a2, p]
+	  >> (InstallTrans_tab_path);
+	close (InstallTrans_tab_path);
+	
+	# Installed Local T & D
+	printf "ampl.tab 2 1\na	p	install_local_td\n"
+	  > (install_local_td_tab_path);
+	printf {a in PROVINCES, p in PERIODS} 
+	  "%s	%d	%.2f\n",
+	  a, p, install_local_td[a, p]
+	  >> (install_local_td_tab_path);
+	close (install_local_td_tab_path);
       
-      # Installed generation
-      printf "ampl.tab 4 1\npid	a	t	p	InstallGen\n"
-        > (InstallGen_tab_path);
-      printf {(pid, a, t, p) in PROJECT_VINTAGES} 
-        "%d	%s	%s	%d	%.2f\n",
-        pid, a, t, p, InstallGen[pid, a, t, p]
-        >> (InstallGen_tab_path);
-      close (InstallGen_tab_path);
-      
-      # Whether to operate existing plants in each future period
-      printf "ampl.tab 4 1\npid	a	t	p	OperateEPDuringPeriod\n"
-        > (OperateEPDuringPeriod_tab_path);
-      printf {(pid, a, t, p) in EP_PERIODS: not intermittent[t] and not hydro[t]} 
-        "%d	%s	%s	%d	%d\n",
-        pid, a, t, p, OperateEPDuringPeriod[pid, a, t, p]
-        >> (OperateEPDuringPeriod_tab_path);
-      close (OperateEPDuringPeriod_tab_path);
-      
-      # Installed Transmission
-      printf "ampl.tab 3 1\na1	a2	p	InstallTrans\n"
-        > (InstallTrans_tab_path);
-      printf { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS } 
-        "%s	%s	%d	%.2f\n",
-        a1, a2, p, InstallTrans[a1, a2, p]
-        >> (InstallTrans_tab_path);
-      close (InstallTrans_tab_path);
-      
-      # Installed Local T & D
-      printf "ampl.tab 2 1\na	p	install_local_td\n"
-        > (install_local_td_tab_path);
-      printf {a in PROVINCES, p in PERIODS} 
-        "%s	%d	%.2f\n",
-        a, p, install_local_td[a, p]
-        >> (install_local_td_tab_path);
-      close (install_local_td_tab_path);
+    # Reduced cost of meeting a carbon cap
+	if (enable_carbon_cap = 1) then { 
+		printf "ampl.tab 1 1\np\t carbon_cost_by_period\n" 
+			> (carbon_cost_by_period_path);
+		# The dual value of the Carbon_Cap constraint is in units of $(NPV) / 1 ton reduction over a period. 
+		# The numerator's units are the same as the objective function. The denominator units are set by the right hand value of the constraint, which are tons of CO2 over a whole period. 
+		# We divide by the discount to base year parameter to bring NPV to a uniform series of payments in the period, which for a 10 year period, would mean you reduce CO2 emissions by 1/10 per year. We multiply by the number of years in a period to bring the denominator back to 1 ton of CO2 from 1/num_years_per_period tons of CO2. 
+		printf {p in PERIODS} "%d\t%.3f\n", p, -1*Carbon_Cap[p].dual / discount_to_base_year[p] * num_years_per_period
+			>> (carbon_cost_by_period_path);
+		close (carbon_cost_by_period_path);
+	}  
       
       printf "%d seconds to store results for carbon cost %d.\n", time()-curtime, carbon_cost;
     }

@@ -1,3 +1,0 @@
-param scenario_id          	:= 3;
-param num_years_per_period	:=                10;
-param present_year  			:=       2013;

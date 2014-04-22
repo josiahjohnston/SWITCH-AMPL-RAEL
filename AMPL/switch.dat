@@ -1,7 +1,7 @@
 # cost of carbon emissions ($/tonneCO2)
 param carbon_cost;
 # Set this to more than one value if you want to run the carbon curve scripty thing
-set CARBON_COSTS := 0;
+set CARBON_COSTS := 0 ;
 
 param: 
 RESULT_FILES:                        result_file_path_templates :=

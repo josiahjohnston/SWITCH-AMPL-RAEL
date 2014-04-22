@@ -1,6 +1,0 @@
-Scenario Information
-           3 |               |               3 | 
-
-Training Set Information
-               3 |                  3 |                   12 |             2015 |               10 |                 2 | f             |                     10 |           1 |                     8 |          0 | MEDIAN           | For each month, the day with peak load and a representative day with near-median load were selected. The peak day was selected system-wide, while the median was based on total consumption during the day.
-

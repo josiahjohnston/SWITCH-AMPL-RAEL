@@ -1,0 +1,4 @@
+include load.run;
+solution(solution_path);
+include basicstats.run;
+exit;
