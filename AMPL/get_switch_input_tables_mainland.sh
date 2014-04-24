@@ -186,17 +186,17 @@ solar_spinning_reserve_requirement, quickstart_requirement_relative_to_spinning_
 echo '	carbon_cap_targets.tab...'
 echo ampl.tab 1 1 > carbon_cap_targets.tab
 echo 'year	carbon_cap'>>carbon_cap_targets.tab
-$connection_string -A -t -F  $'\t' -c  "select carbon_cap_year as year, carbon_cap from carbon_cap_targets where carbon_cap_year >= $STUDY_START_YEAR and carbon_cap_year <= $STUDY_END_YEAR and carbon_cap_scenario_id=$CARBON_CAP_SCENARIO_ID;" >> carbon_cap_targets.tab
+$connection_string -A -t -F  $'\t' -c  "select carbon_cap_year as year, carbon_cap from carbon_cap_targets where carbon_cap_year >= $STUDY_START_YEAR and carbon_cap_year <= $STUDY_END_YEAR and carbon_cap_scenario_id=$CARBON_CAP_SCENARIO_ID ORDER BY year;" >> carbon_cap_targets.tab
 
 echo '	carbon_costs.tab...'
 echo ampl.tab 1 1 > carbon_costs.tab
 echo 'year	carbon_cost_by_year'>>carbon_costs.tab
-$connection_string -A -t -F  $'\t' -c  "select carbon_cost_year as year, carbon_cost from carbon_costs_scenarios where carbon_cost_year >= $STUDY_START_YEAR and carbon_cost_year <= $STUDY_END_YEAR and carbon_cost_scenario_id=$CARBON_COST_SCENARIO_ID;" >> carbon_costs.tab
+$connection_string -A -t -F  $'\t' -c  "select carbon_cost_year as year, carbon_cost from carbon_costs_scenarios where carbon_cost_year >= $STUDY_START_YEAR and carbon_cost_year <= $STUDY_END_YEAR and carbon_cost_scenario_id=$CARBON_COST_SCENARIO_ID ORDER BY year;" >> carbon_costs.tab
 
 echo '	nuclear_targets.tab...'
 echo ampl.tab 2 1 > nuclear_targets.tab
 echo 'province	year	nuclear_target'>>nuclear_targets.tab
-$connection_string -A -t -F  $'\t' -c  "select province, target_year as year, nuclear_target from nuclear_targets where target_year >= $STUDY_START_YEAR and target_year <= $STUDY_END_YEAR and province NOT IN ('Taiwan','Hong_Kong', 'Macau');" >> nuclear_targets.tab
+$connection_string -A -t -F  $'\t' -c  "select province, target_year as year, nuclear_target from nuclear_targets where target_year >= $STUDY_START_YEAR and target_year <= $STUDY_END_YEAR and province NOT IN ('Taiwan','Hong_Kong', 'Macau') ORDER BY province, year;" >> nuclear_targets.tab
 
 echo '	wind_plan.tab...'
 echo ampl.tab 2 1 > wind_plan.tab

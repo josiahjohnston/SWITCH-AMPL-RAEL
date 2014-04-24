@@ -484,33 +484,33 @@ set PROJECT_AVAILABLE_DATES := { (pid, a, t, p, d) in AVAILABLE_DATES: can_build
 set EP_AVAILABLE_DATES := { (pid, a, t, p, d) in AVAILABLE_DATES: not can_build_new[t] };
 
 
-###################################################################
-### Nuclear Plan for each province 
-#param enable_nuclear_plan >= 0, <=1 default 1;
-#
-##set NUCLEAR_TARGETS dimen 2; #PROVINCE, TARGET_YEAR
-#
-#param nuclear_target {PROVINCES, YEARS};
-#
-##average the nuclear targets over a period to get the nuclear target for that period
-#param nuclear_targets_period {a in PROVINCES, p in PERIODS} = 
-#	( sum {yr in YEARS: yr >= p and yr < p + num_years_per_period} nuclear_target[a, yr] / num_years_per_period );
-#	
-#set NUCLEAR_TARGETS = {a in PROVINCES, p in PERIODS: nuclear_targets_period [a, p] >=0 };
-#
-#
-###################################################################
-### Wind Plan for each province 
-#
-##set Windbase_Plan dimen 2; #PROVINCE, TARGET_YEAR
-#
-#param wind_plan_capacity {PROVINCES, YEARS};
-#
-##average the nuclear targets over a period to get the nuclear target for that period
-#param wind_plan_period {a in PROVINCES, p in PERIODS} = 
-#	( sum {yr in YEARS: yr >= p and yr < p + num_years_per_period} wind_plan_capacity[a, yr] / num_years_per_period );
-#	
-#set WIND_PLAN = {a in PROVINCES, p in PERIODS: wind_plan_period [a, p] >=0 };
+##################################################################
+## Nuclear Plan for each province 
+param enable_nuclear_plan >= 0, <=1 default 1;
+
+#set NUCLEAR_TARGETS dimen 2; #PROVINCE, TARGET_YEAR
+
+param nuclear_target {PROVINCES, YEARS};
+
+#average the nuclear targets over a period to get the nuclear target for that period
+param nuclear_targets_period {a in PROVINCES, p in PERIODS} = 
+	( sum {yr in YEARS: yr >= p and yr < p + num_years_per_period} nuclear_target[a, yr] / num_years_per_period );
+	
+set NUCLEAR_TARGETS = {a in PROVINCES, p in PERIODS: nuclear_targets_period [a, p] >=0 };
+
+
+##################################################################
+## Wind Plan for each province 
+
+#set Windbase_Plan dimen 2; #PROVINCE, TARGET_YEAR
+
+param wind_plan_capacity {PROVINCES, YEARS};
+
+#average the nuclear targets over a period to get the nuclear target for that period
+param wind_plan_period {a in PROVINCES, p in PERIODS} = 
+	( sum {yr in YEARS: yr >= p and yr < p + num_years_per_period} wind_plan_capacity[a, yr] / num_years_per_period );
+	
+set WIND_PLAN = {a in PROVINCES, p in PERIODS: wind_plan_period [a, p] >=0 };
 
 
 ##################################################################
@@ -1181,21 +1181,21 @@ minimize Power_Cost:
 
 ###### Policy Constraints #######
 
-## Nuclear plan constraint, all available installed capacity should reach the accumulated capacity by a future year
-#subject to Satisfy_Nuclear_Plan {a in PROVINCES, p in PERIODS}:
-#	# existing nuclear
-#	( sum { (pid, a, t, p) in EP_PERIODS: fuel[t] = 'Uranium' } ep_capacity_mw[pid, a, t] )
-#	# new nuclear
-#	+ ( sum { (pid, a, t, p) in PROJECT_VINTAGES: fuel[t] = 'Uranium' } Installed_To_Date[pid, a, t, p] ) 
-#	>= nuclear_targets_period[a, p];
-#	
-## Wind plan constraint
-#subject to Satisfy_Wind_Plan {a in PROVINCES, p in PERIODS}:
-#	# existing wind
-#	( sum { (pid, a, t, p) in EP_PERIODS: fuel[t] = 'Wind' } ep_capacity_mw[pid, a, t] )
-#	# new nuclear
-#	+ ( sum { (pid, a, t, p) in PROJECT_VINTAGES: fuel[t] = 'Wind' } Installed_To_Date[pid, a, t, p] ) 
-#	>= wind_plan_period[a, p];
+# Nuclear plan constraint, all available installed capacity should reach the accumulated capacity by a future year
+subject to Satisfy_Nuclear_Plan {a in PROVINCES, p in PERIODS}:
+	# existing nuclear
+	( sum { (pid, a, t, p) in EP_PERIODS: fuel[t] = 'Uranium' } ep_capacity_mw[pid, a, t] )
+	# new nuclear
+	+ ( sum { (pid, a, t, p) in PROJECT_VINTAGES: fuel[t] = 'Uranium' } Installed_To_Date[pid, a, t, p] ) 
+	>= nuclear_targets_period[a, p];
+	
+# Wind plan constraint
+subject to Satisfy_Wind_Plan {a in PROVINCES, p in PERIODS}:
+	# existing wind
+	( sum { (pid, a, t, p) in EP_PERIODS: fuel[t] = 'Wind' } ep_capacity_mw[pid, a, t] )
+	# new nuclear
+	+ ( sum { (pid, a, t, p) in PROJECT_VINTAGES: fuel[t] = 'Wind' } Installed_To_Date[pid, a, t, p] ) 
+	>= wind_plan_period[a, p];
 
 ## RPS constraint
 ## load.run will drop this constraint if enable_rps is 0
@@ -1743,7 +1743,7 @@ problem Investment_Cost_Minimization:
 	Conservation_Of_Energy_NonDistributed, Conservation_Of_Energy_Distributed,
     ConsumeNonDistributedPower, ConsumeDistributedPower,
   # Policy Constraints
-  #	Satisfy_Nuclear_Plan, Satisfy_Wind_Plan,
+  	Satisfy_Nuclear_Plan, Satisfy_Wind_Plan,
 #	Satisfy_RPS, Meet_California_Solar_Initiative, Carbon_Cap,
   # Investment Decisions
 	InstallGen, BuildGenOrNot, InstallTrans, 
