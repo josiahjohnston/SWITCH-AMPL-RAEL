@@ -81,9 +81,9 @@ read table wind_plan;
 #  [year], carbon_cap;
 #read table carbon_cap_targets;
 
-table carbon_cost_by_year_table "inputs/carbon_costs.tab" IN: 
-  [year], carbon_cost_by_year;
-read table carbon_cost_by_year_table;
+#table carbon_cost_by_year_table "inputs/carbon_costs.tab" IN: 
+#  [year], carbon_cost_by_year;
+#read table carbon_cost_by_year_table;
 
 table study_hours "inputs/study_hours.tab" IN: 
   TIMEPOINTS <- [hour], period, date, hours_in_sample, month_of_year, hour_of_day;
@@ -96,6 +96,10 @@ read table province_hourly_demand;
 table max_province_demand "inputs/max_province_demand.tab" IN: 
   [province, period], max_system_load;
 read table max_province_demand;
+
+table gen_cap_cost "inputs/gen_cap_cost.tab" IN:
+  [technology, year], overnight_cost_yearly ~ overnight_cost, fixed_o_m_yearly ~ fixed_o_m, variable_o_m_yearly ~ variable_o_m;
+read table gen_cap_cost;
 
 table existing_plants "inputs/existing_plants.tab" IN: 
   EXISTING_PLANTS <- [project_id, province, technology], 
@@ -116,8 +120,7 @@ read table hydro_monthly_limits;
 
 table new_projects "inputs/new_projects.tab" IN: 
   PROJECTS <- [project_id, province, technology], location_id, ep_project_replacement_id,
-    capacity_limit, capacity_limit_conversion, heat_rate, cogen_thermal_demand, connect_cost_per_mw, 
-    overnight_cost, fixed_o_m, variable_o_m, overnight_cost_change;
+    capacity_limit, capacity_limit_conversion, heat_rate, cogen_thermal_demand, connect_cost_per_mw;
 read table new_projects;
 
 table new_projects_intermittent_capacity_factor "inputs/new_projects_intermittent_capacity_factor.tab" IN: 

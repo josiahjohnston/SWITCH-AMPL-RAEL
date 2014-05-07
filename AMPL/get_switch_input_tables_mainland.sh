@@ -186,17 +186,17 @@ solar_spinning_reserve_requirement, quickstart_requirement_relative_to_spinning_
 echo '	carbon_cap_targets.tab...'
 echo ampl.tab 1 1 > carbon_cap_targets.tab
 echo 'year	carbon_cap'>>carbon_cap_targets.tab
-$connection_string -A -t -F  $'\t' -c  "select carbon_cap_year as year, carbon_cap from carbon_cap_targets where carbon_cap_year >= $STUDY_START_YEAR and carbon_cap_year <= $STUDY_END_YEAR and carbon_cap_scenario_id=$CARBON_CAP_SCENARIO_ID ORDER BY year;" >> carbon_cap_targets.tab
+$connection_string -A -t -F  $'\t' -c  "select carbon_cap_year as year, carbon_cap from carbon_cap_targets where carbon_cap_year >= $STUDY_START_YEAR and carbon_cap_year <= $STUDY_END_YEAR and carbon_cap_scenario_id=$CARBON_CAP_SCENARIO_ID;" >> carbon_cap_targets.tab
 
 echo '	carbon_costs.tab...'
 echo ampl.tab 1 1 > carbon_costs.tab
 echo 'year	carbon_cost_by_year'>>carbon_costs.tab
-$connection_string -A -t -F  $'\t' -c  "select carbon_cost_year as year, carbon_cost from carbon_costs_scenarios where carbon_cost_year >= $STUDY_START_YEAR and carbon_cost_year <= $STUDY_END_YEAR and carbon_cost_scenario_id=$CARBON_COST_SCENARIO_ID ORDER BY year;" >> carbon_costs.tab
+$connection_string -A -t -F  $'\t' -c  "select carbon_cost_year as year, carbon_cost from carbon_costs_scenarios where carbon_cost_year >= $STUDY_START_YEAR and carbon_cost_year <= $STUDY_END_YEAR and carbon_cost_scenario_id=$CARBON_COST_SCENARIO_ID;" >> carbon_costs.tab
 
 echo '	nuclear_targets.tab...'
 echo ampl.tab 2 1 > nuclear_targets.tab
 echo 'province	year	nuclear_target'>>nuclear_targets.tab
-$connection_string -A -t -F  $'\t' -c  "select province, target_year as year, nuclear_target from nuclear_targets where target_year >= $STUDY_START_YEAR and target_year <= $STUDY_END_YEAR and province NOT IN ('Taiwan','Hong_Kong', 'Macau') ORDER BY province, year;" >> nuclear_targets.tab
+$connection_string -A -t -F  $'\t' -c  "select province, target_year as year, nuclear_target from nuclear_targets where target_year >= $STUDY_START_YEAR and target_year <= $STUDY_END_YEAR and province NOT IN ('Taiwan','Hong_Kong', 'Macau');" >> nuclear_targets.tab
 
 echo '	wind_plan.tab...'
 echo ampl.tab 2 1 > wind_plan.tab
@@ -289,12 +289,20 @@ CREATE TEMPORARY TABLE hydro_study_dates_export AS \
     JOIN existing_plants using (project_id) \
     WHERE province NOT IN ('Taiwan','Hong_Kong', 'Macau') \
     AND gen_cost_scenario_id = $GEN_COST_SCENARIO_ID;" >> hydro_monthly_limits.tab
+    
+echo '	gen_cap_cost.tab...'
+echo ampl.tab 2 3 > gen_cap_cost.tab
+echo 'technology	year	overnight_cost	fixed_o_m	variable_o_m' >> gen_cap_cost.tab
+$connection_string -A -t -F  $'\t' -c  "select technology, year, overnight_cost, fixed_o_m, variable_o_m \
+FROM generator_cap_cost_yearly \
+WHERE gen_cost_scenario_id = $GEN_COST_SCENARIO_ID \
+order by technology_id, year;" >> gen_cap_cost.tab
  
 echo '	new_projects.tab...'
-echo ampl.tab 3 11 > new_projects.tab
-echo 'project_id	province	technology	location_id	ep_project_replacement_id	capacity_limit	capacity_limit_conversion	heat_rate	cogen_thermal_demand	connect_cost_per_mw	overnight_cost	fixed_o_m	variable_o_m	overnight_cost_change' >> new_projects.tab
+echo ampl.tab 3 7 > new_projects.tab
+echo 'project_id	province	technology	location_id	ep_project_replacement_id	capacity_limit	capacity_limit_conversion	heat_rate	cogen_thermal_demand	connect_cost_per_mw' >> new_projects.tab
 $connection_string -A -t -F  $'\t' -c  "select project_id, province, technology, location_id, ep_project_replacement_id, \
-capacity_limit, capacity_limit_conversion, heat_rate, cogen_thermal_demand, connect_cost_per_mw, overnight_cost, fixed_o_m, variable_o_m, overnight_cost_change \
+capacity_limit, capacity_limit_conversion, heat_rate, cogen_thermal_demand, connect_cost_per_mw \
 from new_projects \
 WHERE province NOT IN ('Taiwan','Hong_Kong', 'Macau') \
 AND gen_cost_scenario_id = $GEN_COST_SCENARIO_ID \
@@ -318,8 +326,7 @@ min_build_capacity, \
 CASE WHEN competes_for_space THEN 1 ELSE 0 END, \
 CASE WHEN storage THEN 1 ELSE 0 END, \
 storage_efficiency, max_store_rate, max_spinning_reserve_fraction_of_capacity, heat_rate_penalty_spinning_reserve, \
-minimum_loading, deep_cycling_penalty from generator_info \
-WHERE gen_cost_scenario_id = $GEN_COST_SCENARIO_ID;" >> generator_info.tab
+minimum_loading, deep_cycling_penalty from generator_info;" >> generator_info.tab
 
 echo '	fuel_info.tab...'
 echo ampl.tab 1 3 > fuel_info.tab

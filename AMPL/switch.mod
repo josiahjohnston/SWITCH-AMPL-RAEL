@@ -301,7 +301,7 @@ param capacity_limit_conversion {PROJECTS} >= 0;
 # (all the values should be the same for a given location)
 # sets that give the location of different technologies that are going to be competing for resources
 set PROJECT_CENTRAL_STATION_SOLAR := { (pid, a, t) in PROJECTS: fuel[t] = 'Solar' and competes_for_space[t] };
-set CENTRAL_STATION_SOLAR_LOCATIONS := 	setof { (pid, a, t) in PROJECT_CENTRAL_STATION_SOLAR } ( location_id[pid, a, t], a );
+set CENTRAL_STATION_SOLAR_LOCATIONS :=  setof { (pid, a, t) in PROJECT_CENTRAL_STATION_SOLAR } ( location_id[pid, a, t], a );
 param central_station_solar_capacity_limit { (l, a) in CENTRAL_STATION_SOLAR_LOCATIONS }
 	= min { (pid, a, t) in PROJECT_CENTRAL_STATION_SOLAR: location_id[pid, a, t] = l } capacity_limit[pid, a, t];
 
@@ -325,39 +325,6 @@ param cogen_thermal_demand {PROJECTS} >= 0 ;
 # the load center (or make it deliverable to other zones)
 param connect_cost_per_mw {PROJECTS} >= 0 ;
 
-# overnight cost for the plant ($/MW)
-param overnight_cost {PROJECTS} >= 0 ;
-
-# fixed O&M ($/MW-year)
-param fixed_o_m {PROJECTS} >= 0 ;
-
-# variable O&M ($/MWh)
-param variable_o_m {PROJECTS} >= 0 ;
-
-# annual rate of change of overnight cost, beginning at the base_year
-param overnight_cost_change {PROJECTS};
-
-# maximum capacity factors (%) for each project, each hour. 
-# generally based on renewable resources available
-set PROJ_INTERMITTENT_HOURS dimen 4;  # PROJECT_ID, PROVINCES, TECHNOLOGIES, TIMEPOINTS
-set PROJ_INTERMITTENT = setof {(pid, a, t, h) in PROJ_INTERMITTENT_HOURS} (pid, a, t);
-
-check: card({(pid, a, t) in PROJECTS: intermittent[t] and resource_limited[t] and not ccs[t]} diff PROJ_INTERMITTENT) = 0;
-param capacity_factor {PROJ_INTERMITTENT_HOURS};
-
-# make sure all hours are represented, and that cap factors make sense.
-# Solar thermal can be parasitic, which means negative cap factors are allowed (just not TOO negative)
-check {(pid, a, t, h) in PROJ_INTERMITTENT_HOURS: t in SOLAR_CSP_TECHNOLOGIES}: capacity_factor[pid, a, t, h] >= -0.1;
-# No other technology can be parasitic, so only positive cap factors allowed
-check {(pid, a, t, h) in PROJ_INTERMITTENT_HOURS: not( t in SOLAR_CSP_TECHNOLOGIES) }: capacity_factor[pid, a, t, h] >= 0;
-# cap factors for solar can be greater than 1 because sometimes the sun shines more than 1000W/m^2
-# which is how PV cap factors are defined.
-# The below checks make sure that for other plants the cap factors
-# are <= 1 but for solar they are <= 1.4
-# (roughly the irradiation coming in from space, though the cap factor shouldn't ever approach this number)
-check {(pid, a, t, h) in PROJ_INTERMITTENT_HOURS: not( t in SOLAR_TECHNOLOGIES )}: capacity_factor[pid, a, t, h] <= 1;
-check {(pid, a, t, h) in PROJ_INTERMITTENT_HOURS: t in SOLAR_TECHNOLOGIES }: capacity_factor[pid, a, t, h] <= 1.4;
-check {(pid, a, t) in PROJ_INTERMITTENT}: intermittent[t];
 
 ###############################################
 # Existing generators
@@ -400,6 +367,7 @@ param ep_variable_o_m {EXISTING_PLANTS} >= 0;
 # a location_id of zero is null.
 param ep_location_id {EXISTING_PLANTS} >= 0;
 
+
 ###############################################
 # Existing intermittent generators (existing wind, csp and pv)
 
@@ -414,6 +382,7 @@ check: card({(pid, a, t) in EXISTING_PLANTS: intermittent[t] } diff EP_INTERMITT
 # generally between 0 and 1, but for some solar plants the capacity factor may be more than 1
 # due to capacity factor definition, so the limit here is 1.4
 param eip_capacity_factor {EP_INTERMITTENT_HOURS} >= 0 <=1.4;
+
 
 ###############################################
 # year when the plant will be retired
@@ -482,6 +451,83 @@ set PROJECT_VINTAGE_HOURS := { (pid, a, t, p, h) in AVAILABLE_HOURS: can_build_n
 set AVAILABLE_DATES := setof { (pid, a, t, p, h) in AVAILABLE_HOURS, d in DATES: date[h] = d } (pid, a, t, p, d);
 set PROJECT_AVAILABLE_DATES := { (pid, a, t, p, d) in AVAILABLE_DATES: can_build_new[t] };
 set EP_AVAILABLE_DATES := { (pid, a, t, p, d) in AVAILABLE_DATES: not can_build_new[t] };
+
+
+###################################################
+# The capital cost by period of new projects
+
+# define a set of all periods in which each technology can be installed
+# present is included here for the present day dispatch installation of peaker plants
+# set NEW_TECHNOLOGY_PERIODS := { t in TECHNOLOGIES, p in PERIODS: can_build_new[t] and p >= min_build_year[t] and ( p >= present_year + construction_time_years[t] ) };
+#set NEW_TECHNOLOGY_PERIODS_AND_PRESENT := { t in TECHNOLOGIES, p in PERIODS_AND_PRESENT: can_build_new[t] and p >= min_build_year[t] and ( p >= present_year + construction_time_years[t] or p = present_year ) };
+
+# define a set for new project cost use
+set NEW_TECHNOLOGY_PERIODS_AND_PRESENT := setof {(pid, a, t, p) in PROJECT_VINTAGES} (t, p); 
+
+# overnight cost for the plant ($/MW)
+# overnight cost here is the real capital cost in the year that construction starts rather than in the first year of the operation
+# economic multiplier has not yet been applied for new plants
+
+param overnight_cost_yearly {TECHNOLOGIES, YEARS};
+	
+param overnight_cost { (t , p ) in NEW_TECHNOLOGY_PERIODS_AND_PRESENT } = (sum {yr in YEARS: yr >= p and yr < p + num_years_per_period} overnight_cost_yearly[t, yr] / num_years_per_period)>= 0;
+
+## overnight cost for storage energy capacity ($/MWh)
+#param storage_energy_capacity_overnight_cost { (t, p) in NEW_TECHNOLOGY_PERIODS_AND_PRESENT } >= 0;
+#check { (t, p) in NEW_TECHNOLOGY_PERIODS_AND_PRESENT: not storage[t] }: storage_energy_capacity_overnight_cost[t, p] = 0;
+
+# fixed O&M ($/MW-year)
+#param fixed_o_m { (t, p) in NEW_TECHNOLOGY_PERIODS_AND_PRESENT } >= 0;
+
+param fixed_o_m_yearly {TECHNOLOGIES, YEARS};
+	
+param fixed_o_m { (t , p ) in NEW_TECHNOLOGY_PERIODS_AND_PRESENT } = (sum {yr in YEARS: yr >= p and yr < p + num_years_per_period} fixed_o_m_yearly[t, yr] / num_years_per_period)>= 0;
+
+# variable O&M ($/MWh)
+# param variable_o_m { (t, p) in NEW_TECHNOLOGY_PERIODS_AND_PRESENT } >= 0;
+
+param variable_o_m_yearly {TECHNOLOGIES, YEARS};
+	
+param variable_o_m { (t , p ) in NEW_TECHNOLOGY_PERIODS_AND_PRESENT } = (sum {yr in YEARS: yr >= p and yr < p + num_years_per_period} variable_o_m_yearly[t, yr] / num_years_per_period)>= 0;
+
+set GEN_CAP_COST = { t in TECHNOLOGIES, p in PERIODS};
+
+# var o&m costs don't vary by year despite data structure, so just take any value for one of the periods
+#param variable_o_m { t in TECHNOLOGIES: can_build_new[t] } :=  max { (t, p) in NEW_TECHNOLOGY_PERIODS_AND_PRESENT } variable_o_m_by_year[t, p];
+
+## overnight cost for the plant ($/MW)
+#param overnight_cost {PROJECTS} >= 0 ;
+#
+## fixed O&M ($/MW-year)
+#param fixed_o_m {PROJECTS} >= 0 ;
+#
+## variable O&M ($/MWh)
+#param variable_o_m {PROJECTS} >= 0 ;
+
+## annual rate of change of overnight cost, beginning at the base_year
+#param overnight_cost_change {PROJECTS};
+
+# maximum capacity factors (%) for each project, each hour. 
+# generally based on renewable resources available
+set PROJ_INTERMITTENT_HOURS dimen 4;  # PROJECT_ID, PROVINCES, TECHNOLOGIES, TIMEPOINTS
+set PROJ_INTERMITTENT = setof {(pid, a, t, h) in PROJ_INTERMITTENT_HOURS} (pid, a, t);
+
+check: card({(pid, a, t) in PROJECTS: intermittent[t] and resource_limited[t] and not ccs[t]} diff PROJ_INTERMITTENT) = 0;
+param capacity_factor {PROJ_INTERMITTENT_HOURS};
+
+# make sure all hours are represented, and that cap factors make sense.
+# Solar thermal can be parasitic, which means negative cap factors are allowed (just not TOO negative)
+check {(pid, a, t, h) in PROJ_INTERMITTENT_HOURS: t in SOLAR_CSP_TECHNOLOGIES}: capacity_factor[pid, a, t, h] >= -0.1;
+# No other technology can be parasitic, so only positive cap factors allowed
+check {(pid, a, t, h) in PROJ_INTERMITTENT_HOURS: not( t in SOLAR_CSP_TECHNOLOGIES) }: capacity_factor[pid, a, t, h] >= 0;
+# cap factors for solar can be greater than 1 because sometimes the sun shines more than 1000W/m^2
+# which is how PV cap factors are defined.
+# The below checks make sure that for other plants the cap factors
+# are <= 1 but for solar they are <= 1.4
+# (roughly the irradiation coming in from space, though the cap factor shouldn't ever approach this number)
+check {(pid, a, t, h) in PROJ_INTERMITTENT_HOURS: not( t in SOLAR_TECHNOLOGIES )}: capacity_factor[pid, a, t, h] <= 1;
+check {(pid, a, t, h) in PROJ_INTERMITTENT_HOURS: t in SOLAR_TECHNOLOGIES }: capacity_factor[pid, a, t, h] <= 1.4;
+check {(pid, a, t) in PROJ_INTERMITTENT}: intermittent[t];
 
 
 ##################################################################
@@ -570,19 +616,14 @@ param rps_fuel_category_tech {t in TECHNOLOGIES: t <> 'Battery_Storage'} symboli
 #### Carbon Cost
 ## cost of carbon emissions ($/ton), e.g., from a carbon tax
 ## can also be set negative to drive renewables out of the system
-
 param carbon_cost default 0;
-
+#
 ## set and parameters used to make carbon cost curves
 set CARBON_COSTS ordered;
-
-param carbon_cost_by_year {y in {start_year..end_year}};
-param carbon_cost_by_period {p in PERIODS} = 
-	( sum {yr in YEARS: yr >= p and yr < p + num_years_per_period} carbon_cost_by_year[yr] / num_years_per_period );
-
+#
 #### Carbon Cap
 ## does this scenario include a cap on carbon emissions?
-param enable_carbon_cap >= 0, <= 1 default 0;
+#param enable_carbon_cap >= 0, <= 1 default 0;
 #
 ## the base (2005) carbon emissions in tCO2/Yr
 #param base_carbon_emissions = 2779208160;
@@ -681,9 +722,12 @@ param cost_fraction {t in TECHNOLOGIES, yr in YEAR_OF_CONSTRUCTION};
 
 param project_vintage_overnight_costs {(pid, a, t, p) in PROJECT_VINTAGES} = 
 	# Overnight cost, adjusted for projected cost changes.
-	overnight_cost[pid, a, t] * ( 1 + overnight_cost_change[pid, a, t] )^( p - construction_time_years[t] - base_year );
+	overnight_cost[t,p];
 
-
+## For CAES and battery storage, calculate an additional cost component: for the storage ENERGY capacity in addition to the POWER capacity per MW cost
+#param storage_energy_capacity_vintage_overnight_costs { (pid, a, t, p) in PROJECT_VINTAGES: storage[t] } = 
+#	storage_energy_capacity_overnight_cost[t, p];
+	
 # CCS projects incur extra pipeline costs if their province doesn't have a viable sink
 # we'll use the assumptions of R.S. Middleton, J.M. Bielicki / Energy Policy 37 (2009) 1052–1060 
 # their fig 2 gives CO2 flow [kt/yr] vs unit cost [$/km/t],
@@ -736,11 +780,14 @@ param capital_cost {(pid, a, t, online_yr) in PROJECT_VINTAGES} =
 param ep_capital_cost { (pid, a, t, p) in EP_PERIODS } =
   if ep_could_be_operating_past_expected_lifetime[pid, a, t, p] then 0
     else capital_cost_annual_payment[pid, a, t, p] * discount_to_base_year[p];
+    
+# fixed cost by project vintage
+param project_vintage_fixed_o_m {(pid, a, t, p) in PROJECT_VINTAGES} =
+	fixed_o_m[t, p];
 
 # discount fixed operations and maintenence costs to a lump-sum value at the start of the study.
 param fixed_o_m_discounted { (pid, a, t, online_yr) in PROJECT_VINTAGES } = 
-  sum {p in PERIODS: online_yr <= p < project_end_year[pid, a, t, online_yr]} fixed_o_m[pid, a, t]
-  * discount_to_base_year[p];
+  sum {p in PERIODS: online_yr <= p < project_end_year[pid, a, t, online_yr]} project_vintage_fixed_o_m[pid, a, t, online_yr] * discount_to_base_year[p];
 
 # same for existing plants
 # these are for each period rather than the whole plant lifetime because OperateEPDuringPeriod determines the plant's end_year.
@@ -756,7 +803,7 @@ param fuel_price_in_period { (pid, a, t, p) in AVAILABLE_VINTAGES } :=
 # variable operations and maintence cost per MWh in each period for each generator for hourly dispatch 
 # In variable costs, hours_in_sample is a weight intended to reflect how many hours are represented by a timepoint.
 param variable_o_m_cost_hourly { (pid, a, t, p, h) in AVAILABLE_HOURS } =
-	( if can_build_new[t] then variable_o_m[pid, a, t] else ep_variable_o_m[pid, a, t] )
+	( if can_build_new[t] then variable_o_m[t, p] else ep_variable_o_m[pid, a, t] )
 	* ( hours_in_sample[h] / num_years_per_period ) * discount_to_base_year[p];
 
 # same for the fuel cost per MWh
@@ -768,7 +815,7 @@ param fuel_cost_hourly { (pid, a, t, p, h) in AVAILABLE_HOURS } =
 # same for the carbon cost per MWh
 param carbon_cost_per_mwh_hourly { (pid, a, t, p, h) in AVAILABLE_HOURS } = 
 	( if can_build_new[t] then heat_rate[pid, a, t] else ep_heat_rate[pid, a, t] )
-	* carbon_content[fuel[t]] * carbon_cost_by_period[p]
+	* carbon_content[fuel[t]] * carbon_cost
 	* ( hours_in_sample[h] / num_years_per_period ) * discount_to_base_year[p];
 
 # now tally all variable costs ($/MWh costs) by period for generators that aren't dispached hourly (i.e. intermittent and baseload)
@@ -814,7 +861,7 @@ param fuel_cost_hourly_spinning_reserve { (pid, a, t, p, h) in AVAILABLE_HOURS }
 	* ( hours_in_sample[h] / num_years_per_period ) * discount_to_base_year[p];
 
 param carbon_cost_per_mwh_hourly_spinning_reserve { (pid, a, t, p, h) in AVAILABLE_HOURS } = 
-	heat_rate_spinning_reserve[pid, a, t] * carbon_content[fuel[t]] * carbon_cost_by_period[p]
+	heat_rate_spinning_reserve[pid, a, t] * carbon_content[fuel[t]] * carbon_cost
 	* ( hours_in_sample[h] / num_years_per_period ) * discount_to_base_year[p];
 
 # The maximum percentage of generator capacity that can be dedicated to spinning reserves (as opposed to useful generation)
