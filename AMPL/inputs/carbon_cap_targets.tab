@@ -1,6 +1,5 @@
 ampl.tab 1 1
 year	carbon_emissions_relative_to_base
-2015	1.13333
 2016	1.10667
 2017	1.08
 2018	1.05333
@@ -41,3 +40,4 @@ year	carbon_emissions_relative_to_base
 2053	0.12
 2054	0.0933333
 2055	0.0666667
+2056	0.04

@@ -1,6 +1,5 @@
 ampl.tab 3 1
 rps_compliance_entity	rps_compliance_type	rps_compliance_year	rps_compliance_fraction
-AZ_APS	Distributed	2015	0.015
 AZ_APS	Distributed	2016	0.018
 AZ_APS	Distributed	2017	0.021
 AZ_APS	Distributed	2018	0.024
@@ -41,7 +40,7 @@ AZ_APS	Distributed	2052	0.045
 AZ_APS	Distributed	2053	0.045
 AZ_APS	Distributed	2054	0.045
 AZ_APS	Distributed	2055	0.045
-AZ_APS	Primary	2015	0.05
+AZ_APS	Distributed	2056	0.045
 AZ_APS	Primary	2016	0.06
 AZ_APS	Primary	2017	0.07
 AZ_APS	Primary	2018	0.08
@@ -82,7 +81,7 @@ AZ_APS	Primary	2052	0.15
 AZ_APS	Primary	2053	0.15
 AZ_APS	Primary	2054	0.15
 AZ_APS	Primary	2055	0.15
-AZ_APS_E	Distributed	2015	0.015
+AZ_APS	Primary	2056	0.15
 AZ_APS_E	Distributed	2016	0.018
 AZ_APS_E	Distributed	2017	0.021
 AZ_APS_E	Distributed	2018	0.024
@@ -123,7 +122,7 @@ AZ_APS_E	Distributed	2052	0.045
 AZ_APS_E	Distributed	2053	0.045
 AZ_APS_E	Distributed	2054	0.045
 AZ_APS_E	Distributed	2055	0.045
-AZ_APS_E	Primary	2015	0.05
+AZ_APS_E	Distributed	2056	0.045
 AZ_APS_E	Primary	2016	0.06
 AZ_APS_E	Primary	2017	0.07
 AZ_APS_E	Primary	2018	0.08
@@ -164,7 +163,7 @@ AZ_APS_E	Primary	2052	0.15
 AZ_APS_E	Primary	2053	0.15
 AZ_APS_E	Primary	2054	0.15
 AZ_APS_E	Primary	2055	0.15
-AZ_NM_N	Distributed	2015	0
+AZ_APS_E	Primary	2056	0.15
 AZ_NM_N	Distributed	2016	0
 AZ_NM_N	Distributed	2017	0
 AZ_NM_N	Distributed	2018	0
@@ -205,7 +204,7 @@ AZ_NM_N	Distributed	2052	0
 AZ_NM_N	Distributed	2053	0
 AZ_NM_N	Distributed	2054	0
 AZ_NM_N	Distributed	2055	0
-AZ_NM_N	Primary	2015	0
+AZ_NM_N	Distributed	2056	0
 AZ_NM_N	Primary	2016	0
 AZ_NM_N	Primary	2017	0
 AZ_NM_N	Primary	2018	0
@@ -246,7 +245,7 @@ AZ_NM_N	Primary	2052	0
 AZ_NM_N	Primary	2053	0
 AZ_NM_N	Primary	2054	0
 AZ_NM_N	Primary	2055	0
-AZ_NW	Distributed	2015	0.0149989
+AZ_NM_N	Primary	2056	0
 AZ_NW	Distributed	2016	0.0179987
 AZ_NW	Distributed	2017	0.0209984
 AZ_NW	Distributed	2018	0.0239982
@@ -287,7 +286,7 @@ AZ_NW	Distributed	2052	0.0449967
 AZ_NW	Distributed	2053	0.0449967
 AZ_NW	Distributed	2054	0.0449967
 AZ_NW	Distributed	2055	0.0449967
-AZ_NW	Primary	2015	0.0500136
+AZ_NW	Distributed	2056	0.0449967
 AZ_NW	Primary	2016	0.0600141
 AZ_NW	Primary	2017	0.0700148
 AZ_NW	Primary	2018	0.0800156
@@ -328,7 +327,7 @@ AZ_NW	Primary	2052	0.150013
 AZ_NW	Primary	2053	0.150013
 AZ_NW	Primary	2054	0.150013
 AZ_NW	Primary	2055	0.150013
-AZ_PHX	Distributed	2015	0.015
+AZ_NW	Primary	2056	0.150013
 AZ_PHX	Distributed	2016	0.018
 AZ_PHX	Distributed	2017	0.021
 AZ_PHX	Distributed	2018	0.024
@@ -369,7 +368,7 @@ AZ_PHX	Distributed	2052	0.045
 AZ_PHX	Distributed	2053	0.045
 AZ_PHX	Distributed	2054	0.045
 AZ_PHX	Distributed	2055	0.045
-AZ_PHX	Primary	2015	0.05
+AZ_PHX	Distributed	2056	0.045
 AZ_PHX	Primary	2016	0.06
 AZ_PHX	Primary	2017	0.07
 AZ_PHX	Primary	2018	0.08
@@ -410,7 +409,7 @@ AZ_PHX	Primary	2052	0.15
 AZ_PHX	Primary	2053	0.15
 AZ_PHX	Primary	2054	0.15
 AZ_PHX	Primary	2055	0.15
-AZ_SE	Distributed	2015	0.015
+AZ_PHX	Primary	2056	0.15
 AZ_SE	Distributed	2016	0.018
 AZ_SE	Distributed	2017	0.021
 AZ_SE	Distributed	2018	0.024
@@ -451,7 +450,7 @@ AZ_SE	Distributed	2052	0.045
 AZ_SE	Distributed	2053	0.045
 AZ_SE	Distributed	2054	0.045
 AZ_SE	Distributed	2055	0.045
-AZ_SE	Primary	2015	0.05
+AZ_SE	Distributed	2056	0.045
 AZ_SE	Primary	2016	0.06
 AZ_SE	Primary	2017	0.07
 AZ_SE	Primary	2018	0.08
@@ -492,7 +491,7 @@ AZ_SE	Primary	2052	0.15
 AZ_SE	Primary	2053	0.15
 AZ_SE	Primary	2054	0.15
 AZ_SE	Primary	2055	0.15
-CAN_ALB	Distributed	2015	0
+AZ_SE	Primary	2056	0.15
 CAN_ALB	Distributed	2016	0
 CAN_ALB	Distributed	2017	0
 CAN_ALB	Distributed	2018	0
@@ -533,7 +532,7 @@ CAN_ALB	Distributed	2052	0
 CAN_ALB	Distributed	2053	0
 CAN_ALB	Distributed	2054	0
 CAN_ALB	Distributed	2055	0
-CAN_ALB	Primary	2015	0
+CAN_ALB	Distributed	2056	0
 CAN_ALB	Primary	2016	0
 CAN_ALB	Primary	2017	0
 CAN_ALB	Primary	2018	0
@@ -574,7 +573,7 @@ CAN_ALB	Primary	2052	0
 CAN_ALB	Primary	2053	0
 CAN_ALB	Primary	2054	0
 CAN_ALB	Primary	2055	0
-CAN_BC	Distributed	2015	0
+CAN_ALB	Primary	2056	0
 CAN_BC	Distributed	2016	0
 CAN_BC	Distributed	2017	0
 CAN_BC	Distributed	2018	0
@@ -615,7 +614,7 @@ CAN_BC	Distributed	2052	0
 CAN_BC	Distributed	2053	0
 CAN_BC	Distributed	2054	0
 CAN_BC	Distributed	2055	0
-CAN_BC	Primary	2015	0
+CAN_BC	Distributed	2056	0
 CAN_BC	Primary	2016	0
 CAN_BC	Primary	2017	0
 CAN_BC	Primary	2018	0
@@ -656,7 +655,7 @@ CAN_BC	Primary	2052	0
 CAN_BC	Primary	2053	0
 CAN_BC	Primary	2054	0
 CAN_BC	Primary	2055	0
-CA_IID	Distributed	2015	0
+CAN_BC	Primary	2056	0
 CA_IID	Distributed	2016	0
 CA_IID	Distributed	2017	0
 CA_IID	Distributed	2018	0
@@ -697,7 +696,7 @@ CA_IID	Distributed	2052	0
 CA_IID	Distributed	2053	0
 CA_IID	Distributed	2054	0
 CA_IID	Distributed	2055	0
-CA_IID	Primary	2015	0.233333
+CA_IID	Distributed	2056	0
 CA_IID	Primary	2016	0.25
 CA_IID	Primary	2017	0.27
 CA_IID	Primary	2018	0.29
@@ -738,7 +737,7 @@ CA_IID	Primary	2052	0.33
 CA_IID	Primary	2053	0.33
 CA_IID	Primary	2054	0.33
 CA_IID	Primary	2055	0.33
-CA_LADWP	Distributed	2015	0
+CA_IID	Primary	2056	0.33
 CA_LADWP	Distributed	2016	0
 CA_LADWP	Distributed	2017	0
 CA_LADWP	Distributed	2018	0
@@ -779,7 +778,7 @@ CA_LADWP	Distributed	2052	0
 CA_LADWP	Distributed	2053	0
 CA_LADWP	Distributed	2054	0
 CA_LADWP	Distributed	2055	0
-CA_LADWP	Primary	2015	0.233333
+CA_LADWP	Distributed	2056	0
 CA_LADWP	Primary	2016	0.25
 CA_LADWP	Primary	2017	0.27
 CA_LADWP	Primary	2018	0.29
@@ -820,7 +819,7 @@ CA_LADWP	Primary	2052	0.33
 CA_LADWP	Primary	2053	0.33
 CA_LADWP	Primary	2054	0.33
 CA_LADWP	Primary	2055	0.33
-CA_PGE	Distributed	2015	0
+CA_LADWP	Primary	2056	0.33
 CA_PGE	Distributed	2016	0
 CA_PGE	Distributed	2017	0
 CA_PGE	Distributed	2018	0
@@ -861,7 +860,7 @@ CA_PGE	Distributed	2052	0
 CA_PGE	Distributed	2053	0
 CA_PGE	Distributed	2054	0
 CA_PGE	Distributed	2055	0
-CA_PGE	Primary	2015	0.233333
+CA_PGE	Distributed	2056	0
 CA_PGE	Primary	2016	0.25
 CA_PGE	Primary	2017	0.27
 CA_PGE	Primary	2018	0.29
@@ -902,7 +901,7 @@ CA_PGE	Primary	2052	0.33
 CA_PGE	Primary	2053	0.33
 CA_PGE	Primary	2054	0.33
 CA_PGE	Primary	2055	0.33
-CA_SCE	Distributed	2015	0
+CA_PGE	Primary	2056	0.33
 CA_SCE	Distributed	2016	0
 CA_SCE	Distributed	2017	0
 CA_SCE	Distributed	2018	0
@@ -943,7 +942,7 @@ CA_SCE	Distributed	2052	0
 CA_SCE	Distributed	2053	0
 CA_SCE	Distributed	2054	0
 CA_SCE	Distributed	2055	0
-CA_SCE	Primary	2015	0.233333
+CA_SCE	Distributed	2056	0
 CA_SCE	Primary	2016	0.25
 CA_SCE	Primary	2017	0.27
 CA_SCE	Primary	2018	0.29
@@ -984,7 +983,7 @@ CA_SCE	Primary	2052	0.33
 CA_SCE	Primary	2053	0.33
 CA_SCE	Primary	2054	0.33
 CA_SCE	Primary	2055	0.33
-CA_SDGE	Distributed	2015	0
+CA_SCE	Primary	2056	0.33
 CA_SDGE	Distributed	2016	0
 CA_SDGE	Distributed	2017	0
 CA_SDGE	Distributed	2018	0
@@ -1025,7 +1024,7 @@ CA_SDGE	Distributed	2052	0
 CA_SDGE	Distributed	2053	0
 CA_SDGE	Distributed	2054	0
 CA_SDGE	Distributed	2055	0
-CA_SDGE	Primary	2015	0.233333
+CA_SDGE	Distributed	2056	0
 CA_SDGE	Primary	2016	0.25
 CA_SDGE	Primary	2017	0.27
 CA_SDGE	Primary	2018	0.29
@@ -1066,7 +1065,7 @@ CA_SDGE	Primary	2052	0.33
 CA_SDGE	Primary	2053	0.33
 CA_SDGE	Primary	2054	0.33
 CA_SDGE	Primary	2055	0.33
-CA_SMUD	Distributed	2015	0
+CA_SDGE	Primary	2056	0.33
 CA_SMUD	Distributed	2016	0
 CA_SMUD	Distributed	2017	0
 CA_SMUD	Distributed	2018	0
@@ -1107,7 +1106,7 @@ CA_SMUD	Distributed	2052	0
 CA_SMUD	Distributed	2053	0
 CA_SMUD	Distributed	2054	0
 CA_SMUD	Distributed	2055	0
-CA_SMUD	Primary	2015	0.233333
+CA_SMUD	Distributed	2056	0
 CA_SMUD	Primary	2016	0.25
 CA_SMUD	Primary	2017	0.27
 CA_SMUD	Primary	2018	0.29
@@ -1148,7 +1147,7 @@ CA_SMUD	Primary	2052	0.33
 CA_SMUD	Primary	2053	0.33
 CA_SMUD	Primary	2054	0.33
 CA_SMUD	Primary	2055	0.33
-CO_E	Distributed	2015	0
+CA_SMUD	Primary	2056	0.33
 CO_E	Distributed	2016	0
 CO_E	Distributed	2017	0
 CO_E	Distributed	2018	0
@@ -1189,7 +1188,7 @@ CO_E	Distributed	2052	0
 CO_E	Distributed	2053	0
 CO_E	Distributed	2054	0
 CO_E	Distributed	2055	0
-CO_E	Primary	2015	0
+CO_E	Distributed	2056	0
 CO_E	Primary	2016	0
 CO_E	Primary	2017	0
 CO_E	Primary	2018	0
@@ -1230,7 +1229,7 @@ CO_E	Primary	2052	0
 CO_E	Primary	2053	0
 CO_E	Primary	2054	0
 CO_E	Primary	2055	0
-CO_PSC	Distributed	2015	0.00875
+CO_E	Primary	2056	0
 CO_PSC	Distributed	2016	0.00875
 CO_PSC	Distributed	2017	0.01
 CO_PSC	Distributed	2018	0.01
@@ -1271,7 +1270,7 @@ CO_PSC	Distributed	2052	0.015
 CO_PSC	Distributed	2053	0.015
 CO_PSC	Distributed	2054	0.015
 CO_PSC	Distributed	2055	0.015
-CO_PSC	Primary	2015	0.2
+CO_PSC	Distributed	2056	0.015
 CO_PSC	Primary	2016	0.2
 CO_PSC	Primary	2017	0.2
 CO_PSC	Primary	2018	0.2
@@ -1312,7 +1311,7 @@ CO_PSC	Primary	2052	0.3
 CO_PSC	Primary	2053	0.3
 CO_PSC	Primary	2054	0.3
 CO_PSC	Primary	2055	0.3
-CO_SW	Distributed	2015	0
+CO_PSC	Primary	2056	0.3
 CO_SW	Distributed	2016	0
 CO_SW	Distributed	2017	0
 CO_SW	Distributed	2018	0
@@ -1353,7 +1352,7 @@ CO_SW	Distributed	2052	0
 CO_SW	Distributed	2053	0
 CO_SW	Distributed	2054	0
 CO_SW	Distributed	2055	0
-CO_SW	Primary	2015	0
+CO_SW	Distributed	2056	0
 CO_SW	Primary	2016	0
 CO_SW	Primary	2017	0
 CO_SW	Primary	2018	0
@@ -1394,7 +1393,7 @@ CO_SW	Primary	2052	0
 CO_SW	Primary	2053	0
 CO_SW	Primary	2054	0
 CO_SW	Primary	2055	0
-ID_E	Distributed	2015	0
+CO_SW	Primary	2056	0
 ID_E	Distributed	2016	0
 ID_E	Distributed	2017	0
 ID_E	Distributed	2018	0
@@ -1435,7 +1434,7 @@ ID_E	Distributed	2052	0
 ID_E	Distributed	2053	0
 ID_E	Distributed	2054	0
 ID_E	Distributed	2055	0
-ID_E	Primary	2015	0.000436218
+ID_E	Distributed	2056	0
 ID_E	Primary	2016	0.000436218
 ID_E	Primary	2017	0.000436218
 ID_E	Primary	2018	0.000436218
@@ -1476,7 +1475,7 @@ ID_E	Primary	2052	0.000436218
 ID_E	Primary	2053	0.000436218
 ID_E	Primary	2054	0.000436218
 ID_E	Primary	2055	0.000436218
-ID_S_OR_E	Distributed	2015	0
+ID_E	Primary	2056	0.000436218
 ID_S_OR_E	Distributed	2016	0
 ID_S_OR_E	Distributed	2017	0
 ID_S_OR_E	Distributed	2018	0
@@ -1517,7 +1516,7 @@ ID_S_OR_E	Distributed	2052	0
 ID_S_OR_E	Distributed	2053	0
 ID_S_OR_E	Distributed	2054	0
 ID_S_OR_E	Distributed	2055	0
-ID_S_OR_E	Primary	2015	0.0141253
+ID_S_OR_E	Distributed	2056	0
 ID_S_OR_E	Primary	2016	0.0141253
 ID_S_OR_E	Primary	2017	0.0141253
 ID_S_OR_E	Primary	2018	0.0141253
@@ -1558,7 +1557,7 @@ ID_S_OR_E	Primary	2052	0.0235421
 ID_S_OR_E	Primary	2053	0.0235421
 ID_S_OR_E	Primary	2054	0.0235421
 ID_S_OR_E	Primary	2055	0.0235421
-MEX_BAJA	Distributed	2015	0
+ID_S_OR_E	Primary	2056	0.0235421
 MEX_BAJA	Distributed	2016	0
 MEX_BAJA	Distributed	2017	0
 MEX_BAJA	Distributed	2018	0
@@ -1599,7 +1598,7 @@ MEX_BAJA	Distributed	2052	0
 MEX_BAJA	Distributed	2053	0
 MEX_BAJA	Distributed	2054	0
 MEX_BAJA	Distributed	2055	0
-MEX_BAJA	Primary	2015	0
+MEX_BAJA	Distributed	2056	0
 MEX_BAJA	Primary	2016	0
 MEX_BAJA	Primary	2017	0
 MEX_BAJA	Primary	2018	0
@@ -1640,7 +1639,7 @@ MEX_BAJA	Primary	2052	0
 MEX_BAJA	Primary	2053	0
 MEX_BAJA	Primary	2054	0
 MEX_BAJA	Primary	2055	0
-MT_NE	Distributed	2015	0
+MEX_BAJA	Primary	2056	0
 MT_NE	Distributed	2016	0
 MT_NE	Distributed	2017	0
 MT_NE	Distributed	2018	0
@@ -1681,7 +1680,7 @@ MT_NE	Distributed	2052	0
 MT_NE	Distributed	2053	0
 MT_NE	Distributed	2054	0
 MT_NE	Distributed	2055	0
-MT_NE	Primary	2015	0.15
+MT_NE	Distributed	2056	0
 MT_NE	Primary	2016	0.15
 MT_NE	Primary	2017	0.15
 MT_NE	Primary	2018	0.15
@@ -1722,7 +1721,7 @@ MT_NE	Primary	2052	0.15
 MT_NE	Primary	2053	0.15
 MT_NE	Primary	2054	0.15
 MT_NE	Primary	2055	0.15
-MT_NW	Distributed	2015	0
+MT_NE	Primary	2056	0.15
 MT_NW	Distributed	2016	0
 MT_NW	Distributed	2017	0
 MT_NW	Distributed	2018	0
@@ -1763,7 +1762,7 @@ MT_NW	Distributed	2052	0
 MT_NW	Distributed	2053	0
 MT_NW	Distributed	2054	0
 MT_NW	Distributed	2055	0
-MT_NW	Primary	2015	0.15
+MT_NW	Distributed	2056	0
 MT_NW	Primary	2016	0.15
 MT_NW	Primary	2017	0.15
 MT_NW	Primary	2018	0.15
@@ -1804,7 +1803,7 @@ MT_NW	Primary	2052	0.15
 MT_NW	Primary	2053	0.15
 MT_NW	Primary	2054	0.15
 MT_NW	Primary	2055	0.15
-MT_SE	Distributed	2015	0
+MT_NW	Primary	2056	0.15
 MT_SE	Distributed	2016	0
 MT_SE	Distributed	2017	0
 MT_SE	Distributed	2018	0
@@ -1845,7 +1844,7 @@ MT_SE	Distributed	2052	0
 MT_SE	Distributed	2053	0
 MT_SE	Distributed	2054	0
 MT_SE	Distributed	2055	0
-MT_SE	Primary	2015	0.149301
+MT_SE	Distributed	2056	0
 MT_SE	Primary	2016	0.149301
 MT_SE	Primary	2017	0.149301
 MT_SE	Primary	2018	0.149301
@@ -1886,7 +1885,7 @@ MT_SE	Primary	2052	0.149301
 MT_SE	Primary	2053	0.149301
 MT_SE	Primary	2054	0.149301
 MT_SE	Primary	2055	0.149301
-MT_SW	Distributed	2015	0
+MT_SE	Primary	2056	0.149301
 MT_SW	Distributed	2016	0
 MT_SW	Distributed	2017	0
 MT_SW	Distributed	2018	0
@@ -1927,7 +1926,7 @@ MT_SW	Distributed	2052	0
 MT_SW	Distributed	2053	0
 MT_SW	Distributed	2054	0
 MT_SW	Distributed	2055	0
-MT_SW	Primary	2015	0.14539
+MT_SW	Distributed	2056	0
 MT_SW	Primary	2016	0.14539
 MT_SW	Primary	2017	0.14539
 MT_SW	Primary	2018	0.14539
@@ -1968,7 +1967,7 @@ MT_SW	Primary	2052	0.14539
 MT_SW	Primary	2053	0.14539
 MT_SW	Primary	2054	0.14539
 MT_SW	Primary	2055	0.14539
-NM_N	Distributed	2015	0.0045
+MT_SW	Primary	2056	0.14539
 NM_N	Distributed	2016	0.0045
 NM_N	Distributed	2017	0.0045
 NM_N	Distributed	2018	0.0045
@@ -2009,7 +2008,7 @@ NM_N	Distributed	2052	0.006
 NM_N	Distributed	2053	0.006
 NM_N	Distributed	2054	0.006
 NM_N	Distributed	2055	0.006
-NM_N	Primary	2015	0.15
+NM_N	Distributed	2056	0.006
 NM_N	Primary	2016	0.15
 NM_N	Primary	2017	0.15
 NM_N	Primary	2018	0.15
@@ -2050,7 +2049,7 @@ NM_N	Primary	2052	0.2
 NM_N	Primary	2053	0.2
 NM_N	Primary	2054	0.2
 NM_N	Primary	2055	0.2
-NM_S_TX_EPE	Distributed	2015	0.00149232
+NM_N	Primary	2056	0.2
 NM_S_TX_EPE	Distributed	2016	0.00149232
 NM_S_TX_EPE	Distributed	2017	0.00149232
 NM_S_TX_EPE	Distributed	2018	0.00149232
@@ -2091,7 +2090,7 @@ NM_S_TX_EPE	Distributed	2052	0.00198976
 NM_S_TX_EPE	Distributed	2053	0.00198976
 NM_S_TX_EPE	Distributed	2054	0.00198976
 NM_S_TX_EPE	Distributed	2055	0.00198976
-NM_S_TX_EPE	Primary	2015	0.0802483
+NM_S_TX_EPE	Distributed	2056	0.00198976
 NM_S_TX_EPE	Primary	2016	0.0802483
 NM_S_TX_EPE	Primary	2017	0.0802483
 NM_S_TX_EPE	Primary	2018	0.0802483
@@ -2132,7 +2131,7 @@ NM_S_TX_EPE	Primary	2052	0.11147
 NM_S_TX_EPE	Primary	2053	0.11147
 NM_S_TX_EPE	Primary	2054	0.11147
 NM_S_TX_EPE	Primary	2055	0.11147
-NV_ENERGY	Distributed	2015	0
+NM_S_TX_EPE	Primary	2056	0.11147
 NV_ENERGY	Distributed	2016	0
 NV_ENERGY	Distributed	2017	0
 NV_ENERGY	Distributed	2018	0
@@ -2173,7 +2172,7 @@ NV_ENERGY	Distributed	2052	0
 NV_ENERGY	Distributed	2053	0
 NV_ENERGY	Distributed	2054	0
 NV_ENERGY	Distributed	2055	0
-NV_ENERGY	Primary	2015	0.200221
+NV_ENERGY	Distributed	2056	0
 NV_ENERGY	Primary	2016	0.2004
 NV_ENERGY	Primary	2017	0.200615
 NV_ENERGY	Primary	2018	0.20083
@@ -2214,7 +2213,7 @@ NV_ENERGY	Primary	2052	0.250688
 NV_ENERGY	Primary	2053	0.250688
 NV_ENERGY	Primary	2054	0.250688
 NV_ENERGY	Primary	2055	0.250688
-OR_E	Distributed	2015	0
+NV_ENERGY	Primary	2056	0.250688
 OR_E	Distributed	2016	0
 OR_E	Distributed	2017	0
 OR_E	Distributed	2018	0
@@ -2255,7 +2254,7 @@ OR_E	Distributed	2052	0
 OR_E	Distributed	2053	0
 OR_E	Distributed	2054	0
 OR_E	Distributed	2055	0
-OR_E	Primary	2015	0.155811
+OR_E	Distributed	2056	0
 OR_E	Primary	2016	0.156973
 OR_E	Primary	2017	0.158368
 OR_E	Primary	2018	0.159762
@@ -2296,7 +2295,7 @@ OR_E	Primary	2052	0.255578
 OR_E	Primary	2053	0.255578
 OR_E	Primary	2054	0.255578
 OR_E	Primary	2055	0.255578
-OR_PDX	Distributed	2015	0
+OR_E	Primary	2056	0.255578
 OR_PDX	Distributed	2016	0
 OR_PDX	Distributed	2017	0
 OR_PDX	Distributed	2018	0
@@ -2337,7 +2336,7 @@ OR_PDX	Distributed	2052	0
 OR_PDX	Distributed	2053	0
 OR_PDX	Distributed	2054	0
 OR_PDX	Distributed	2055	0
-OR_PDX	Primary	2015	0.128387
+OR_PDX	Distributed	2056	0
 OR_PDX	Primary	2016	0.139193
 OR_PDX	Primary	2017	0.139193
 OR_PDX	Primary	2018	0.139193
@@ -2378,7 +2377,7 @@ OR_PDX	Primary	2052	0.231989
 OR_PDX	Primary	2053	0.231989
 OR_PDX	Primary	2054	0.231989
 OR_PDX	Primary	2055	0.231989
-OR_W	Distributed	2015	0
+OR_PDX	Primary	2056	0.231989
 OR_W	Distributed	2016	0
 OR_W	Distributed	2017	0
 OR_W	Distributed	2018	0
@@ -2419,7 +2418,7 @@ OR_W	Distributed	2052	0
 OR_W	Distributed	2053	0
 OR_W	Distributed	2054	0
 OR_W	Distributed	2055	0
-OR_W	Primary	2015	0.153795
+OR_W	Distributed	2056	0
 OR_W	Primary	2016	0.154554
 OR_W	Primary	2017	0.155465
 OR_W	Primary	2018	0.156376
@@ -2460,7 +2459,7 @@ OR_W	Primary	2052	0.253643
 OR_W	Primary	2053	0.253643
 OR_W	Primary	2054	0.253643
 OR_W	Primary	2055	0.253643
-OR_WA_BPA	Distributed	2015	0
+OR_W	Primary	2056	0.253643
 OR_WA_BPA	Distributed	2016	0
 OR_WA_BPA	Distributed	2017	0
 OR_WA_BPA	Distributed	2018	0
@@ -2501,7 +2500,7 @@ OR_WA_BPA	Distributed	2052	0
 OR_WA_BPA	Distributed	2053	0
 OR_WA_BPA	Distributed	2054	0
 OR_WA_BPA	Distributed	2055	0
-OR_WA_BPA	Primary	2015	0.0538504
+OR_WA_BPA	Distributed	2056	0
 OR_WA_BPA	Primary	2016	0.101925
 OR_WA_BPA	Primary	2017	0.101925
 OR_WA_BPA	Primary	2018	0.101925
@@ -2542,7 +2541,7 @@ OR_WA_BPA	Primary	2052	0.169875
 OR_WA_BPA	Primary	2053	0.169875
 OR_WA_BPA	Primary	2054	0.169875
 OR_WA_BPA	Primary	2055	0.169875
-UT_N	Distributed	2015	0
+OR_WA_BPA	Primary	2056	0.169875
 UT_N	Distributed	2016	0
 UT_N	Distributed	2017	0
 UT_N	Distributed	2018	0
@@ -2583,7 +2582,7 @@ UT_N	Distributed	2052	0
 UT_N	Distributed	2053	0
 UT_N	Distributed	2054	0
 UT_N	Distributed	2055	0
-UT_N	Primary	2015	0
+UT_N	Distributed	2056	0
 UT_N	Primary	2016	0
 UT_N	Primary	2017	0
 UT_N	Primary	2018	0
@@ -2624,7 +2623,7 @@ UT_N	Primary	2052	0
 UT_N	Primary	2053	0
 UT_N	Primary	2054	0
 UT_N	Primary	2055	0
-UT_S	Distributed	2015	0
+UT_N	Primary	2056	0
 UT_S	Distributed	2016	0
 UT_S	Distributed	2017	0
 UT_S	Distributed	2018	0
@@ -2665,7 +2664,7 @@ UT_S	Distributed	2052	0
 UT_S	Distributed	2053	0
 UT_S	Distributed	2054	0
 UT_S	Distributed	2055	0
-UT_S	Primary	2015	0.000991342
+UT_S	Distributed	2056	0
 UT_S	Primary	2016	0.000991342
 UT_S	Primary	2017	0.000991342
 UT_S	Primary	2018	0.000991342
@@ -2706,7 +2705,7 @@ UT_S	Primary	2052	0.00148701
 UT_S	Primary	2053	0.00148701
 UT_S	Primary	2054	0.00148701
 UT_S	Primary	2055	0.00148701
-WA_ID_AVA	Distributed	2015	0
+UT_S	Primary	2056	0.00148701
 WA_ID_AVA	Distributed	2016	0
 WA_ID_AVA	Distributed	2017	0
 WA_ID_AVA	Distributed	2018	0
@@ -2747,7 +2746,7 @@ WA_ID_AVA	Distributed	2052	0
 WA_ID_AVA	Distributed	2053	0
 WA_ID_AVA	Distributed	2054	0
 WA_ID_AVA	Distributed	2055	0
-WA_ID_AVA	Primary	2015	0.0195436
+WA_ID_AVA	Distributed	2056	0
 WA_ID_AVA	Primary	2016	0.0586308
 WA_ID_AVA	Primary	2017	0.0586308
 WA_ID_AVA	Primary	2018	0.0586308
@@ -2788,7 +2787,7 @@ WA_ID_AVA	Primary	2052	0.097718
 WA_ID_AVA	Primary	2053	0.097718
 WA_ID_AVA	Primary	2054	0.097718
 WA_ID_AVA	Primary	2055	0.097718
-WA_N_CEN	Distributed	2015	0
+WA_ID_AVA	Primary	2056	0.097718
 WA_N_CEN	Distributed	2016	0
 WA_N_CEN	Distributed	2017	0
 WA_N_CEN	Distributed	2018	0
@@ -2829,7 +2828,7 @@ WA_N_CEN	Distributed	2052	0
 WA_N_CEN	Distributed	2053	0
 WA_N_CEN	Distributed	2054	0
 WA_N_CEN	Distributed	2055	0
-WA_N_CEN	Primary	2015	0.03
+WA_N_CEN	Distributed	2056	0
 WA_N_CEN	Primary	2016	0.09
 WA_N_CEN	Primary	2017	0.09
 WA_N_CEN	Primary	2018	0.09
@@ -2870,7 +2869,7 @@ WA_N_CEN	Primary	2052	0.15
 WA_N_CEN	Primary	2053	0.15
 WA_N_CEN	Primary	2054	0.15
 WA_N_CEN	Primary	2055	0.15
-WA_SEATAC	Distributed	2015	0
+WA_N_CEN	Primary	2056	0.15
 WA_SEATAC	Distributed	2016	0
 WA_SEATAC	Distributed	2017	0
 WA_SEATAC	Distributed	2018	0
@@ -2911,7 +2910,7 @@ WA_SEATAC	Distributed	2052	0
 WA_SEATAC	Distributed	2053	0
 WA_SEATAC	Distributed	2054	0
 WA_SEATAC	Distributed	2055	0
-WA_SEATAC	Primary	2015	0.0297233
+WA_SEATAC	Distributed	2056	0
 WA_SEATAC	Primary	2016	0.0891697
 WA_SEATAC	Primary	2017	0.0891697
 WA_SEATAC	Primary	2018	0.0891697
@@ -2952,7 +2951,7 @@ WA_SEATAC	Primary	2052	0.148616
 WA_SEATAC	Primary	2053	0.148616
 WA_SEATAC	Primary	2054	0.148616
 WA_SEATAC	Primary	2055	0.148616
-WA_W	Distributed	2015	0
+WA_SEATAC	Primary	2056	0.148616
 WA_W	Distributed	2016	0
 WA_W	Distributed	2017	0
 WA_W	Distributed	2018	0
@@ -2993,7 +2992,7 @@ WA_W	Distributed	2052	0
 WA_W	Distributed	2053	0
 WA_W	Distributed	2054	0
 WA_W	Distributed	2055	0
-WA_W	Primary	2015	0.03
+WA_W	Distributed	2056	0
 WA_W	Primary	2016	0.09
 WA_W	Primary	2017	0.09
 WA_W	Primary	2018	0.09
@@ -3034,7 +3033,7 @@ WA_W	Primary	2052	0.15
 WA_W	Primary	2053	0.15
 WA_W	Primary	2054	0.15
 WA_W	Primary	2055	0.15
-WY_NE	Distributed	2015	0
+WA_W	Primary	2056	0.15
 WY_NE	Distributed	2016	0
 WY_NE	Distributed	2017	0
 WY_NE	Distributed	2018	0
@@ -3075,7 +3074,7 @@ WY_NE	Distributed	2052	0
 WY_NE	Distributed	2053	0
 WY_NE	Distributed	2054	0
 WY_NE	Distributed	2055	0
-WY_NE	Primary	2015	0.00106606
+WY_NE	Distributed	2056	0
 WY_NE	Primary	2016	0.00106606
 WY_NE	Primary	2017	0.00106606
 WY_NE	Primary	2018	0.00106606
@@ -3116,7 +3115,7 @@ WY_NE	Primary	2052	0.00106606
 WY_NE	Primary	2053	0.00106606
 WY_NE	Primary	2054	0.00106606
 WY_NE	Primary	2055	0.00106606
-WY_NW	Distributed	2015	0
+WY_NE	Primary	2056	0.00106606
 WY_NW	Distributed	2016	0
 WY_NW	Distributed	2017	0
 WY_NW	Distributed	2018	0
@@ -3157,7 +3156,7 @@ WY_NW	Distributed	2052	0
 WY_NW	Distributed	2053	0
 WY_NW	Distributed	2054	0
 WY_NW	Distributed	2055	0
-WY_NW	Primary	2015	0
+WY_NW	Distributed	2056	0
 WY_NW	Primary	2016	0
 WY_NW	Primary	2017	0
 WY_NW	Primary	2018	0
@@ -3198,7 +3197,7 @@ WY_NW	Primary	2052	0
 WY_NW	Primary	2053	0
 WY_NW	Primary	2054	0
 WY_NW	Primary	2055	0
-WY_SE	Distributed	2015	0
+WY_NW	Primary	2056	0
 WY_SE	Distributed	2016	0
 WY_SE	Distributed	2017	0
 WY_SE	Distributed	2018	0
@@ -3239,7 +3238,7 @@ WY_SE	Distributed	2052	0
 WY_SE	Distributed	2053	0
 WY_SE	Distributed	2054	0
 WY_SE	Distributed	2055	0
-WY_SE	Primary	2015	0
+WY_SE	Distributed	2056	0
 WY_SE	Primary	2016	0
 WY_SE	Primary	2017	0
 WY_SE	Primary	2018	0
@@ -3280,7 +3279,7 @@ WY_SE	Primary	2052	0
 WY_SE	Primary	2053	0
 WY_SE	Primary	2054	0
 WY_SE	Primary	2055	0
-WY_SW	Distributed	2015	0
+WY_SE	Primary	2056	0
 WY_SW	Distributed	2016	0
 WY_SW	Distributed	2017	0
 WY_SW	Distributed	2018	0
@@ -3321,7 +3320,7 @@ WY_SW	Distributed	2052	0
 WY_SW	Distributed	2053	0
 WY_SW	Distributed	2054	0
 WY_SW	Distributed	2055	0
-WY_SW	Primary	2015	0
+WY_SW	Distributed	2056	0
 WY_SW	Primary	2016	0
 WY_SW	Primary	2017	0
 WY_SW	Primary	2018	0
@@ -3362,3 +3361,4 @@ WY_SW	Primary	2052	0
 WY_SW	Primary	2053	0
 WY_SW	Primary	2054	0
 WY_SW	Primary	2055	0
+WY_SW	Primary	2056	0
