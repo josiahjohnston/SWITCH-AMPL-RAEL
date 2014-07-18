@@ -763,6 +763,22 @@ CREATE TABLE IF NOT EXISTS _consume_and_redirect_variables (
   PRIMARY KEY (scenario_id, carbon_cost, period, study_hour, area_id, rps_fuel_category)
 ) ROW_FORMAT=FIXED;
 
+CREATE TABLE IF NOT EXISTS _energy_consumed_and_spilled (
+  scenario_id int,
+  carbon_cost smallint,
+  period year,
+  area_id smallint,
+  study_date int,
+  study_hour int,
+  hours_in_sample double,
+  nondistributed_power_consumed double,
+  distributed_power_consumed double,
+  nondistributed_power_spilled double,
+  distributed_power_spilled double,
+  PRIMARY KEY (scenario_id, carbon_cost, period, area_id, study_hour)
+);
+
+
 CREATE TABLE IF NOT EXISTS _system_load (
   scenario_id int,
   carbon_cost smallint,

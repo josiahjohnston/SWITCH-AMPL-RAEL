@@ -30,9 +30,11 @@ port=3306
 ssh_tunnel=1
 
 # Determine if this is being run in a cluster environment, and if so, which cluster this is being run on
+# Temporarily put cap factors in a the temp_csp_6h_storage directory
+# so that running dispatch on older model versions with exogenous csp_6h_storage cap factors still works
 if [ -z $(which getid) ]; then 
   cluster=0; 
-  base_data_dir="/Volumes/switch/switch_dispatch_all_weeks/daily"
+  base_data_dir="/Volumes/switch/switch_dispatch_all_weeks/daily/temp_csp_6h_storage"
 else 
   cluster=1; 
 fi;
@@ -46,9 +48,9 @@ if [ $cluster -eq 1 ]; then
   esac
   case $cluster_name in
     psi) 
-      base_data_dir="/work2/dkammen/data/dispatch/daily" ;;
+      base_data_dir="/work2/dkammen/data/dispatch/daily/temp_csp_6h_storage" ;;
     citris)
-      base_data_dir="$HOME/shared/data/dispatch/daily" ;;
+      base_data_dir="$HOME/shared/data/dispatch/daily/temp_csp_6h_storage" ;;
   esac
 fi
 if [ ! -d "$base_data_dir" ]; then 
@@ -179,10 +181,12 @@ min_historical_year=$(mysql $connection_string --column-names=false -e "\
   LIMIT 1;")
 if [ $min_historical_year -eq 2004 ]; then 
   cap_factor_table="_cap_factor_intermittent_sites"
+  cap_factor_csp_6h_storage_table="_cap_factor_intermittent_sites"
   proposed_projects_table="_proposed_projects_v2"
   proposed_projects_view="proposed_projects_v2"
 elif [ $min_historical_year -eq 2006 ]; then 
   cap_factor_table="_cap_factor_intermittent_sites_v2"
+  cap_factor_csp_6h_storage_table='_cap_factor_csp_6h_storage_adjusted'
   proposed_projects_table="_proposed_projects_v3"
   proposed_projects_view="proposed_projects_v3"
 else
@@ -385,7 +389,19 @@ cat test_set_ids.txt | while read test_set_id test_path; do
           JOIN load_area_info USING(area_id) \
         WHERE training_set_id=$TRAINING_SET_ID \
           AND test_set_id=$test_set_id \
-          AND periodnum=0;" >> $data_dir_historical_cap_factor/$f
+          AND periodnum=0 \
+          AND technology_id <> 7 \
+      UNION \
+      select project_id, load_area, technology, DATE_FORMAT(datetime_utc,'%Y%m%d%H') as historical_hour, cap_factor_adjusted as cap_factor_historical \
+        FROM dispatch_test_sets \
+          JOIN hours ON(historic_hour=hournum) \
+          JOIN $cap_factor_csp_6h_storage_table ON(historic_hour=hour) \
+          JOIN $proposed_projects_table USING(project_id) \
+          JOIN load_area_info USING(area_id) \
+        WHERE training_set_id=$TRAINING_SET_ID \
+          AND test_set_id=$test_set_id \
+          AND periodnum=0 \
+          AND technology_id = 7 ;" >> $data_dir_historical_cap_factor/$f
   fi
 	[ -L $input_dir/$f ] && rm $input_dir/$f  # Remove the link if it exists
 	ln -s $data_dir_historical_cap_factor/$f $input_dir/$f          # Make a new link

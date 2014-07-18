@@ -403,7 +403,7 @@ check {(pid, a, t, h) in PROJ_INTERMITTENT_HOURS: not( t in SOLAR_CSP_TECHNOLOGI
 # The below checks make sure that for other plants the cap factors
 # are <= 1 but for solar they are <= 1.11
 check {(pid, a, t, h) in PROJ_INTERMITTENT_HOURS: not( t in SOLAR_TECHNOLOGIES )}: cap_factor[pid, a, t, h] <= 1;
-check {(pid, a, t, h) in PROJ_INTERMITTENT_HOURS: t in SOLAR_TECHNOLOGIES }: cap_factor[pid, a, t, h] <= 1.11;
+check {(pid, a, t, h) in PROJ_INTERMITTENT_HOURS: t in SOLAR_TECHNOLOGIES }: cap_factor[pid, a, t, h] <= 2;
 check {(pid, a, t) in PROJ_INTERMITTENT}: intermittent[t];
 
 ###############################################
@@ -816,10 +816,11 @@ param carbon_cost_per_mwh_hourly { (pid, a, t, p, h) in AVAILABLE_HOURS } =
 
 # now tally all variable costs ($/MWh costs) by period for generators that aren't dispached hourly (i.e. intermittent and baseload)
 # variable_cost is inclusive of variable o & m, fuel and carbon
-param variable_cost { (pid, a, t, online_yr) in PROJECT_VINTAGES: intermittent[t] or baseload[t] } = 
+param variable_cost { (pid, a, t, online_yr) in PROJECT_VINTAGES: ( intermittent[t] and t <> 'CSP_Trough_6h_Storage' ) or baseload[t] } = 
   sum { p in PERIODS, h in TIMEPOINTS: online_yr <= p < project_end_year[pid, a, t, online_yr] and period[h] = p }
 	( ( if baseload[t] then 1 else if intermittent [t] then cap_factor[pid, a, t, h] ) * gen_availability[t]
 	* ( variable_o_m_cost_hourly[pid, a, t, p, h] + fuel_cost_hourly[pid, a, t, p, h] + carbon_cost_per_mwh_hourly[pid, a, t, p, h] ) );
+
 
 
 #######################################
@@ -1058,12 +1059,18 @@ var Local_TD_Installed_To_Date { a in LOAD_AREAS, p in PERIODS } = sum { online_
 
 ######## GENERATOR AND STORAGE VARIABLES ########
 
-# Number of MW of power consumed in each load area in each hour for non distributed and distributed projects
+# Number of MW of power consumed and spilled in each load area in each hour for non-distributed and distributed projects
 # in terms of actual load met - distribution losses are NOT consumed
 # This is needed for RPS in cases where some excess power is spilled.
 var ConsumeNonDistributedPower {LOAD_AREAS, TIMEPOINTS} >= 0;
+var SpillNonDistributedPower {LOAD_AREAS, TIMEPOINTS} >= 0;
+var ConsumeDistributedPower {LOAD_AREAS, TIMEPOINTS} >= 0;
+var SpillDistributedPower {LOAD_AREAS, TIMEPOINTS} >= 0;
+#var RedirectDistributedPower {LOAD_AREAS, TIMEPOINTS} >= 0;
+
 # same on a reserve basis
-var ConsumeNonDistributedPower_Reserve {LOAD_AREAS, TIMEPOINTS} >= 0;
+var Contribute_to_Planning_Reserve_NonDistributed {LOAD_AREAS, TIMEPOINTS} >= 0;
+var Contribute_to_Planning_Reserve_Distributed {LOAD_AREAS, TIMEPOINTS} >= 0;
 
 # MW of Renewable Energy Certificates (RECs) to consume in each RPS area in each hour
 var ConsumeREC {r in RPS_AREAS, h in TIMEPOINTS} >= 0;
@@ -1168,6 +1175,27 @@ var TotalEnergyAvailableinStorage { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: 
 var DispatchHydro {HYDRO_AVAILABLE_HOURS} >= 0;
 var Dispatch_Pumped_Hydro_Storage {PUMPED_HYDRO_AVAILABLE_HOURS} >= 0;
 var Store_Pumped_Hydro {PUMPED_HYDRO_AVAILABLE_HOURS} >= 0;
+
+# CSP with storage
+# param csp_storage_efficiency = .985; # check
+# temporarily deal with csp var o&m here while the database is down
+# TODO: move this to database as a new gen_costs_id
+# based on Hummon et al, 2013. Modeling CSP with TES for Integration Studies. NREL/CP-6A20-60365. Picked value in the middle between low and high
+# param csp_storage_var_o_m = 2; 
+param csp_storage_var_o_m_hourly { a in LOAD_AREAS, h in TIMEPOINTS } =
+	variable_o_m['CSP_Trough_6h_Storage'] * economic_multiplier[a]
+	* ( hours_in_sample[h] / num_years_per_period ) * discount_to_base_year[period[h]];
+
+# The energy dispatched directly to the turbine from the solar field
+# It is constrained to equal the difference between the total energy available from the solar field and how much of it is stored in that hour
+# Parasitic losses are ignored due to computational constraints, so DispatchCSP is defined as >= 0
+var DispatchCSP {  a in LOAD_AREAS, h in TIMEPOINTS } >= 0;
+
+# CSP storage variables
+var StoreCSP { a in LOAD_AREAS, h in TIMEPOINTS } >= 0;
+var ReleaseCSP { a in LOAD_AREAS, h in TIMEPOINTS } >= 0;
+var TotalEnergyinCSPStorage { a in LOAD_AREAS, h in TIMEPOINTS } >= 0;
+
 
 ######### Demand response ##############
 
@@ -1324,8 +1352,10 @@ minimize Power_Cost:
         InstallStorageEnergyCapacity[pid, a, t, p] *  storage_energy_capacity_capital_cost[pid, a, t, p] )    
 	# Variable, fuel, and carbon costs for intermittent and baseload generators
 	# Bio_solid fuel cost isn't included here - it's in the bio supply curve
-    + ( sum { (pid, a, t, p) in PROJECT_VINTAGES: intermittent[t] or baseload[t] } 
+    + ( sum { (pid, a, t, p) in PROJECT_VINTAGES: ( intermittent[t] and t <> 'CSP_Trough_6h_Storage' ) or baseload[t] } 
         InstallGen[pid, a, t, p] * variable_cost[pid, a, t, p] )
+    # Variable cost for CSP storage, attributed to the storing side and hence multiplied by the storage efficiency
+    + ( sum { a in LOAD_AREAS, h in TIMEPOINTS } ( DispatchCSP[a, h] + StoreCSP[a, h] * storage_efficiency['CSP_Trough_6h_Storage'] ) * csp_storage_var_o_m_hourly[a, h] )
 	# BioSolid fuel costs - ConsumeBioSolid is the MMbtu of biomass consumed per period per load area
 	# this is annualized because costs in the objective function are annualized for proper discounting
 	+ ( sum { (a, p, bp) in FUTURE_PERIODS_AREAS_AND_BIOBREAKPOINTS } 
@@ -1344,13 +1374,17 @@ minimize Power_Cost:
 	# Variable costs for new flexible baseload projects
 	+ ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: flexible_baseload[t] } 
 		DispatchFlexibleBaseload[pid, a, t, p, date[h]] * ( variable_o_m_cost_hourly[pid, a, t, p, h] + carbon_cost_per_mwh_hourly[pid, a, t, p, h] + fuel_cost_hourly[pid, a, t, p, h] ) )
-	# Variable costs for storage projects: currently attributed to the dispatch side of storage
-	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] and t <> 'Compressed_Air_Energy_Storage' } 
-		ReleaseEnergy[pid, a, t, p, h] * variable_o_m_cost_hourly[pid, a, t, p, h])
+	# Variable costs for storage projects: attributed to the storing side of storage to prevent inefficient storage dispatch (and losses) as a way of spilling energy
+	# Since the variable cost is per MWh-provided, multiply by the storage_efficiency
+	# For CAES, also add the variable cost incurred by the combustion turbine
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] } ( 
+		StoreEnergy[pid, a, t, p, h] * storage_efficiency[t] * variable_o_m_cost_hourly[pid, a, t, p, h]
+		+ ( if t = 'Compressed_Air_Energy_Storage' then ( DispatchGen[pid, a, t, p, h] * variable_o_m_cost_hourly[pid, a, t, p, h] ) else 0 ) ) )
+	# Fuel and carbon cost for CAES
 	# for CAES, power output is apportioned between DispatchGen and ReleaseEnergy by caes_storage_to_ng_ratio through the constraint CAES_Combined_Dispatch
 	# the sum of DispatchGen and ReleaseEnergy simplifies to DispatchGen * ( 1 + caes_storage_to_ng_ratio )
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t = 'Compressed_Air_Energy_Storage' } 
-	  DispatchGen[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) * ( variable_o_m_cost_hourly[pid, a, t, p, h] + carbon_cost_per_mwh_hourly[pid, a, t, p, h] + fuel_cost_hourly[pid, a, t, p, h] ) )
+	  DispatchGen[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) * ( carbon_cost_per_mwh_hourly[pid, a, t, p, h] + fuel_cost_hourly[pid, a, t, p, h] ) )
 	# fuel and carbon costs for keeping spinning reserves from new dispatchable plants (oil and gas except for CAES)
 	# for natural gas plants, fuel costs for spinning reserves are handled via the NG supply curve so for NG, fuel_cost_hourly_spinning_reserve = 0; however, fuels cost are calculated here for oil plants
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t] and t <> 'Compressed_Air_Energy_Storage' } 
@@ -1389,7 +1423,7 @@ minimize Power_Cost:
 	# variable costs for releasing energy from pumped hydro storage - currently zero because the variable O&M value is zero
 	# decision variables are on the load area level - this shares them out by plant (pid) in case plants have different variable costs within a load area
 	+ ( sum {(pid, a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS_BY_PID}
-		Dispatch_Pumped_Hydro_Storage[a, t, p, h] * ( ep_capacity_mw[pid, a, t] / hydro_capacity_mw_in_load_area[a, t, p] ) * variable_o_m_cost_hourly[pid, a, t, p, h] )
+		Store_Pumped_Hydro[a, t, p, h] * storage_efficiency[t] * ( ep_capacity_mw[pid, a, t] / hydro_capacity_mw_in_load_area[a, t, p] ) * variable_o_m_cost_hourly[pid, a, t, p, h] )
 	# carbon costs for keeping spinning reserves from existing dispatchable thermal plants (fuel costs for NG generators are handled via the NG supply curve, but is included in fuel_cost_hourly_spinning_reserve for oil plants)
 	+ ( sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: dispatchable[t] }
 		Provide_Spinning_Reserve[pid, a, t, p, h] * ( fuel_cost_hourly_spinning_reserve[pid, a, t, p, h] + carbon_cost_per_mwh_hourly_spinning_reserve[pid, a, t, p, h] ) )
@@ -1421,6 +1455,12 @@ minimize Power_Cost:
 	# Sunk costs of operating the existing local (intra-load area) transmission and distribution
 	+ ( sum {a in LOAD_AREAS, p in PERIODS} local_td_sunk_annual_payment[a] * discount_to_base_year[p] )
 ;
+
+
+# Transmission minimization
+minimize Transmission_Use:
+	sum { (a1, a2, fc, p, h) in TRANSMISSION_LINE_HOURS } hours_in_sample[h] * DispatchTrans[a1, a2, fc, p, h]; 
+
 
 ############## CONSTRAINTS ##############
 
@@ -1517,27 +1557,37 @@ subject to Carbon_Cap {p in PERIODS}:
 
 # System needs to meet the load in each load area in each study hour, with all available flows of power.
 subject to Satisfy_Load {a in LOAD_AREAS, h in TIMEPOINTS}:
-	  ConsumeNonDistributedPower[a, h]
-	# distributed power production doesn't experience distribution losses and must be consumed immediately on site or spilled
-	+ ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES }
-          Installed_To_Date[pid, a, t, p] * cap_factor[pid, a, t, h] * gen_availability[t])
-	+ ( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES }
-   	      ep_capacity_mw[pid, a, t] * gen_availability[t] * eip_cap_factor[pid, a, t, h] ) 
-	>= system_load[a, h]
+	ConsumeNonDistributedPower[a, h] + ConsumeDistributedPower[a, h]
+	= system_load[a, h]
 	# power from load_response
 	+ Meet_Shifted_Load[a, h] - Shift_Res_Comm_Load[a, h] + Charge_EVs[a, h] - Shift_EV_Load[a, h];
+
+# distributed power production
+subject to Conservation_Of_Energy_Distributed {a in LOAD_AREAS, h in TIMEPOINTS}:
+  ConsumeDistributedPower[a, h] + SpillDistributedPower[a, h]
+  =
+   (
+   # distributed power production doesn't experience distribution losses and must be consumed immediately on site or spilled
+    ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES }
+          Installed_To_Date[pid, a, t, p] * cap_factor[pid, a, t, h] * gen_availability[t])
+	+ ( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES }
+   	      ep_capacity_mw[pid, a, t] * gen_availability[t] * eip_cap_factor[pid, a, t, h] )
+   	 );
+
 
 # non-distributed power production experiences distribution losses when consumed
 # but it can also be stored, transmitted, or spilled (hence the <=).
 subject to Conservation_Of_Energy_NonDistributed {a in LOAD_AREAS, h in TIMEPOINTS}:
-  ConsumeNonDistributedPower[a, h] * (1 + distribution_losses)
-  <= 
+  ConsumeNonDistributedPower[a, h] * (1 + distribution_losses) + SpillNonDistributedPower[a, h]
+  = 
   (
 	# power produced from new non-battery-storage projects  
 	  ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t] } DispatchGen[pid, a, t, p, h] )
 	+ ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: flexible_baseload[t] } DispatchFlexibleBaseload[pid, a, t, p, date[h]] )
-	+ ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: intermittent[t] and t not in SOLAR_DIST_PV_TECHNOLOGIES }
+	+ ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: intermittent[t] and t not in SOLAR_DIST_PV_TECHNOLOGIES and t <> 'CSP_Trough_6h_Storage' }
 		Installed_To_Date[pid, a, t, p] * cap_factor[pid, a, t, h] * gen_availability[t] )
+	# power from CSP; the storing part of CSP is not included as it does not constitute extra load
+	+ ( DispatchCSP[a, h] + ReleaseCSP[a, h] )
 	+ ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t] }
 		Installed_To_Date[pid, a, t, p] * gen_availability[t] )
 	# power from new storage
@@ -1546,7 +1596,7 @@ subject to Conservation_Of_Energy_NonDistributed {a in LOAD_AREAS, h in TIMEPOIN
 	+ ( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: t not in SOLAR_DIST_PV_TECHNOLOGIES} ProducePowerEP[pid, a, t, p, h] )
 	# power from existing (pumped hydro) storage
  	+ ( sum { (a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS} ( Dispatch_Pumped_Hydro_Storage[a, t, p, h] - Store_Pumped_Hydro[a, t, p, h] ) )
-	# transmission in and out of each load area
+ 	# transmission in and out of each load area
 	+ ( sum { (a2, a, fc, p, h) in TRANSMISSION_LINE_HOURS } DispatchTrans[a2, a, fc, p, h] * transmission_efficiency[a2, a] )
 	- ( sum { (a, a1, fc, p, h) in TRANSMISSION_LINE_HOURS } DispatchTrans[a, a1, fc, p, h] )
   	);
@@ -1563,8 +1613,9 @@ subject to Conservation_of_REC {r in RPS_AREAS, h in TIMEPOINTS}:
 	  	DispatchGen[pid, a, t, p, h] )
 	+ ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: flexible_baseload[t] and rps_compliance_entity[a] = r and tech_qualifies_for_rps[t] }
 		DispatchFlexibleBaseload[pid, a, t, p, date[h]] )
-	+ ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: intermittent[t] and rps_compliance_entity[a] = r and tech_qualifies_for_rps[t] }
+	+ ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: intermittent[t] and t <> 'CSP_Trough_6h_Storage' and rps_compliance_entity[a] = r and tech_qualifies_for_rps[t] }
 		Installed_To_Date[pid, a, t, p] * cap_factor[pid, a, t, h] * gen_availability[t] )
+	+ ( sum { a in LOAD_AREAS: rps_compliance_entity[a] = r } ( DispatchCSP[a, h] + ReleaseCSP[a, h] ) )
 	+ ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t] and rps_compliance_entity[a] = r and tech_qualifies_for_rps[t] }
 		Installed_To_Date[pid, a, t, p] * gen_availability[t] )
 	+ ( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: rps_compliance_entity[a] = r and tech_qualifies_for_rps[t] }
@@ -1581,28 +1632,38 @@ subject to Conservation_of_REC {r in RPS_AREAS, h in TIMEPOINTS}:
 # same on a reserve basis
 # note: these are not derated by forced outage rate, because that is incorporated in the reserve margin
 subject to Satisfy_Load_Reserve {a in LOAD_AREAS, h in TIMEPOINTS}:
-	ConsumeNonDistributedPower_Reserve[a,h] + 
-	  ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES}
-          Installed_To_Date[pid, a, t, p] * cap_factor[pid, a, t, h] )
-	+ ( sum {(pid, a, t, p, h) in EP_AVAILABLE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES}
-   	      eip_cap_factor[pid, a, t, h] * ep_capacity_mw[pid, a, t] ) 
+	Contribute_to_Planning_Reserve_NonDistributed[a, h] + Contribute_to_Planning_Reserve_Distributed[a, h]
 	>=
 	( 1 + planning_reserve_margin ) * ( system_load[a, h] + Meet_Shifted_Load[a, h] - Shift_Res_Comm_Load[a, h] + Charge_EVs[a, h] - Shift_EV_Load[a, h] )
 	;
 
+# distributed that is not redirected to the bulk transmission system can contribute to the load areas planning reserve margin
+subject to Conservation_Of_Energy_Distributed_Reserve {a in LOAD_AREAS, h in TIMEPOINTS}:
+  Contribute_to_Planning_Reserve_Distributed[a,h]
+  =
+   (
+   # distributed power production doesn't experience distribution losses and must be consumed immediately on site or spilled
+    ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES }
+          Installed_To_Date[pid, a, t, p] * cap_factor[pid, a, t, h] * gen_availability[t])
+	+ ( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: t in SOLAR_DIST_PV_TECHNOLOGIES }
+   	      ep_capacity_mw[pid, a, t] * gen_availability[t] * eip_cap_factor[pid, a, t, h] )
+   	 );
 
 subject to Conservation_Of_Energy_NonDistributed_Reserve {a in LOAD_AREAS, h in TIMEPOINTS}:
-  ( ConsumeNonDistributedPower_Reserve[a,h] * (1 + distribution_losses) )
-  <= 
+  ( Contribute_to_Planning_Reserve_NonDistributed[a,h] * (1 + distribution_losses) )
+  = 
   (
 	#    NEW PLANTS
   # new dispatchable capacity (no need to decide how to dispatch it; we just need to know it's available)
   # CAES is included here as we assume the combustion turbine can be run even at low cavern pressure (when storage is not fully charged) at a worse heat rat; CAES also has many hours of storage, so it is very likely that it will be fully available during times of high grid stress
 	  ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: dispatchable[t] }
 		Installed_To_Date[pid, a, t, p] )
-  # output from new intermittent projects. 
-	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: intermittent[t] and t not in SOLAR_DIST_PV_TECHNOLOGIES} 
+  # output from new intermittent projects except for CSP with storage 
+	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: intermittent[t] and t <> 'CSP_Trough_6h_Storage' and t not in SOLAR_DIST_PV_TECHNOLOGIES} 
 		Installed_To_Date[pid, a, t, p] * cap_factor[pid, a, t, h] )
+  # output from CSP with storage
+  # the storing part is not included as it does not constitute extra load (the energy stored is not taken from the grid)
+    + ( DispatchCSP[a, h] + ReleaseCSP[a, h] )
   # new baseload plants
 	+ ( sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: baseload[t] or flexible_baseload[t] } 
 		Installed_To_Date[pid, a, t, p] * ( 1 - scheduled_outage_rate[t] ) )
@@ -1794,6 +1855,39 @@ subject to Spinning_Reserve_as_Fraction_of_Dispatch { (pid, a, t, p, h) in AVAIL
 	else (	
 	( max_spinning_reserve_fraction_of_capacity[t] / ( 1 - max_spinning_reserve_fraction_of_capacity[t] ) ) 
 	* ( if can_build_new[t] then DispatchGen[pid, a, t, p, h] else ProducePowerEP[pid, a, t, p, h] ) );
+
+
+# CSP WITH 6H STORAGE
+
+# Dispatch from CSP with storage cannot exceed the energy available from the solar field minus how much of that energy is stored
+# Release_CSP is not included here as we need to be able to release energy at night when cap factors are <= 0
+# Parasitic losses are ignored due to computational constraints, so we take the max of cap_factor (which is negative sometimes) and 0
+subject to Max_CSP_Solar_Field_Energy { a in LOAD_AREAS, h in TIMEPOINTS }:
+  DispatchCSP[a, h] + StoreCSP[a, h]
+  <= sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t = 'CSP_Trough_6h_Storage' }
+      Installed_To_Date[pid, a, t, p] * max ( cap_factor[pid, a, t, h], 0 ) * gen_availability[t]
+      ;
+
+# Power output from CSP is limited by turbine size
+subject to Max_CSP_Power { a in LOAD_AREAS, h in TIMEPOINTS }:
+  DispatchCSP[a, h] + ReleaseCSP[a, h]
+  <= sum { (pid, a, t, p) in PROJECT_VINTAGES: t = 'CSP_Trough_6h_Storage' and period[h] = p }
+       Installed_To_Date[pid, a, t, p] * gen_availability[t]
+       ;
+  
+# CSP storage size is limited to 6 hours -- hard-coded here
+subject to Max_Energy_in_CSP_Storage { a in LOAD_AREAS, h in TIMEPOINTS }:
+  TotalEnergyinCSPStorage[a, h]
+  <= 6 * (
+     sum { (pid, a, t, p) in PROJECT_VINTAGES: t = 'CSP_Trough_6h_Storage' and period[h] = p }
+       Installed_To_Date[pid, a, t, p] );
+
+# The energy available in storage in an hour is equal to how much energy was available in the previous hour plus the net storage
+subject to CSP_Storage_Hourly_Energy_Tracking { a in LOAD_AREAS, h in TIMEPOINTS }:
+  TotalEnergyinCSPStorage[a, h] 
+  = TotalEnergyinCSPStorage[a, previous_timepoint[h]]
+    + number_of_hours_of_day_timepoint_represents[previous_timepoint[h]] *
+      ( StoreCSP[a, previous_timepoint[h]] * storage_efficiency['CSP_Trough_6h_Storage'] - ReleaseCSP[a, previous_timepoint[h]] );
 
 
 ########################################
@@ -2051,7 +2145,7 @@ problem Investment_Cost_Minimization:
 	Power_Cost, 
   # Satisfy Load and Power Consumption
     Satisfy_Load,
-	Conservation_Of_Energy_NonDistributed, ConsumeNonDistributedPower, 
+	Conservation_Of_Energy_NonDistributed, Conservation_Of_Energy_Distributed, ConsumeNonDistributedPower, SpillNonDistributedPower, ConsumeDistributedPower, SpillDistributedPower,
   # Policy Constraints
 	Satisfy_Primary_RPS, Satisfy_Distributed_RPS, Meet_California_Solar_Initiative, Meet_California_Distributed_Generation_Mandate, 
 	Carbon_Cap,
@@ -2080,13 +2174,16 @@ problem Investment_Cost_Minimization:
 	Max_Energy_in_Storage, Storage_Projects_Hourly_Energy_Tracking,
   # Contigency Planning Constraints
 	Satisfy_Load_Reserve, 
-	Conservation_Of_Energy_NonDistributed_Reserve, ConsumeNonDistributedPower_Reserve,
+	Conservation_Of_Energy_NonDistributed_Reserve, Conservation_Of_Energy_Distributed_Reserve, Contribute_to_Planning_Reserve_NonDistributed, Contribute_to_Planning_Reserve_Distributed,
   # Operating Reserve Variables
     Spinning_Reserve_Requirement, Quickstart_Reserve_Requirement,
   # Operating Reserve Constraints
   	Satisfy_Spinning_Reserve_Requirement, Satisfy_Quickstart_Reserve_Requirement,
   # Demand response
-  	Shift_Res_Comm_Load, Meet_Shifted_Load, Shift_EV_Load, Charge_EVs, Maximum_Res_Comm_Load_That_Can_Be_Shifted_from_Hour, Maximum_Res_Comm_Load_That_Can_Be_Shifted_to_Hour, Res_Comm_Demand_Response_Energy_Balance, Maximum_EV_Load_That_Can_Be_Shifted_from_Hour, Maximum_EV_Load_That_Can_Be_Shifted_to_Hour, EV_Charging_Energy_Balance
+  	Shift_Res_Comm_Load, Meet_Shifted_Load, Shift_EV_Load, Charge_EVs, Maximum_Res_Comm_Load_That_Can_Be_Shifted_from_Hour, Maximum_Res_Comm_Load_That_Can_Be_Shifted_to_Hour, Res_Comm_Demand_Response_Energy_Balance, Maximum_EV_Load_That_Can_Be_Shifted_from_Hour, Maximum_EV_Load_That_Can_Be_Shifted_to_Hour, EV_Charging_Energy_Balance,
+  	# CSP with storage
+  	StoreCSP, ReleaseCSP, TotalEnergyinCSPStorage, DispatchCSP,
+  	Max_CSP_Solar_Field_Energy, Max_CSP_Power, Max_Energy_in_CSP_Storage, CSP_Storage_Hourly_Energy_Tracking
 ;
 
 
@@ -2094,8 +2191,8 @@ problem Present_Day_Cost_Minimization:
   # Objective function 
 	Power_Cost, 
   # Satisfy Load and Power Consumption
-    Satisfy_Load,
-	Conservation_Of_Energy_NonDistributed, ConsumeNonDistributedPower, 
+    Satisfy_Load, 
+	Conservation_Of_Energy_NonDistributed, Conservation_Of_Energy_Distributed, ConsumeNonDistributedPower, SpillNonDistributedPower, ConsumeDistributedPower, SpillDistributedPower, 
   # Installation Decisions - only gas combustion turbines and local TD for the present day optimization
 	{(pid, a, t, p) in PROJECT_VINTAGES: t='Gas_Combustion_Turbine' } InstallGen[pid, a, t, p], InstallLocalTD,
   # Installation Constraints

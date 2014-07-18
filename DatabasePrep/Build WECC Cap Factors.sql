@@ -1665,3 +1665,33 @@ delimiter ;
 CALL cumulative_intermittent_cap_factor_rank;
 DROP PROCEDURE IF EXISTS cumulative_intermittent_cap_factor_rank;
 
+
+---- CSP 6h Storage cap factors based on CSP with no storage for 2006 ----
+
+-- These will be used to let SWITCH optimally dispatch CSP_Trough_6h_Storage
+-- This new table with adjusted cap factors for CSP with storage will tell us how much energy is being collected by the solar field in each hour
+-- The assumption is that we have a solar multiple of 2 for the CSP with 6h storage and 1.4 for CSP with no storage
+-- To get at the amount of energy collected by the solar field of the plants with 6h of storage,
+-- we'll use the cap factors for the plants with no storage and adjust those by the ratio of the solar multiples
+    
+create table _cap_factor_csp_6h_storage_adjusted (
+project_id int(10),
+hour smallint(5),
+cap_factor_adjusted float,
+PRIMARY KEY pid_h (project_id, hour)
+);
+
+insert into _cap_factor_csp_6h_storage_adjusted (project_id, hour, cap_factor_adjusted)
+select csp_6h_storage_pid, hour, adjusted_cap_factor
+from ( select project_id as csp_6h_storage_pid, csp_no_storage_pid
+       from _proposed_projects_v3
+        join ( select project_id as csp_no_storage_pid, location_id
+               from _proposed_projects_v3
+               where technology_id = 27 ) as csp_no_storage_table
+        using (location_id)
+       where _proposed_projects_v3.technology_id = 7 ) as storage_to_no_storage_pid_map
+  join ( select project_id, hour, (2/1.4) * cap_factor as adjusted_cap_factor
+         from _cap_factor_intermittent_sites_v2 ) as tadjusted_cap_factor
+    on ( tadjusted_cap_factor.project_id = csp_no_storage_pid )
+;
+

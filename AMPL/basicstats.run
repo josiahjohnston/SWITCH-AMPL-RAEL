@@ -67,8 +67,10 @@ let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: dispatchable[t] }
   Power_Produced[pid, a, t, p, h] := DispatchGen[pid, a, t, p, h];
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: flexible_baseload[t] }
   Power_Produced[pid, a, t, p, h] := DispatchFlexibleBaseload[pid, a, t, p, date[h]];
-let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: intermittent[t] }
+let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: intermittent[t] and t <> 'CSP_Trough_6h_Storage' }
   Power_Produced[pid, a, t, p, h] := Installed_To_Date[pid, a, t, p] * cap_factor[pid, a, t, h] * gen_availability[t];
+let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: t = 'CSP_Trough_6h_Storage' }
+  Power_Produced[pid, a, t, p, h] := ( Installed_To_Date[pid, a, t, p] / sum { (project_id, a, t, p) in PROJECT_VINTAGES } Installed_To_Date[project_id, a, t, p] ) * ( DispatchCSP[a, h] + ReleaseCSP[a, h] );
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: baseload[t] }
   Power_Produced[pid, a, t, p, h] := Installed_To_Date[pid, a, t, p] * gen_availability[t];
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: fuel[t] in BIO_SOLID_FUELS}
@@ -85,10 +87,11 @@ let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: t = 'Compressed_Air_Energy_
   Carbon_Emissions[pid, a, t, p, h] :=  Power_Produced[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) * heat_rate[pid, a, t] * carbon_content[fuel[t]];
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS }
   Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] := Carbon_Emissions[pid, a, t, p, h] * carbon_cost_by_period[p];
+# temporary while the database is down; merge the next two when csp var costs are in the database
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: t <> 'Compressed_Air_Energy_Storage' }
   Variable_Cost_Incurred_Hourly[pid, a, t, p, h] := Power_Produced[pid, a, t, p, h] * variable_o_m[t];
 let { (pid, a, t, p, h) in RELEVANT_PROJ_VINT_HOURS: t = 'Compressed_Air_Energy_Storage' }
-  Variable_Cost_Incurred_Hourly[pid, a, t, p, h] := Power_Produced[pid, a, t, p, h] * ( 1 + caes_storage_to_ng_ratio[t] ) * variable_o_m[t];
+  Variable_Cost_Incurred_Hourly[pid, a, t, p, h] := ( DispatchGen[pid, a, t, p, h] + StoreEnergy[pid, a, t, p, h] * storage_efficiency[t] ) * variable_o_m[t];
 
 let { (pid, a, t, p, h) in EP_AVAILABLE_HOURS }
   EP_Carbon_Emissions[pid, a, t, p, h] := ProducePowerEP[pid, a, t, p, h] * ep_heat_rate[pid, a, t] * carbon_content[fuel[t]];
@@ -121,7 +124,7 @@ let { (pid, a, t, p, h) in AVAILABLE_HOURS: storage[t] and not can_build_new[t]}
 		Pumped_Hydro_Storage_Released[pid, a, t, p, h] - Pumped_Hydro_Storage_Stored[pid, a, t, p, h];
 let { (pid, a, t, p, h) in AVAILABLE_HOURS: storage[t] and can_build_new[t] and t <> 'Compressed_Air_Energy_Storage' }
   Storage_Variable_Cost_Incurred_Hourly[pid, a, t, p, h] := 
-    ReleaseEnergy[pid, a, t, p, h] * variable_o_m[t];
+    StoreEnergy[pid, a, t, p, h] * storage_efficiency[t] * variable_o_m[t];
 let { (pid, a, t, p, h) in AVAILABLE_HOURS: storage[t] and not can_build_new[t] }
   Storage_Variable_Cost_Incurred_Hourly[pid, a, t, p, h] := 
     Pumped_Hydro_Storage_Released[pid, a, t, p, h] * ep_variable_o_m[pid, a, t];
@@ -538,11 +541,16 @@ let {p in PERIODS} Carbon_Costs_Per_Period_per_MWh[p] :=
 	) / total_loads_by_period_weighted[p];
 	
 let {p in PERIODS} Gross_Power_by_Period[p]  := 
-	sum{ a in LOAD_AREAS, h in TIMEPOINTS: period[h] = p } 
+	sum { a in LOAD_AREAS, h in TIMEPOINTS: period[h] = p } 
 		( ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Battery_Storage' } Power_Produced[pid, a, t, p, h] )
 		+ ( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS } ProducePowerEP[pid, a, t, p, h] )
 		) * hours_in_sample[h];
 
+# this is before transmission is optimized, so likely an underestimate
+let {p in PERIODS} Energy_Spilled_by_Period[p]  := 
+	sum{ a in LOAD_AREAS, h in TIMEPOINTS: period[h] = p } 
+		( SpillNonDistributedPower[a, h] + SpillDistributedPower[a, h] ) * hours_in_sample[h];
+		
 let {p in PERIODS} Transmission_Losses_by_Period[p] := 
     sum { (a1, a2, fc, p, h) in TRANSMISSION_LINE_HOURS }
 		DispatchTrans[a1, a2, fc, p, h] * ( 1 - transmission_efficiency[a1, a2] ) * hours_in_sample[h];
@@ -560,12 +568,16 @@ let {p in PERIODS} Total_New_Storage_Power_Capacity_Installed_To_Date[p] :=
 	sum { (pid, a, t, p) in PROJECT_VINTAGES: storage[t] } Installed_To_Date[pid, a, t, p];
 let {p in PERIODS} Total_New_Storage_Energy_Capacity_Installed_To_Date[p] :=
 	sum { (pid, a, t, p) in PROJECT_VINTAGES: storage[t] } Storage_Energy_Capacity_Installed_To_Date[pid, a, t, p];
-			
+
+let {p in PERIODS} Total_New_CSP_Trough_6h_Storage_Capacity_Installed_To_Date[p] :=
+    sum { (pid, a, t, p) in PROJECT_VINTAGES: t = 'CSP_Trough_6h_Storage' } Installed_To_Date[pid, a, t, p];
+
+# CSP storage losses are not included here as the energy lost is not from the grid    		
 let {p in PERIODS} Storage_Losses_by_Period[p] :=
 	sum { (a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS }
 		( Store_Pumped_Hydro[a, t, p, h] * ( 1 - storage_efficiency[t] ) * hours_in_sample[h] )
-	+ sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t]}
-		( StoreEnergy[pid, a, t, p, h] * ( 1 - storage_efficiency[t] ) * hours_in_sample[h] );
+	+ sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: storage[t] }
+		( StoreEnergy[pid, a, t, p, h] * ( 1 - storage_efficiency[t] ) * hours_in_sample[h] ) ;
 
 let {p in PERIODS} Total_Load_Shifted[p] :=
 	sum { a in LOAD_AREAS, h in TIMEPOINTS: period[h] = p } ( ( Shift_Res_Comm_Load[a, h] + Shift_EV_Load[a, h] ) * hours_in_sample[h] ) ;
@@ -611,16 +623,17 @@ for {p in PERIODS} {
 		100 * Transmission_Losses_by_Period[p] / Gross_Power_by_Period[p], 
 		100 * Distribution_Losses_by_Period[p] / Gross_Power_by_Period[p],
 		100 * Storage_Losses_by_Period[p]      / Gross_Power_by_Period[p], 
-		100 * (Gross_Power_by_Period[p] - total_loads_by_period_weighted[p] - Distribution_Losses_by_Period[p] - Transmission_Losses_by_Period[p] - Storage_Losses_by_Period[p]) / Gross_Power_by_Period[p];
+		100 * Energy_Spilled_by_Period[p] / Gross_Power_by_Period[p];
 	
 	printf "Total Load  = %.0f MWh\n", total_loads_by_period_weighted[p];
 	printf "Total Trans Losses = %.0f MWh\n", Transmission_Losses_by_Period[p];
 	printf "Total Distribution Losses = %.0f MWh\n", Distribution_Losses_by_Period[p];
 	printf "Total New Storage Power Capacity Installed to Date = %.0f MW\n", Total_New_Storage_Power_Capacity_Installed_To_Date[p];
 	printf "Total New Storage Energy Capacity Installed to Date = %.0f MWh\n", Total_New_Storage_Energy_Capacity_Installed_To_Date[p];
+	printf "Total CSP Trough 6h Storage Capacity Installed to Date = %.0f MW\n", Total_New_CSP_Trough_6h_Storage_Capacity_Installed_To_Date[p];
 	printf "Total Storage Losses = %.0f MWh\n", Storage_Losses_by_Period[p];
 	printf "Total Load Shifted = %.0f MWh\n", Total_Load_Shifted[p];
-	printf "Total Spilled = %.0f MWh\n", Gross_Power_by_Period[p] - total_loads_by_period_weighted[p] - Transmission_Losses_by_Period[p] - Storage_Losses_by_Period[p] - Distribution_Losses_by_Period[p];
+	printf "Total Spilled = %.0f MWh\n", Energy_Spilled_by_Period[p] ;
 	printf "Total Power = %.0f MWh\n", Gross_Power_by_Period[p];
 	printf "Total Carbon Emissions = %.0f MtCO2/yr\n", Yearly_Carbon_Emissions[p]/1000000;
 	printf "Percent of 1990 Carbon Emissions = %.0f \%\n", 100 * Yearly_Carbon_Emissions[p] / base_carbon_emissions;

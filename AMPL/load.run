@@ -111,6 +111,18 @@ table existing_plants "inputs/existing_plants.tab" IN:
     ep_overnight_cost ~ overnight_cost, ep_connect_cost_per_mw ~ connect_cost_per_mw, ep_fixed_o_m ~ fixed_o_m, ep_variable_o_m ~ variable_o_m;
 read table existing_plants;
 
+# temporarily deal with pumped hydro variable costs here
+# currently, costs for existing plants are defined in BuildWECCCapFactors.sql and
+# are part of the existing_plants_v2 table without a gen_costs_scenario_id
+# they are also taken from the generator_costs_5yearly table rather than from the
+# generator_costs_yearly table, which has only new projects
+# TODO: bad design that needs to be updated but i don't have time for it right now
+# source: BC Hydro, 2010. Pumped storage at Mica Generating Station.
+# http://www.bchydro.com/content/dam/hydro/medialib/internet/documents/planning_regulatory/iep_ltap/ror/appx_10b_pumped_storage_mica_preliminary_cost_estimate.pdf
+# assume 2007 dollars
+
+let { (pid, a, t) in EXISTING_PLANTS: t = 'Hydro_Pumped_EP' } ep_variable_o_m[pid, a, t] := 0.9;
+
 table existing_intermittent_plant_cap_factor "inputs/existing_intermittent_plant_cap_factor.tab" IN: 
   EP_INTERMITTENT_HOURS <- [project_id, load_area, technology, hour], eip_cap_factor ~ cap_factor;
 read table existing_intermittent_plant_cap_factor;

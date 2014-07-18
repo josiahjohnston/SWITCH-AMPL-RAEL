@@ -184,10 +184,12 @@ min_historical_year=$(mysql $connection_string --column-names=false -e "\
   LIMIT 1;")
 if [ $min_historical_year -eq 2004 ]; then 
   cap_factor_table="_cap_factor_intermittent_sites"
+  cap_factor_csp_6h_storage_table="_cap_factor_intermittent_sites"
   proposed_projects_table="_proposed_projects_v2"
   proposed_projects_view="proposed_projects_v2"
 elif [ $min_historical_year -eq 2006 ]; then 
   cap_factor_table="_cap_factor_intermittent_sites_v2"
+  cap_factor_csp_6h_storage_table='_cap_factor_csp_6h_storage_adjusted'
   proposed_projects_table="_proposed_projects_v3"
   proposed_projects_view="proposed_projects_v3"
 else
@@ -429,6 +431,19 @@ select project_id, load_area, technology, DATE_FORMAT(datetime_utc,'%Y%m%d%H') a
     JOIN load_area_info USING(area_id)\
   WHERE training_set_id=$TRAINING_SET_ID \
     AND load_scenario_id=$LOAD_SCENARIO_ID \
-    AND $INTERMITTENT_PROJECTS_SELECTION;" >> cap_factor.tab
+    AND $INTERMITTENT_PROJECTS_SELECTION \
+    AND technology_id <> 7 \
+UNION \
+select project_id, load_area, technology, DATE_FORMAT(datetime_utc,'%Y%m%d%H') as hour, cap_factor_adjusted as cap_factor  \
+  FROM _training_set_timepoints \
+    JOIN study_timepoints USING(timepoint_id)\
+    JOIN load_scenario_historic_timepoints USING(timepoint_id)\
+    JOIN $cap_factor_csp_6h_storage_table ON(historic_hour=hour)\
+    JOIN $proposed_projects_table USING(project_id)\
+    JOIN load_area_info USING(area_id)\
+  WHERE training_set_id=$TRAINING_SET_ID \
+    AND load_scenario_id=$LOAD_SCENARIO_ID \
+    AND $INTERMITTENT_PROJECTS_SELECTION \
+    AND technology_id = 7;" >> cap_factor.tab
 
 cd ..

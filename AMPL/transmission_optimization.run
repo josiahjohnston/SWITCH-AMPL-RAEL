@@ -1,0 +1,206 @@
+#############################
+# Transmission minimization #
+#############################
+
+include load.run;
+
+### First make sure that the primary investment cost optimization has been completed and, if so, load solution ###
+#for {c in CARBON_COSTS} { 
+#  # Only work on this carbon cost if it matches this worker id. 
+#	if (ord(c) mod num_workers = worker_id ) then {
+#		let carbon_cost := c;
+#		let {p in PERIODS} carbon_cost_by_period[p] := c;
+    # Load primary investment cost optimizaton results if the solution file exists. 
+		if ( file_exists(solution_path) ) then {
+			printf "\nLoading primary optimization solution from disk for a carbon cost of %d.\n", carbon_cost;
+			let curtime := time();
+			solution (solution_path);
+			printf "%d seconds to create a problem instance and load the primary optimization solution from disk.\n", (time() - curtime);
+			}
+		else {
+			printf "\nPrimary optimization solution not found on disk for a carbon cost of %d.\n", carbon_cost;
+			exit;
+			}
+#		}
+#	}
+		;
+
+
+### Problem definition ###
+problem Transmission_Use_Minimization: 
+  # Objective function 
+	Transmission_Use, 
+  # Satisfy Load and Power Consumption
+    Satisfy_Load,
+	Conservation_Of_Energy_NonDistributed, Conservation_Of_Energy_Distributed, ConsumeNonDistributedPower, SpillNonDistributedPower, ConsumeDistributedPower, SpillDistributedPower,
+  # Policy Constraints
+	Satisfy_Primary_RPS, Satisfy_Distributed_RPS, Meet_California_Solar_Initiative, Meet_California_Distributed_Generation_Mandate, 
+	Carbon_Cap,
+	ConsumeREC, Conservation_of_REC,
+  # Installation Constraints
+	Maximum_Resource_Central_Station_Solar, Maximum_Resource_Bio, Maximum_Resource_Single_Location, Maximum_Resource_EP_Cogen_Replacement,
+	Minimum_GenSize, BuildGenOrNot_Constraint, SymetricalTrans, Minimum_Local_TD_No_DR, Minimum_Local_TD_DR,
+  # Dispatch Decision 
+	DispatchTrans,  
+  # Dispatch Constraints
+	Power_and_Operating_Reserve_From_Dispatchable_Plants, Maximum_Intermediate_Capacity_Online, Maximum_Dispatch_Intermediate_Gen,
+	Minimum_Loading_Intermediate_Gen,
+    Intermediate_Gen_Startup, Peaker_Plant_Startup, Power_From_New_Flexible_Baseload_Plants, Minimum_Loading_New_Flexible_Baseload_Plants,
+    EP_Operational_Continuity, EP_Power_and_Operating_Reserve_From_Dispatchable_Plants, EP_Power_From_Intermittent_Plants,
+    EP_Power_From_Hydro_Plants, 
+	EP_Power_From_Baseload_Plants, EP_Power_From_Flexible_Baseload_Plants, Maximum_Loading_Existing_Flexible_Baseload_Plants,
+	Minimum_Loading_Existing_Flexible_Baseload_Plants, Spinning_Reserve_as_Fraction_of_Dispatch,
+	Maximum_DispatchTrans, 
+	Mexican_Export_Limit, 
+	Maximum_Dispatch_and_Operating_Reserve_Hydro, Minimum_Dispatch_Hydro, Average_Hydro_Output, Max_Operating_Reserve_Hydro,
+	Maximum_Store_Pumped_Hydro, Pumped_Hydro_Energy_Balance,
+	CAES_Combined_Dispatch, CAES_Combined_Operating_Reserve, Maximum_Store_Rate, Maximum_Release_and_Operating_Reserve_Storage_Rate,
+	Maximum_Release_and_Operating_Reserve_Storage_Energy,
+	Max_Energy_in_Storage, Storage_Projects_Hourly_Energy_Tracking,
+  # Contigency Planning Constraints
+	Satisfy_Load_Reserve, 
+	Conservation_Of_Energy_NonDistributed_Reserve, Conservation_Of_Energy_Distributed_Reserve, Contribute_to_Planning_Reserve_NonDistributed, Contribute_to_Planning_Reserve_Distributed,
+  # Operating Reserve Constraints
+  	Satisfy_Spinning_Reserve_Requirement, Satisfy_Quickstart_Reserve_Requirement,
+  # Demand response constraints
+  	Maximum_Res_Comm_Load_That_Can_Be_Shifted_from_Hour, Maximum_Res_Comm_Load_That_Can_Be_Shifted_to_Hour,
+  	Res_Comm_Demand_Response_Energy_Balance,
+  	Maximum_EV_Load_That_Can_Be_Shifted_from_Hour, Maximum_EV_Load_That_Can_Be_Shifted_to_Hour,
+  	EV_Charging_Energy_Balance,
+  # CSP with storage constraints
+  	Max_CSP_Solar_Field_Energy, Max_CSP_Power, Max_Energy_in_CSP_Storage,
+  	CSP_Storage_Hourly_Energy_Tracking
+;
+
+### Fix variables ###
+
+# Fix all investment decision variables
+fix InstallGen;
+fix InstallStorageEnergyCapacity;
+fix BuildGenOrNot;
+fix InstallTrans;
+fix InstallLocalTD;
+
+# Fix all dispatch decision variables except for transmission dispatch
+fix DispatchGen;
+fix DispatchFlexibleBaseload;
+fix Commit_Intermediate_Gen;
+fix Startup_MW_from_Last_Hour;
+fix OperateEPDuringPeriod;
+fix ProducePowerEP;
+fix StoreEnergy;
+fix ReleaseEnergy;
+fix TotalEnergyAvailableinStorage;
+fix DispatchHydro;
+fix Dispatch_Pumped_Hydro_Storage;
+fix Store_Pumped_Hydro;
+fix Provide_Spinning_Reserve;
+fix Provide_Quickstart_Capacity;
+fix Storage_Operating_Reserve;
+fix Hydro_Operating_Reserve;
+fix Pumped_Hydro_Storage_Operating_Reserve;
+fix StoreCSP;
+fix ReleaseCSP;
+fix TotalEnergyinCSPStorage;
+fix DispatchCSP;
+
+# Fix fuel consumption variables
+fix ConsumeBioSolidByTier;
+fix ConsumeNaturalGasByTier;
+
+# Fix load shifting variables
+fix Shift_Res_Comm_Load;
+fix Meet_Shifted_Load;
+fix Shift_EV_Load;
+fix Charge_EVs;
+
+# Variables not to fix
+# DispatchTrans - to optimize
+# ConsumeREC -- could have been set higher than necessary with transmission bringing in excess renewable energy into a load area
+# ConsumeNonDistributedPower, ConsumeDistributedPower -- could have been set higher than necessary with inefficient transmission dispatch bringing in excess energy into a load area
+# SpillNonDistributedPower, SpillDistributedPower -- could have been set lower than actual because of inefficient transmission
+# Contribute_to_Planning_Reserve_NonDistributed, Contribute_to_Planning_Reserve_Distributed -- could have been set higher than necessary with inefficient transmission dispatch bringing in excess reserve capacity into a load area
+# Derived variables -- don't need to be fixed (ampl gives an error if they are)
+		
+
+### Adjust cplex settings ###
+# cplex has trouble solving this problem with default options, so increase the feasibility tolerance from the default 1e-6 (acceptable values are from 1e-8 to 1e-1) and turn on numericalemphasis
+option cplex_options " feasibility=2e-5 numericalemphasis=1 threads=4 presolve=1 prestats=1 nodefile=2 baropt barobjrange=1e+30 comptol=1e-9 lpdisplay=1 bardisplay=2 timing=1 startalgorithm=4 mipdisplay=4 "
+;
+
+
+### Bookkeeping ###
+# Define problem and solution paths
+param trans_problem_basename symbolic = results_path & "sol" & carbon_cost & "_transmission_minimization";
+param trans_problem_path symbolic = trans_problem_basename & ".nl";
+param trans_solution_path symbolic = trans_problem_basename & ".sol";
+
+
+### Solve the transmission optimization problem ###
+# Check if the transmission optmization has been completed and compile problem if not
+if ( (file_exists(trans_solution_path) ==  0) and (file_exists(trans_problem_path) == 0)) then {
+  printf "\nCompiling problem file for Transmission_Optimization.\n";
+  let curtime := time();
+  # write out the problem file for solving by CPLEX
+  display trans_problem_basename;
+  write ("b" & trans_problem_basename);
+  let compile_time := time() - curtime;
+  printf "%d seconds to compile and write the transmission optimization problem file.\n", compile_time;
+  printf "%d	%d	%s	%d\n", scenario_id, carbon_cost, "Transmission_Compilation", compile_time  >> (solution_times_path);
+  close (solution_times_path);
+} else {
+  printf "Skipping compilation because it has already been done.\n";
+}
+
+# Only solve the problem and export the results if the solution does not exist. 
+if ( file_exists(trans_solution_path) ==  0) then {
+  let curtime := time();
+  solve;
+  let sol_time := time() - curtime;
+  printf "%d seconds to optimize for transmission dispatch.\n", sol_time;
+  printf "%d	%d	%s	%d\n", scenario_id, carbon_cost, "Transmission_Optimization", sol_time  >> (solution_times_path);
+  close (solution_times_path);
+}
+
+
+### Export optimized transmission results ###
+# store hourly TRANSMISSION decisions in standardized, MW terms  
+let output_section := 'transmission_dispatch_optimized';
+let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
+printf "scenario_id	carbon_cost	period	transmission_line_id	load_area_receive_id	load_area_from_id	load_area_receive	load_area_from	date	hour	rps_fuel_category	power_sent	power_received	hours_in_sample\n"
+        > (outfile);
+      
+# detailed non-rps transmission imports & exports
+printf { (a1, a2, fc, p, h) in TRANSMISSION_LINE_HOURS: DispatchTrans[a1, a2, fc, p, h] > 0.001 } 
+  "%s	%d	%d	%d	%d	%d	%s	%s	%d	%d	%s	%.2f	%.2f	%.2f\n",
+  scenario_id, carbon_cost, period[h], transmission_line_id[a1, a2], load_area_id[a2], load_area_id[a1], a2, a1,
+  date[h],
+  h,
+  fc, DispatchTrans[a1, a2, fc, p, h],
+  DispatchTrans[a1, a2, fc, p, h] * transmission_efficiency[a1, a2],
+  hours_in_sample[h]
+    >> (outfile);
+
+close (outfile);
+
+let output_section := 'energy_consumed_and_spilled_optimized';
+let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
+printf "scenario_id	carbon_cost	period	load_area_id	load_area	date	hour	hours_in_sample	nondistributed_power_consumed	distributed_power_consumed	nondistributed_power_spilled	distributed_power_spilled\n"
+        > (outfile);
+        
+# energy consumed and spilled
+printf { a in LOAD_AREAS, h in TIMEPOINTS } 
+  "%s	%d	%d	%d	%s	%d	%d	%.2f	%.2f	%.2f	%.2f	%.2f\n",
+  scenario_id, carbon_cost, period[h],  load_area_id[a], a,
+  date[h],
+  h,
+  hours_in_sample[h],
+  ConsumeNonDistributedPower[a, h],
+  ConsumeDistributedPower[a, h],
+  SpillNonDistributedPower[a, h],
+  SpillDistributedPower[a, h]
+    >> (outfile);
+
+close (outfile);
+
+
