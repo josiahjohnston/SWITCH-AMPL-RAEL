@@ -331,7 +331,7 @@ let { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS }
 
 let {p in PERIODS} Power_Cost_Per_Period[p] :=
 	( # Cash flow in the given period, discounted to the start of the period.
-	  sum { (pid, a, t, p) in PROJECT_VINTAGES } (
+	  sum { (pid, a, t, p) in PROJECT_VINTAGES} (
 		Capital_Payments_by_Plant_and_Period[pid, a, t, p] +
 		Fixed_OM_by_Plant_and_Period[pid, a, t, p]
 	  ) +
@@ -343,21 +343,21 @@ let {p in PERIODS} Power_Cost_Per_Period[p] :=
 	  sum { (pid, a, t, p, h) in AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t] and t <> 'Compressed_Air_Energy_Storage' } (
 		Storage_Variable_Cost_Incurred_Hourly[ pid, a, t, p, h, fc ] * hours_in_sample[h]
 	  ) +
-	  sum { (pid, a, t, p) in EP_PERIODS } (
+	  sum { (pid, a, t, p) in EP_PERIODS} (
 		EP_Capital_Payments_by_Plant_and_Period[pid, a, t, p] +
 		EP_Fixed_OM_by_Plant_and_Period[pid, a, t, p]
 	  ) + 
-	  sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS } (
+	  sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS} (
 		EP_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] +
 		EP_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] +
 		EP_Variable_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h]
 	  ) + 
-	  sum { a in LOAD_AREAS } (
+	  sum { a in LOAD_AREAS} (
 	    Local_TD_Existing_Cost_Per_Period[a, p] + 
 	    Local_TD_New_Cost_Per_Period[a, p] + 
 	    Transmission_Existing_Cost_Per_Period[a, p]
 	  ) +
-	  sum { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS } (
+	  sum { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS} (
 		Transmission_New_Capital_Cost_Per_Period[a1, a2, p] +
 		Transmission_Fixed_OM_Per_Period[a1, a2, p]
 	  ) +
@@ -371,6 +371,50 @@ let {p in PERIODS} Power_Cost_Per_Period[p] :=
 	  ) 
 	)
 	/ total_demand_by_period_weighted[p];
+
+
+let {p in PERIODS, b in LA_SYSTEMS: b <> "SIC2"} Power_Cost_Per_Period_Per_Balancing_Area[p, b] :=
+	( # Cash flow in the given period, discounted to the start of the period.
+	  sum { (pid, a, t, p) in PROJECT_VINTAGES: la_system[a]=b} (
+		Capital_Payments_by_Plant_and_Period[pid, a, t, p] +
+		Fixed_OM_by_Plant_and_Period[pid, a, t, p]
+	  ) +
+	  sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: la_system[a]=b and t <> 'Storage' } (
+		Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] +
+		Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] +
+		Variable_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h]
+	  ) +
+	  sum { (pid, a, t, p, h) in AVAILABLE_HOURS, fc in RPS_FUEL_CATEGORY: la_system[a]=b and storage[t] and t <> 'Compressed_Air_Energy_Storage' } (
+		Storage_Variable_Cost_Incurred_Hourly[ pid, a, t, p, h, fc ] * hours_in_sample[h]
+	  ) +
+	  sum { (pid, a, t, p) in EP_PERIODS: la_system[a]=b } (
+		EP_Capital_Payments_by_Plant_and_Period[pid, a, t, p] +
+		EP_Fixed_OM_by_Plant_and_Period[pid, a, t, p]
+	  ) + 
+	  sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: la_system[a]=b } (
+		EP_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] +
+		EP_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] +
+		EP_Variable_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h]
+	  ) + 
+	  sum { a in LOAD_AREAS: la_system[a]=b } (
+	    Local_TD_Existing_Cost_Per_Period[a, p] + 
+	    Local_TD_New_Cost_Per_Period[a, p] + 
+	    Transmission_Existing_Cost_Per_Period[a, p]
+	  ) +
+	  sum { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIODS: la_system[a1]=b } (
+		Transmission_New_Capital_Cost_Per_Period[a1, a2, p] +
+		Transmission_Fixed_OM_Per_Period[a1, a2, p]
+	  ) +
+	  sum { (pid, a, t, p, h) in AVAILABLE_HOURS: la_system[a]=b and dispatchable[t] } (
+	    Thermal_Spinning_Reserve_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] +
+	    Thermal_Spinning_Reserve_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] 
+	  ) + 
+	  sum { (pid, a, t, p, h) in AVAILABLE_HOURS: la_system[a]=b and flexible_baseload[t] } (
+	    Deep_Cycling_Fuel_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h] +
+	    Deep_Cycling_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h]
+	  ) 
+	)
+	/ total_demand_by_period_by_balancing_area_weighted[p,b];
 
 let { p in PERIODS } Thermal_Spinning_Cost_Per_Period[p] :=
 	( sum { (pid, a, t, p, h) in AVAILABLE_HOURS: dispatchable[t] } (
@@ -421,6 +465,18 @@ let {p in PERIODS} Carbon_Costs_Per_Period_per_MWh[p] :=
 	    Deep_Cycling_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h]		
 	) / total_demand_by_period_weighted[p];
 	
+let {p in PERIODS, b in LA_SYSTEMS: b <> "SIC2"} Carbon_Costs_Per_Period_per_MWh_Per_Balancing_Area[p,b] :=
+	( # Cash flow in the given period, discounted to the start of the period.
+	  sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: la_system[a]=b and t <> 'Storage' }
+		Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h]
+	  + sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: la_system[a]=b} 
+		EP_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h]
+	  + sum { (pid, a, t, p, h) in AVAILABLE_HOURS: la_system[a]=b and dispatchable[t] }
+		Thermal_Spinning_Reserve_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h]
+	  + sum { (pid, a, t, p, h) in AVAILABLE_HOURS: la_system[a]=b and flexible_baseload[t] }
+	    Deep_Cycling_Carbon_Cost_Incurred_Hourly[pid, a, t, p, h] * hours_in_sample[h]		
+	) / total_demand_by_period_weighted[p];
+	
 let {p in PERIODS} Gross_Power_by_Period[p]  := 
 	sum{ a in LOAD_AREAS, h in TIMEPOINTS, fc in RPS_FUEL_CATEGORY: period[h] = p } 
 		( ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: t <> 'Storage' and rps_fuel_category_tech[t] = fc } Power_Produced[pid, a, t, p, h] )
@@ -452,28 +508,48 @@ let {p in PERIODS} Storage_Losses_by_Period[p] :=
 
 ######
 # "discounted" system load, for use in calculating levelized cost of power.
-let la_demand_mwh_discounted := 
-	sum { a in LOAD_AREAS, h in TIMEPOINTS } 
+# new definition of la_demand_mwh_discounted per balancing area
+let {b in LA_SYSTEMS} la_demand_mwh_discounted[b] := 
+	sum { a in LOAD_AREAS, h in TIMEPOINTS: la_system[a]=b} 
 	hours_in_sample[h] * la_demand_mwh[a,h] * ( bring_annual_costs_to_start_of_period / num_years_per_period )
 	/ ( ( 1 + discount_rate )^( period[h] - base_year ) );
 
 # now print out results to the screen
 printf "\nPolicy Options Are:";
 # PATY: uncommented the 2 lines below so RPS can be activated.
-printf "\nEnable RPS=%0d  Enable Carbon Cap=%0d", 
+printf "\nEnable RPS=%0d  Enable Carbon Cap=%0d  %TxExpAllowed=%3.1f\%  Enable Tx Constraint=%0d  Enable Forced Renewables=%0d", 
 		enable_rps, 
-		enable_carbon_cap;
-# END OF PATY'S EDITS IN THIS BLOCK...
+		enable_carbon_cap,
+		percentage_allowed_transmission_builds * 100,
+		enable_tx_constraint,
+		enable_force_renewables;
+printf "\n";
 
-printf "\nLevelized Cost=$%3.2f/MWh \n", Power_Cost / la_demand_mwh_discounted;
 printf "Carbon Cost by period: ";
 printf {p in PERIODS} "%d $%d/tCO2.  ", p, carbon_cost_by_period[p];
 printf "\n";
 
+
+printf "\nLevelized Cost=$%3.2f/MWh \n", (sum {b in LA_SYSTEMS} Power_Cost_per_Balancing_Area[b]) / sum {b in LA_SYSTEMS} la_demand_mwh_discounted[b];
+printf "\n";
+
+
+for {b in LA_SYSTEMS: b <> "SIC2"} {
+printf "%s:\t", b;
+printf "\nLevelized Cost=$%3.2f/MWh \n", Power_Cost_per_Balancing_Area[b] / la_demand_mwh_discounted[b];
+}
+
+#P: new stat added. may 2014
+printf "Total Carbon Emissions: ";
+printf "%.0f/MtCO2.", sum{p in PERIODS} num_years_per_period*Yearly_Carbon_Emissions[p]/1000000; 
+printf "\n";
+
+printf "\nPERIODS STATS";
 printf "\nPercentage of power produced by each fuel in the given investment periods, expressed as a fraction of total power produced.\n";
 
 for {p in PERIODS} {
-	printf "%.0d:\t", p;
+	printf "\nPeriod Stats";
+	printf "\n%.0d:\t", p;
 	
 	printf { f in FUELS: f <> 'Storage' } "%s=%2.0f\%, ", 
 	  f, 
@@ -487,8 +563,21 @@ for {p in PERIODS} {
 	  )
 	  / Gross_Power_by_Period[p]
 	;
+	# P: New printf. May 2014.
+	printf "Renewable Energy Produced =%2.0f\%, ", 
+	   100 * (
+		#    Power from new plants
+		( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: fuel[t] = 'Wind' or fuel[t] = 'Solar' or fuel[t] = 'Bio_Solid' or fuel[t] = 'Bio_Liquid' or fuel[t] = 'Bio_Gas' or fuel[t] = 'Geothermal' or fuel[t] = 'Bio_Solid_CCS' or fuel[t] = 'Bio_Liquid_CCS'  or fuel[t] = 'Bio_Gas_CCS' or fuel[t] = 'Bio_Solid_CCS' or fuel[t] = 'Water_RPS' and t <> 'Storage' } 
+			Power_Produced[pid, a, t, p, h] * hours_in_sample[h] )
+		# Power from existing plants
+		+ ( sum { (pid, a, t, p, h) in EP_AVAILABLE_HOURS: fuel[t] = 'Wind' or fuel[t] = 'Solar' or fuel[t] = 'Bio_Solid' or fuel[t] = 'Bio_Liquid' or fuel[t] = 'Bio_Gas' or fuel[t] = 'Geothermal' or fuel[t] = 'Bio_Solid_CCS' or fuel[t] = 'Bio_Liquid_CCS'  or fuel[t] = 'Bio_Gas_CCS' or fuel[t] = 'Bio_Solid_CCS' or fuel[t] = 'Water_RPS' and t <> 'Storage' }
+			ProducePowerEP[pid, a, t, p, h] * hours_in_sample[h] )
+	  )
+	  / Gross_Power_by_Period[p]
+	;
 	printf "\n";
 	for {s in LA_SYSTEMS: s <> "SIC2"} {
+		printf "\n";
 		printf "%s, %.0d:\t", s, p;
 		printf { f in FUELS: f <> 'Storage' } "%s=%2.0f\%, ", 
 		  f, 
@@ -524,9 +613,14 @@ for {p in PERIODS} {
 	printf "Total Storage Losses = %.0f MWh\n", Storage_Losses_by_Period[p];
 	printf "Total Spilled = %.0f MWh\n", Gross_Power_by_Period[p] - total_demand_by_period_weighted[p] - Transmission_Losses_by_Period[p] - Storage_Losses_by_Period[p] - Distribution_Losses_by_Period[p];
 	printf "Total Power = %.0f MWh\n", Gross_Power_by_Period[p];
-	printf "Total Carbon Emissions = %.0f MtCO2/yr\n", Yearly_Carbon_Emissions[p]/1000000;
+	printf "Total Carbon Emissions per year = %.0f MtCO2/yr\n", Yearly_Carbon_Emissions[p]/1000000;
+	#P: may 2014. new stat added: 
+	printf "Total Carbon Emissions in the period = %.0f MtCO2/yr\n", num_years_per_period*Yearly_Carbon_Emissions[p]/1000000;
 #	printf "Percent of 1990 Carbon Emissions = %.0f \%\n", 100 * Yearly_Carbon_Emissions[p] / base_carbon_emissions;
 	printf "Power Cost = $%.2f/MWh ($%.2f of which is carbon cost)\n", Power_Cost_Per_Period[p], Carbon_Costs_Per_Period_per_MWh[p];
+for {b in LA_SYSTEMS: b <> "SIC2"} {
+	printf "%s Power Cost = $%.2f/MWh ($%.2f of which is carbon cost)\n", b, Power_Cost_Per_Period_Per_Balancing_Area[p,b], Carbon_Costs_Per_Period_per_MWh_Per_Balancing_Area[p,b];
+	}
 	printf "Thermal Spinning Cost = $%.3f/MWh\n", Thermal_Spinning_Cost_Per_Period[p];
 	printf "Thermal Spinning Carbon Emissions = %.3f MtCO2/yr\n", Yearly_Thermal_Spinning_Carbon_Emissions[p]/1000000;
 	printf "Deep Cycling Cost = $%.3f/MWh\n", Deep_Cycling_Cost_Per_Period[p];
