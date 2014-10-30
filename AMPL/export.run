@@ -160,7 +160,7 @@ for {c in CARBON_COSTS} {
       let output_section := 'transmission_capacity';
       let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
       if ( file_exists(outfile) == 0 ) then {
-      printf "scenario_id	carbon_cost	period	transmission_line_id	start_id	end_id	start	end	new	trans_mw	fixed_cost\n"
+      printf "scenario_id	carbon_cost	period	transmission_line_id	start_id	end_id	new	trans_mw	fixed_cost\n"
         > (outfile); }
       
       # existing lines
@@ -186,10 +186,11 @@ for {c in CARBON_COSTS} {
       #######################
       # store hourly TRANSMISSION decisions in standardized, MW terms
       
+      # Paty: may 22nd: erased la_receive, la_from
       let output_section := 'transmission_dispatch';
       let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
       if ( file_exists(outfile) == 0 ) then {
-      printf "scenario_id	carbon_cost	period	transmission_line_id	la_receive_id	la_from_id	la_receive	la_from	date	hour	rps_fuel_category	power_sent	power_received	hours_in_sample\n"
+      printf "scenario_id	carbon_cost	period	transmission_line_id	la_receive_id	la_from_id	date	hour	rps_fuel_category	power_sent	power_received	hours_in_sample\n"
         > (outfile); }
       
       # detailed imports & exports
@@ -303,6 +304,24 @@ for {c in CARBON_COSTS} {
 		(if present_day_optimization then present_day_date[h] else date[h]),
         (if present_day_optimization then present_day_timepoint[h] else h),
          hours_in_sample[h], fc, ConsumeNonDistributedPower[a, h, fc], ConsumeDistributedPower[a, h, fc]
+        >> (outfile);
+      close (outfile);
+	  
+	  ########################
+	  # Adding a file for short term marginal cost calculation
+	  
+	  let output_section := 'short_term_mgc';
+      let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
+      if ( file_exists(outfile) == 0 ) then {
+      printf "scenario_id	carbon_cost	period	la_system	date	hour	hours_in_sample	Short_Term_Marginal_Cost_Balancing_Area\n"
+        > (outfile); }
+  
+      printf {b in LA_SYSTEMS, h in TIMEPOINTS} 
+        "%s	%d	%d	%s	%d	%d	%d	%.2f\n",
+        scenario_id, carbon_cost, period[h], b,
+		(if present_day_optimization then present_day_date[h] else date[h]),
+        (if present_day_optimization then present_day_timepoint[h] else h),
+         hours_in_sample[h], Short_Term_Marginal_Cost_Balancing_Area[b, h]
         >> (outfile);
       close (outfile);
  

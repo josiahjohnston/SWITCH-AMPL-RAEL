@@ -15,4 +15,5 @@ rps_reduced_cost							'rps_reduced_cost_%d.txt'
 local_td_capacity							'local_td_cap_%d.txt'
 load_wind_solar_operating_reserve_levels	'load_wind_solar_operating_reserve_levels_%d.txt'
 consume_variables							'consume_variables_%d.txt'
+short_term_mgc								'short_term_mgc_%d.txt'
 ;

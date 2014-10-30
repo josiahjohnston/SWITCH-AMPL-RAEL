@@ -12,16 +12,17 @@ problem Present_Day_Cost_Minimization;
 # disable all policy for present day cost minimization (few policy options are currently in place)
 let carbon_cost := 0; 
 let CARBON_COSTS := { carbon_cost };
-# PATY: The line below was commented because in switch.mod the carbon section is commented as well.
-# let enable_carbon_cap := 0;
+# PATY: The line below was commented because in switch.mod the carbon section is commented as well. Paty: may/2014 uncommented line now.
+ let enable_carbon_cap := 0;
 # PATY: enable_rps used to be 0, I edited it to enable it!
-let enable_rps := 1;
-redeclare param rps_fuel_category {FUELS} symbolic;
+let enable_rps := 0;
+#Paty: 3:40pm 22/5/2014 commented all fuel category part.
+#redeclare param rps_fuel_category {FUELS} symbolic;
 # PATY: Uncommented line below. Instead of 'na' I put 'renewable'
- let RPS_AREAS_AND_FUEL_CATEGORY := setof{a in LOAD_AREAS} (a,'renewable');
+# let RPS_AREAS_AND_FUEL_CATEGORY := setof{a in LOAD_AREAS} (a,'renewable');
  # PATY:Instead of 'na' I put 'renewable'
-let {f in FUELS} rps_fuel_category[f] := 'renewable';
-redeclare param rps_fuel_category {FUELS} symbolic in RPS_FUEL_CATEGORY;
+#let {f in FUELS} rps_fuel_category[f] := 'renewable';
+#redeclare param rps_fuel_category {FUELS} symbolic in RPS_FUEL_CATEGORY;
 redeclare param problem_basename symbolic := results_path & "sol_present_day_dispatch";
 
 # timepoint params used in record_results.run - would be better to reset indexing of timepoints, but I don't know how to do this in AMPL
@@ -31,6 +32,7 @@ redeclare param problem_basename symbolic := results_path & "sol_present_day_dis
 param max_year_simulated_in_each_period { p in PERIODS } = max { h in TIMEPOINTS: period[h] = p} precision(h, 4) / 1000000;
 let { h in TIMEPOINTS } present_day_timepoint[h] := 1000000 * ( precision(h, 4) / 1000000 - max_year_simulated_in_each_period[period[h]] + present_year ) + h - precision(h, 4);
 let {h in TIMEPOINTS} present_day_date[h] := 10000 * ( precision(date[h], 4) / 10000 - max_year_simulated_in_each_period[period[h]] + present_year ) + date[h] - precision(date[h], 4);
+
 
 # flag for present day cost optimization to signal record results that we're not looking at the investment optimization
 let present_day_optimization := 1;
@@ -59,7 +61,7 @@ let {(pid, a, t, p) in PROJECT_VINTAGES} InstallGen[pid, a, t, p] := 0;
 printf "\nCompiling problem file for Present Day Dispatch.\n";
 let curtime := time();
 
-#option auxfiles cfrsu; write ("m" & problem_basename);  # Uncomment this line to write the problem as text files (for debugging)
+option auxfiles cfrsu; write ("m" & problem_basename);  # Uncomment this line to write the problem as text files (for debugging)
 
 # write out the problem file for solving by CPLEX
 display problem_basename;

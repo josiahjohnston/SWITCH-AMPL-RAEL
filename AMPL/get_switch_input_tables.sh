@@ -31,6 +31,7 @@ INPUTS
  -u [DB Username]
  -D [DB name]
  -h [DB server]
+ -w
 All arguments are optional.
 END_HELP
 }
@@ -96,6 +97,24 @@ fi
 
 
 
+# PATY: ADDED VAR (apr/03/2014)
+export HYD_ID=$($connection_string -t -c "select hyd_id from chile.scenarios_switch_chile where scenario_id = $SCENARIO_ID;")
+echo $HYD_ID
+
+
+# PATY: ADDED VAR (apr/03/2014). Currently not in use (pre-built tables in the DB wth diff hydrologies).
+export WINDOW_SIZE_X=$($connection_string -t -c "select window_size_x from chile.scenarios_switch_chile where scenario_id = $SCENARIO_ID;")
+echo $WINDOW_SIZE_X
+
+# PATY: ADDED (apr/03/2014). Currently not in use (pre-built tables in the DB wth diff hydrologies).
+#$connection_string -t -c "select temp2_create_hydro_windows($WINDOW_SIZE_X);"
+
+# PATY: ADDED VAR (apr/03/2014). Used for reservoirs.
+export FROM_YEAR=$($connection_string -t -c "select from_year from chile.hydrological_window_reservoir_2 where hyd_id = $HYD_ID;")
+echo $FROM_YEAR
+
+
+
 # PATY: New id (oct/2/2013) #############################################################
 export CARBON_CAP_ID=$($connection_string -t -c "select carbon_cap_id from chile.scenarios_switch_chile where scenario_id = $SCENARIO_ID;")
 
@@ -106,6 +125,12 @@ export RPS_ID=$($connection_string -t -c "select rps_id from chile.scenarios_swi
 
 # PATY: ADDED VAR
 ENABLE_RPS=$($connection_string -t -c "select case when $RPS_ID=0 then 0 else 1 end;")
+
+# PATY: ADDED VAR
+ENABLE_TX_CONSTRAINT=$($connection_string -t -c "select enable_tx_constraint from chile.scenarios_switch_chile where scenario_id = $SCENARIO_ID;")
+
+# PATY: ADDED VAR
+ENABLE_FORCE_RENEWABLES=$($connection_string -t -c "select enable_force_renewables from chile.scenarios_switch_chile where scenario_id = $SCENARIO_ID;")
 
 export SIC_SING_ID=$($connection_string -t -c "select sic_sing_id from chile.scenarios_switch_chile where scenario_id = $SCENARIO_ID;")
 
@@ -193,12 +218,28 @@ $connection_string -A -t -F  $'\t' -c  "select la_start, la_end, transmission_li
 new_transmission_builds_allowed, dc_line from chile.transmission_between_la \
 where case when $SIC_SING_ID = 0 then transmission_line_id <> 127 and transmission_line_id <> 128 else transmission_line_id>0 end order by 1,2;" >> transmission_lines.tab
 
+
 # PATY: la_id used to be province (not province_id)
 echo '	la_hourly_demand.tab...'
 echo ampl.tab 2 2 > la_hourly_demand.tab
 echo 'la_id	hour	la_demand_mwh	present_day_system_load' >> la_hourly_demand.tab
-$connection_string -A -t -F  $'\t' -c  "SELECT la_id, hour, la_demand_mwh, present_day_system_load  \
-	FROM chile.la_hourly_demand_mwh_new;"  >> la_hourly_demand.tab
+$connection_string -A -t -F  $'\t' -c  "select la.la_id, to_char(chile.training_set_timepoints.timestamp_cst, 'YYYYMMDDHH24') AS hour, \
+la.la_demand_mwh as la_demand_mwh, pd.present_demand as present_day_system_load \
+from la_hourly_demand la \
+	JOIN chile.training_sets USING (demand_scenario_id) \
+	JOIN chile.training_set_timepoints USING (training_set_id, hour_number) \
+	JOIN chile.load_area USING (la_id) \
+join hours h using (hour_number) \
+join (	select la_id, hour_of_day, day_of_month, month_of_year, la_demand_mwh as present_demand \
+	from la_hourly_demand join hours using (hour_number) \
+	where year = $present_year \
+	order by 1,4,3,2 ) pd \
+on h.hour_of_day = pd.hour_of_day and h.day_of_month = pd.day_of_month and h.month_of_year = pd.month_of_year and la.la_id = pd.la_id \
+WHERE demand_scenario_id = $DEMAND_SCENARIO_ID \
+AND training_set_id = $TRAINING_SET_ID \
+ORDER BY la_id, hour;"  >> la_hourly_demand.tab	
+	
+	
 
 
 #present_day_province_demand_mwh
@@ -227,7 +268,6 @@ SELECT la_id, period_start as period, max(la_demand_mwh) as max_la_demand_mwh \
   GROUP BY la_id, period; " >> max_la_demand.tab
 
 
-# PATY: To make it work
 echo '	existing_plants.tab...'
 echo ampl.tab 3 10 > existing_plants.tab
 echo 'project_id	la_id	technology	plant_name	capacity_mw	heat_rate	cogen_thermal_demand_mmbtus_per_mwh	start_year	overnight_cost	connect_cost_per_mw	fixed_o_m	variable_o_m	ep_location_id' >> existing_plants.tab
@@ -237,55 +277,175 @@ where complete_data AND project_id <> 'SING2' AND project_id <> 'SING3' AND proj
 order by technology, la_id, project_id;" >> existing_plants.tab
 
 
-# PATY: To make it work
-echo '	existing_plant_intermittent_capacity_factor.tab...'
-echo ampl.tab 4 1 > existing_plant_intermittent_capacity_factor.tab
-echo 'project_id	la_id	technology	hour	capacity_factor' >> existing_plant_intermittent_capacity_factor.tab
-$connection_string -A -t -F  $'\t' -c  "SELECT project_id, t1.la_id, existing_plants.technology, to_char(chile.training_set_timepoints.timestamp_cst, 'YYYYMMDDHH24') AS hour,  CASE WHEN capacity_factor > 1.4 THEN 1.4 ELSE capacity_factor END AS capacity_factor  \
-FROM chile.existing_plant_intermittent_capacity_factor as t1\
-  JOIN chile.training_set_timepoints USING (hour_number) \
-  JOIN chile.existing_plants USING (project_id) \
-WHERE training_set_id = $TRAINING_SET_ID \
-AND t1.technology_id <> 15;" >> existing_plant_intermittent_capacity_factor.tab
 
+# Paty: including RoR hydro variability. New version of this april 28th, 2014.
+
+$connection_string -A -t -F  $'\t' -c  " delete from existing_plant_intermittent_capacity_factor_with_hydro_variability;"
+
+ #$connection_string -A -t -F  $'\t' -c  " CREATE TABLE existing_plant_intermittent_capacity_factor_with_hydro_variability(hour_number INT, project_id VARCHAR, technology_id SMALLINT, \
+#la_id VARCHAR, hour_of_year INT, capacity_factor DOUBLE PRECISION) ;"
+ 
+# "Hydro_RoR" window added here:
+ $connection_string -A -t -F  $'\t' -c  " INSERT INTO existing_plant_intermittent_capacity_factor_with_hydro_variability \
+ SELECT hour_number, project_id, technology_id, la_id, hour_of_year, capacity_factor \
+ FROM temp4_existing_plant_intermittent_capacity_factor_with_hydro_window \
+ WHERE hyd_id = $HYD_ID;"
+ 
+# "Wind_EP" added here:
+ $connection_string -A -t -F  $'\t' -c  " INSERT INTO existing_plant_intermittent_capacity_factor_with_hydro_variability \
+ SELECT hour_number,  project_id, technology_id, la_id, hour_of_year, capacity_factor FROM existing_plant_intermittent_capacity_factor \
+ WHERE project_id = 'SIC70' OR project_id = 'SIC71' OR project_id = 'SIC72' OR project_id = 'SIC73' OR project_id = 'SIC74';"
+
+# JP: Commenting this out, since we don't need reservoir hydro in this table
+# "Hydro_NonPumped" added here:
+# $connection_string -A -t -F  $'\t' -c  " INSERT INTO existing_plant_intermittent_capacity_factor_with_hydro_variability \
+# SELECT hour_number,  project_id, technology_id, la_id, hour_of_year, capacity_factor FROM existing_plant_intermittent_capacity_factor \
+# WHERE project_id = 'SIC62' OR project_id = 'SIC63' OR project_id = 'SIC64' OR project_id = 'SIC65' OR project_id = 'SIC66' OR project_id = 'SIC67' OR project_id = 'SIC68' OR project_id = 'SIC69';"
+ 
+# insert missing plants...
+ $connection_string -A -t -F  $'\t' -c  " INSERT INTO existing_plant_intermittent_capacity_factor_with_hydro_variability \
+ SELECT hour_number,  project_id, technology_id, la_id, hour_of_year, capacity_factor FROM existing_plant_intermittent_capacity_factor \
+ WHERE project_id = 'SIC17' OR project_id = 'SIC32' OR project_id = 'SIC42' OR project_id = 'SIC48' OR project_id = 'SIC49' OR project_id = 'SIC53';"
+ 
+# ### end of RoR variability. Now let's make the .tab file! finally!
+
+# The file is made in two steps: First, add the RoR cap factors averaged through the period. Second, directly sample the remaining intermittent cap factors.
+# Note that I exclude technology_id 118 (New RoR) instad of 121 (EP RoR) because of an error in the initial assignment.
+ echo '	existing_plant_intermittent_capacity_factor.tab... Non-RoR'
+ echo ampl.tab 4 1 > existing_plant_intermittent_capacity_factor.tab
+ echo 'project_id	la_id	technology	hour	capacity_factor' >> existing_plant_intermittent_capacity_factor.tab
+ $connection_string -A -t -F  $'\t' -c  "SELECT project_id, t1.la_id, existing_plants.technology, to_char(chile.training_set_timepoints.timestamp_cst, 'YYYYMMDDHH24') AS hour,  CASE WHEN capacity_factor > 1.4 THEN 1.4 ELSE capacity_factor END AS capacity_factor  \
+ FROM chile.existing_plant_intermittent_capacity_factor_with_hydro_variability as t1\
+   JOIN chile.training_set_timepoints USING (hour_number) \
+   JOIN chile.existing_plants USING (project_id) \
+ WHERE training_set_id = $TRAINING_SET_ID \
+ AND t1.technology_id <> 118;" >> existing_plant_intermittent_capacity_factor.tab
+ 
+  echo '	existing_plant_intermittent_capacity_factor.tab... RoR'
+ #echo ampl.tab 4 1 > existing_plant_intermittent_capacity_factor.tab
+ #echo 'project_id	la_id	technology	hour	capacity_factor' >> existing_plant_intermittent_capacity_factor.tab
+ $connection_string -A -t -F  $'\t' -c  "select project_id, la_id, technology, \
+to_char(timestamp_cst, 'YYYYMMDDHH24') AS hour, cf \
+from ( \
+select project_id, la_id, technology, tt.hour_of_year, period, h.year, \
+h.hour_number, timestamp_cst, avg(capacity_factor) as cf \
+from ( \
+select project_id, la_id, technology, hour_number, ep.hour_of_year, year, \
+CASE WHEN year >= period_start and year <= period_end \
+THEN period_start END as period, \
+capacity_factor \
+from existing_plant_intermittent_capacity_factor_with_hydro_variability ep \
+join existing_plants using (project_id, la_id) \
+join hours using (hour_number), \
+(select period_start, period_end from \
+	training_set_periods \
+	where training_set_id = $TRAINING_SET_ID \
+	order by 1) t \
+where year >= period_start and year <= period_end and ep.technology_id = 118 \
+order by 1,2,3 ) tt \
+join (	select period, hour_number, year, hour_of_year, timestamp_cst from training_set_timepoints \
+	join hours using (hour_number, timestamp_cst) \
+	where training_set_id = $TRAINING_SET_ID) h \
+using (period, hour_of_year) \
+group by 1,2,3,4,5,6,7,8 \
+order by 1,2,5,4 ) t3;" >> existing_plant_intermittent_capacity_factor.tab 
+ 
+# Paty: importing hydro_monthly_limits with hydro_window. For now it will be separated 
+# between RoR and Reservoirs. The work is done and ready for Reservoirs, that's why
+# this division needs to be made for now.
 # JP: Splitting the hydro monthly limits in two, so they can be handled separately in switch.mod
+#     The EP version has hydro variability in it
 echo '	hydro_monthly_limits_ep.tab...'
 echo ampl.tab 4 1 > hydro_monthly_limits_ep.tab
 echo 'project_id	la_id	technology	date	average_output_mw' >> hydro_monthly_limits_ep.tab
+
+#$connection_string -A -t -F  $'\t' -c  " DROP TABLE IF EXISTS temp7_hydro_study_dates_export;"
+
 $connection_string -A -t -F  $'\t' -c  "\
-CREATE TEMPORARY TABLE hydro_study_dates_export AS \
+delete from temp7_hydro_study_dates_export; \
+INSERT INTO temp7_hydro_study_dates_export \
   SELECT distinct period, year as projection_year, month_of_year, to_char(chile.hours.timestamp_cst, 'YYYYMMDD') AS date\
   FROM chile.training_set_timepoints \
   JOIN chile.hours USING (hour_number)\
-  WHERE training_set_id = $TRAINING_SET_ID; \
-  SELECT project_id, la_id, technology, date, ROUND(cast(average_output_mw as numeric),1) AS average_output_mw \
-  FROM chile.hydro_monthly_limits \
-  JOIN hydro_study_dates_export USING (projection_year, month_of_year) \
-  JOIN chile.existing_plants using (project_id);" >> hydro_monthly_limits_ep.tab
+  WHERE training_set_id = $TRAINING_SET_ID;"
+  
+$connection_string -A -t -F  $'\t' -c  " delete from hydro_monthly_limits_variable;"
 
+$connection_string -A -t -F  $'\t' -c  "insert into hydro_monthly_limits_variable \
+select project_id, projection_year, month_of_year, avg_out \
+from (     select project_id, projection_year, month_of_year, avg(average_output_mw) as avg_out \
+    from (     select project_id, year + (2014 - $FROM_YEAR) as projection_year_3, \
+	CASE WHEN (year + 2014 - $FROM_YEAR) >= period_start and (year + 2014 - $FROM_YEAR) <= period_end THEN period_start END as projection_year, \
+	month as month_of_year, cap_fact_weigh * capacity_mw as average_output_mw \
+        from hydro_monthly_limits_1960_2010 \
+        join existing_plants using (project_id), \
+	(select period_start, period_end from \
+	training_set_periods \
+	where training_set_id = $TRAINING_SET_ID \
+	order by 1) t \
+	where year > $FROM_YEAR and year <= $FROM_YEAR + $WINDOW_SIZE_X \
+	and (year + 2014 - $FROM_YEAR) >= period_start and (year + 2014 - $FROM_YEAR) <= period_end \
+        order by 1,2,3,4 ) ttt \
+    group by 1,2,3 \
+    order by 1,2,3) tt;"
+
+$connection_string -A -t -F  $'\t' -c  "SELECT project_id, la_id, technology, date, ROUND(cast(average_output_mw as numeric),1) AS average_output_mw \
+  FROM chile.hydro_monthly_limits_variable hmle \
+  JOIN temp7_hydro_study_dates_export t ON hmle.projection_year = t.period and t.month_of_year = hmle.month_of_year \
+  JOIN chile.existing_plants using (project_id);" >> hydro_monthly_limits_ep.tab
+  
+ #JOIN temp7_hydro_study_dates_export USING (projection_year, month_of_year) \ 
+  
 echo '	hydro_monthly_limits_new.tab...'
 echo ampl.tab 4 1 > hydro_monthly_limits_new.tab
 echo 'project_id	la_id	technology	date	average_output_cf' >> hydro_monthly_limits_new.tab
 $connection_string -A -t -F  $'\t' -c  "\
-  CREATE TEMPORARY TABLE hydro_study_dates_export AS \
+  CREATE TEMPORARY TABLE temp7_hydro_study_dates_export AS \
   SELECT distinct period, year as projection_year, month_of_year, to_char(chile.hours.timestamp_cst, 'YYYYMMDD') AS date \
   FROM chile.training_set_timepoints \
   JOIN chile.hours USING (hour_number)\
   WHERE training_set_id = $TRAINING_SET_ID; \
   SELECT hmle.project_id, la_id, technology, date, ROUND(cast(average_output_cf as numeric),3) AS average_output_cf \
   FROM chile.hydro_monthly_limits_new_hydro_from_flow_data hmle \
-  JOIN hydro_study_dates_export USING (projection_year, month_of_year) \
-  JOIN chile.new_projects_alternative_1 USING (project_id);" >> hydro_monthly_limits_new.tab
+  JOIN temp7_hydro_study_dates_export USING (projection_year, month_of_year) \
+  JOIN chile.new_projects_v3 USING (project_id);" >> hydro_monthly_limits_new.tab
 
 
 
-# PATY: fixed to make it work (remove cetrales de pasadas)
+# JP: For now we omit CSP with storage id 27, given the weird cap factors
+# JP: Tweaking present cost and evolution of geothermal to better mimic current deployments in BAU
 echo '	new_projects.tab...'
-echo ampl.tab 3 11 > new_projects.tab
-echo 'project_id	la_id	technology	location_id	ep_project_replacement_id	capacity_limit	capacity_limit_conversion	heat_rate	cogen_thermal_demand	connect_cost_per_mw	overnight_cost	fixed_o_m	variable_o_m	overnight_cost_change' >> new_projects.tab
-$connection_string -A -t -F  $'\t' -c  "select t1.project_id, t1.la_id, t1.technology, t1.location_id_num, t1.ep_project_replacement_id, t1.capacity_limit, t1.capacity_limit_conversion, t1.heat_rate, t1.cogen_thermal_demand, t1.connect_cost_per_mw, t2.overnight_cost, t2.fixed_o_m, t2.variable_o_m, t2.overnight_cost_change \
-from chile.new_projects_v2 as t1 JOIN chile.generator_info_v2 as t2 USING(technology_id) \
-where new_project_portfolio_id = $NEW_PROJECT_PORTFOLIO_ID;" >> new_projects.tab
+echo ampl.tab 3 9 > new_projects.tab
+echo 'project_id	la_id	technology	location_id	ep_project_replacement_id	capacity_limit	capacity_limit_conversion	heat_rate	cogen_thermal_demand	connect_cost_per_mw	fixed_o_m	variable_o_m' >> new_projects.tab
+$connection_string -A -t -F  $'\t' -c  "select t1.project_id, t1.la_id, t1.technology, t1.location_id_num, t1.ep_project_replacement_id, \
+t1.capacity_limit, t1.capacity_limit_conversion, t1.heat_rate, t1.cogen_thermal_demand, t1.connect_cost_per_mw, \
+t2.fixed_o_m, t2.variable_o_m \
+from chile.new_projects_v3 as t1 JOIN chile.generator_info_v2 as t2 USING(technology_id) \
+JOIN new_projects_scenarios as t3 USING (project_id) \
+where t3.new_project_portfolio_id = $NEW_PROJECT_PORTFOLIO_ID and technology_id <> 27;" >> new_projects.tab
+
+echo '	generator_costs.tab...'
+echo ampl.tab 2 1 > generator_costs.tab
+echo 'technology	period	overnight_cost' >> generator_costs.tab
+$connection_string -A -t -F  $'\t' -c  "select technology, period_start as period, t1.overnight_cost \
+from generator_costs_yearly as t1 \
+join generator_info_v2 g using (technology), \
+training_set_periods \
+where year = ( period_start + (period_end-period_start+1)/2 ) - g.construction_time_years \
+and period_start >= g.construction_time_years + $present_year \
+and	period_start >= g.min_build_year \
+and training_set_id=$TRAINING_SET_ID \
+UNION \
+select technology, $present_year as period, overnight_cost \
+from generator_costs_yearly \
+where year = $present_year \
+order by technology, period;" >> generator_costs.tab
+
+#t2.overnight_cost, \
+#t2.fixed_o_m, t2.variable_o_m, \
+#t2.overnight_cost_change \
+#from chile.new_projects_v3 as t1 JOIN chile.generator_info_v2 as t2 USING(technology_id) \
+#where new_project_portfolio_id = $NEW_PROJECT_PORTFOLIO_ID and technology_id <> 27;" >> new_projects.tab
 
 
 echo '	generator_info.tab...'
@@ -328,7 +488,9 @@ echo '	misc_params.dat...'
 echo "param scenario_id          := $SCENARIO_ID;" >  misc_params.dat
 # PATY: line below added to activate rps 
 echo "param enable_rps            := $ENABLE_RPS;"  >> misc_params.dat
-echo "param enable_carbon_cap            := $ENABLE_CARBON_CAP;"  >> misc_params.dat
+echo "param enable_carbon_cap       := $ENABLE_CARBON_CAP;"  >> misc_params.dat
+echo "param enable_tx_constraint    := $ENABLE_TX_CONSTRAINT;"  >> misc_params.dat
+echo "param enable_force_renewables := $ENABLE_FORCE_RENEWABLES;"  >> misc_params.dat
 echo "param num_years_per_period	:= $number_of_years_per_period;"  >> misc_params.dat
 echo "param present_year  			:= $present_year;"  >> misc_params.dat
 
@@ -340,7 +502,8 @@ echo 'project_id	la_id	technology	hour	capacity_factor' >> new_projects_intermit
 $connection_string -A -t -F  $'\t' -c  "select project_id, t1.la_id, technology, to_char(training_set_timepoints.timestamp_cst, 'YYYYMMDDHH24') AS hour, CASE WHEN capacity_factor < -0.1 THEN -0.1 WHEN capacity_factor > 1 THEN 1 ELSE capacity_factor END AS capacity_factor  \
   FROM chile.training_set_timepoints \
     JOIN chile.new_projects_intermittent_capacity_factor as t1 USING (hour_number)\
-    JOIN chile.new_projects_v2 USING (project_id)\
+    JOIN chile.new_projects_v3 USING (project_id)\
+	JOIN chile.new_projects_scenarios using (project_id)\
   WHERE training_set_id = $TRAINING_SET_ID \
   AND new_project_portfolio_id = $NEW_PROJECT_PORTFOLIO_ID;" >> new_projects_intermittent_capacity_factor.tab
   
