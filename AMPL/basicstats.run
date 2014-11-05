@@ -449,11 +449,9 @@ let {p in PERIODS} Storage_Losses_by_Period[p] :=
 	+ sum {(pid, a, t, p, h) in PROJECT_VINTAGE_HOURS, fc in RPS_FUEL_CATEGORY: storage[t]}
 		( StoreEnergy[pid, a, t, p, h, fc] * ( 1 - storage_efficiency[t] ) * hours_in_sample[h] );
 
-
 ######
 # "discounted" system load, for use in calculating levelized cost of power.
-let la_demand_mwh_discounted := 
-	sum { a in LOAD_AREAS, h in TIMEPOINTS } 
+let {b in LA_SYSTEMS} la_demand_mwh_discounted[b] :=	sum { a in LOAD_AREAS, h in TIMEPOINTS: la_system[a] = b } 
 	hours_in_sample[h] * la_demand_mwh[a,h] * ( bring_annual_costs_to_start_of_period / num_years_per_period )
 	/ ( ( 1 + discount_rate )^( period[h] - base_year ) );
 
@@ -465,7 +463,7 @@ printf "\nEnable RPS=%0d  Enable Carbon Cap=%0d",
 		enable_carbon_cap;
 # END OF PATY'S EDITS IN THIS BLOCK...
 
-printf "\nLevelized Cost=$%3.2f/MWh \n", Power_Cost / la_demand_mwh_discounted;
+printf "\nLevelized Cost=$%3.2f/MWh \n", Power_Cost / sum {b in LA_SYSTEMS} la_demand_mwh_discounted[b];
 printf "Carbon Cost by period: ";
 printf {p in PERIODS} "%d $%d/tCO2.  ", p, carbon_cost_by_period[p];
 printf "\n";
