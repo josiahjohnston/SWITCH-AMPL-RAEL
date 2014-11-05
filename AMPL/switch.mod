@@ -1307,6 +1307,7 @@ param min_hours_date {d in DATES} =  min {h in TIMEPOINTS: date[h] = d} hours_in
 
 # This variable tells to how many hours in a day does a single hour equate to. 
 # Example: If I simulate 12 hours in a day, then each hour simulates 2 hours in that day.
+# There's probably a better way to calculate this, including passing the variable as a parameter with get_switch_input_tables
 param sampled_hours_in_date {d in DATES} = 24 / (tot_hours_date[d]/min_hours_date[d]);
 
 var ConsumeNaturalGasBalanceAreaDaily { b in LA_SYSTEMS, d in DATES } =
