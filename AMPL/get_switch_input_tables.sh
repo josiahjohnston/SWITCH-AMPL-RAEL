@@ -435,10 +435,12 @@ where year = ( period_start + (period_end-period_start+1)/2 ) - g.construction_t
 and period_start >= g.construction_time_years + $present_year \
 and	period_start >= g.min_build_year \
 and training_set_id=$TRAINING_SET_ID \
+and overnight_cost_id = 1 \
 UNION \
 select technology, $present_year as period, overnight_cost \
 from generator_costs_yearly \
 where year = $present_year \
+and overnight_cost_id = 1 \
 order by technology, period;" >> generator_costs.tab
 
 #t2.overnight_cost, \
@@ -449,8 +451,8 @@ order by technology, period;" >> generator_costs.tab
 
 
 echo '	generator_info.tab...'
-echo ampl.tab 1 30 > generator_info.tab
-echo 'technology	technology_id	min_build_year	fuel	construction_time_years	year_1_cost_fraction	year_2_cost_fraction	year_3_cost_fraction	year_4_cost_fraction	year_5_cost_fraction	year_6_cost_fraction	max_age_years	forced_outage_rate	scheduled_outage_rate	can_build_new	ccs	intermittent	resource_limited	baseload	flexible_baseload	dispatchable	cogen	min_build_capacity	competes_for_space	storage	storage_efficiency	max_store_rate	max_spinning_reserve_fraction_of_capacity	heat_rate_penalty_spinning_reserve	minimum_loading	deep_cycling_penalty' >> generator_info.tab
+echo ampl.tab 1 32 > generator_info.tab
+echo 'technology	technology_id	min_build_year	fuel	construction_time_years	year_1_cost_fraction	year_2_cost_fraction	year_3_cost_fraction	year_4_cost_fraction	year_5_cost_fraction	year_6_cost_fraction	max_age_years	forced_outage_rate	scheduled_outage_rate	can_build_new	ccs	intermittent	resource_limited	baseload	flexible_baseload	dispatchable	cogen	min_build_capacity	competes_for_space	storage	storage_efficiency	max_store_rate	max_spinning_reserve_fraction_of_capacity	heat_rate_penalty_spinning_reserve	minimum_loading	deep_cycling_penalty	startup_mmbtu_per_mw	startup_cost_dollars_per_mw' >> generator_info.tab
 $connection_string -A -t -F  $'\t' -c  "select technology, technology_id, min_build_year, fuel, construction_time_years, \
 year_1_cost_fraction, year_2_cost_fraction, year_3_cost_fraction, year_4_cost_fraction, year_5_cost_fraction, year_6_cost_fraction, \
 max_age_years, forced_outage_rate, scheduled_outage_rate, \
@@ -466,7 +468,7 @@ min_build_capacity, \
 CASE WHEN competes_for_space THEN 1 ELSE 0 END, \
 CASE WHEN storage THEN 1 ELSE 0 END, \
 storage_efficiency, max_store_rate, max_spinning_reserve_fraction_of_capacity, heat_rate_penalty_spinning_reserve, \
-minimum_loading, deep_cycling_penalty from chile.generator_info_v2;" >> generator_info.tab
+minimum_loading, deep_cycling_penalty, startup_mmbtu_per_mw, startup_cost_dollars_per_mw from chile.generator_info_v2;" >> generator_info.tab
 
 
 # PATY: col rps_fuel_category added to make rps work.

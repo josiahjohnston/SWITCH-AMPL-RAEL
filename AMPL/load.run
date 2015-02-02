@@ -167,6 +167,14 @@ table fuel_prices "inputs/fuel_prices.tab" IN:
 	[la_id, fuel, year], fuel_price;
 read table fuel_prices;
 
+param ng_consumption_breakpoint_raw { (b, p, bp) in NG_SUPPLY_CURVE_PERIOD_BREAKPOINTS } >= 0;
+table ng_supply_curve "inputs/ng_supply_curve.tab" IN:
+	NG_SUPPLY_CURVE_PERIOD_BREAKPOINTS <- [la_system, period, breakpoint_id], 
+	ng_consumption_breakpoint_raw ~ ng_consumption_breakpoint, ng_price_surplus_adjusted;
+read table ng_supply_curve;
+let { b in LA_SYSTEMS, p in PERIODS_AND_PRESENT, bp in 1..(num_ng_breakpoints[b,p]-1) } 
+  ng_consumption_breakpoint[b,p,bp] := ng_consumption_breakpoint_raw[b, p, bp];
+
 table carbon_cost_by_period_table "inputs/carbon_cost_by_period.tab" IN:
   [p], carbon_cost_by_period;
 if (file_exists("inputs/carbon_cost_by_period.tab")) then {

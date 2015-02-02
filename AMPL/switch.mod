@@ -1251,6 +1251,8 @@ var Storage_Operating_Reserve { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: stor
 var Hydro_Operating_Reserve { (pid, a, t, p, h) in HYDRO_AVAILABLE_HOURS_PID} >= 0;
 var Pumped_Hydro_Storage_Operating_Reserve { (pid, a, t, p, h) in PUMPED_HYDRO_AVAILABLE_HOURS_PID } >= 0;
 
+
+
 ### PRICE VARIABLES
 # This variable determines the marginal cost unit for each balancing area for each hour
 
@@ -1310,7 +1312,7 @@ param min_hours_date {d in DATES} =  min {h in TIMEPOINTS: date[h] = d} hours_in
 # There's probably a better way to calculate this, including passing the variable as a parameter with get_switch_input_tables
 param sampled_hours_in_date {d in DATES} = 24 / (tot_hours_date[d]/min_hours_date[d]);
 
-var ConsumeNaturalGasBalanceAreaDaily { b in LA_SYSTEMS, d in DATES } =
+var ConsumeNaturalGasBalanceAreaDailyMMm3 { b in LA_SYSTEMS, d in DATES } =
   # New plants
 	(( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: date[h] = d and ( fuel[t] = 'Gas' or fuel[t] = 'Gas_CCS' ) and la_system[a] = b } 
 	  ( if t = 'Compressed_Air_Energy_Storage' then ( 1 + caes_storage_to_ng_ratio[t] ) else 1 )
@@ -1326,19 +1328,21 @@ var ConsumeNaturalGasBalanceAreaDaily { b in LA_SYSTEMS, d in DATES } =
       ( if t = 'Compressed_Air_Energy_Storage' then ( 1 + caes_storage_to_ng_ratio[t] ) else 1 )
       * Provide_Spinning_Reserve[pid, a, t, p, h] *  heat_rate_spinning_reserve[pid, a, t] * sampled_hours_in_date[d] ) #* hours_in_sample[h] )
  # fuel use for keeping CCGT plants below full load (beyond spinning reserves; if DispatchGen + Provide_Spinning_Reserve = Commit_Intermediate_Gen, no additional cost is incurred as the cost for keeping spinning_reserves is already taken into account above )
- #	 + ( sum { (pid, a, t, p, h) in AVAILABLE_HOURS: la_system[a] = b and date[h] = d and ( t in INTERMEDIATE_TECHNOLOGIES ) and ( fuel[t] = 'Gas' or fuel[t] = 'Gas_CCS' ) } (
- #	 	( Commit_Intermediate_Gen[pid, a, t, p, h] - ( ( if can_build_new[t] then DispatchGen[pid, a, t, p, h] else ProducePowerEP[pid, a, t, p, h] ) + Provide_Spinning_Reserve[pid, a, t, p, h] ) )
- #	 	* deep_cycling_penalty[t] * ( if can_build_new[t] then heat_rate[pid, a, t] else ep_heat_rate[pid, a, t] ) ) #* hours_in_sample[h] )
- #	 	)
+ 	 + ( sum { (pid, a, t, p, h) in AVAILABLE_HOURS: la_system[a] = b and date[h] = d and ( t in INTERMEDIATE_TECHNOLOGIES ) and ( fuel[t] = 'Gas' or fuel[t] = 'Gas_CCS' ) } (
+ 	 	( Commit_Intermediate_Gen[pid, a, t, p, h] - ( ( if can_build_new[t] then DispatchGen[pid, a, t, p, h] else ProducePowerEP[pid, a, t, p, h] ) + Provide_Spinning_Reserve[pid, a, t, p, h] ) )
+ 	 	* deep_cycling_penalty[t] * ( if can_build_new[t] then heat_rate[pid, a, t] else ep_heat_rate[pid, a, t] ) ) #* hours_in_sample[h] )
+ 	 	)
  # # fuel use for starting up intermediate and peaker plants
- #	+ ( sum { (pid, a, t, p, h) in AVAILABLE_HOURS: nems_fuel_region[a] = nr and ( t in PEAKER_TECHNOLOGIES or t in INTERMEDIATE_TECHNOLOGIES ) and ( fuel[t] = 'Gas' or fuel[t] = 'Gas_CCS' ) } (
- #	    Startup_MW_from_Last_Hour[pid, a, t, p, h] * startup_mmbtu_per_mw[t] * hours_in_sample[h] ) 
- #	    )
+ 	+ ( sum { (pid, a, t, p, h) in AVAILABLE_HOURS: la_system[a] = b and date[h] = d and ( t in PEAKER_TECHNOLOGIES or t in INTERMEDIATE_TECHNOLOGIES ) and ( fuel[t] = 'Gas' or fuel[t] = 'Gas_CCS' ) } (
+ 	    Startup_MW_from_Last_Hour[pid, a, t, p, h] * startup_mmbtu_per_mw[t] * hours_in_sample[h] ) 
+ 	    )
  # The 28.3 m3/MMBtu comes from http://www.delekenergy.co.il/?pg=calc&CategoryID=198
   ) * 28.32 / 10^6
   ;
   
-var ConsumeNaturalGasBalanceAreaPeriod { b in LA_SYSTEMS, p in PERIODS } =
+# Derived variable with the maximum daily consumption.
+  
+var ConsumeNaturalGasBalanceAreaPeriodMMm3 { b in LA_SYSTEMS, p in PERIODS } =
   # New plants
 	(( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS:( fuel[t] = 'Gas' or fuel[t] = 'Gas_CCS' ) and la_system[a] = b } 
 	  ( if t = 'Compressed_Air_Energy_Storage' then ( 1 + caes_storage_to_ng_ratio[t] ) else 1 )
@@ -1354,14 +1358,14 @@ var ConsumeNaturalGasBalanceAreaPeriod { b in LA_SYSTEMS, p in PERIODS } =
       ( if t = 'Compressed_Air_Energy_Storage' then ( 1 + caes_storage_to_ng_ratio[t] ) else 1 )
       * Provide_Spinning_Reserve[pid, a, t, p, h] *  heat_rate_spinning_reserve[pid, a, t] * hours_in_sample[h] )
  # fuel use for keeping CCGT plants below full load (beyond spinning reserves; if DispatchGen + Provide_Spinning_Reserve = Commit_Intermediate_Gen, no additional cost is incurred as the cost for keeping spinning_reserves is already taken into account above )
- #	 + ( sum { (pid, a, t, p, h) in AVAILABLE_HOURS: la_system[a] = b and date[h] = d and ( t in INTERMEDIATE_TECHNOLOGIES ) and ( fuel[t] = 'Gas' or fuel[t] = 'Gas_CCS' ) } (
- #	 	( Commit_Intermediate_Gen[pid, a, t, p, h] - ( ( if can_build_new[t] then DispatchGen[pid, a, t, p, h] else ProducePowerEP[pid, a, t, p, h] ) + Provide_Spinning_Reserve[pid, a, t, p, h] ) )
- #	 	* deep_cycling_penalty[t] * ( if can_build_new[t] then heat_rate[pid, a, t] else ep_heat_rate[pid, a, t] ) ) #* hours_in_sample[h] )
- #	 	)
+ 	 + ( sum { (pid, a, t, p, h) in AVAILABLE_HOURS: la_system[a] = b and ( t in INTERMEDIATE_TECHNOLOGIES ) and ( fuel[t] = 'Gas' or fuel[t] = 'Gas_CCS' ) } (
+ 	 	( Commit_Intermediate_Gen[pid, a, t, p, h] - ( ( if can_build_new[t] then DispatchGen[pid, a, t, p, h] else ProducePowerEP[pid, a, t, p, h] ) + Provide_Spinning_Reserve[pid, a, t, p, h] ) )
+ 	 	* deep_cycling_penalty[t] * ( if can_build_new[t] then heat_rate[pid, a, t] else ep_heat_rate[pid, a, t] ) ) #* hours_in_sample[h] )
+ 	 	)
  # # fuel use for starting up intermediate and peaker plants
- #	+ ( sum { (pid, a, t, p, h) in AVAILABLE_HOURS: nems_fuel_region[a] = nr and ( t in PEAKER_TECHNOLOGIES or t in INTERMEDIATE_TECHNOLOGIES ) and ( fuel[t] = 'Gas' or fuel[t] = 'Gas_CCS' ) } (
- #	    Startup_MW_from_Last_Hour[pid, a, t, p, h] * startup_mmbtu_per_mw[t] * hours_in_sample[h] ) 
- #	    )
+ 	+ ( sum { (pid, a, t, p, h) in AVAILABLE_HOURS: la_system[a] = b and ( t in PEAKER_TECHNOLOGIES or t in INTERMEDIATE_TECHNOLOGIES ) and ( fuel[t] = 'Gas' or fuel[t] = 'Gas_CCS' ) } (
+ 	    Startup_MW_from_Last_Hour[pid, a, t, p, h] * startup_mmbtu_per_mw[t] * hours_in_sample[h] ) 
+ 	    )
  # The 28.3 m3/MMBtu comes from http://www.delekenergy.co.il/?pg=calc&CategoryID=198
   ) * 28.32 / 10^6
   ;
@@ -1373,6 +1377,36 @@ param natural_gas_consumption_limits_daily {b in LA_SYSTEMS}  >= 0;
 data;
 param natural_gas_consumption_limits_daily := 'SIC' 6 'SING' 3 'SIC2' 0;
 model;
+
+## An alternative (and correct) method for above is to develop a supply curve, as we do below:
+
+set NG_SUPPLY_CURVE_PERIOD_BREAKPOINTS dimen 3;
+#set NG_REGIONAL_PRICE_ADDERS_PERIODS dimen 2;
+
+# natural gas supply curve parameters; the surplus-adjusted price and regional price adder are in $/MMBtu; the natural gas consumption is in MMBtu
+param num_ng_breakpoints { b in LA_SYSTEMS, p in PERIODS_AND_PRESENT} = card ( { (b, p, bp) in NG_SUPPLY_CURVE_PERIOD_BREAKPOINTS } );
+
+param ng_price_surplus_adjusted { (b, p, bp) in NG_SUPPLY_CURVE_PERIOD_BREAKPOINTS } >= if bp = 1 then 0 else ng_price_surplus_adjusted[b, p, bp-1];
+param ng_consumption_breakpoint{ b in LA_SYSTEMS, p in PERIODS_AND_PRESENT, bp in 1..(num_ng_breakpoints[b,p]-1) } > if bp = 1 then 0 else ng_consumption_breakpoint[b, p, bp-1];
+
+param ng_consumption_breakpoint_per_period {b in LA_SYSTEMS, p in PERIODS, bp in 1..num_ng_breakpoints[b,p]-1}
+	= ng_consumption_breakpoint[b, p, bp] * num_years_per_period;
+	
+#param ng_regional_price_adder { (nr, p) in NG_REGIONAL_PRICE_ADDERS_PERIODS }; 
+
+var ConsumeNaturalGasByTier {b in LA_SYSTEMS, p in PERIODS, bp in 1..num_ng_breakpoints[b,p] } >= 0;
+
+var ConsumeNaturalGas {b in LA_SYSTEMS, p in PERIODS} 
+  = sum { bp in 1..num_ng_breakpoints[b,p] } ConsumeNaturalGasByTier[b,p,bp];
+  
+subject to ConsumeNaturalGas_defeqn {b in LA_SYSTEMS, p in PERIODS}:
+  ConsumeNaturalGas[b, p]
+  = ConsumeNaturalGasBalanceAreaPeriodMMm3  [b, p] * 10^6 / 28.32;
+  
+subject to ConsumeNaturalGas_UpperLimits {b in LA_SYSTEMS, p in PERIODS, bp in 1..num_ng_breakpoints[b,p]-1}:
+  ConsumeNaturalGasByTier[b,p,bp] <= 
+    if( bp = 1 ) then ng_consumption_breakpoint_per_period[b, p, bp]
+    else ng_consumption_breakpoint_per_period[b, p, bp] - ng_consumption_breakpoint_per_period[b, p, bp-1];
 
 #### OBJECTIVE ####
 
@@ -1403,9 +1437,12 @@ var Power_Cost_per_Balancing_Area {b in LA_SYSTEMS} =
 #		<< { bp in 1..num_bio_breakpoints[a, p] - 1 } breakpoint_mmbtu_per_period[a, p, bp]; 
 #		   { bp in 1..num_bio_breakpoints[a, p] } price_dollars_per_mmbtu_surplus_adjusted[a, p, bp] >>
 #	   		ConsumeBioSolid[a, p] * ( 1 / num_years_per_period ) * discount_to_base_year[p]  )
-
+	# Natural gas fuel costs
+   		# WECC-wide supply curves
+   + ( sum { p in PERIODS, bp in 1..num_ng_breakpoints[b,p] } 
+	   		ConsumeNaturalGasByTier[b,p,bp] * ng_price_surplus_adjusted[b, p, bp] * ( 1 / num_years_per_period ) * discount_to_base_year[p]  )
 	# Variable costs for dispatchable, non-storage projects
-	+ ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: la_system[a] = b and dispatchable[t] and t <> 'Compressed_Air_Energy_Storage' } 
+	+ ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: la_system[a] = b and dispatchable[t] and t <> 'Compressed_Air_Energy_Storage' and fuel[t] <> 'Gas' } 
 		DispatchGen[pid, a, t, p, h] * ( variable_o_m_cost_hourly[pid, a, t, p, h] + carbon_cost_per_mwh_hourly[pid, a, t, p, h] + fuel_cost_hourly[pid, a, t, p, h] ) )
 	# Variable costs for new flexible baseload projects
 	+ ( sum { (pid, a, t, p, h) in PROJECT_VINTAGE_HOURS: la_system[a] = b and flexible_baseload[t] } 
@@ -1530,7 +1567,7 @@ subject to Restricted_Transmission { (a1, a2, p) in TRANSMISSION_LINE_NEW_PERIOD
 	
 ## Restriction on liquefied natural gas consumption on a daily basis
 subject to Restricted_Natural_Gas_Consumption { b in LA_SYSTEMS, d in DATES }:
-	ConsumeNaturalGasBalanceAreaDaily[b, d] <= natural_gas_consumption_limits_daily[b];
+	ConsumeNaturalGasBalanceAreaDailyMMm3 [b, d] <= natural_gas_consumption_limits_daily[b];
 
 ###### Policy Constraints #######
 
@@ -2181,16 +2218,16 @@ problem Investment_Cost_Minimization:
     Carbon_Cap,
   # These ones are new (JP). Can be dropped.
   #	Forced_Intermitent_Renewables, Restricted_Transmission,
-	Restricted_Natural_Gas_Consumption,
+  #	Restricted_Natural_Gas_Consumption,
   # P: Tx contraints
-  	MutuallyExclusive11, MutuallyExclusive12, MutuallyExclusive21, MutuallyExclusive22, MutuallyExclusive3,
+  #	MutuallyExclusive11, MutuallyExclusive12, MutuallyExclusive21, MutuallyExclusive22, MutuallyExclusive3,
   # Investment Decisions. P: New var TransLineBuilt
 	InstallGen, BuildGenOrNot, InstallTrans, TransLineBuilt,
   # Installation Constraints
 	Maximum_Resource_Central_Station_Solar, Maximum_Resource_Bio, Maximum_Resource_Single_Location, Maximum_Resource_EP_Cogen_Replacement,
 	Minimum_GenSize, BuildGenOrNot_Constraint, SymetricalTrans, 
   # Dispatch Decisions
-	DispatchGen, DispatchFlexibleBaseload, OperateEPDuringPeriod, ProducePowerEP, Commit_Intermediate_Gen, Startup_MW_from_Last_Hour,
+	DispatchGen, DispatchFlexibleBaseload, Deep_Cycle_Amount, Commit_Intermediate_Gen, Startup_MW_from_Last_Hour, OperateEPDuringPeriod, ProducePowerEP, ConsumeNaturalGas, ConsumeNaturalGasByTier, ConsumeNaturalGas_defeqn, ConsumeNaturalGas_UpperLimits, 
   #	ConsumeBioSolid, 
 	DispatchTransFromXToY, StoreEnergy, ReleaseEnergy,
 	DispatchHydro, Dispatch_Pumped_Hydro_Storage, Store_Pumped_Hydro,
@@ -2205,8 +2242,6 @@ problem Investment_Cost_Minimization:
 	Maximum_Dispatch_and_Operating_Reserve_Hydro_New, Average_Hydro_Output_New, Max_Operating_Reserve_Hydro_New, 
 	Maximum_Store_Pumped_Hydro, Conservation_Of_Stored_Pumped_Hydro_Electrons_by_Fuel_Category, Pumped_Hydro_Energy_Balance,
 	CAES_Combined_Dispatch, CAES_Combined_Operating_Reserve, Maximum_Store_Rate, Maximum_Release_and_Operating_Reserve_Storage_Rate, Storage_Projects_Energy_Balance_by_Fuel_Category, Storage_Projects_Energy_Balance, 
-  # Deep Cycling
-  # Deep_Cycle_Amount,
   # Contingency Planning constraints
 	Satisfy_Load_Reserve, 
 	Conservation_Of_Energy_NonDistributed_Reserve, Conservation_Of_Energy_Distributed_Reserve,
