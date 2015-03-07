@@ -104,8 +104,6 @@ param ccs_distance_km {LOAD_AREAS} >= 0;
 param bio_gas_capacity_limit_mmbtu_per_hour {LOAD_AREAS} >= 0;
 
 # system load aggregated in various ways
-param total_loads_by_period {p in PERIODS} = 
-	sum {a in LOAD_AREAS, h in TIMEPOINTS: period[h]=p} system_load[a, h];
 param total_loads_by_period_weighted {p in PERIODS} = 
 	sum {a in LOAD_AREAS, h in TIMEPOINTS: period[h]=p} system_load[a, h] * hours_in_sample[h];
 
