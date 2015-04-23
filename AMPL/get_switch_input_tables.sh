@@ -288,7 +288,14 @@ SELECT load_area, period_start as period, max(power) as max_system_load \
 
 echo '	existing_plants.tab...'
 echo ampl.tab 3 11 > existing_plants.tab
-mysql $connection_string -e "select project_id, load_area, technology, plant_name, eia_id, capacity_mw, heat_rate, cogen_thermal_demand_mmbtus_per_mwh, if(start_year = 0, 1900, start_year) as start_year, forced_retirement_year, overnight_cost, connect_cost_per_mw, fixed_o_m, variable_o_m from existing_plants_v2 order by 1, 2, 3;" >> existing_plants.tab
+mysql $connection_string -e "\
+select project_id, load_area, technology, plant_name, eia_id, capacity_mw, \
+       heat_rate, cogen_thermal_demand_mmbtus_per_mwh, \
+       if(start_year = 0, 1900, start_year) as start_year, \
+       forced_retirement_year, overnight_cost, connect_cost_per_mw, \
+       fixed_o_m, variable_o_m \
+from existing_plants_v2 \
+order by 1, 2, 3;" >> existing_plants.tab
 
 echo '	existing_intermittent_plant_cap_factor.tab...'
 echo ampl.tab 4 1 > existing_intermittent_plant_cap_factor.tab
@@ -316,7 +323,17 @@ SELECT project_id, load_area, technology, study_date as date, ROUND(avg_capacity
 
 echo '	proposed_projects.tab...'
 echo ampl.tab 3 8 > proposed_projects.tab
-mysql $connection_string -e "select project_id, $proposed_projects_view.load_area, technology, if(location_id is NULL, 0, location_id) as location_id, if(ep_project_replacement_id is NULL, 0, ep_project_replacement_id) as ep_project_replacement_id, if(capacity_limit is NULL, 0, capacity_limit) as capacity_limit, if(capacity_limit_conversion is NULL, 0, capacity_limit_conversion) as capacity_limit_conversion, heat_rate, cogen_thermal_demand, connect_cost_per_mw, if(avg_cap_factor_intermittent is NULL, 0, avg_cap_factor_intermittent) as average_capacity_factor_intermittent from $proposed_projects_view join load_area_info using (area_id) where technology_id in (SELECT technology_id FROM generator_info_v2 where gen_info_scenario_id=$GEN_INFO_SCENARIO_ID) AND $INTERMITTENT_PROJECTS_SELECTION;" >> proposed_projects.tab
+mysql $connection_string -e "\
+select project_id, $proposed_projects_view.load_area, technology,\
+       if(location_id is NULL, 0, location_id) as location_id,\
+       if(ep_project_replacement_id is NULL, 0, ep_project_replacement_id) as ep_project_replacement_id,\
+       if(capacity_limit is NULL, 0, capacity_limit) as capacity_limit,\
+       if(capacity_limit_conversion is NULL, 0, capacity_limit_conversion) as capacity_limit_conversion,\
+       heat_rate, cogen_thermal_demand, connect_cost_per_mw,\
+       if(avg_cap_factor_intermittent is NULL, 0, avg_cap_factor_intermittent) as average_capacity_factor_intermittent\
+from $proposed_projects_view join load_area_info using (area_id) \
+where technology_id in (SELECT technology_id FROM generator_info_v2 where gen_info_scenario_id=$GEN_INFO_SCENARIO_ID)\
+      AND $INTERMITTENT_PROJECTS_SELECTION;" >> proposed_projects.tab
 
 echo '	generator_info.tab...'
 echo ampl.tab 1 32 > generator_info.tab
