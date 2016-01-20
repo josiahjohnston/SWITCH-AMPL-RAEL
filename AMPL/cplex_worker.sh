@@ -11,6 +11,7 @@ INPUTS
 	                         Lists the base filename of the optimization problems that need to be divided among workers
 	--num_workers W          Specifies the number of worker processes tasked with the given problems
 	--worker N               Used with is_worker in a non-cluster environment with a fork to indicate the worker id of the child process
+	--cplex_options "key=value key2=value2 ..."
 END_HELP
 }
 
@@ -36,6 +37,8 @@ case $1 in
 		worker_id=$2; shift 2 ;;
 	--problems)
 		problems=$2; shift 2 ;;
+	--cplex_options)
+	    cplex_options=$2; shift 2 ;;
 	-h | --help)
 		print_help; exit ;;
 	*)
@@ -57,7 +60,7 @@ if [ -z "$num_workers" ]; then echo "ERROR! num_workers was not specified."; exi
 if [ -z "$problems" ]; then echo "ERROR! problems was not specified."; exit; fi
 
 # Gather some other parameters
-cplex_options=$(cat results/cplex_options)
+if [ -z "$cplex_options" ]; then cplex_options=$(cat results/cplex_options); fi
 scenario_id=$(grep 'scenario_id' inputs/misc_params.dat | sed 's/[^0-9]//g')
 
 # Solve problems that are associated with this worker id
