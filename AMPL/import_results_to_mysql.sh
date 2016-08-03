@@ -147,7 +147,7 @@ if [ $ExportOnly = 0 ]; then
   present_year=$(grep 'param present_year' inputs/misc_params.dat | sed -e 's/[^0-9]//g')
   
   # now import all of the non-runtime results
-  for file_base_name in gen_cap trans_cap local_td_cap transmission_dispatch_optimized system_load existing_trans_cost rps_reduced_cost generator_and_storage_dispatch load_wind_solar_operating_reserve_levels consume_variables; do
+  for file_base_name in gen_cap trans_cap local_td_cap transmission_dispatch transmission_dispatch_optimized system_load existing_trans_cost rps_reduced_cost generator_and_storage_dispatch load_wind_solar_operating_reserve_levels consume_variables; do
     for file_name in $(ls $results_dir/*${file_base_name}_*txt | grep "[[:digit:]]"); do
       file_path="$(pwd)/$file_name"
       echo "    ${file_name}  ->  ${DB_name}._${file_base_name}"
@@ -182,7 +182,7 @@ if [ $ExportOnly = 0 ]; then
               (scenario_id, carbon_cost, period, area_id, @junk, new, local_td_mw, fixed_cost);\
               select count(*) from _local_td_cap where scenario_id=$SCENARIO_ID and $row_count_clause;"
           ) ;;
-        transmission_dispatch_optimized)
+        transmission_dispatch | transmission_dispatch_optimized)
           db_row_count=$(
             mysql $connection_string --column-names=false -e "load data local infile \"$file_path\" \
               into table _transmission_dispatch ignore 1 lines \

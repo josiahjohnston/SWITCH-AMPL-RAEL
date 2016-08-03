@@ -196,6 +196,27 @@ for {c in CARBON_COSTS} {
         >> (outfile);
       
       close (outfile);
+      
+      #######################
+      # store hourly TRANSMISSION decisions in standardized, MW terms
+      
+      let output_section := 'transmission_dispatch';
+      let outfile := results_path & sprintf( result_file_path_templates[output_section], carbon_cost );
+      printf "scenario_id	carbon_cost	period	transmission_line_id	load_area_receive_id	load_area_from_id	load_area_receive	load_area_from	date	hour	rps_fuel_category	power_sent	power_received	hours_in_sample\n"
+        > (outfile);
+      
+      # detailed non-rps transmission imports & exports
+      printf { (a1, a2, fc, p, h) in TRANSMISSION_LINE_HOURS: DispatchTrans[a1, a2, fc, p, h] > 0.001 } 
+        "%s	%d	%d	%d	%d	%d	%s	%s	%d	%d	%s	%.2f	%.2f	%.2f\n",
+        scenario_id, carbon_cost, period[h], transmission_line_id[a1, a2], load_area_id[a2], load_area_id[a1], a2, a1,
+        (if present_day_optimization then present_day_date[h] else date[h]),
+        (if present_day_optimization then present_day_timepoint[h] else h),
+        fc, DispatchTrans[a1, a2, fc, p, h],
+        DispatchTrans[a1, a2, fc, p, h] * transmission_efficiency[a1, a2],
+        hours_in_sample[h]
+        >> (outfile);
+
+      close (outfile);
         
       ########################
       # store the costs of all existing transmission capacity
