@@ -30,7 +30,7 @@ write_to_path='inputs'
 db_server="switch-db2.erg.berkeley.edu"
 DB_name="switch_inputs_wecc_v2_2"
 port=3306
-ssh_tunnel=1
+ssh_tunnel=0
 
 # Set the umask to give group read & write permissions to all files & directories made by this script.
 umask 0002
@@ -139,7 +139,7 @@ fi
 # These next variables determine which input data is used
 
 # get the present year that will make present day cost optimization possible
-present_year=`date "+%Y"`
+present_year=2010 #Paty's edit #present_year=`date "+%Y"`
 
 INTERMITTENT_PROJECTS_SELECTION="(( avg_cap_factor_percentile_by_intermittent_tech >= 0.75 or cumulative_avg_MW_tech_load_area <= 3 * total_yearly_load_mwh / 8766 or rank_by_tech_in_load_area <= 5 or avg_cap_factor_percentile_by_intermittent_tech is null) and technology <> 'Concentrating_PV')"
 
@@ -248,7 +248,12 @@ mysql $connection_string -e "select load_area_start, load_area_end, existing_tra
 
 echo '	system_load.tab...'
 echo ampl.tab 2 2 > system_load.tab
-mysql $connection_string -e "call prepare_load_exports($TRAINING_SET_ID); select load_area, DATE_FORMAT(datetime_utc,'%Y%m%d%H') as hour, system_load, present_day_system_load from scenario_loads_export WHERE training_set_id=$TRAINING_SET_ID; call clean_load_exports($TRAINING_SET_ID); "  >> system_load.tab
+mysql $connection_string -e "\
+call prepare_load_exports($TRAINING_SET_ID); \
+select load_area, DATE_FORMAT(datetime_utc,'%Y%m%d%H') as hour, \
+       system_load, present_day_system_load \
+from scenario_loads_export WHERE training_set_id=$TRAINING_SET_ID; \
+call clean_load_exports($TRAINING_SET_ID); "  >> system_load.tab
 
 if [ $DR_SCENARIO_ID == 'NULL' ]; then
 	echo "No DR scenario specified. Skipping shiftable_res_comm_load.tab."
@@ -269,11 +274,11 @@ fi;
 echo '	max_system_loads.tab...'
 echo ampl.tab 2 1 > max_system_loads.tab
 mysql $connection_string -e "\
-SELECT load_area, YEAR(now()) as period, max(power) as max_system_load \
+SELECT load_area, $present_year as period, max(power) as max_system_load \
   FROM _load_projections \
     JOIN training_sets USING(load_scenario_id) \
     JOIN load_area_info    USING(area_id) \
-  WHERE training_set_id=$TRAINING_SET_ID AND future_year = YEAR(now())  \
+  WHERE training_set_id=$TRAINING_SET_ID AND future_year = $present_year  \
   GROUP BY 1,2 \
 UNION \
 SELECT load_area, period_start as period, max(power) as max_system_load \
