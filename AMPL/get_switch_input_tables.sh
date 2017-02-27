@@ -139,7 +139,9 @@ fi
 # These next variables determine which input data is used
 
 # get the present year that will make present day cost optimization possible
-present_year=2010 #Paty's edit #present_year=`date "+%Y"`
+# Don't set this to 2010 or prior because most load projections don't have present
+# data load data for that early, which causes AMPL to break when importing load data.
+present_year=2011 #Paty's edit #present_year=`date "+%Y"`
 
 INTERMITTENT_PROJECTS_SELECTION="(( avg_cap_factor_percentile_by_intermittent_tech >= 0.75 or cumulative_avg_MW_tech_load_area <= 3 * total_yearly_load_mwh / 8766 or rank_by_tech_in_load_area <= 5 or avg_cap_factor_percentile_by_intermittent_tech is null) and technology <> 'Concentrating_PV')"
 
