@@ -967,6 +967,9 @@ param is_dc_line {TRANSMISSION_LINES} binary;
 # how much should the transmission path be derated for contingencies, stability, voltage, etc. ?
 param transmission_derating_factor {TRANSMISSION_LINES} >= 0 <= 1;
 
+# An additional derating that can be applied in each timepoint to reflext outage conditions
+param transmission_dynamic_derating_factor {TRANSMISSION_LINES, TIMEPOINTS} >= 0 <= 1 default 1;
+
 # relative to a typical transmission line, how much should cost of the transmission line costs be increased or decreased based on terrain (land cover and slope)?
 param terrain_multiplier {TRANSMISSION_LINES} >= 0.5 <= 3;
 
@@ -1957,7 +1960,7 @@ subject to BuildGenOrNot_Constraint
 subject to Maximum_DispatchTrans
   { (a1, a2, p) in TRANSMISSION_LINE_PERIODS, h in TIMEPOINTS: period[h] = p }:
   sum { (a1, a2, fc, p, h) in TRANSMISSION_LINE_HOURS } DispatchTrans[a1, a2, fc, p, h] 
-    <= transmission_derating_factor[a1, a2] * 
+    <= transmission_derating_factor[a1, a2] * transmission_dynamic_derating_factor[a1, a2, h] *
           ( existing_transfer_capacity_mw[a1, a2] + sum { (a1, a2, online_yr) in TRANSMISSION_LINE_NEW_PERIODS: online_yr <= p } InstallTrans[a1, a2, online_yr] );
 
 # Simple fix to the problem of asymetrical transmission build-out

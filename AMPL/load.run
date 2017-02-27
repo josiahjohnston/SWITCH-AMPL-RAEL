@@ -101,6 +101,13 @@ if ( file_exists("inputs/shiftable_ev_load.tab") ) then {
   read table shiftable_ev_load;
 }
 
+table transmission_dynamic_derating "inputs/transmission_dynamic_derating.tab" IN: 
+  [load_area_start, load_area_end, hour], transmission_dynamic_derating_factor;
+if ( file_exists("inputs/transmission_dynamic_derating.tab") ) then {
+  read table transmission_dynamic_derating;
+}
+
+
 table max_system_loads "inputs/max_system_loads.tab" IN: 
   [load_area, period], max_system_load;
 read table max_system_loads;
