@@ -633,18 +633,19 @@ delimiter ;
 
 DELIMITER $$
 DROP FUNCTION IF EXISTS clone_scenario_v3$$
-CREATE FUNCTION clone_scenario_v3 (_base_year INT, name varchar(128), model_v varchar(16), inputs_diff varchar(16), source_scenario_id int ) RETURNS int DETERMINISTIC
+CREATE FUNCTION clone_scenario_v3 (_base_year INT, _scenario_name varchar(128), _model_version varchar(16), _inputs_adjusted varchar(16), source_scenario_id int ) RETURNS int DETERMINISTIC
 BEGIN
 
 	DECLARE new_id INT DEFAULT 0;
 	INSERT INTO scenarios_v3 (scenario_name, training_set_id, base_year, regional_cost_multiplier_scenario_id,
         regional_fuel_cost_scenario_id, gen_costs_scenario_id, gen_info_scenario_id, enable_rps,
         nems_fuel_scenario_id, dr_scenario_id, ev_scenario_id, enforce_ca_dg_mandate, linearize_optimization,
-        carbon_cap_scenario_id, notes, model_version, inputs_adjusted)
-    SELECT name, training_set_id, _base_year, regional_cost_multiplier_scenario_id,
+        carbon_cap_scenario_id, notes, model_version, inputs_adjusted, transmission_capital_cost_per_mw_km)
+    SELECT _scenario_name, training_set_id, _base_year, regional_cost_multiplier_scenario_id,
   	    regional_fuel_cost_scenario_id, gen_costs_scenario_id, gen_info_scenario_id, enable_rps,
       	nems_fuel_scenario_id, dr_scenario_id, ev_scenario_id, enforce_ca_dg_mandate, linearize_optimization,
-      	carbon_cap_scenario_id, notes, model_v, inputs_diff
+      	carbon_cap_scenario_id, CONCAT("Based on scenario ", source_scenario_id), _model_version,
+      	_inputs_adjusted, transmission_capital_cost_per_mw_km
     FROM scenarios_v3 where scenario_id=source_scenario_id;
 
   SELECT LAST_INSERT_ID() into new_id;
