@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS scenarios_v3 (
   scenario_id INT NOT NULL AUTO_INCREMENT,
   scenario_name VARCHAR(128),
   training_set_id INT NOT NULL,
+  base_year INT COMMENT 'I think this would be better off in a new version of training_sets, but that would be less backwards compatible with archived scenarios that used the same training sets over multiple years and consequently used multiple base_years for a single training_set when base_year was set to now() during execution rather than being explicitly defined.',
   regional_cost_multiplier_scenario_id INT NOT NULL DEFAULT 1, 
   regional_fuel_cost_scenario_id INT NOT NULL DEFAULT 1, 
   gen_costs_scenario_id MEDIUMINT NOT NULL DEFAULT 2 COMMENT 'The default scenario is 2 and has the baseline cost assumptions.', 
@@ -99,7 +100,7 @@ CREATE TABLE IF NOT EXISTS scenarios_v3 (
   model_version varchar(16) NOT NULL,
   inputs_adjusted varchar(16) NOT NULL DEFAULT 'no',
   PRIMARY KEY (scenario_id), 
-  UNIQUE KEY unique_params (scenario_name, training_set_id, regional_cost_multiplier_scenario_id, regional_fuel_cost_scenario_id, gen_costs_scenario_id, gen_info_scenario_id, enable_rps, carbon_cap_scenario_id, nems_fuel_scenario_id, dr_scenario_id, ev_scenario_id, enforce_ca_dg_mandate, linearize_optimization, model_version, inputs_adjusted, transmission_capital_cost_per_mw_km), 
+  UNIQUE KEY unique_params (scenario_name, training_set_id, base_year, regional_cost_multiplier_scenario_id, regional_fuel_cost_scenario_id, gen_costs_scenario_id, gen_info_scenario_id, enable_rps, carbon_cap_scenario_id, nems_fuel_scenario_id, dr_scenario_id, ev_scenario_id, enforce_ca_dg_mandate, linearize_optimization, model_version, inputs_adjusted, transmission_capital_cost_per_mw_km), 
   CONSTRAINT training_set_id FOREIGN KEY training_set_id (training_set_id)
     REFERENCES training_sets (training_set_id), 
   CONSTRAINT regional_cost_multiplier_scenario_id FOREIGN KEY regional_cost_multiplier_scenario_id (regional_cost_multiplier_scenario_id)
@@ -118,19 +119,24 @@ CREATE TABLE IF NOT EXISTS scenarios_v3 (
 COMMENT = 'Each record in this table is a specification of how to compile a set of inputs for a specific run. Several fields specify how to subselect timepoints from a given training_set. Other fields indicate which set of regional price data to use.';
 
 
-DROP PROCEDURE IF EXISTS prepare_load_exports;
+drop PROCEDURE if exists `prepare_load_exports2`;
 DELIMITER $$
-CREATE PROCEDURE prepare_load_exports( IN target_training_set_id INT UNSIGNED)
+CREATE PROCEDURE `prepare_load_exports2`(IN target_scenario_id INT)
 BEGIN
-	SET @load_scenario_id := (select load_scenario_id FROM training_sets WHERE training_set_id=target_training_set_id);
+    -- This version takes a scenario id instead of a training set id, and will
+    -- retrieve the base year of the scenario from the scenario table instead
+    -- of getting it from the execution time via now().
+    SET @training_set_id := (select training_set_id FROM scenarios_v3 WHERE scenario_id=target_scenario_id);
+	SET @load_scenario_id := (select load_scenario_id FROM training_sets WHERE training_set_id=@training_set_id);
+	set @base_year := (SELECT base_year FROM scenarios_v3 WHERE scenario_id=target_scenario_id);
 	set @num_historic_years := (select count(distinct year(datetime_utc)) from hours JOIN load_scenario_historic_timepoints ON(historic_hour=hournum) WHERE load_scenario_id=@load_scenario_id);
 	DROP TABLE IF EXISTS present_day_timepoint_map;
 	CREATE TEMPORARY TABLE present_day_timepoint_map 
-		SELECT timepoint_id as future_timepoint_id, DATE_SUB(s.datetime_utc, INTERVAL period-YEAR(NOW()) + FLOOR((years_per_period-@num_historic_years)/2) YEAR) as present_day_timepoint
+		SELECT timepoint_id as future_timepoint_id, DATE_SUB(s.datetime_utc, INTERVAL period-@base_year + FLOOR((years_per_period-@num_historic_years)/2) YEAR) as present_day_timepoint
 			FROM _training_set_timepoints t
 				JOIN training_sets USING(training_set_id)
 				JOIN study_timepoints  s USING (timepoint_id)
-			WHERE training_set_id=target_training_set_id 
+			WHERE training_set_id=@training_set_id 
 			ORDER BY 1;
 	ALTER TABLE present_day_timepoint_map ADD INDEX (future_timepoint_id), ADD INDEX (present_day_timepoint), ADD COLUMN present_day_timepoint_id INT UNSIGNED, ADD INDEX (present_day_timepoint_id);
 	UPDATE present_day_timepoint_map, study_timepoints
@@ -151,12 +157,12 @@ BEGIN
 		SELECT training_set_id, f.area_id, f.timepoint_id, f.power as system_load
 		FROM _training_set_timepoints
 			JOIN _load_projections f USING (timepoint_id)
-		WHERE training_set_id=target_training_set_id AND load_scenario_id=@load_scenario_id;
+		WHERE training_set_id=@training_set_id AND load_scenario_id=@load_scenario_id;
 	UPDATE scenario_loads_export, present_day_timepoint_map, _load_projections
 		SET present_day_system_load = _load_projections.power
 		WHERE scenario_loads_export.timepoint_id    = future_timepoint_id
 			AND scenario_loads_export.area_id         = _load_projections.area_id
-			AND scenario_loads_export.training_set_id = target_training_set_id
+			AND scenario_loads_export.training_set_id = @training_set_id
 			AND _load_projections.timepoint_id        = present_day_timepoint_id 
 			AND _load_projections.load_scenario_id    = @load_scenario_id;
 	UPDATE scenario_loads_export e, load_area_info, study_timepoints
@@ -164,6 +170,8 @@ BEGIN
 				e.datetime_utc = study_timepoints.datetime_utc
 		WHERE e.area_id = load_area_info.area_id AND e.timepoint_id = study_timepoints.timepoint_id;
 END$$
+DELIMITER ;
+
 
 DROP PROCEDURE IF EXISTS clean_load_exports$$
 CREATE PROCEDURE clean_load_exports( IN target_training_set_id INT UNSIGNED)
@@ -625,20 +633,19 @@ delimiter ;
 
 DELIMITER $$
 DROP FUNCTION IF EXISTS clone_scenario_v3$$
-CREATE FUNCTION clone_scenario_v3 (name varchar(128), model_v varchar(16), inputs_diff varchar(16), source_scenario_id int ) RETURNS int DETERMINISTIC
+CREATE FUNCTION clone_scenario_v3 (_base_year INT, name varchar(128), model_v varchar(16), inputs_diff varchar(16), source_scenario_id int ) RETURNS int DETERMINISTIC
 BEGIN
 
 	DECLARE new_id INT DEFAULT 0;
-	INSERT INTO scenarios_v3 (scenario_name, training_set_id, regional_cost_multiplier_scenario_id,
-			regional_fuel_cost_scenario_id, gen_costs_scenario_id, gen_info_scenario_id, enable_rps,
-			nems_fuel_scenario_id, dr_scenario_id, ev_scenario_id, enforce_ca_dg_mandate, linearize_optimization,
-			carbon_cap_scenario_id, notes, model_version, inputs_adjusted)
-
-  SELECT name, training_set_id, regional_cost_multiplier_scenario_id,
-  	regional_fuel_cost_scenario_id, gen_costs_scenario_id, gen_info_scenario_id, enable_rps,
-  	nems_fuel_scenario_id, dr_scenario_id, ev_scenario_id, enforce_ca_dg_mandate, linearize_optimization,
-  	carbon_cap_scenario_id, notes, model_v, inputs_diff
-		FROM scenarios_v3 where scenario_id=source_scenario_id;
+	INSERT INTO scenarios_v3 (scenario_name, training_set_id, base_year, regional_cost_multiplier_scenario_id,
+        regional_fuel_cost_scenario_id, gen_costs_scenario_id, gen_info_scenario_id, enable_rps,
+        nems_fuel_scenario_id, dr_scenario_id, ev_scenario_id, enforce_ca_dg_mandate, linearize_optimization,
+        carbon_cap_scenario_id, notes, model_version, inputs_adjusted)
+    SELECT name, training_set_id, _base_year, regional_cost_multiplier_scenario_id,
+  	    regional_fuel_cost_scenario_id, gen_costs_scenario_id, gen_info_scenario_id, enable_rps,
+      	nems_fuel_scenario_id, dr_scenario_id, ev_scenario_id, enforce_ca_dg_mandate, linearize_optimization,
+      	carbon_cap_scenario_id, notes, model_v, inputs_diff
+    FROM scenarios_v3 where scenario_id=source_scenario_id;
 
   SELECT LAST_INSERT_ID() into new_id;
 

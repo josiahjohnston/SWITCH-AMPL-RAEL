@@ -138,11 +138,6 @@ fi
 ###########################
 # These next variables determine which input data is used
 
-# get the present year that will make present day cost optimization possible
-# Don't set this to 2010 or prior because most load projections don't have present
-# data load data for that early, which causes AMPL to break when importing load data.
-present_year=2011 #Paty's edit #present_year=`date "+%Y"`
-
 INTERMITTENT_PROJECTS_SELECTION="(( avg_cap_factor_percentile_by_intermittent_tech >= 0.75 or cumulative_avg_MW_tech_load_area <= 3 * total_yearly_load_mwh / 8766 or rank_by_tech_in_load_area <= 5 or avg_cap_factor_percentile_by_intermittent_tech is null) and technology <> 'Concentrating_PV')"
 
 read SCENARIO_ID < scenario_id.txt
@@ -152,6 +147,7 @@ if [ $(mysql $connection_string --column-names=false -e "select count(*) from sc
 	exit 0;
 fi
 
+export BASE_YEAR=$(mysql $connection_string --column-names=false -e "select base_year from scenarios_v3 where scenario_id=$SCENARIO_ID;")
 export REGIONAL_MULTIPLIER_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select regional_cost_multiplier_scenario_id from scenarios_v3 where scenario_id=$SCENARIO_ID;")
 export REGIONAL_FUEL_COST_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select regional_fuel_cost_scenario_id from scenarios_v3 where scenario_id=$SCENARIO_ID;")
 export GEN_COSTS_SCENARIO_ID=$(mysql $connection_string --column-names=false -e "select gen_costs_scenario_id from scenarios_v3 where scenario_id=$SCENARIO_ID;")
@@ -251,7 +247,7 @@ mysql $connection_string -e "select load_area_start, load_area_end, existing_tra
 echo '	system_load.tab...'
 echo ampl.tab 2 2 > system_load.tab
 mysql $connection_string -e "\
-call prepare_load_exports($TRAINING_SET_ID); \
+call prepare_load_exports2($SCENARIO_ID); \
 select load_area, DATE_FORMAT(datetime_utc,'%Y%m%d%H') as hour, \
        system_load, present_day_system_load \
 from scenario_loads_export WHERE training_set_id=$TRAINING_SET_ID; \
@@ -276,11 +272,11 @@ fi;
 echo '	max_system_loads.tab...'
 echo ampl.tab 2 1 > max_system_loads.tab
 mysql $connection_string -e "\
-SELECT load_area, $present_year as period, max(power) as max_system_load \
+SELECT load_area, $BASE_YEAR as period, max(power) as max_system_load \
   FROM _load_projections \
     JOIN training_sets USING(load_scenario_id) \
     JOIN load_area_info    USING(area_id) \
-  WHERE training_set_id=$TRAINING_SET_ID AND future_year = $present_year  \
+  WHERE training_set_id=$TRAINING_SET_ID AND future_year = $BASE_YEAR  \
   GROUP BY 1,2 \
 UNION \
 SELECT load_area, period_start as period, max(power) as max_system_load \
@@ -354,14 +350,14 @@ join generator_info_v2 g using (technology), \
 training_set_periods \
 join training_sets using(training_set_id) \
 where year = FLOOR( period_start + years_per_period / 2) - g.construction_time_years \
-and period_start >= g.construction_time_years + $present_year \
+and period_start >= g.construction_time_years + $BASE_YEAR \
 and	period_start >= g.min_online_year \
 and gen_costs_scenario_id=$GEN_COSTS_SCENARIO_ID \
 and gen_info_scenario_id=$GEN_INFO_SCENARIO_ID \
 and training_set_id=$TRAINING_SET_ID \
 UNION \
-select technology, $present_year as period, overnight_cost, storage_energy_capacity_cost_per_mwh, fixed_o_m, var_o_m as variable_o_m_by_year from generator_costs_yearly \
-where year = $present_year \
+select technology, $BASE_YEAR as period, overnight_cost, storage_energy_capacity_cost_per_mwh, fixed_o_m, var_o_m as variable_o_m_by_year from generator_costs_yearly \
+where year = $BASE_YEAR \
 and gen_costs_scenario_id=$GEN_COSTS_SCENARIO_ID \
 order by technology, period;" >> generator_costs.tab
 
@@ -380,9 +376,9 @@ where simulation_year=FLOOR( period_start + years_per_period / 2) \
 and nems_scenario = (select nems_fuel_scenario from nems_fuel_scenarios where nems_fuel_scenario_id = $NEMS_FUEL_SCENARIO_ID) \
 and training_set_id=$TRAINING_SET_ID \
 UNION \
-select $present_year, breakpoint_id, consumption_breakpoint as ng_consumption_breakpoint_raw, price_surplus_adjusted as ng_price_surplus_adjusted \
+select $BASE_YEAR, breakpoint_id, consumption_breakpoint as ng_consumption_breakpoint_raw, price_surplus_adjusted as ng_price_surplus_adjusted \
 from natural_gas_supply_curve, training_set_periods \
-where simulation_year=$present_year \
+where simulation_year=$BASE_YEAR \
 and nems_scenario = (select nems_fuel_scenario from nems_fuel_scenarios where nems_fuel_scenario_id = $NEMS_FUEL_SCENARIO_ID) \
 and training_set_id=$TRAINING_SET_ID \
 order by period, breakpoint_id;" >> ng_supply_curve.tab
@@ -397,9 +393,9 @@ where	simulation_year = FLOOR( period_start + years_per_period / 2) \
 and		nems_scenario = (select nems_fuel_scenario from nems_fuel_scenarios where nems_fuel_scenario_id = $NEMS_FUEL_SCENARIO_ID) \
 and training_set_id=$TRAINING_SET_ID \
 UNION \
-select nems_region, $present_year, regional_price_adder as ng_regional_price_adder \
+select nems_region, $BASE_YEAR, regional_price_adder as ng_regional_price_adder \
 from 	natural_gas_regional_price_adders, training_set_periods \
-where	simulation_year = $present_year \
+where	simulation_year = $BASE_YEAR \
 and		nems_scenario = (select nems_fuel_scenario from nems_fuel_scenarios where nems_fuel_scenario_id = $NEMS_FUEL_SCENARIO_ID) \
 and training_set_id=$TRAINING_SET_ID \
 order by nems_region, period ;" >> ng_regional_price_adders.tab
@@ -414,9 +410,9 @@ join training_sets using(training_set_id) \
 WHERE year=FLOOR( period_start + years_per_period / 2) \
   AND training_set_id=$TRAINING_SET_ID \
 UNION \
-SELECT load_area, $present_year, breakpoint_id, COALESCE(breakpoint_mmbtu_per_year, 0) as breakpoint_mmbtu_per_year, price_dollars_per_mmbtu_surplus_adjusted \
+SELECT load_area, $BASE_YEAR, breakpoint_id, COALESCE(breakpoint_mmbtu_per_year, 0) as breakpoint_mmbtu_per_year, price_dollars_per_mmbtu_surplus_adjusted \
 FROM biomass_solid_supply_curve, training_set_periods \
-WHERE year=$present_year AND training_set_id=$TRAINING_SET_ID \
+WHERE year=$BASE_YEAR AND training_set_id=$TRAINING_SET_ID \
 order by load_area, period, breakpoint_id ;" >> biomass_supply_curve.tab
 
 
@@ -438,7 +434,7 @@ echo "param enable_carbon_cap     := $ENABLE_CARBON_CAP;"  >> misc_params.dat
 echo "param enforce_ca_dg_mandate := $ENFORCE_CA_DG_MANDATE;"  >> misc_params.dat
 echo "param transmission_capital_cost_per_mw_km := $transmission_capital_cost_per_mw_km;"  >> misc_params.dat
 echo "param num_years_per_period  := $number_of_years_per_period;"  >> misc_params.dat
-echo "param present_year  := $present_year;"  >> misc_params.dat
+echo "param present_year  := $BASE_YEAR;"  >> misc_params.dat
 
 echo '	misc_options.run...'
 echo "option relax_integrality  $LINEARIZE_OPTIMIZATION;"  > misc_options.run
