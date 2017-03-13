@@ -4,7 +4,7 @@ function print_help {
   echo $0 # The name of this file. 
   cat <<END_HELP
 SYNOPSIS
-		./get_switch_input_tables.sh 
+		./get_switch_input_tables.sh
 DESCRIPTION
 	Pull input data for Switch from databases and other sources, formatting it for AMPL
 This script assumes that the input database has already been built by the script 'Build WECC Cap Factors.sql'
@@ -363,7 +363,7 @@ order by technology, period;" >> generator_costs.tab
 
 echo '	fuel_costs.tab...'
 echo ampl.tab 3 1 > fuel_costs.tab
-mysql $connection_string -e "select load_area, fuel, year, fuel_price from fuel_prices where scenario_id = $REGIONAL_FUEL_COST_SCENARIO_ID and year <= $STUDY_END_YEAR order by load_area, fuel, year;" >> fuel_costs.tab
+mysql $connection_string -e "select load_area, fuel, year, fuel_price from fuel_prices_v3 where scenario_id = $REGIONAL_FUEL_COST_SCENARIO_ID and year <= $STUDY_END_YEAR order by load_area, fuel, year;" >> fuel_costs.tab
 
 
 echo '	ng_supply_curve.tab...'
