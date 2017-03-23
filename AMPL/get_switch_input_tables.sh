@@ -297,7 +297,7 @@ select project_id, load_area, technology, plant_name, eia_id, capacity_mw, \
        if(start_year = 0, 1900, start_year) as start_year, \
        forced_retirement_year, overnight_cost, connect_cost_per_mw, \
        fixed_o_m, variable_o_m \
-from existing_plants_v2 \
+from existing_plants_v3 \
 order by 1, 2, 3;" >> existing_plants.tab
 
 echo '	existing_intermittent_plant_cap_factor.tab...'
@@ -335,18 +335,18 @@ select project_id, $proposed_projects_view.load_area, technology,\
        heat_rate, cogen_thermal_demand, connect_cost_per_mw,\
        if(avg_cap_factor_intermittent is NULL, 0, avg_cap_factor_intermittent) as average_capacity_factor_intermittent \
 from $proposed_projects_view join load_area_info using (area_id) \
-where technology_id in (SELECT technology_id FROM generator_info_v2 where gen_info_scenario_id=$GEN_INFO_SCENARIO_ID) \
+where technology_id in (SELECT technology_id FROM generator_info_v3 where gen_info_scenario_id=$GEN_INFO_SCENARIO_ID) \
       AND $INTERMITTENT_PROJECTS_SELECTION;" >> proposed_projects.tab
 
 echo '	generator_info.tab...'
 echo ampl.tab 1 32 > generator_info.tab
-mysql $connection_string -e "select technology, technology_id, min_online_year, fuel, construction_time_years, year_1_cost_fraction, year_2_cost_fraction, year_3_cost_fraction, year_4_cost_fraction, year_5_cost_fraction, year_6_cost_fraction, max_age_years, forced_outage_rate, scheduled_outage_rate, can_build_new, ccs, intermittent, resource_limited, baseload, flexible_baseload, dispatchable, cogen, min_build_capacity, competes_for_space, storage, storage_efficiency, max_store_rate, max_spinning_reserve_fraction_of_capacity, heat_rate_penalty_spinning_reserve, minimum_loading, deep_cycling_penalty, startup_mmbtu_per_mw, startup_cost_dollars_per_mw from generator_info_v2 where gen_info_scenario_id=$GEN_INFO_SCENARIO_ID;" >> generator_info.tab
+mysql $connection_string -e "select technology, technology_id, min_online_year, fuel, construction_time_years, year_1_cost_fraction, year_2_cost_fraction, year_3_cost_fraction, year_4_cost_fraction, year_5_cost_fraction, year_6_cost_fraction, max_age_years, forced_outage_rate, scheduled_outage_rate, can_build_new, ccs, intermittent, resource_limited, baseload, flexible_baseload, dispatchable, cogen, min_build_capacity, competes_for_space, storage, storage_efficiency, max_store_rate, max_spinning_reserve_fraction_of_capacity, heat_rate_penalty_spinning_reserve, minimum_loading, deep_cycling_penalty, startup_mmbtu_per_mw, startup_cost_dollars_per_mw from generator_info_v3 where gen_info_scenario_id=$GEN_INFO_SCENARIO_ID;" >> generator_info.tab
 
 echo '	generator_costs.tab...'
 echo ampl.tab 2 4 > generator_costs.tab
 mysql $connection_string -e "select technology, period_start as period, overnight_cost, storage_energy_capacity_cost_per_mwh, fixed_o_m, var_o_m as variable_o_m_by_year \
-from generator_costs_yearly \
-join generator_info_v2 g using (technology), \
+from generator_costs_yearly_v3 \
+join generator_info_v3 g using (technology), \
 training_set_periods \
 join training_sets using(training_set_id) \
 where year = FLOOR( period_start + years_per_period / 2) - g.construction_time_years \
@@ -356,7 +356,7 @@ and gen_costs_scenario_id=$GEN_COSTS_SCENARIO_ID \
 and gen_info_scenario_id=$GEN_INFO_SCENARIO_ID \
 and training_set_id=$TRAINING_SET_ID \
 UNION \
-select technology, $BASE_YEAR as period, overnight_cost, storage_energy_capacity_cost_per_mwh, fixed_o_m, var_o_m as variable_o_m_by_year from generator_costs_yearly \
+select technology, $BASE_YEAR as period, overnight_cost, storage_energy_capacity_cost_per_mwh, fixed_o_m, var_o_m as variable_o_m_by_year from generator_costs_yearly_v3 \
 where year = $BASE_YEAR \
 and gen_costs_scenario_id=$GEN_COSTS_SCENARIO_ID \
 order by technology, period;" >> generator_costs.tab
