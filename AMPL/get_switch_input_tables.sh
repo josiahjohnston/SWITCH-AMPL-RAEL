@@ -226,7 +226,7 @@ WHERE training_set_id=$TRAINING_SET_ID order by 1;" >> study_hours.tab
 
 echo '	load_areas.tab...'
 echo ampl.tab 1 12 > load_areas.tab
-mysql $connection_string -e "select load_area, area_id as load_area_id, primary_state, primary_nerc_subregion as balancing_area, rps_compliance_entity, economic_multiplier, max_coincident_load_for_local_td, local_td_new_annual_payment_per_mw, local_td_sunk_annual_payment, transmission_sunk_annual_payment, ccs_distance_km, bio_gas_capacity_limit_mmbtu_per_hour, nems_fuel_region from load_area_info;" >> load_areas.tab
+mysql $connection_string -e "select load_area, area_id as load_area_id, primary_state, primary_nerc_subregion as balancing_area, rps_compliance_entity, economic_multiplier, max_coincident_load_for_local_td, local_td_new_annual_payment_per_mw, local_td_sunk_annual_payment, transmission_sunk_annual_payment, ccs_distance_km, bio_gas_capacity_limit_mmbtu_per_hour, nems_fuel_region from load_area_info_v3;" >> load_areas.tab
 
 echo '	balancing_areas.tab...'
 echo ampl.tab 1 4 > balancing_areas.tab
@@ -275,14 +275,14 @@ mysql $connection_string -e "\
 SELECT load_area, $BASE_YEAR as period, max(power) as max_system_load \
   FROM _load_projections \
     JOIN training_sets USING(load_scenario_id) \
-    JOIN load_area_info    USING(area_id) \
+    JOIN load_area_info_v3    USING(area_id) \
   WHERE training_set_id=$TRAINING_SET_ID AND future_year = $BASE_YEAR  \
   GROUP BY 1,2 \
 UNION \
 SELECT load_area, period_start as period, max(power) as max_system_load \
   FROM training_sets \
     JOIN _load_projections     USING(load_scenario_id)  \
-    JOIN load_area_info        USING(area_id) \
+    JOIN load_area_info_v3        USING(area_id) \
     JOIN training_set_periods USING(training_set_id)  \
   WHERE training_set_id=$TRAINING_SET_ID  \
     AND future_year >= period_start \
@@ -324,6 +324,7 @@ SELECT project_id, load_area, technology, study_date as date, ROUND(avg_capacity
   FROM hydro_monthly_limits_v2 \
     JOIN study_dates_export USING(month);" >> hydro_monthly_limits.tab
 
+# Here I added * 1.15 to connect_cost_per_mw because there were problems making newer version of proposed_projects tables and viwws. See README in switch_wecc_inputs_update folder
 echo '	proposed_projects.tab...'
 echo ampl.tab 3 8 > proposed_projects.tab
 mysql $connection_string -e "\
@@ -332,9 +333,9 @@ select project_id, $proposed_projects_view.load_area, technology,\
        if(ep_project_replacement_id is NULL, 0, ep_project_replacement_id) as ep_project_replacement_id,\
        if(capacity_limit is NULL, 0, capacity_limit) as capacity_limit,\
        if(capacity_limit_conversion is NULL, 0, capacity_limit_conversion) as capacity_limit_conversion,\
-       heat_rate, cogen_thermal_demand, connect_cost_per_mw,\
+       heat_rate, cogen_thermal_demand, 1.15 * connect_cost_per_mw,\
        if(avg_cap_factor_intermittent is NULL, 0, avg_cap_factor_intermittent) as average_capacity_factor_intermittent \
-from $proposed_projects_view join load_area_info using (area_id) \
+from $proposed_projects_view join load_area_info_v3 using (area_id) \
 where technology_id in (SELECT technology_id FROM generator_info_v3 where gen_info_scenario_id=$GEN_INFO_SCENARIO_ID) \
       AND $INTERMITTENT_PROJECTS_SELECTION;" >> proposed_projects.tab
 
@@ -370,14 +371,14 @@ echo '	ng_supply_curve.tab...'
 echo ampl.tab 2 2 > ng_supply_curve.tab
 mysql $connection_string -e "\
 select period_start as period, breakpoint_id, consumption_breakpoint as ng_consumption_breakpoint, price_surplus_adjusted as ng_price_surplus_adjusted \
-from natural_gas_supply_curve, training_set_periods \
+from natural_gas_supply_curve_v3, training_set_periods \
 join training_sets using(training_set_id) \
 where simulation_year=FLOOR( period_start + years_per_period / 2) \
 and nems_scenario = (select nems_fuel_scenario from nems_fuel_scenarios where nems_fuel_scenario_id = $NEMS_FUEL_SCENARIO_ID) \
 and training_set_id=$TRAINING_SET_ID \
 UNION \
 select $BASE_YEAR, breakpoint_id, consumption_breakpoint as ng_consumption_breakpoint_raw, price_surplus_adjusted as ng_price_surplus_adjusted \
-from natural_gas_supply_curve, training_set_periods \
+from natural_gas_supply_curve_v3, training_set_periods \
 where simulation_year=$BASE_YEAR \
 and nems_scenario = (select nems_fuel_scenario from nems_fuel_scenarios where nems_fuel_scenario_id = $NEMS_FUEL_SCENARIO_ID) \
 and training_set_id=$TRAINING_SET_ID \
@@ -387,14 +388,14 @@ echo '	ng_regional_price_adders.tab...'
 echo ampl.tab 2 1 > ng_regional_price_adders.tab
 mysql $connection_string -e "\
 select nems_region, period_start as period, regional_price_adder as ng_regional_price_adder \
-from 	natural_gas_regional_price_adders, training_set_periods \
+from 	natural_gas_regional_price_adders_v3, training_set_periods \
 join training_sets using(training_set_id) \
 where	simulation_year = FLOOR( period_start + years_per_period / 2) \
 and		nems_scenario = (select nems_fuel_scenario from nems_fuel_scenarios where nems_fuel_scenario_id = $NEMS_FUEL_SCENARIO_ID) \
 and training_set_id=$TRAINING_SET_ID \
 UNION \
 select nems_region, $BASE_YEAR, regional_price_adder as ng_regional_price_adder \
-from 	natural_gas_regional_price_adders, training_set_periods \
+from 	natural_gas_regional_price_adders_v3, training_set_periods \
 where	simulation_year = $BASE_YEAR \
 and		nems_scenario = (select nems_fuel_scenario from nems_fuel_scenarios where nems_fuel_scenario_id = $NEMS_FUEL_SCENARIO_ID) \
 and training_set_id=$TRAINING_SET_ID \
@@ -405,13 +406,13 @@ echo '	biomass_supply_curve.tab...'
 echo ampl.tab 3 2 > biomass_supply_curve.tab
 mysql $connection_string -e "\
 SELECT load_area, period_start as period, breakpoint_id, COALESCE(breakpoint_mmbtu_per_year, 0) as breakpoint_mmbtu_per_year, price_dollars_per_mmbtu_surplus_adjusted \
-FROM biomass_solid_supply_curve, training_set_periods \
+FROM biomass_solid_supply_curve_v3, training_set_periods \
 join training_sets using(training_set_id) \
 WHERE year=FLOOR( period_start + years_per_period / 2) \
   AND training_set_id=$TRAINING_SET_ID \
 UNION \
 SELECT load_area, $BASE_YEAR, breakpoint_id, COALESCE(breakpoint_mmbtu_per_year, 0) as breakpoint_mmbtu_per_year, price_dollars_per_mmbtu_surplus_adjusted \
-FROM biomass_solid_supply_curve, training_set_periods \
+FROM biomass_solid_supply_curve_v3, training_set_periods \
 WHERE year=$BASE_YEAR AND training_set_id=$TRAINING_SET_ID \
 order by load_area, period, breakpoint_id ;" >> biomass_supply_curve.tab
 
@@ -448,7 +449,7 @@ select project_id, load_area, technology, DATE_FORMAT(datetime_utc,'%Y%m%d%H') a
     JOIN load_scenario_historic_timepoints USING(timepoint_id)\
     JOIN $cap_factor_table ON(historic_hour=hour)\
     JOIN $proposed_projects_table USING(project_id)\
-    JOIN load_area_info USING(area_id)\
+    JOIN load_area_info_v3 USING(area_id)\
   WHERE training_set_id=$TRAINING_SET_ID \
     AND load_scenario_id=$LOAD_SCENARIO_ID \
     AND $INTERMITTENT_PROJECTS_SELECTION \
@@ -460,7 +461,7 @@ select project_id, load_area, technology, DATE_FORMAT(datetime_utc,'%Y%m%d%H') a
     JOIN load_scenario_historic_timepoints USING(timepoint_id)\
     JOIN $cap_factor_csp_6h_storage_table ON(historic_hour=hour)\
     JOIN $proposed_projects_table USING(project_id)\
-    JOIN load_area_info USING(area_id)\
+    JOIN load_area_info_v3 USING(area_id)\
   WHERE training_set_id=$TRAINING_SET_ID \
     AND load_scenario_id=$LOAD_SCENARIO_ID \
     AND $INTERMITTENT_PROJECTS_SELECTION \
