@@ -1,0 +1,20 @@
+March 2017, Patricia Hidalgo-Gonzalez
+
+Input updates notes
+
+
+For future scenarios, it should be transmission_capital_cost_per_mwh * 1.15 in scenarios_v3 so it is
+in US$2016, and it's consistent with all the other costs
+
+scenarios_v3 has a new column to keep track of the dollar_base_year. This way we won’t get confused when we compare old and newer runs.
+
+————————————————
+Notes for future updates:
+
+When I was updating the tables and views below, there was a duplicate problem (_proposed_projects_v2). So I did not update these tables and just multiplied by the inflation between 2007 and 2016 (*1.15), the monetary columns in get_switch_input_tables.sh.
+
+select * from proposed_projects_v2; -- connect_cost_per_mw
+select * from _proposed_projects_v2; -- connect_cost_per_mw, connect_cost_per_mw_archive
+
+select * from proposed_projects_v4; -- connect_cost_per_mw
+select * from _proposed_projects_v4; -- connect_cost_per_mw, connect_cost_per_mw_archive
