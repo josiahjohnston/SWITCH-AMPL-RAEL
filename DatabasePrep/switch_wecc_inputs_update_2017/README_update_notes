@@ -8,6 +8,8 @@ in US$2016, and it's consistent with all the other costs
 
 scenarios_v3 has a new column to keep track of the dollar_base_year. This way we won’t get confused when we compare old and newer runs.
 
+fuel_scenario_id = $REGIONAL_FUEL_COST_SCENARIO_ID
+
 ————————————————
 Notes for future updates:
 
