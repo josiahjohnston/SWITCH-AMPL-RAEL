@@ -123,7 +123,7 @@ set NEMS_FUEL_REGIONS = setof {a in LOAD_AREAS} (nems_fuel_region[a]);
 # the year to which all costs should be discounted and the year for which all costs are specified
 # so this means that the capital cost of a generator is in $base_year and would have cost $overnight_cost in $base_year
 # overnight_costs of generators march down their overnight_cost_change curves in years past this number
-param base_year = 2007;
+param base_year = 2016;
 
 # annual rate (real) to use to discount future costs to current year
 # a 7% real discount rate was chosen as per the recommendations of the Office of Managment and Budget
