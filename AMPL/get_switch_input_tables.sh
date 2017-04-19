@@ -21,7 +21,6 @@ All arguments are optional.
 END_HELP
 }
 
-# test
 # Export SWITCH input data from the Switch inputs database into text files that will be read in by AMPL
 # This script assumes that the input database has already been built by the script 'Build WECC Cap Factors.sql'
 
